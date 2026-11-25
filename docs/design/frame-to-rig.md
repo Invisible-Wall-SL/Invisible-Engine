@@ -1539,6 +1539,48 @@ stay with it.
   - `sheet-rig-browser.mjs`: the page flow, one undo, the conditional save, 3 page mutants.
   - `check:rigger-writes`: the routes.
 
+### 13.1c ⇄ Swap sides, and a head drawn without its face turning (2026-11-25)
+
+The owner, on `S_NellyAnimTest` after #1894/#1900: their names say the character's own left and
+right, so every sided part landed on the other side (joints and arrangement to fix by hand); and "the
+head is still not rigged and the face is sliding on top of it".
+
+- **⇄ Swap sides** (the dialog's top row; `SheetMapping.swapSides`, kept in `sheet.json`, and
+  remembered per sheet in the browser): the region names are read with their sides the other way
+  round (`rigSheetMap.ts` `nameScore` / `suggestSheetMap` / `suggestProp` with `swap`: `l`↔`r`,
+  `left`↔`right`, any other side word as the other side's letter, an exact name included). Toggled
+  on a mapping, each sided part matched by name takes the region its name now says and is guessed
+  again as that side's (a joint dragged by hand stays on the drawing it was dragged on); a sided part
+  mapped by hand moves to its mirror (`mirroredName`) when the author says so; a prop rides the
+  drawing it is worn on to the part that now draws it (its bone that part's, or its own bone's
+  mirror); a part whose drawing changed loses its place in ◧ Arranged and starts over on its bones.
+  The server only keeps the flag: what it builds is the parts' regions and joints, as before.
+- **The still head, reproduced** on the owner's shape (`ownerSheet`: the face drawn apart, no face
+  found on the head) through the real create path and a face capture solved and keyed as 🎥 Motion
+  keys it: under the capture's head turn the face bone and the features slid 20 rig units while the
+  head drawing under them moved 0.0 — the head's skin was rigid on `head_image` (a head roll did
+  turn it whole, as #1894 claimed). With a face found on the head the face's move is 0 (`roomScales`:
+  the features' regions take all the room, as on every frame-made rig, §12 F2i owed), so neither
+  slides. The owner's real sheet was not read: production reads are refused in auto mode.
+- **The fix** (`rigFrameFace.ts` `apartFace`, from `sheetRig` when no face is found on a mapped head):
+  one region of the head's mesh on `face`, whole about the face bone over `FACE_CORE` (0.6) of its
+  reach and falling to 0 at `APART_REACH` (0.9) of the way to the drawing's ink (its trimmed box, the
+  trim's `offY` from the bottom; `TemplateRegion` carries `offX`/`offY`), so a head turn and nod
+  (and a 3D import's slide of the face) carry the head's middle with the features while its outline
+  stays; the face's move is cut to the room that leaves (`roomScales`, a 3D 40° turn and 25° nod
+  included: 0.50 on the fixture). A frame-made rig is unchanged (a region for the face there was
+  tried: the features keep the room, Smile fell under its gate, the face got 5%).
+- **Gates:** `sheet-rig.mjs` `swap` (the fixture named the owner's way: every drawing on its part,
+  the props on their hosts, the rig posing through a capture as the template-named one to 0.0; 3
+  mutants) and `sidecar` (`swapSides` read back, a bad one refused; 1 mutant); `faceturn` (a face
+  capture's turn slides a face drawn apart ≥ 8.5 units, the head under the face and the pupils, lids,
+  mouth and a brow within 20% of their move, the ink's outline still, nothing folded at the face's
+  farthest 3D move, a roll on top turning the head whole; untrimmed, unevenly trimmed, and a face
+  found on the head, which does not slide; 4 mutants); `frame-rig.mjs` `face` (a head roll on the
+  imported face turns a frame-made head whole where it rides the head alone, 55.6% of its mesh; a
+  mutant); `sheet-rig-browser.mjs` (the toggle on the page: every part, joints, the hand-mapped
+  question, props, the arrangement, sent, read back, remembered; 8 page mutants).
+
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
 The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
@@ -1594,4 +1636,9 @@ refuses another client's sheet and a misfit.
   its bone off its joint. Snapping is the page's; the fit does not pull a part onto its parent.
 - One region drawn for both sides (mirrored); fingers placed on a hand drawn as one image (it bends at
   the wrist only); Full body's legs (rigid on their bones: `skinBends` knows the arms only).
-- Face tracking on a stylised head may find no face; the head then rides its bones (as before F2i).
+- Face tracking on a stylised head may find no face; the head then turns its middle with the face
+  (`apartFace`, §13.1c), not its own drawn features.
+- A head turn on a face drawn apart moves the face at about half the template's (the room a 3D
+  import's 40° turn leaves the head's skin); a ¾ or profile head is still its drawing by angle.
+- Not reproduced on the owner's real `S_NellyAnimTest` (production reads refused in auto mode): on
+  their shape only.

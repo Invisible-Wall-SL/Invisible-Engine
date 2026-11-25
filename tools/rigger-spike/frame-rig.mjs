@@ -37,8 +37,10 @@
 //    open, Smile, Brows up, Blink and Gaze each move their own pixels and nothing outside the face;
 //    no control or mix of them folds the skin, leaves a vertex unfinite or cracks the chin's seam;
 //    the page's Blink, Idle blinks and Talk, a starter clip and a face motion import move the face;
+//    a head rolled on the imported face turns the head's whole drawing, its face with it;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
-//   node tools/rigger-spike/frame-rig.mjs [--only <guard>] [--png <dir>] [--write]
+//   node tools/rigger-spike/frame-rig.mjs [--only <guard>] [--mutants <guard>] [--png <dir>] [--write]
+//   (--mutants: only that guard's mutants.)
 //   (--write: make parts/request.json from the cut; then `py test_rig_frame_parts.py --write` in
 //   services/atlas-tool makes the sheet from it. --png: the rig drawn over the frame.)
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -848,6 +850,9 @@ function pageFace(mutations = []) {
 }
 /** The least share of the drawn eye's opening a blink brings the lid down (it squashes, F5 draws). */
 const BLINK_SHARE = 0.4;
+/** Degrees the head is rolled on the imported face, and the least share of its mesh on the head alone. */
+const HEAD_ROLL = 15;
+const HEAD_RIDES = 0.5;
 /** Face mesh points each face bone sits on (their mean), frame-to-rig §12 F2i. */
 const FEATURE_AT = {
 	eye_l: [33, 133],
@@ -1518,6 +1523,47 @@ const GUARDS = {
 		const clip = 'win_big';
 		anims[clip] = faceOnly(starters[clip], t);
 		const play = withClips(rig, anims);
+		// 5. The head rolled on the imported face: its drawing, the face's pixels with it, turns about
+		// the head (the face never slides off it) wherever it rides the head alone — all but its skin
+		// across the jaw's seam into the neck.
+		let roll = 0;
+		let riding;
+		{
+			const s = play('imported', times.jaw);
+			const H = [s.findBone('head').worldX, s.findBone('head').worldY];
+			const before = corners(s, 'head');
+			s.findBone('head').rotation += HEAD_ROLL;
+			s.updateWorldTransform(RIG.Physics.update);
+			const after = corners(s, 'head');
+			const [c, sn] = [
+				Math.cos((HEAD_ROLL * Math.PI) / 180),
+				Math.sin((HEAD_ROLL * Math.PI) / 180),
+			];
+			const onHead = new Set(['head']);
+			for (const b of s.bones)
+				if (b.parent && onHead.has(b.parent.data.name)) onHead.add(b.data.name);
+			const att = s.findSlot('head').getAttachment();
+			const whole = [];
+			for (let bi = 0, wi = 0; bi < (att.bones?.length ?? 0);) {
+				let share = 0;
+				for (let k = att.bones[bi++]; k > 0; k--, wi += 3)
+					if (onHead.has(s.bones[att.bones[bi++]].data.name)) share += att.vertices[wi + 2];
+				whole.push(share >= 1 - 1e-6);
+			}
+			riding = whole.filter(Boolean).length / Math.max(1, whole.length);
+			for (let i = 0; i < before.v.length; i += 2) {
+				if (!whole[i / 2]) continue;
+				const p = [before.v[i], before.v[i + 1]];
+				const want = [
+					H[0] + c * (p[0] - H[0]) - sn * (p[1] - H[1]),
+					H[1] + sn * (p[0] - H[0]) + c * (p[1] - H[1]),
+				];
+				roll = Math.max(
+					roll,
+					dist([after.v[i], after.v[i + 1]], want) / Math.max(1, dist(want, p)),
+				);
+			}
+		}
 		const most = (name, span, ks, dir) => {
 			let best = 0;
 			for (let at = span[0]; at <= span[1] + 1e-9; at += 0.02) {
@@ -1609,6 +1655,11 @@ const GUARDS = {
 				'Blink, Idle blinks, Talk, a starter clip and a face motion import move the drawn face',
 				!weak.length,
 				weak.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(', '),
+			) &
+			ok(
+				`a head rolled ${HEAD_ROLL}° on the imported face turns the head's drawing, its face with it (≤ 1% off; ≥ ${HEAD_RIDES * 100}% of it on the head alone)`,
+				riding >= HEAD_RIDES && roll <= 0.01,
+				`${(riding * 100).toFixed(1)}% of it on the head alone, ${(roll * 100).toFixed(3)}% off`,
 			)
 		);
 	},
@@ -1961,8 +2012,12 @@ if (process.argv.includes('--png')) PNG = process.argv[process.argv.indexOf('--p
 const ONLY = process.argv.includes('--only')
 	? process.argv[process.argv.indexOf('--only') + 1]
 	: null;
+/** Only the mutants of one guard (the guards not run). */
+const MUTANTS_OF = process.argv.includes('--mutants')
+	? process.argv[process.argv.indexOf('--mutants') + 1]
+	: null;
 for (const [id, guard] of Object.entries(GUARDS)) {
-	if (ONLY && id !== ONLY) continue;
+	if ((ONLY && id !== ONLY) || MUTANTS_OF) continue;
 	console.log(`\n=== ${id}`);
 	guard(M, (line) => console.log(`    ${line}`));
 }
@@ -2135,6 +2190,11 @@ MUTANTS.push(
 	],
 	[
 		'face',
+		"the head's mesh hung from the neck (the head's drawing left behind by the head's turn)",
+		[FF, 'bones: [{ bone: home }],', "bones: [{ bone: part === 'head' ? 'neck' : home }],"],
+	],
+	[
+		'face',
 		"the head skinned over its neck alone, no face regions (the owner's: no facial movement)",
 		[FF, 'head.skin = [...(head.skin ?? []), ...faced];', 'head.skin = [...(head.skin ?? [])];'],
 	],
@@ -2284,6 +2344,7 @@ MUTANTS.push(
 	],
 );
 for (const [guard, what, mutation] of MUTANTS) {
+	if (MUTANTS_OF && guard !== MUTANTS_OF) continue;
 	const before = fails;
 	const mutant = await load([mutation]);
 	const quiet = console.error;

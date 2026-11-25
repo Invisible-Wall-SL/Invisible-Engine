@@ -15,6 +15,8 @@
 // Asserted:
 //  - suggest: every body part is matched to its region by name, the props to their hosts, and the
 //    regions that are no part to none;
+//  - swap: the sheet named the character's way (⇄ Swap sides) maps each drawing onto the part it is,
+//    its props onto the same hosts, and its rig poses through a capture as the template-named one;
 //  - guess: each joint guessed from its drawing's shape lands within its tolerance of the true one,
 //    and the head's from the face found on it;
 //  - fit: the rig's limb lengths are the drawn ones at the sheet's scale (the frame's own fit's, for
@@ -48,10 +50,15 @@
 //    - proportions: every drawing where it was arranged, at the sheet's scale; at rest and with every
 //      chain bone turned it rides its own bone whole, and the torso and head fold nowhere;
 //    - headturn: turning the head turns the head's drawing, its face, the nose and the brows with it;
+//    - faceturn: a face capture's head turn on a head drawn without its face turns the head with it —
+//      its middle under the features drawn apart moving as they do, its outline staying, nothing
+//      folding at a 3D import's farthest slide, a roll on top turning it whole (trimmed too); a face
+//      found on the head does not slide off it;
 //    - draworder: the mapped slots in the template's order, a prop behind its part where the layers
 //      put it there, a part's props in the layers' order;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
-//   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--write]
+//   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--mutants <guard>] [--write]
+//   (--mutants: only that guard's mutants.)
 //   (--write: make the sheet from the F2 fixture's parts again.)
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -60,6 +67,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ESBUILD } from './esbuild.mjs';
 import { RIG_CORE } from './rig.mjs';
+import * as P3 from './performer3d.mjs';
 import { dir as dirOf, track as performer } from './performer3d.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -475,7 +483,15 @@ function loadData(M, skeleton, regions = SHEET.regions) {
 }
 /** The rig ＋ New rig makes of `mapping` over the sheet's `regions`, loaded by engine-rig. */
 function made(M, mapping = mappingOf(M), regions = SHEET.regions) {
-	const sized = regions.map(({ name, w, h, origW, origH }) => ({ name, w, h, origW, origH }));
+	const sized = regions.map(({ name, w, h, origW, origH, offX, offY }) => ({
+		name,
+		w,
+		h,
+		origW,
+		origH,
+		offX,
+		offY,
+	}));
 	const sr = M.sheetRig(M.HALF_BODY, sized, mapping);
 	if (!sr.ok) throw new Error(sr.problem);
 	const rigged = M.templateRig(M.HALF_BODY, sized, sr.value.fit, sr.value.art);
@@ -559,6 +575,22 @@ function carried(dr, [u, v]) {
 	return [0, 1].map(
 		(c) => (1 - b1 - b2) * dr.v[i * 2 + c] + b1 * dr.v[j * 2 + c] + b2 * dr.v[l * 2 + c],
 	);
+}
+/** The point of a drawing's image (0…1 from its top-left) the drawing puts at `p` in the world. */
+function uvUnder(dr, [x, y]) {
+	for (let k = 0; k < dr.tris.length; k += 3) {
+		const [i, j, l] = [dr.tris[k], dr.tris[k + 1], dr.tris[k + 2]];
+		const [ax, ay, bx, by, cx, cy] = [i, j, l].flatMap((q) => [dr.v[q * 2], dr.v[q * 2 + 1]]);
+		const det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+		if (Math.abs(det) < 1e-12) continue;
+		const b1 = ((x - ax) * (cy - ay) - (cx - ax) * (y - ay)) / det;
+		const b2 = ((bx - ax) * (y - ay) - (x - ax) * (by - ay)) / det;
+		if (Math.min(b1, b2, 1 - b1 - b2) < -1e-9) continue;
+		return [0, 1].map(
+			(c) => (1 - b1 - b2) * dr.own[i * 2 + c] + b1 * dr.own[j * 2 + c] + b2 * dr.own[l * 2 + c],
+		);
+	}
+	throw new Error(`no point of the drawing is at (${x}, ${y})`);
 }
 /** The middle of a drawing's vertices. */
 const centreOf = (dr) => {
@@ -790,6 +822,39 @@ function captured(rig, mutations = rig.M.PAGE_MUTATIONS) {
 	return { anim, length: solved.length };
 }
 
+/** A performer still but for the face: at rest, then turning, nodding and tilting the head. */
+const FACE_FRAMES = 31;
+const FACE_REST = 8;
+function faceTrack() {
+	return performer(FACE_FRAMES, CAPTURE_FPS, (i) => {
+		const a =
+			i < FACE_REST ? 0 : Math.sin(((i - FACE_REST) / (FACE_FRAMES - 1 - FACE_REST)) * Math.PI * 2);
+		return { pose: {}, opts: { face: P3.mm(P3.ry(30 * a), P3.mm(P3.rx(10 * a), P3.rz(6 * a))) } };
+	});
+}
+/** `rig` keyed from 0 with a face capture, solved and keyed as 🎥 Motion does. */
+function faceCaptured(rig, mutations = rig.M.PAGE_MUTATIONS) {
+	const M = rig.M;
+	const t = M.fitTemplate(M.HALF_BODY, rig.sr.fit);
+	const solved = M.solveMotion(
+		{ bones: t.bones, channels: t.channels, motion: t.motion },
+		faceTrack(),
+		{ face: true, body: false, hand: false },
+	);
+	const skin = rig.rigged.skeleton.skins[0].attachments;
+	const has = (slot, part) => !!skin[slot]?.[part];
+	const anim = {};
+	pageKeys(mutations).faceKeyMotion(
+		anim,
+		solved.keys,
+		0,
+		t.channels,
+		has,
+		rig.rigged.skeleton.slots.map((s) => s.name),
+	);
+	return { anim, length: solved.length };
+}
+
 /** The fixture's frame: its pixels, its track's fit (scale, origin, the frame pose's turns). */
 async function frameCase(M) {
 	const frame = await sharp(join(F1, 'frame.png'))
@@ -946,6 +1011,21 @@ function captureRides(M, rig, label) {
 
 // ---- the guards ------------------------------------------------------------------------------------
 const TPL_PARTS = (M) => M.HALF_BODY.parts.map((p) => p.name);
+/**
+ * The fixture's sided regions as the owner names them — the character's own left and right, so each
+ * the other way round from the template's — one (`hand_r`, the picture's left hand) exactly as the
+ * template names its other side.
+ */
+const OWNER_NAMES = {
+	L_arm_upper: 'R_arm_upper',
+	arm_lower_left: 'arm_lower_right',
+	HandL: 'hand_r',
+	ArmR1: 'ArmL1',
+	ArmR2: 'ArmL2',
+	'hand-right': 'hand-left',
+	earring_L: 'earring_R',
+	watch_R: 'watch_L',
+};
 /** Names an artist writes, and the part each must be read as (null: none). */
 const NAMES = [
 	['UpperArm.L', 'upper_arm_l'],
@@ -1112,6 +1192,59 @@ const FOLD = 0.1;
 /** Degrees the head is turned, and the share of each point's move it may fall short or wide by. */
 const HEAD_TURN = 15;
 const HEAD_LEFT = 0.01;
+/** The face drawings a head drawn without its face must carry along under a head turn. */
+const FACE_LOCKED = [
+	'pupil_l',
+	'pupil_r',
+	'lid_upper_l',
+	'lid_upper_r',
+	'mouth_smile',
+	'brow_l_up',
+];
+/**
+ * The share of a feature's move the head under it may slip by — the lids and brows, at the face's
+ * corners, lie past its region's whole core and keep about 80% of it (the head's grid a little less)
+ * — and how far its outline may move.
+ */
+const FACE_SLIP = 0.25;
+const OUTLINE_KEPT = 0.01;
+/** A capture's ±30° head turn slides a face drawn apart at least this far (rig units). */
+const TURN_SHOWN = 5;
+/**
+ * The owner's sheet with its head trimmed as TexturePacker trims it, unevenly (its `offY` from the
+ * bottom), the head's joints, the props on it and its place on the arrange canvas moved with its ink.
+ */
+const HEAD_TRIM = { offX: 12, offY: 4, padW: 40, padH: 120 };
+function trimmedHead({ regions, mapping }) {
+	const head = mapping.parts.head;
+	const r0 = regions.find((x) => x.name === head.region);
+	const [origW, origH] = [r0.w + HEAD_TRIM.padW, r0.h + HEAD_TRIM.padH];
+	const top = origH - HEAD_TRIM.offY - r0.h;
+	const shift = (p) => [p[0] + HEAD_TRIM.offX, p[1] + top];
+	const out = structuredClone(mapping);
+	out.parts.head = {
+		...head,
+		joints: Object.fromEntries(Object.entries(head.joints).map(([j, p]) => [j, shift(p)])),
+		...(head.face ? { face: head.face.map(shift) } : {}),
+	};
+	for (const p of out.props) if (p.host === 'head') p.at = shift(p.at);
+	const a = out.arrange?.head;
+	if (a) {
+		// The untrimmed middle, from the ink's: the ink stays where it was arranged.
+		const [qx, qy] = [origW / 2 - r0.w / 2 - HEAD_TRIM.offX, origH / 2 - r0.h / 2 - top];
+		const t = (a.turn * Math.PI) / 180;
+		a.at = [
+			a.at[0] + Math.cos(t) * qx - Math.sin(t) * qy,
+			a.at[1] + Math.sin(t) * qx + Math.cos(t) * qy,
+		];
+	}
+	return {
+		regions: regions.map((x) =>
+			x === r0 ? { ...x, offX: HEAD_TRIM.offX, offY: HEAD_TRIM.offY, origW, origH } : x,
+		),
+		mapping: out,
+	};
+}
 
 /**
  * Each triangle of a drawing (image `w` × `h` pixels) as drawn: the two stretches (singular values)
@@ -1146,7 +1279,15 @@ function stretches(dr, w, h) {
 function created(M, t, raw, regions) {
 	const parsed = M.parseSheetMapping(JSON.parse(JSON.stringify(raw)));
 	if ('problem' in parsed) throw new Error(parsed.problem);
-	const sized = regions.map(({ name, w, h, origW, origH }) => ({ name, w, h, origW, origH }));
+	const sized = regions.map(({ name, w, h, origW, origH, offX, offY }) => ({
+		name,
+		w,
+		h,
+		origW,
+		origH,
+		offX,
+		offY,
+	}));
 	const sr = M.sheetRig(t, sized, parsed.mapping);
 	if (!sr.ok) throw new Error(sr.problem);
 	const misfit = M.templateFitProblem(t, sr.value.fit);
@@ -1278,6 +1419,140 @@ const GUARDS = {
 			) && good;
 		log(
 			`${Object.keys(got).length} parts suggested from ${REGIONS.length} regions; ${NAMES.length} names read`,
+		);
+		return good;
+	},
+
+	/**
+	 * ⇄ Swap sides: the sheet named the owner's way (the character's own left and right: each name's
+	 * side the other way round, one named exactly as the template's other side), read with `swap`,
+	 * maps each drawing onto the part it is — `ArmL1`, the arm on the picture's right, on
+	 * `upper_arm_r`, its joints guessed as that side's — its props onto the same hosts; unswapped it
+	 * lands every sided drawing on the wrong side. The rig made from it (the page's suggestion and
+	 * guesses) poses through a capture as the one the template's names make.
+	 */
+	swap(M, log) {
+		let good = true;
+		const owner = (name) => OWNER_NAMES[name] ?? name;
+		const names = REGIONS.map((r) => owner(r.name));
+		const drawn = Object.fromEntries(REGIONS.map((r) => [owner(r.name), r.name]));
+		const got = M.suggestSheetMap(TPL_PARTS(M), names, true);
+		const unswapped = M.suggestSheetMap(TPL_PARTS(M), names);
+		for (const [part, t] of Object.entries(TRUTH.parts)) {
+			good =
+				ok(
+					`swap: ${owner(t.region)} is ${part}`,
+					drawn[got[part]] === t.region,
+					`got ${got[part]}`,
+				) && good;
+			if (M.sheetSide(slotOf(M, part)))
+				good =
+					ok(
+						`swap: unswapped, ${owner(t.region)} lands on the other side`,
+						drawn[unswapped[M.mirroredName(part)]] === t.region,
+						`${M.mirroredName(part)} got ${unswapped[M.mirroredName(part)]}`,
+					) && good;
+		}
+		const mapped = new Set(Object.keys(got));
+		for (const p of TRUTH.props) {
+			const s = M.suggestProp(owner(p.region), mapped, true);
+			good =
+				ok(
+					`swap: ${owner(p.region)} is a prop on ${p.host}`,
+					s?.host === p.host,
+					JSON.stringify(s),
+				) && good;
+		}
+		/** The mapping the page makes of a sheet: each part suggested by name, its joints guessed. */
+		const pageMapping = (regionNames, swapped) => {
+			const map = M.suggestSheetMap(TPL_PARTS(M), regionNames, swapped);
+			const parts = {};
+			for (const [part, region] of Object.entries(map)) {
+				const slot = slotOf(M, part);
+				parts[part] = {
+					region,
+					joints: M.guessSheetJoints(
+						M.sheetKind(slot),
+						M.sheetSide(slot),
+						maskOf(drawn[region] ?? region),
+					),
+				};
+			}
+			const on = new Set(Object.keys(map));
+			const props = [];
+			for (const p of TRUTH.props) {
+				const region = swapped ? owner(p.region) : p.region;
+				const s = M.suggestProp(region, on, swapped);
+				if (s)
+					props.push({
+						name: s.name,
+						region,
+						host: s.host,
+						bone: boneOfSlot(M, slotOf(M, s.host)),
+						at: p.on,
+					});
+			}
+			return {
+				sheet: 1,
+				manifestKey: 'fixture/manifests/atlas_manifest_Sheet.json',
+				template: { id: M.HALF_BODY.id, version: M.HALF_BODY.version },
+				parts,
+				props,
+				...(swapped ? { swapSides: true } : {}),
+			};
+		};
+		const a = made(
+			M,
+			pageMapping(
+				REGIONS.map((r) => r.name),
+				false,
+			),
+		);
+		const renamed = SHEET.regions.map((r) => ({ ...r, name: owner(r.name) }));
+		const b = made(M, pageMapping(names, true), renamed);
+		const [ca, cb] = [captured(a), captured(b)];
+		// A prop is named after its region: the two rigs' props, paired by the drawing they wear.
+		const propIn = new Map(
+			a.mapping.props.map((p, i) => [p.name, b.mapping.props[i]?.name ?? p.name]),
+		);
+		const inB = (name) => propIn.get(name) ?? name;
+		good =
+			ok(
+				'swap: the props are the same drawings on the same hosts',
+				a.mapping.props.length === b.mapping.props.length &&
+					a.mapping.props.every(
+						(p, i) =>
+							b.mapping.props[i].host === p.host && drawn[b.mapping.props[i].region] === p.region,
+					),
+				JSON.stringify([a.mapping.props, b.mapping.props]),
+			) && good;
+		let off = { d: 0, what: '' };
+		for (const t of [0, 0.5, 1, 1.5]) {
+			const [sa, sb] = [posed(a, ca.anim, t), posed(b, cb.anim, t)];
+			for (const bone of sa.bones) {
+				const d = d2(boneAt(sa, bone.data.name), boneAt(sb, inB(bone.data.name)));
+				if (d > off.d) off = { d, what: `${bone.data.name} at ${t} s` };
+			}
+			for (const slot of sa.slots) {
+				const [da, db] = [drawing(sa, slot.data.name), drawing(sb, inB(slot.data.name))];
+				if (!da || !db) {
+					if (da || db) off = { d: Infinity, what: `${slot.data.name} drawn in one rig only` };
+					continue;
+				}
+				for (let i = 0; i < da.v.length; i++) {
+					const d = Math.abs(da.v[i] - db.v[i]);
+					if (d > off.d) off = { d, what: `${slot.data.name} at ${t} s` };
+				}
+			}
+		}
+		good =
+			ok(
+				"swap: the rig made from the sheet named the owner's way poses as the template-named one",
+				off.d <= 1e-4,
+				`${off.d} (${off.what})`,
+			) && good;
+		log(
+			`${Object.keys(got).length} parts and ${TRUTH.props.length} props of a sheet named the character's way land on their drawings' parts; its rig poses through a capture within ${off.d.toExponential(1)} of the template-named one`,
 		);
 		return good;
 	},
@@ -2063,6 +2338,160 @@ const GUARDS = {
 		return good;
 	},
 
+	/**
+	 * A face capture's head turn (solved and keyed as 🎥 Motion keys it) on a head drawn without its
+	 * face: the head turns with it — its middle, under the features drawn apart, moving as they do,
+	 * its outline staying — nothing folding at the face's farthest move (a 3D import's 40° turn and
+	 * 25° nod sliding it by its depth), and a head roll on top turning the whole drawing; untrimmed
+	 * and trimmed (the ink read from the trim's bottom). A face found on the head keeps its
+	 * features' room: there the face does not slide off the head either.
+	 */
+	faceturn(M, log) {
+		let good = true;
+		const worst = { slip: 0, outline: 0, fold: Infinity, roll: 0, turn: Infinity };
+		const depth = M.HALF_BODY.rig3d.depths.face;
+		for (const [what, sheet] of [
+			['drawn apart', ownerSheet(M, { face: false })],
+			['drawn apart, trimmed', trimmedHead(ownerSheet(M, { face: false }))],
+			['a face found on the head', ownerSheet(M, { face: true })],
+		]) {
+			const rig = created(M, M.HALF_BODY, sheet.mapping, sheet.regions);
+			const apart = !sheet.mapping.parts.head.face;
+			const { anim, length } = faceCaptured(rig);
+			const rest = posed(rig, anim, 0);
+			const head0 = drawing(rest, 'head', 'head');
+			const n = head0.v.length / 2;
+			const vtx = (dr, i) => [dr.v[i * 2], dr.v[i * 2 + 1]];
+			// The head under the face's middle (drawn apart) and under each feature; its ink's outline.
+			const under = [
+				...(apart ? [{ what: 'the face', at: (s) => boneAt(s, 'face') }] : []),
+				...FACE_LOCKED.map((part) => {
+					const slot = slotOf(M, part);
+					return { what: part, at: (s) => centreOf(drawing(s, slot, part)) };
+				}),
+			].map((u) => ({ ...u, uv: uvUnder(head0, u.at(rest)) }));
+			const r = sheet.regions.find((x) => x.name === sheet.mapping.parts.head.region);
+			const [W, H] = [r.origW ?? r.w, r.origH ?? r.h];
+			const [ox, oy] = [r.offX ?? 0, r.origH ? r.origH - (r.offY ?? 0) - r.h : 0];
+			const [u0, u1, v0, v1] = [ox / W, (ox + r.w) / W, oy / H, (oy + r.h) / H];
+			const outline = [];
+			for (let i = 0; i < n; i++) {
+				const [u, v] = [head0.own[i * 2], head0.own[i * 2 + 1]];
+				if (u <= u0 + 1e-6 || u >= u1 - 1e-6 || v <= v0 + 1e-6 || v >= v1 - 1e-6) outline.push(i);
+			}
+			let turned = { t: 0, d: 0 };
+			for (let t = FACE_REST / CAPTURE_FPS; t <= length + 1e-9; t += 0.1) {
+				const s = posed(rig, anim, t);
+				const h = drawing(s, 'head', 'head');
+				const f = d2(boneAt(s, 'face'), boneAt(rest, 'face'));
+				if (f > turned.d) turned = { t, d: f };
+				for (const u of under) {
+					const [p, q] = [u.at(s), u.at(rest)];
+					const want = [p[0] - q[0], p[1] - q[1]];
+					const [g, g0] = [carried(h, u.uv), carried(head0, u.uv)];
+					const got = [g[0] - g0[0], g[1] - g0[1]];
+					const slip = d2(got, want) / Math.max(1, Math.hypot(...want));
+					worst.slip = Math.max(worst.slip, slip);
+					good =
+						ok(
+							`faceturn (${what}, ${t.toFixed(1)} s): the head under ${u.what} moves with it`,
+							slip <= FACE_SLIP,
+							`${slip}`,
+						) && good;
+				}
+				const off = Math.max(0, ...outline.map((i) => d2(vtx(h, i), vtx(head0, i))));
+				worst.outline = Math.max(worst.outline, off);
+				good =
+					ok(
+						`faceturn (${what}, ${t.toFixed(1)} s): the head's outline stays on the head`,
+						off <= OUTLINE_KEPT,
+						`${off}`,
+					) && good;
+			}
+			if (apart) {
+				worst.turn = Math.min(worst.turn, turned.d);
+				good =
+					ok(
+						`faceturn (${what}): the capture's head turn slides the face`,
+						turned.d >= TURN_SHOWN,
+						`${turned.d}`,
+					) && good;
+			} else
+				good =
+					ok(
+						`faceturn (${what}): the face takes no room from its features, so it does not slide`,
+						turned.d <= 0.05,
+						`${turned.d}`,
+					) && good;
+			// The face's farthest move: every way a 3D import turns and nods it, by its depth.
+			const [kx, ky] = rig.sr.fit.features?.scale?.face ?? [1, 1];
+			const [dx, dy] = [
+				depth * kx * Math.sin((40 * Math.PI) / 180),
+				depth * ky * Math.sin((25 * Math.PI) / 180),
+			];
+			for (const [sx, sy] of [
+				[1, 1],
+				[1, -1],
+				[-1, 1],
+				[-1, -1],
+			]) {
+				const s = posed(rig);
+				s.findBone('face').x += sx * dx;
+				s.findBone('face').y += sy * dy;
+				s.updateWorldTransform(RIG.Physics.update);
+				const h = drawing(s, 'head', 'head');
+				const area = (dr, k) => {
+					const [a, b, c] = [dr.tris[k], dr.tris[k + 1], dr.tris[k + 2]];
+					return (
+						(dr.v[b * 2] - dr.v[a * 2]) * (dr.v[c * 2 + 1] - dr.v[a * 2 + 1]) -
+						(dr.v[c * 2] - dr.v[a * 2]) * (dr.v[b * 2 + 1] - dr.v[a * 2 + 1])
+					);
+				};
+				const head = drawing(posed(rig), 'head', 'head');
+				for (let k = 0; k < h.tris.length; k += 3) {
+					const A = area(head, k);
+					if (Math.abs(A) < 1e-9) continue;
+					worst.fold = Math.min(worst.fold, h.v.every(Number.isFinite) ? area(h, k) / A : -1);
+				}
+			}
+			good =
+				ok(
+					`faceturn (${what}): the face's farthest move folds no triangle of the head`,
+					worst.fold >= FOLD,
+					`${worst.fold}`,
+				) && good;
+			// A roll on top of the turn: the head's whole drawing turns about the head with it.
+			const s = posed(rig, anim, turned.t);
+			const before = drawing(s, 'head', 'head');
+			const Hd = boneAt(s, 'head');
+			s.findBone('head').rotation += HEAD_TURN;
+			s.updateWorldTransform(RIG.Physics.update);
+			const after = drawing(s, 'head', 'head');
+			const [c, sn] = [
+				Math.cos((HEAD_TURN * Math.PI) / 180),
+				Math.sin((HEAD_TURN * Math.PI) / 180),
+			];
+			for (let i = 0; i < n; i++) {
+				const p = vtx(before, i);
+				const want = [
+					Hd[0] + c * (p[0] - Hd[0]) - sn * (p[1] - Hd[1]),
+					Hd[1] + sn * (p[0] - Hd[0]) + c * (p[1] - Hd[1]),
+				];
+				worst.roll = Math.max(worst.roll, d2(vtx(after, i), want) / Math.max(1, d2(want, p)));
+			}
+			good =
+				ok(
+					`faceturn (${what}): a head roll on the turned face turns the head's whole drawing`,
+					worst.roll <= HEAD_LEFT,
+					`${worst.roll}`,
+				) && good;
+		}
+		log(
+			`a face capture's head turn on a head drawn apart slides its face ≥ ${worst.turn.toFixed(1)} units; the head under the face and ${FACE_LOCKED.join(', ')} within ${(worst.slip * 100).toFixed(1)}% of their move, its outline within ${worst.outline.toExponential(1)}; the face's farthest move keeps ≥ ${worst.fold.toFixed(2)} of every triangle; a roll on top turns it whole within ${(worst.roll * 100).toFixed(2)}% (untrimmed, trimmed, a face found on the head)`,
+		);
+		return good;
+	},
+
 	/** The head turned: the head's drawing, the nose and the brows turn with it, at rest and in the frame. */
 	headturn(M, log) {
 		let good = true;
@@ -2195,6 +2624,13 @@ const GUARDS = {
 				'sidecar: the mapping reads back as written',
 				JSON.stringify(back.mapping) === JSON.stringify(m),
 			) && good;
+		const swapped = { ...m, swapSides: true };
+		good =
+			ok(
+				'sidecar: ⇄ swapSides reads back as written',
+				JSON.stringify(M.parseSheetMapping(JSON.parse(JSON.stringify(swapped))).mapping) ===
+					JSON.stringify(swapped),
+			) && good;
 		const bad = [
 			['an unknown field', { ...m, extra: 1 }],
 			[
@@ -2226,6 +2662,7 @@ const GUARDS = {
 			],
 			['no version', { ...m, sheet: 2 }],
 			['a scale of 0', { ...m, scale: 0 }],
+			['a swapSides neither true nor false', { ...m, swapSides: 'yes' }],
 			['a prop with no place', { ...m, props: [{ ...m.props[0], at: null }] }],
 		];
 		for (const [what, raw] of bad)
@@ -2311,8 +2748,12 @@ const GUARDS = {
 const ONLY = process.argv.includes('--only')
 	? process.argv[process.argv.indexOf('--only') + 1]
 	: null;
+/** Only the mutants of one guard (the guards not run). */
+const MUTANTS_OF = process.argv.includes('--mutants')
+	? process.argv[process.argv.indexOf('--mutants') + 1]
+	: null;
 for (const [id, guard] of Object.entries(GUARDS)) {
-	if (ONLY && id !== ONLY) continue;
+	if ((ONLY && id !== ONLY) || MUTANTS_OF) continue;
 	console.log(`\n=== ${id}`);
 	guard(M0, (line) => console.log(`    ${line}`));
 }
@@ -2325,8 +2766,33 @@ console.log('\n=== mutants of the shipped code: each must turn its check red');
 const MAP = 'rigSheetMap.ts';
 const FIT = 'rigSheetFit.ts';
 const TPL = 'rigTemplates.ts';
+const FACE = 'rigFrameFace.ts';
 const MUTANTS = [
 	['suggest', "an artist's left read as the right", [MAP, "left: ['l'],", "left: ['r'],"]],
+	[
+		'swap',
+		"a sheet's sides never read the other way round",
+		[MAP, 'if (!swap) return words;', 'return words;'],
+	],
+	[
+		'swap',
+		"an exact name's side not read the other way round",
+		[
+			MAP,
+			'if (plain(part) === plain(region, swap)) return 10;',
+			'if (plain(part) === plain(region)) return 10;',
+		],
+	],
+	[
+		'swap',
+		"a worn thing's side not read the other way round",
+		[MAP, 'const words = canonicalWords(region, swap);', 'const words = canonicalWords(region);'],
+	],
+	[
+		'sidecar',
+		'⇄ swapSides not kept in sheet.json',
+		[FIT, '...(raw.swapSides === true ? { swapSides: true as const } : {}),', ''],
+	],
 	[
 		'suggest',
 		"an arm's 1 and 2 not read as its segments",
@@ -2438,6 +2904,34 @@ const MUTANTS = [
 			'rigFrameFit.ts',
 			'out.head ??= { bones: [{ bone: headBone }], grid: SKIN_GRID.face };',
 			"out.head ??= { bones: [{ bone: 'neck' }], grid: SKIN_GRID.face };",
+		],
+	],
+	[
+		'faceturn',
+		"a head drawn without its face left rigid on its bone, the face sliding over it (the owner's)",
+		[FIT, '(drawnHead\n\t\t\t? apartFace(', '(false\n\t\t\t? apartFace('],
+	],
+	[
+		'faceturn',
+		"the face's move not cut to the room its region leaves on the head (the skin folds)",
+		[
+			FACE,
+			'features: { at: {}, scale: { face: scale.face } },',
+			'features: { at: {}, scale: { face: [s, s] } },',
+		],
+	],
+	[
+		'faceturn',
+		"the face's region not whole over the features drawn on it (they slide over the head)",
+		[FACE, 'const FACE_CORE = 0.6;', 'const FACE_CORE = 0.2;'],
+	],
+	[
+		'faceturn',
+		"a trimmed head's ink read from the trim's top, not its bottom (its outline moves)",
+		[
+			FIT,
+			'const y0 = (r.offY ?? (h - r.h) / 2) - h / 2;',
+			'const y0 = h / 2 - (r.offY ?? (h - r.h) / 2) - r.h;',
 		],
 	],
 	[
@@ -2639,9 +3133,11 @@ const SOURCES = {
 	[TPL]: join(SERVER, TPL),
 	'rigIndex.ts': join(SERVER, 'rigIndex.ts'),
 	'rigFrameFit.ts': join(SERVER, 'rigFrameFit.ts'),
+	[FACE]: join(SERVER, FACE),
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {
+	if (MUTANTS_OF && guard !== MUTANTS_OF) continue;
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {
 		ok(`mutant planted: ${what}`, false, `"${from}" is not in ${file}`);

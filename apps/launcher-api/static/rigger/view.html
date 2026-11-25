@@ -1000,12 +1000,13 @@
   <div id="s2rModal" class="rigModal">
     <div class="modal-box" style="width:min(1040px,96vw);max-height:90vh;margin-top:4vh;">
       <div class="modal-head">
-        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left: ⇄ Swap sides when your names say the character's own); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="s2rClose" style="padding:1px 8px;">✕</button>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
         <select id="s2rSheet" style="flex:1;min-width:0;" title="One of this project's sheets or atlases."></select>
+        <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping.">⇄ Swap sides</button></span>
         <input type="text" id="s2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
         <button id="s2rCreate" disabled title="Make the template rig over this sheet, fitted to the joints, and open it.">🦴 Create rig</button>
       </div>
@@ -11584,7 +11585,7 @@ const s2r = {
   tpl: null, sheetKey: "", sheet: null, map: {}, props: [], sel: null, drag: null, gen: 0,
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
   view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
-  aview: null, adrag: null,
+  aview: null, adrag: null, swap: false,
 };
 
 function s2rNote(t){ $("#s2rNote").textContent = t || ""; }
@@ -11794,7 +11795,8 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: kept ? kept.swapSides === true : s2rSwapKept(key) });
+  s2rSwapUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
   if (!key){ s2rNote("pick one of this project's sheets"); return; }
@@ -11914,7 +11916,7 @@ async function s2rTrackFace(part){
 // sword_R) a prop on the part it is worn on.
 function s2rSuggest(){
   const names = s2r.sheet.regions.map((r) => r.name);
-  const got = window.RiggerMotion.suggestSheetMap(s2r.tpl.parts.map((p) => p.name), names);
+  const got = window.RiggerMotion.suggestSheetMap(s2r.tpl.parts.map((p) => p.name), names, s2r.swap);
   for (const [part, region] of Object.entries(got)){
     s2r.map[part] = { region, joints: {}, placed: [] };
     s2rGuess(part);
@@ -11922,7 +11924,7 @@ function s2rSuggest(){
   const mapped = new Set(Object.keys(s2r.map));
   for (const name of names){
     if (Object.values(s2r.map).some((m) => m.region === name)) continue;
-    const p = window.RiggerMotion.suggestProp(name, mapped);
+    const p = window.RiggerMotion.suggestProp(name, mapped, s2r.swap);
     if (p) s2rAddProp(name, p.host, p.name);
   }
   for (const part of Object.keys(s2r.map)) if (s2rHead(part)) s2rTrackFace(part);
@@ -11986,7 +11988,91 @@ function s2rMapping(){
     sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
     props: s2r.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
+    ...(s2r.swap ? { swapSides: true } : {}),
   };
+}
+
+// ⇄ Swap sides: the sheet's names read with their sides the other way round (the character's own
+// left, the picture's right). Each sided part matched by name takes the drawing its name now says,
+// its joints guessed again (a joint dragged by hand stays on the drawing it was dragged on); a part
+// mapped by hand moves to the other side too when the author says so; a prop rides the drawing it is
+// worn on to the part that now draws it; a part whose drawing changed starts over on its bones in
+// ◧ Arranged. Remembered per sheet in this browser, and kept in the mapping (`swapSides`).
+const S2R_SWAP_KEY = "rigger.s2rSwapSides:";
+function s2rSwapKept(key){
+  try { return !!key && localStorage.getItem(S2R_SWAP_KEY + key) === "1"; } catch { return false; }
+}
+function s2rSwapUi(){
+  const b = $("#s2rSwapSides"); if (!b) return;
+  b.classList.toggle("active", s2r.swap);
+  b.setAttribute("aria-pressed", String(s2r.swap));
+}
+function s2rToggleSwap(){
+  const RM = window.RiggerMotion, was = s2r.swap, now = !was;
+  s2r.swap = now;
+  s2rSwapUi();
+  try { if (s2r.sheetKey) now ? localStorage.setItem(S2R_SWAP_KEY + s2r.sheetKey, "1") : localStorage.removeItem(S2R_SWAP_KEY + s2r.sheetKey); } catch { /* not kept */ }
+  if (!s2r.sheet || !s2r.tpl) return;
+  const parts = s2r.tpl.parts.map((p) => p.name);
+  const names = s2r.sheet.regions.map((r) => r.name);
+  const sided = (p) => s2rSide(p) !== null;
+  const before = s2r.map;
+  const named = RM.suggestSheetMap(parts, names, was);
+  const byHand = Object.keys(before).filter((p) => sided(p) && before[p].region !== named[p]);
+  const moveHand = byHand.length > 0 && confirm("You mapped these by hand: " + byHand.map((p) => p + " → " + before[p].region).join(", ") + ".\n\nOK moves them to the other side too (upper_arm_l's drawing to upper_arm_r…); Cancel leaves them where they are.");
+  const map = {};
+  for (const [p, m] of Object.entries(before)) if (!sided(p)) map[p] = m;
+  // Each part given a drawing anew, and the part that drew it before.
+  const anew = [];
+  for (const p of byHand){
+    const q = moveHand ? RM.mirroredName(p) : p;
+    if (!q || !s2rPart(q) || map[q]) continue;
+    map[q] = q === p ? before[p] : { region: before[p].region, joints: {}, placed: [] };
+    if (q !== p) anew.push([q, before[p]]);
+  }
+  const drawnBy = new Map(Object.values(before).map((m) => [m.region, m]));
+  const got = RM.suggestSheetMap(parts, names, now);
+  for (const [p, region] of Object.entries(got)){
+    if (!sided(p) || map[p]) continue;
+    map[p] = { region, joints: {}, placed: [] };
+    anew.push([p, drawnBy.get(region)]);
+  }
+  s2r.map = map;
+  for (const [p, old] of anew){
+    s2rGuess(p);
+    // A joint dragged by hand is where it is on that drawing, whichever part draws it.
+    if (old) for (const j of old.placed) if (j in map[p].joints){ map[p].joints[j] = old.joints[j]; map[p].placed.push(j); }
+  }
+  // The part that now draws a prop's drawing: its own or its mirror, else a main drawing (a hand pose
+  // shares its hand's region).
+  const holderOf = (part) => {
+    const region = before[part] && before[part].region;
+    const on = Object.keys(map).filter((p) => map[p].region === region);
+    return on.find((p) => p === part || p === RM.mirroredName(part)) || on.find((p) => s2rMain(s2rPart(p))) || on[0];
+  };
+  const off = [];
+  s2r.props = s2r.props.filter((pr) => {
+    const host = holderOf(pr.host);
+    if (!host){ off.push(pr.name); return false; }
+    if (host !== pr.host){
+      const mirror = RM.mirroredName(pr.bone);
+      pr.bone = pr.bone === s2rPart(pr.host).bone ? s2rPart(host).bone : mirror && s2r.tpl.bones.some((b) => b.name === mirror) ? mirror : pr.bone;
+      pr.host = host;
+    }
+    return true;
+  });
+  const moved = parts.filter((p) => (map[p] && map[p].region) !== (before[p] && before[p].region));
+  if (s2r.arrange){
+    for (const p of moved) delete s2r.arrange[p];
+    if (!Object.keys(s2r.arrange).length) s2r.arrange = null;
+  }
+  if (s2r.sel && s2r.sel.part && !map[s2r.sel.part]){
+    const first = s2r.tpl.parts.find((p) => map[p.name]);
+    s2r.sel = first ? { part: first.name } : null;
+  }
+  s2r.aview = null; s2r.dirty = true;
+  s2rNote("⇄ " + (now ? "sides read as the character's own" : "sides read as the picture's") + ": " + moved.filter((p) => map[p]).length + " parts take another drawing" + (off.length ? "; taken off with no part to be worn on: " + off.join(", ") : ""));
+  s2rRender(); s2rDraw();
 }
 
 function s2rRender(){
@@ -12591,6 +12677,7 @@ function wireSheetToRig(){
   $("#s2rClose").onclick = closeSheetToRig;
   $("#s2rModal").onmousedown = (e) => { if (e.target === $("#s2rModal")) closeSheetToRig(); };
   $("#s2rSheet").onchange = () => s2rPickSheet($("#s2rSheet").value);
+  $("#s2rSwapSides").onclick = s2rToggleSwap;
   $("#s2rCreate").onclick = () => (s2r.edit ? s2rUpdate() : s2rCreate());
   $("#s2rGuess").onclick = () => {
     if (!s2r.sel || !s2r.sel.part) return;

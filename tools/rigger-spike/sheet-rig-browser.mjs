@@ -29,6 +29,10 @@
 //    fixed); a part re-mapped and 🔄 Update rig: `/api/rigger/from-sheet/update` (faked with the
 //    shipped `updateSheetRig`) gets the edited mapping and the one the rig keeps, the merged rig is one
 //    undo step with its mapping, saved, then its mapping PUT on the ETag it read; one ↶ takes both back;
+//  - ⇄ Swap sides, on the sheet named the owner's way (the character's own sides): every part takes
+//    the drawing it is, its joints guessed again as that side's (a joint dragged by hand kept on its
+//    drawing); a part mapped by hand asked about and moved; a prop goes with its drawing; a moved
+//    part starts over in ◧ Arranged; sent with the mapping, read back from it, remembered per sheet;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -111,6 +115,38 @@ const PAGE_MUTANTS = [
 		'the kept arrangement not opened',
 		's2r.arrange = placed.length ?',
 		's2r.arrange = null && placed.length ?',
+	],
+	[
+		'⇄ the swap reading the names as before',
+		'const got = RM.suggestSheetMap(parts, names, now);',
+		'const got = RM.suggestSheetMap(parts, names, was);',
+	],
+	[
+		'⇄ a swapped part keeping no joints (never guessed again)',
+		'    s2rGuess(p);\n    // A joint dragged by hand',
+		'    // A joint dragged by hand',
+	],
+	[
+		'⇄ a joint dragged by hand lost when its drawing moves',
+		'if (old) for (const j of old.placed)',
+		'if (false) for (const j of old.placed)',
+	],
+	[
+		'⇄ a part mapped by hand never asked about',
+		'const moveHand = byHand.length > 0 && confirm(',
+		'const moveHand = false && confirm(',
+	],
+	['⇄ a prop left on the part it was on', '      pr.host = host;\n', ''],
+	[
+		'⇄ an arranged part kept where its old drawing was',
+		'    for (const p of moved) delete s2r.arrange[p];',
+		'    void moved;',
+	],
+	['⇄ swapSides not sent', '    ...(s2r.swap ? { swapSides: true } : {}),\n', ''],
+	[
+		"⇄ the setting not read back from a rig's mapping",
+		'swap: kept ? kept.swapSides === true : s2rSwapKept(key) });',
+		'swap: s2rSwapKept(key) });',
 	],
 ];
 if (process.argv.includes('--mutants')) {
@@ -204,6 +240,21 @@ for (const t of Object.values(TRUTH.parts))
 	if (t.region === TRIM.region)
 		for (const [j, p] of Object.entries(t.joints)) t.joints[j] = [p[0] + INK[0], p[1] + INK[1]];
 const REGIONS = SHEET.regions.map(({ name, w, h, origW, origH }) => ({ name, w, h, origW, origH }));
+/**
+ * The same sheet named the owner's way (⇄ Swap sides): each sided region's side the other way round
+ * (the character's own), one named exactly as the template's other side; as `sheet-rig.mjs`'s.
+ */
+const OWNER_MANIFEST = 'c/p/manifests/atlas_manifest_Owner.json';
+const OWNER_NAMES = {
+	L_arm_upper: 'R_arm_upper',
+	arm_lower_left: 'arm_lower_right',
+	HandL: 'hand_r',
+	ArmR1: 'ArmL1',
+	ArmR2: 'ArmL2',
+	'hand-right': 'hand-left',
+	earring_L: 'earring_R',
+	watch_R: 'watch_L',
+};
 /** The `.atlas` ＋ New rig writes (`regionsToRigAtlas`): the trim as the manifest gives it. */
 const atlasOf = () =>
 	[
@@ -266,6 +317,15 @@ const server = createServer(async (req, res) => {
 				pageWidth: SHEET.width,
 				pageHeight: SHEET.height,
 				regions: SHEET.regions,
+			});
+		if (p === '/api/editor/regions' && url.searchParams.get('sheet') === OWNER_MANIFEST)
+			return json({
+				assetKey: OWNER_MANIFEST,
+				pageKey: PAGE_KEY,
+				pageVersion: 'v1',
+				pageWidth: SHEET.width,
+				pageHeight: SHEET.height,
+				regions: SHEET.regions.map((r) => ({ ...r, name: OWNER_NAMES[r.name] ?? r.name })),
 			});
 		if (p === '/api/editor/asset' && url.searchParams.get('key') === PAGE_KEY)
 			return send(200, 'image/png', SHEET_PNG);
@@ -421,6 +481,8 @@ const q = JSON.stringify;
 const d2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 /** A mouse event lands on a whole pixel: a turn by a handle 46 stage pixels out is that far off, degrees. */
 const MOUSE_TURN = 1.5;
+/** A joint guessed from its drawing's shape lies within this share of the drawing's size of the true one. */
+const GUESS_OFF = 0.15;
 
 try {
 	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("newRigBtn")', 30000);
@@ -994,6 +1056,141 @@ try {
 		undone.path !== 'bg_glow' && undone.kept === 'Neck01',
 		q(undone),
 	);
+
+	// ⇄ Swap sides, on the sheet named the owner's way (the character's own left and right).
+	await evaluate(`(async () => {
+		window.__confirms = [];
+		window.confirm = (m) => (window.__confirms.push(String(m)), true);
+		try { localStorage.removeItem(S2R_SWAP_KEY + ${q(OWNER_MANIFEST)}); } catch {}
+		document.getElementById("s2rModal").classList.add("open");
+		await s2rLoad(${q(OWNER_MANIFEST)});
+		return true;
+	})()`);
+	await waitFor(`!!s2r.sheet && s2r.sheetKey === ${q(OWNER_MANIFEST)}`, 20000);
+	const owner = (name) => OWNER_NAMES[name] ?? name;
+	const drawingOf = Object.fromEntries(SHEET.regions.map((r) => [owner(r.name), r.name]));
+	const unswapped = await evaluate(`(() => {
+		// By hand: a hand pose mapped, an upper arm's elbow dragged, two parts arranged.
+		s2rSetRegion("hand_l_fist", ${q(owner('hand-right'))});
+		const arm = Object.keys(s2r.map).find((p) => s2r.map[p].region === ${q(owner('L_arm_upper'))});
+		const m = s2r.map[arm];
+		m.joints.elbow = [m.joints.elbow[0] + 3.5, m.joints.elbow[1] - 2.5];
+		m.placed = ["elbow"];
+		s2r.arrange = { torso: { at: [400, 300], turn: 0 }, [arm]: { at: [300, 250], turn: 90 } };
+		return {
+			arm, elbow: m.joints.elbow,
+			map: Object.fromEntries(Object.entries(s2r.map).map(([p, x]) => [p, x.region])),
+			swap: s2r.swap,
+		};
+	})()`);
+	ok(
+		"unswapped, the sheet named the owner's way lands each sided drawing on the other side",
+		!unswapped.swap &&
+			Object.entries(TRUTH.parts).every(
+				([p, t]) => !/_[lr]$/.test(p) || drawingOf[unswapped.map[p]] !== t.region,
+			),
+		q(unswapped.map),
+	);
+	await evaluate('document.getElementById("s2rSwapSides").click(); true');
+	const swapped = await evaluate(`(() => {
+		const guess = (p) => {
+			const c = s2rCanvas(s2r.map[p].region);
+			const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+			const alpha = new Uint8Array(c.width * c.height);
+			for (let i = 0; i < alpha.length; i++) alpha[i] = d[i * 4 + 3];
+			return window.RiggerMotion.guessSheetJoints(s2rKind(p), s2rSide(p), { w: c.width, h: c.height, alpha });
+		};
+		return {
+			map: Object.fromEntries(Object.entries(s2r.map).map(([p, x]) => [p, { region: x.region, joints: x.joints, placed: x.placed, guess: guess(p) }])),
+			props: s2r.props.map((p) => [p.region, p.host, p.bone, s2rPart(p.host).bone]),
+			arrange: s2r.arrange && Object.keys(s2r.arrange),
+			confirms: window.__confirms,
+			pressed: document.getElementById("s2rSwapSides").getAttribute("aria-pressed"),
+			sent: s2rMapping().swapSides,
+			kept: (() => { try { return localStorage.getItem(S2R_SWAP_KEY + ${q(OWNER_MANIFEST)}); } catch { return null; } })(),
+		};
+	})()`);
+	const sm = swapped.map;
+	ok(
+		"⇄ Swap sides: every part takes the drawing it is (ArmL1, the picture's right arm, on upper_arm_r)",
+		Object.entries(TRUTH.parts).every(([p, t]) => drawingOf[sm[p]?.region] === t.region) &&
+			sm.upper_arm_r?.region === 'ArmL1',
+		q(Object.fromEntries(Object.entries(sm).map(([p, x]) => [p, x.region]))),
+	);
+	const armNow = Object.keys(sm).find((p) => sm[p].region === owner('L_arm_upper'));
+	const sidedPart = (p) => !!S.sheetSide(S.HALF_BODY.parts.find((x) => x.name === p).slot);
+	/** A guessed joint's distance from the true one, a share of its drawing's size. */
+	const offTruth = (p, j) => {
+		const r = SHEET.regions.find((x) => x.name === TRUTH.parts[p].region);
+		return d2(sm[p].joints[j], TRUTH.parts[p].joints[j]) / Math.max(r.w, r.h);
+	};
+	ok(
+		"… its joints guessed again as that side's, a joint dragged by hand still where it was dragged on its drawing",
+		Object.entries(sm).every(
+			([p, x]) =>
+				!sidedPart(p) ||
+				Object.entries(x.joints).every(([j, v]) =>
+					p === armNow && j === 'elbow' ? q(v) === q(unswapped.elbow) : q(v) === q(x.guess[j]),
+				),
+		) &&
+			sm[armNow]?.placed.includes('elbow') &&
+			offTruth('upper_arm_l', 'shoulder') <= GUESS_OFF &&
+			offTruth('upper_arm_r', 'shoulder') <= GUESS_OFF &&
+			offTruth('upper_arm_r', 'elbow') <= GUESS_OFF,
+		q({
+			armNow,
+			wrong: Object.entries(sm)
+				.filter(([p]) => sidedPart(p))
+				.flatMap(([p, x]) =>
+					Object.entries(x.joints)
+						.filter(([j, v]) => !(p === armNow && j === 'elbow') && q(v) !== q(x.guess[j]))
+						.map(([j, v]) => [p, j, v, x.guess[j]]),
+				),
+			dragged: [sm[armNow]?.joints.elbow, unswapped.elbow],
+		}),
+	);
+	ok(
+		'… a part mapped by hand asked about, and moved to the other side on OK',
+		swapped.confirms.length === 1 &&
+			/hand_l_fist/.test(swapped.confirms[0]) &&
+			sm.hand_r_fist?.region === owner('hand-right') &&
+			!sm.hand_l_fist,
+		q({ confirms: swapped.confirms, fist: [sm.hand_l_fist?.region, sm.hand_r_fist?.region] }),
+	);
+	ok(
+		"… each prop on the drawing it is worn on, its bone that part's",
+		TRUTH.props.every((t) =>
+			swapped.props.some(
+				([r, host, bone, own]) => r === owner(t.region) && host === t.host && bone === own,
+			),
+		),
+		q(swapped.props),
+	);
+	ok(
+		'… a part whose drawing changed starts over on its bones in ◧ Arranged, the others kept',
+		q(swapped.arrange) === q(['torso']),
+		q(swapped.arrange),
+	);
+	ok(
+		'… shown on, sent with the mapping and remembered for this sheet',
+		swapped.pressed === 'true' && swapped.sent === true && swapped.kept === '1',
+		q({ pressed: swapped.pressed, sent: swapped.sent, kept: swapped.kept }),
+	);
+	const reread = await evaluate(`(async () => {
+		const kept = s2rMapping();
+		try { localStorage.removeItem(S2R_SWAP_KEY + ${q(OWNER_MANIFEST)}); } catch {}
+		await s2rLoad(${q(OWNER_MANIFEST)}, kept);
+		const fromKept = s2r.swap;
+		await s2rLoad(${q(OWNER_MANIFEST)});
+		const fresh = s2r.swap;
+		return { fromKept, fresh };
+	})()`);
+	ok(
+		'a kept mapping opens swapped as it was made; a fresh one as this browser left the sheet',
+		reread.fromKept === true && reread.fresh === false,
+		q(reread),
+	);
+	await evaluate('closeSheetToRig(); window.confirm = () => true; true');
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
 	ok('the page threw nothing', thrown.length === 0, thrown.join(' | '));
