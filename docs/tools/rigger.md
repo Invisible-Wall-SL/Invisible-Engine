@@ -1446,7 +1446,24 @@ sheet…**. What each step does is the tooltip on the dialog's title.
 The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
 the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left
 it and the arrangement as you left it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then
-drives it as any rig of the template. Not yet: a region used for both sides mirrored; fingers placed
+drives it as any rig of the template.
+
+**Change the rig you made, in place (🗺 Edit mapping → 🔄 Update rig).** A rig made from a sheet has
+**🗺** beside ⟳ source… in the rig panel. It opens the dialog on the rig's own mapping, with its sheet
+fixed (to map another sheet, make a new rig from it). Re-map a part, arrange the parts again, add or
+take off props, then **🔄 Update rig** (in 🦴 Create rig's place):
+
+- **What it rebuilds.** The parts are built as Create rig builds them and swapped into the open rig.
+- **What stays.** Its bones (yours too, where you put them), every clip and key, constraints and IK,
+  the Controls and the 3D data, and your own slots.
+- **The arrangement.** The clip **frame** takes the new arrangement, unless you keyed that clip
+  yourself: then yours stays and the report says so.
+- **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
+  taken off goes with the keys on its bone, and you are shown those keys before anything changes.
+- **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone
+  else updated meanwhile is not written over.
+
+Not yet: a region used for both sides mirrored; fingers placed
 on a hand drawn as one image (it bends at the wrist only); the legs of Full body bend only as rigid
 parts.
 

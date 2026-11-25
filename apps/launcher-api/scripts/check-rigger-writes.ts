@@ -1771,6 +1771,91 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[200, ['lower_arm_l', 'upper_arm_l'], 'number', 'object', false, true, 403, 400, 400, 0],
 	);
+	// 🗺 Edit mapping → 🔄 Update rig (§13.1b): the update merges a re-mapped part into the open rig and
+	// writes nothing; another template or sheet is refused; the mapping is then PUT on its ETag.
+	const update = await import(`${routes}/rigger/from-sheet/update/+server.ts`);
+	const keptRead = await get(fromSheet.GET, { dir: b64('Art') });
+	const remapped = {
+		...mapping,
+		parts: {
+			...mapping.parts,
+			lower_arm_l: { region: 'decoy', joints: { elbow: [20, 10], wrist: [20, 110] } },
+		},
+	};
+	const rigNow = JSON.parse(text(`${RIGS}/Art/Art.irig`) ?? '{}') as Record<string, unknown>;
+	const before = writes.length;
+	const updated = await call(update.POST, {
+		dir: b64('Art'),
+		stem: 'Art',
+		projectKey: 'p1',
+		sheet: remapped,
+		kept: keptRead.body.sheet,
+		skeleton: rigNow,
+	});
+	const otherTpl = await call(update.POST, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: { ...remapped, template: { id: 'bust-face', version: 4 } },
+		kept: keptRead.body.sheet,
+		skeleton: rigNow,
+	});
+	const otherSheet = await call(update.POST, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: { ...remapped, manifestKey: `${CLIENT}/p1/manifests/atlas_manifest_Other.json` },
+		kept: keptRead.body.sheet,
+		skeleton: rigNow,
+	});
+	check(
+		'sheet: 🔄 Update rig merges a re-mapped part into the open rig and writes nothing; another template or sheet is refused',
+		[
+			updated.status,
+			attachment(JSON.stringify(updated.body.skeleton), 'lower_arm_l')?.path,
+			(updated.body.sheet as { template?: { id?: string } } | undefined)?.template?.id,
+			writes.length - before,
+			otherTpl.status,
+			otherSheet.status,
+		],
+		[200, 'decoy', 'half-body', 0, 422, 422],
+	);
+	const etag = keptRead.body.etag as string;
+	const putFirst = await call(fromSheet.PUT, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: updated.body.sheet,
+		baseEtag: etag,
+	});
+	const putStale = await call(fromSheet.PUT, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: updated.body.sheet,
+		baseEtag: etag,
+	});
+	const putForeign = await call(fromSheet.PUT, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: { ...remapped, manifestKey: `${CLIENT}/p1/manifests/atlas_manifest_Other.json` },
+		baseEtag: putFirst.body.etag,
+	});
+	const putNoRig = await call(fromSheet.PUT, {
+		dir: b64('Nope'),
+		stem: 'Nope',
+		sheet: updated.body.sheet,
+		baseEtag: null,
+	});
+	const keptAfter = JSON.parse(text(`${RIGS}/Art/sheet.json`) ?? '{}') as typeof mapping;
+	check(
+		"sheet: the mapping is PUT on the ETag read; a stale one is a 409, another sheet's a 422, no rig a 404",
+		[
+			typeof etag,
+			putFirst.status,
+			putStale.status,
+			putForeign.status,
+			putNoRig.status,
+			keptAfter.parts?.lower_arm_l?.region,
+		],
+		['string', 200, 409, 422, 404, 'decoy'],
+	);
 	const gone = await call(del.POST, { dir: b64('Art'), skeleton_file: 'Art.irig' });
 	check(
 		'sheet: deleting the rig takes its sheet.json with it',

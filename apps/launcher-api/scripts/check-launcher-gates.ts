@@ -387,6 +387,8 @@ const STALE_TAB_GUARDS = [
 	'rigger/backups',
 	'rigger/from-frame/link',
 	'rigger/from-frame/update',
+	'rigger/from-sheet',
+	'rigger/from-sheet/update',
 	'rigger/import',
 	'rigger/import/finish',
 	'rigger/save',
