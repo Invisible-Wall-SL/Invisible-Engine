@@ -122,6 +122,7 @@ import type {
 	SalmonsArt,
 	SalmonsScreenHost,
 	SalmonsStartHost,
+	SalmonsZoneArt,
 	StainList,
 } from 'engine-layout/salmons-art';
 import { createSheetClipLook, type SheetClipLook } from 'engine-layout/sheet-clip';
@@ -152,6 +153,7 @@ import {
 	setRoomDocChange,
 } from '../editor-scenes';
 import { typingInto } from './flowKeys';
+import { zoneStampsOf } from './zoneArt';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 
@@ -238,13 +240,28 @@ import { stateApp } from './stateApp';
  * published editor art ships them (`game-config` `SALMONS_PROJECT_SHEETS`, by manifest key), else
  * from the built-in copy. A snapshot published before the project held them draws the built-in.
  */
-const salmonsArt = async (made: SalmonsRiverDrawing, seed: number, stains?: StainLook) =>
+const salmonsArt = async (
+	made: SalmonsRiverDrawing,
+	seed: number,
+	stains?: StainLook,
+	zoneArt?: SalmonsZoneArt,
+) =>
 	(await import('engine-layout/salmons-art')).loadSalmonsArt(
 		made,
 		seed,
 		editorArtSheetsWhere((key) => salmonsProjectSheetOf(key) !== undefined),
 		stains,
+		zoneArt,
 	);
+
+/** The zone art a generator's own art draws the room's zones with (`game/zoneArt.ts`); none for a
+ *  config with none, so the art draws as it does without. */
+function roomZoneArt(zones: OnlineGame['zones'], seed: number): SalmonsZoneArt | undefined {
+	const stamps = zoneStampsOf(zones, seed);
+	return stamps.length
+		? { stamps, assets: () => stateApp.loadedAssets as Record<string, unknown> | undefined }
+		: undefined;
+}
 
 /** How see-through a game draws its rules' marks (`arcade.online.rules.stains`, read off the
  *  baked config: `game-config` `onlineCarry.ts`). */
@@ -254,7 +271,12 @@ type StainLook = { opacity: number; trailOpacity: number };
 const FIELD_ART: Readonly<
 	Record<
 		string,
-		(made: SalmonsRiverDrawing, seed: number, stains?: StainLook) => Promise<SalmonsArt>
+		(
+			made: SalmonsRiverDrawing,
+			seed: number,
+			stains?: StainLook,
+			zoneArt?: SalmonsZoneArt,
+		) => Promise<SalmonsArt>
 	>
 > = {
 	salmonsRiver: salmonsArt,
@@ -786,8 +808,9 @@ export async function joinOnlineRoom(): Promise<void> {
 	session = current;
 	if (level?.adopted && authoring) showLevelsNotice(level.differs);
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
+	const stains = onlineStainsOf(bakedGameConfig());
 	if (loadArt && field && played.made && seed !== undefined)
-		loadArt(played.made, seed, onlineStainsOf(bakedGameConfig())).then(
+		loadArt(played.made, seed, stains, roomZoneArt(played.game.zones, seed)).then(
 			(art) => {
 				if (session !== current || left) return art.destroy();
 				current.art = art;

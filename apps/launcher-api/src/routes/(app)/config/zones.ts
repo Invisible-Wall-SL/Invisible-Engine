@@ -5,6 +5,7 @@ import {
 	type ArcadeOnlineSolid,
 	type ArcadeZone,
 	type GameConfigDoc,
+	zoneFamilyOf,
 } from 'game-config';
 import { MAX_SEED, validSeed } from '$lib/editor/generatedLevelCore';
 
@@ -146,11 +147,10 @@ export function countBy(labels: Iterable<string>): Group[] {
 		.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
-/** A zone id with its numbers as `#`, so `band12Water` and `band13Water` are one group. */
-export const idPattern = (id: string): string => id.replace(/\d+/g, '#');
-
+/** Zone ids grouped by family (`game-config` `zoneFamilyOf`: numbers as `#`, so `band12Water` and
+ *  `band13Water` are one group), as the Zone art card keys its entries. */
 export const zoneGroups = (zones: readonly { id: string }[]): Group[] =>
-	countBy(zones.map((z) => idPattern(z.id)));
+	countBy(zones.map((z) => zoneFamilyOf(z.id)));
 
 export const ruleGroups = (rules: readonly ZoneRuleLike[]): Group[] => countBy(rules.map(ruleWhat));
 

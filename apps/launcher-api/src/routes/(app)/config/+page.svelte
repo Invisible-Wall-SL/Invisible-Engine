@@ -1653,6 +1653,8 @@
 				{issuesFor}
 				readOnly={lease.readOnly}
 				projectKey={data.projectKey}
+				pickSheets={data.pickSheets}
+				clips={data.clips}
 			/>
 		{/if}
 

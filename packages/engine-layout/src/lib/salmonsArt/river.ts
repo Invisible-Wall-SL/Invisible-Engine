@@ -20,6 +20,7 @@ import { compassTile } from './regions';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
 import { TINT_ALPHA, tintOf, wetAt, type Wet } from './water';
+import { zoneFrames, type SalmonsZoneArt, type ZoneFrames } from './zoneArt';
 
 /**
  * SALMONS' RIVER IN ITS ORIGINAL ART: the river a room's seed made (`engine-mechanics`
@@ -45,7 +46,15 @@ import { TINT_ALPHA, tintOf, wetAt, type Wet } from './water';
  * and an upright thing that much higher. Under each waterfall's lip a cliff of `cliff.png` and the
  * falling water stand on its line, behind the ground at its foot. Animated parts tick on the app's
  * ticker. Only what the view holds is drawn (each piece is culled by its box).
+ *
+ * ZONE ART (`zoneArt.ts`, Game Config `arcade.zoneArt`): a rock or a whirlpool whose zone has a
+ * stamp is drawn with the stamp's picture in the built-in one's place, at its size times the
+ * stamp's scale; any other stamp stands upright on its zone, fitted inside it. Every other piece,
+ * and every seeded choice, is as without it.
  */
+
+/** The families whose built-in piece a stamp replaces; any other family's stamp is drawn too. */
+const REPLACED_FAMILIES = ['rock#', 'whirlpool#'];
 
 const FOREST_FLOOR = 0x28591e;
 const RIVERBED = [
@@ -283,6 +292,7 @@ export function mountSalmonsRiver(
 	river: SalmonsRiverDrawing,
 	seed: number | string,
 	projector: IsoProjector = ISO_PROJECTOR,
+	zoneArt?: SalmonsZoneArt,
 ): RiverArt {
 	const { project, unproject } = projector;
 	const flip = projector.ground.flip;
@@ -297,6 +307,17 @@ export function mountSalmonsRiver(
 	const region = (name: string) => {
 		used.set(name, (used.get(name) ?? 0) + 1);
 		return art.region(name);
+	};
+	const stamps = zoneArt?.stamps ?? [];
+	const byZone = new Map(stamps.map((s) => [s.zone, s]));
+	const assets = stamps.length ? zoneArt?.assets() : undefined;
+	/** A zone's stamp and its loaded frames; none ⇒ the built-in piece. */
+	const stampOf = (zone: string) => {
+		const stamp = byZone.get(zone);
+		const frames = stamp && zoneFrames(stamp.source, assets);
+		if (!stamp || !frames) return undefined;
+		used.set(`zoneArt:${stamp.family}`, (used.get(`zoneArt:${stamp.family}`) ?? 0) + 1);
+		return { stamp, frames };
 	};
 
 	const cols = Math.ceil(river.world.w / CELL);
@@ -594,14 +615,22 @@ export function mountSalmonsRiver(
 	}
 
 	const ticking: AnimatedSprite[] = [];
-	const clip = (prefix: string, fps: number, frame = 0) => {
-		const frames = [0, 1, 2, 3].map((i) => region(`${prefix}_${i}`));
+	const animate = (frames: Texture[], fps: number, frame = 0) => {
 		const sprite = new AnimatedSprite({ textures: frames, autoUpdate: false });
 		sprite.animationSpeed = fps / 60;
 		sprite.gotoAndPlay(((Math.floor(frame) % frames.length) + frames.length) % frames.length);
 		ticking.push(sprite);
 		return sprite;
 	};
+	const clip = (prefix: string, fps: number, frame = 0) =>
+		animate(
+			[0, 1, 2, 3].map((i) => region(`${prefix}_${i}`)),
+			fps,
+			frame,
+		);
+	/** A stamp's picture: a sprite of a sheet's frame, a clip's frames played on the ticker. */
+	const pictureOf = ({ textures, fps }: ZoneFrames, frame = 0): Sprite =>
+		textures.length > 1 ? animate(textures, fps, frame) : new Sprite(textures[0]);
 	function standUp(view: Container, box: Box) {
 		upright.addChild(view);
 		uprightCulled.push({ view, box });
@@ -716,9 +745,10 @@ export function mountSalmonsRiver(
 	});
 
 	river.whirlpools.forEach((pool, i) => {
-		const sprite = clip('whirlpool', WHIRLPOOL_FPS, i);
+		const own = stampOf(`whirlpool${i}`);
+		const sprite = own ? pictureOf(own.frames, i) : clip('whirlpool', WHIRLPOOL_FPS, i);
 		const at = placed(pool.x, pool.y);
-		const width = (WHIRLPOOL_W * pool.r) / 90;
+		const width = ((WHIRLPOOL_W * pool.r) / 90) * (own?.stamp.scale ?? 1);
 		const scale = width / sprite.texture.width;
 		sprite.anchor.set(0.5);
 		sprite.scale.set(scale * (pool.spin === -1 ? -1 : 1), scale * 0.5);
@@ -727,15 +757,37 @@ export function mountSalmonsRiver(
 		standUp(sprite, boxOf(sprite));
 	});
 
-	for (const rock of river.rocks ?? []) {
-		const texture = region(`rock_${Math.floor(random() * 9)}`);
-		const sprite = new Sprite(texture);
+	(river.rocks ?? []).forEach((rock, i) => {
+		// Both of a rock's seeded choices are drawn whatever draws it, so every piece after it is
+		// the same with or without zone art.
+		const variant = Math.floor(random() * 9);
+		const flipped = random() < 0.5;
+		const own = stampOf(`rock${i}`);
+		const sprite = own ? pictureOf(own.frames) : new Sprite(region(`rock_${variant}`));
 		const x = rock.x + rock.w / 2;
 		const y = rock.y + rock.h / 2;
 		const at = placed(x, y);
-		const scale = (ROCK_W * K) / texture.width;
+		const scale = (ROCK_W * K * (own?.stamp.scale ?? 1)) / sprite.texture.width;
 		sprite.anchor.set(0.5);
-		sprite.scale.set(random() < 0.5 ? -scale : scale, scale);
+		sprite.scale.set(flipped ? -scale : scale, scale);
+		sprite.position.set(at.x, at.y);
+		sprite.zIndex = zOf(x, y, Z.rock);
+		standUp(sprite, boxOf(sprite));
+	});
+
+	// Every other stamp, upright on its zone's centre, fitted inside the zone's box.
+	for (const { zone, family } of stamps) {
+		if (REPLACED_FAMILIES.includes(family)) continue;
+		const own = stampOf(zone);
+		if (!own) continue;
+		const { stamp, frames } = own;
+		const sprite = pictureOf(frames);
+		const x = stamp.x + stamp.w / 2;
+		const y = stamp.y + stamp.h / 2;
+		const at = placed(x, y);
+		const texture = sprite.texture;
+		sprite.anchor.set(0.5);
+		sprite.scale.set(Math.min(stamp.w / texture.width, stamp.h / texture.height));
 		sprite.position.set(at.x, at.y);
 		sprite.zIndex = zOf(x, y, Z.rock);
 		standUp(sprite, boxOf(sprite));

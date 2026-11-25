@@ -16,6 +16,7 @@ export * from './src/touchScheme';
 export * from './src/levelsShape';
 export * from './src/onlineCarry';
 export * from './src/salmonsProjectArt';
+export * from './src/zoneArt';
 export * from './src/familySections';
 export * from './src/mechanics';
 export * from './src/freeSpins';

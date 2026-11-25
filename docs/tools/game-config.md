@@ -424,6 +424,30 @@ has no family control at all. Three more families exist
     uploaded config does until it is exported again without them). No room plays them. The
     section says how many are stored, and the chevron beside it (**Show the snapshot**) opens them
     read-only, 50 at a time with a filter; nothing of them is drawn until it is opened.
+- **Zone art** — what each zone family is drawn with
+  ([zone-art.md](../design/zone-art.md)). The card shows for an arcade config with zones, its own
+  or a generator's (the level on the zone map). Hover its title for what it does. One row per
+  family: the zone ids with their numbers as `#` (`rock# × 41`), as the Zones chips group them.
+  - **Drawn with:** **Not drawn** (the family draws as it does today), **Sheet frame** (the Scene
+    Editor's region picker, over the project's sheets), or **Flipbook clip** (a list of the
+    project's clips; greyed out when the project has none). Clips have an optional **fps** (blank:
+    the clip's own). A thumbnail of the frame, or of the clip's first frame, sits beside it.
+  - **＋ Variant** adds a picture, a copy of the first, to change (at most 8). Each zone draws one
+    of the pictures, chosen by the room's seed and the zone, the same on every device. A variant's
+    **Remove variant** takes it out. Setting the first picture to **Not drawn** moves the first
+    variant up.
+  - **Scale** (blank: 1; 0.05–20) multiplies the fitted size. Each picture is centred on its zone
+    and fitted inside it, with its own ratio kept. In Salmons' river a rock's or a whirlpool's
+    picture replaces the built-in one at its size times the scale. Any other family's picture
+    stands on its zone.
+  - **The bin** removes the family's entry, so it draws as before.
+  - **Show rule-only zones** (Salmons' generators only): the families its art never draws (walls
+    and currents such as `band#Water` and `waterfall#Bear`) are hidden until it is ticked.
+  - A family that no stored zone has is listed in amber, and the save warns that it is never
+    drawn. A generated level is not checked: its families depend on the seed.
+  - The art is for the eye only: it changes no rule and no level, and a room does not check it.
+    The frames and clips it names ship with the game though no scene places them. Raw JSON keeps
+    a pasted `arcade.zoneArt`.
 - **Card game** — the duel's rules
   ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
   default:

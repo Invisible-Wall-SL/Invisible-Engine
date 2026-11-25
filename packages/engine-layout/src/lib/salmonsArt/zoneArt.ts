@@ -1,0 +1,44 @@
+import { DEFAULT_FLIPBOOK_FPS, resolveClipFrames } from 'engine-flipbook';
+import type { ZoneArtSource, ZoneStamp } from 'game-config';
+import type { Texture } from 'pixi.js';
+
+import { editorArtTextureKey } from '../editorArtKey';
+import { resolveFlipbook } from '../registerFlipbooks';
+
+/**
+ * THE ZONE ART A SALMONS RIVER IS DRAWN WITH (`docs/design/zone-art.md`): the room's zone stamps
+ * (`game-config` `zoneArtStamps` of the room's own zones) and the game's loaded assets, read when
+ * the river mounts. `river.ts` draws a rock or a whirlpool whose zone has a stamp with the stamp's
+ * picture in the built-in one's place, and any other stamp upright on its zone. A zone with no
+ * stamp, or one whose picture is not loaded, draws as the built-in art does.
+ */
+export type SalmonsZoneArt = {
+	stamps: readonly ZoneStamp[];
+	/** The game's loaded assets (`pixi-svelte` `stateApp.loadedAssets`). */
+	assets: () => Record<string, unknown> | undefined;
+};
+
+/** A stamp's picture as the river draws it: its frames (one for a sheet's frame) and their rate. */
+export type ZoneFrames = { textures: Texture[]; fps: number };
+
+/** `source`'s frames among `assets`, or `undefined` while any is missing (the built-in draws). */
+export function zoneFrames(
+	source: ZoneArtSource,
+	assets: Record<string, unknown> | undefined,
+): ZoneFrames | undefined {
+	if (source.kind === 'sprite') {
+		const at = source.region.indexOf('::');
+		const texture = assets?.[
+			editorArtTextureKey(source.region.slice(0, at), source.region.slice(at + 2))
+		] as Texture | undefined;
+		return texture ? { textures: [texture], fps: 0 } : undefined;
+	}
+	const clip = resolveFlipbook(source.clip);
+	if (!clip) return undefined;
+	const { textures, missing } = resolveClipFrames(clip, assets);
+	if (missing.length || !textures.length) return undefined;
+	return {
+		textures: textures as Texture[],
+		fps: source.fps ?? clip.fps ?? DEFAULT_FLIPBOOK_FPS,
+	};
+}

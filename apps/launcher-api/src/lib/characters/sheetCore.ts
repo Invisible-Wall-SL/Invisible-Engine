@@ -21,6 +21,7 @@ import {
 	validateGameConfigDoc,
 	validateSlide,
 	validateTouchSchemes,
+	validateZoneArt,
 	type CharacterCell,
 	type CharacterSheet,
 	type CharacterSource,
@@ -51,6 +52,7 @@ export const savedIssues = (
 			...validateCharacterSheets(doc, { projection }),
 			...validateTouchSchemes(doc),
 			...validateSlide(doc),
+			...validateZoneArt(doc),
 		],
 		doc,
 	);

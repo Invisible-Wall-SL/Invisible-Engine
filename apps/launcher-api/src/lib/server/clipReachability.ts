@@ -22,7 +22,12 @@ import {
 	type ComponentDef,
 	type LayoutDoc,
 } from 'engine-layout';
-import { characterSheetClipRoots, usesSalmonsArt, type GameConfigDoc } from 'game-config';
+import {
+	characterSheetClipRoots,
+	usesSalmonsArt,
+	zoneArtClipRoots,
+	type GameConfigDoc,
+} from 'game-config';
 import { createSingleFlight, mapWithConcurrency } from './concurrency';
 
 /** Width for the per-effect load inside the reachability walk. Small reads, no page buffers, so it
@@ -125,7 +130,8 @@ export function clipIdsOfPrefixes(prefixes: Iterable<string>, clipIds: Iterable<
  * component def names is played ({@link collectClipPrefixes}), and so is one under a prefix the
  * runtime plays for this game's config without a component naming it ({@link builtinClipPrefixes}).
  * A character sheet in the game config (`game-config` `characterSheet.ts`) names clips both ways:
- * its prefix and its variants' prefixes, and the clip of each `anim` cell by id.
+ * its prefix and its variants' prefixes, and the clip of each `anim` cell by id. A zone family's
+ * picture (`arcade.zoneArt`) names its clip by id.
  *
  * A clip played only from a game's own TypeScript is invisible here. That is the known limit, and
  * why an unreferenced clip is REPORTED by its caller rather than silently dropped.
@@ -193,6 +199,7 @@ async function collectPlayedClipIdsUncached(
 		for (const id of referencedClipIds(rigFlipbooks)) ids.add(id);
 		const sheetRoots = characterSheetClipRoots(gameConfig.doc);
 		for (const id of sheetRoots.clipIds) ids.add(id);
+		for (const id of zoneArtClipRoots(gameConfig.doc)) ids.add(id);
 		const prefixes = new Set<string>([
 			...builtinClipPrefixes(gameConfig.doc),
 			...sheetRoots.prefixes,

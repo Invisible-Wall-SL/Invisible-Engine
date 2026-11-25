@@ -20,6 +20,7 @@ import { createWading, type WadeDrawn, type WadeFrame } from './wade';
 import { wadeSurface, warmWade } from './wadeFilter';
 import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';
+import type { SalmonsZoneArt } from './zoneArt';
 
 /**
  * SALMONS' ORIGINAL ART, BUILT IN (`engine-layout/salmons-art`): the river and the characters
@@ -41,6 +42,7 @@ export type {
 	RiverListing,
 	SalmonsScreenHost,
 	SalmonsScreens,
+	SalmonsZoneArt,
 	StainList,
 	WadeDrawn,
 	WadeFrame,
@@ -101,13 +103,15 @@ export type SalmonsArt = {
 /**
  * Load the art and make the kit that draws `river` (a room's own, from its `seed`): each region
  * from the project's published sheets (`sheets`) when they ship it, else the built-in copy.
- * `stains` is how see-through the game's config draws the blood (`arcade.online.rules.stains`).
+ * `stains` is how see-through the game's config draws the blood (`arcade.online.rules.stains`);
+ * `zoneArt` the room's zone stamps (Game Config `arcade.zoneArt`), none ⇒ the built-in art alone.
  */
 export async function loadSalmonsArt(
 	river: SalmonsRiverDrawing,
 	seed: number,
 	sheets: readonly ProjectSheet[] = [],
 	stains?: { opacity?: number; trailOpacity?: number },
+	zoneArt?: SalmonsZoneArt,
 ): Promise<SalmonsArt> {
 	const textures = await loadSalmonsTextures(sheets);
 	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
@@ -124,7 +128,15 @@ export async function loadSalmonsArt(
 	let live = 0;
 	return {
 		river: (into, app) => {
-			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
+			const art = mountSalmonsRiver(
+				into,
+				app,
+				textures,
+				river,
+				seed,
+				worldDrawing().projector,
+				zoneArt,
+			);
 			const stains = blood.mount(into, app);
 			warmWade(app);
 			// The swimming salmon, and the trail and the stains on the water over it: over the tinted
