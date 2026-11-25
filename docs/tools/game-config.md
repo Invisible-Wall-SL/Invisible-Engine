@@ -244,6 +244,11 @@ has no family control at all. Three more families exist
     every bot have the box alone. Empty: every device has the box alone. A max smaller than the
     box on a side is played as the box's size there, and the section says so. The ⓘ beside the
     width says the same.
+  - **Slide round corners (px)** (empty: off; 1–512) — a player stopped by a solid (a zone a zone
+    rule makes solid: a bank, a rock) that ends within this many field px of the player is carried
+    round that end instead of stopping, so it follows a bank drawn as a stair of zones and rounds
+    a rock's corner. A push straight into a solid that goes on further still stops. Empty, players
+    stop at a corner as before. The ⓘ beside it says the same.
   - **Characters** — what a player can be: its id, the **Body** (one from the Arcade section),
     **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
     (`x, y; x, y`, taken in turn; empty for the room's spawn). For a class the bots give a
@@ -358,6 +363,25 @@ has no family control at all. Three more families exist
     (1000). A **hook** hooks only the nearest target and hands it to the rules module's line
     (`fishingLine` or `salmons`: reeled in, then caught for Holds ms, Score at the landing); with
     no such module it does nothing, and the section warns.
+  - **Hold and throw** — under the table, each **hook** ability has a checkbox, **_character_'s
+    hook holds its catch, then throws it**. Ticked, the player the line lands is not out: it is
+    alive in the user's hands, where nobody else can hit it. The user's next press of the ability
+    (a click or a tap anywhere) throws it there; it is out where it lands, and the ability scores
+    then. Unticked, it is out as soon as it is landed. Ticked, four more fields show; an empty one
+    plays its default:
+    - **Held for (ms)** (4000; 500–60000) — how long it stays in the hands when it is not thrown.
+      After that it is dropped where its holder stands, and is out there. It is dropped at once
+      if its holder is caught or leaves.
+    - **Throw up to (px)** (384; 1–2000) — the furthest it is thrown, in field px from the
+      holder. A click further away lands this far, in that direction.
+    - **Flight (ms)** (600; 100–5000) — how long it is in the air, whatever the distance.
+    - **Walks while holding** (ticked) — unticked, the holder stands still until it throws or
+      drops what it holds.
+  - **Marks on the field** — how the marks the rules leave are drawn (Salmons: a pool of blood
+    where a salmon died). **Mark opacity** (0.3, which is 70 % transparent) runs from 0 (not
+    drawn) to 1 (solid); a mark is drawn on top of the water. **Trail opacity** (0.3) is how solid
+    the trail is where it starts (Salmons: the blood a salmon carries off after swimming through
+    a pool); it fades from there. Drawing only: the server does not read them.
   - **A generated game's zone rules** (Salmons') are not edited here: each room's generator makes
     them with the zones (see **A field per room**). The section says so and counts what the level
     on the zone map has, grouped by what they do (`solid × 852`, `kind sandbank × 318`, …), with a

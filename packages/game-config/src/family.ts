@@ -1,5 +1,7 @@
 import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
+import type { ArcadeOnlineCarry, ArcadeOnlineStains, ResolvedArcadeCarry } from './onlineCarry';
+import type { ArcadeOnlineSlide } from './onlineSlide';
 import type { ArcadeOnlineTouch } from './touchScheme';
 import type { GameConfigDoc } from './types';
 
@@ -201,6 +203,9 @@ export type ArcadeOnlineAbility = {
 	/** Used once per press of its button (held, it is not used again) ⇒ true. Absent ⇒ every step it
 	 *  is held and off cooldown. */
 	onPress?: boolean;
+	/** A `hook`'s second step: the target its line lands is held by its user, then thrown.
+	 *  Carried past the normalizer, which drops it: read it off the raw doc with `onlineCarry.ts`. */
+	carry?: ArcadeOnlineCarry;
 };
 
 /** An offline ability (`arcade.abilities`, P11.5): the online one's shape, its `character` and
@@ -307,6 +312,9 @@ export type ArcadeOnlineRules = {
 	respawn?: ArcadeOnlineRespawn;
 	/** A named rules module the room also runs. */
 	module?: string;
+	/** How the module's marks on the field are drawn. Carried past the normalizer, which drops it:
+	 *  read it off the raw doc with `onlineCarry.ts`. */
+	stains?: ArcadeOnlineStains;
 };
 
 /** How a caught player comes back. */
@@ -395,6 +403,10 @@ export type ArcadeOnline = {
 	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
 	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
 	keys?: 'screen';
+	/** A player stopped by a solid slides round its end (`onlineSlide.ts`). Carried past the
+	 *  normalizer, which drops it: read it off the raw doc with `slideOf`. Absent ⇒ it stops
+	 *  there, as every online game did before the setting. */
+	slide?: ArcadeOnlineSlide;
 };
 
 /**
@@ -539,18 +551,23 @@ export const resolveArcade = (
 
 /** An ability with its defaults, held to the limits a room holds it to. */
 export type ResolvedArcadeAbility = Required<
-	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress'>
+	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress' | 'carry'>
 > & {
 	score: number;
 	ahead?: number;
 	onPress?: boolean;
+	/** Only on a game made with `onlineCarry.ts` `onlineGameWithCarry` (the game server's). */
+	carry?: ResolvedArcadeCarry;
 };
 
 function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
 	const d = ARCADE_ONLINE_RULE_DEFAULTS;
 	const L = ARCADE_ONLINE_LIMITS;
+	// A normalized doc has no `carry` (the normalizer drops it; `onlineCarry.ts` resolves it). One
+	// that was never normalized passes its authored one through, which the rules do not play
+	// (`engine-mechanics` `salmonsRules.js` `carryOf`). The cast is types only: the same bytes.
 	return {
-		...a,
+		...(a as Omit<ArcadeOnlineAbility, 'carry'>),
 		reach: within(a.reach, L.reach),
 		ms: within(a.ms ?? d.effectMs, L.effectMs),
 		score: Math.round(within(a.score ?? 0, L.score)),
@@ -688,11 +705,22 @@ export function onlineTestSizeRange(online: Pick<ArcadeOnline, 'maxPlayers' | 'b
 export type ResolvedArcadeOnline = Required<
 	Omit<
 		ArcadeOnline,
-		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys' | 'touch'
+		| 'spawn'
+		| 'rules'
+		| 'bots'
+		| 'nearby'
+		| 'generator'
+		| 'levels'
+		| 'pointer'
+		| 'keys'
+		| 'touch'
+		| 'slide'
 	>
 > & {
 	/** Absent ⇒ the world's axes. */
 	keys?: 'screen';
+	/** Absent ⇒ no slide. Put on by `withOnlineSlide` (`onlineSlide.ts`) from the raw doc. */
+	slide?: ArcadeOnlineSlide;
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };

@@ -2,7 +2,9 @@
  * `scripts/salmons/export.mjs` writes the documents a person uploads to the `salmons` project. The
  * launcher only finds them at its own keys (`projectComponentKey` lowercases `salmonsBear` to
  * `salmonsbear`), so this runs the export and holds every key it writes to the launcher's, and the
- * export's copy of `r2Slug` to the launcher's.
+ * export's copy of `r2Slug` to the launcher's. The config it writes carries the slide of the
+ * original's levels (`arcade.online.slide`, which the normalizer drops), and the launcher's save
+ * of that file keeps it: it is what a room and a device read.
  *
  * The config it writes carries no zones (owner, 2026-11-24): every room's are its generator's, so
  * this holds the game a room plays from it to the one it plays from the config with the scene's
@@ -21,15 +23,28 @@ import { ONLINE_GENERATORS, generatedOnlineGame } from 'engine-mechanics';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	onlineGameWithCarry,
+	resolveSlide,
+	shapedOnlineGame,
+	slideOf,
 	validateGameConfigDoc,
+	withLevelsShape,
+	withOnlineCarry,
+	withOnlineSlide,
+	withSlide,
 	withTouchSchemes,
 	type GameConfigDoc,
 	type OnlineGame,
 } from 'game-config';
 import { SALMONS_CHARACTER_COMPONENTS } from '../../../packages/engine-layout/src/lib/referenceLayouts/salmons';
-import { SALMONS_LOBBY, salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_LEVELS,
+	SALMONS_LOBBY,
+	salmonsConfig,
+} from '../../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
+	levelShape,
 	salmonsMapRiver,
 } from '../../../packages/engine-mechanics/src/salmonsMap.js';
 import { r2Slug as exportSlug } from '../../../scripts/salmons/r2Slug.mjs';
@@ -40,6 +55,7 @@ import {
 	projectComponentKey,
 	r2Slug,
 } from '../src/lib/server/projectPaths';
+import { prepareGameConfigDoc } from '../src/lib/server/gameConfigStorage';
 
 const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 let passed = 0;
@@ -102,6 +118,23 @@ try {
 		written.size === expected.length,
 		[...written].filter((key) => !expected.includes(key)).join(', '),
 	);
+	const config: unknown = JSON.parse(
+		readFileSync(join(out, gameConfigDocKey(client, project)), 'utf8'),
+	);
+	const SLIDE = JSON.stringify({ corner: 168 });
+	check(
+		'the exported config carries the slide of the original’s levels',
+		JSON.stringify(slideOf(config)) === SLIDE,
+		JSON.stringify(slideOf(config)),
+	);
+	const saved = prepareGameConfigDoc(config);
+	check(
+		'the launcher’s save of it keeps the slide, as a room plays it, with no warning of it',
+		JSON.stringify(saved.doc.arcade?.online?.slide) === SLIDE &&
+			JSON.stringify(resolveSlide(saved.doc)) === SLIDE &&
+			!saved.warnings.some((issue) => issue.path.startsWith('arcade.online.slide')),
+		JSON.stringify([saved.doc.arcade?.online?.slide, saved.warnings]),
+	);
 	check(
 		'a component key is the lowercased id (salmonsBear → salmonsbear)',
 		SALMONS_CHARACTER_COMPONENTS.some((def) => def.id !== def.id.toLowerCase()) &&
@@ -115,9 +148,20 @@ try {
 // The config as the export wrote it until 2026-11-24, with the zones and zone rules of the scene's
 // level (`SALMONS_MAP_SEED`): what `salmonsConfig` still makes.
 const shipped: GameConfigDoc = JSON.parse(configText);
-const authored = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED), { lobby: SALMONS_LOBBY });
+const authored = salmonsConfig(
+	salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS)),
+	{ lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS },
+);
 const snapshot: GameConfigDoc = JSON.parse(
-	JSON.stringify(withTouchSchemes(normalizeGameConfigDoc(authored), authored)),
+	JSON.stringify(
+		withLevelsShape(
+			withSlide(
+				withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
+				authored,
+			),
+			authored,
+		),
+	),
 );
 const zonesOf = (doc: GameConfigDoc) => [doc.arcade?.zones, doc.arcade?.online?.rules?.zones];
 check(
@@ -156,12 +200,16 @@ check(
 	JSON.stringify(issues),
 );
 
-// As the game server (`configSource.ts`) and a device (`online.ts`) read a config.
+// As the game server reads a config (`configSource.ts` `parse`): the slide, the levels' shape and a
+// hook's carry are read off the raw doc.
 const playedOf = (doc: GameConfigDoc, size?: number) =>
-	onlineGameOf(normalizeGameConfigDoc(doc) ?? null, size ? { size } : {});
+	shapedOnlineGame(
+		withOnlineSlide(onlineGameOf(normalizeGameConfigDoc(doc) ?? null, size ? { size } : {}), doc),
+		doc,
+	);
 const played = (doc: GameConfigDoc, size?: number): OnlineGame | undefined => {
 	const game = playedOf(doc, size);
-	return game && !('refused' in game) ? game : undefined;
+	return game && !('refused' in game) ? onlineGameWithCarry(game, doc) : undefined;
 };
 check('onlineGameOf plays it', !!played(shipped), JSON.stringify(playedOf(shipped)));
 const unzoned = (game: OnlineGame | undefined) =>

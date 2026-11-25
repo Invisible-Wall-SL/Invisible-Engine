@@ -137,6 +137,18 @@ export function setNearbyMax(doc: GameConfigDoc, w: string, h: string): void {
 	else delete nearby.max;
 }
 
+/** How near a solid's end a stopped player is carried round it (`arcade.online.slide.corner`,
+ *  field px): a positive number, or none (empty or unreadable: players stop at a corner). The
+ *  normalizer drops the block and the save carries it (`game-config` `onlineSlide.ts`), so this
+ *  writes its stored form, `slideOf`'s. */
+export function setSlideCorner(doc: GameConfigDoc, value: string): void {
+	const online = onlineOf(doc);
+	if (!online) return;
+	const corner = positive(value);
+	if (corner !== undefined) online.slide = { corner };
+	else delete online.slide;
+}
+
 /** Mouse and touch control of the own player (`arcade.online.pointer`): on makes an empty block
  *  (every default), off deletes it. */
 export function setPointerOn(doc: GameConfigDoc, on: boolean): void {
@@ -333,6 +345,7 @@ function pruneRules(online: ArcadeOnline): void {
 	if (rules.zones && !rules.zones.length) delete rules.zones;
 	if (rules.abilities && !rules.abilities.length) delete rules.abilities;
 	if (rules.round && !Object.keys(rules.round).length) delete rules.round;
+	if (rules.stains && !Object.keys(rules.stains).length) delete rules.stains;
 	if (!Object.keys(rules).length) delete online.rules;
 }
 
@@ -461,6 +474,7 @@ export function setAbilityField(
 	} else if (field === 'effect') {
 		if (value === 'catch' || value === 'stun' || value === 'hook')
 			ability.effect = value as ArcadeOnlineHitEffect;
+		if (ability.effect !== 'hook') delete ability.carry;
 	} else if (field === 'reach') {
 		const n = positive(value);
 		if (n !== undefined) ability.reach = n;
@@ -476,6 +490,50 @@ export function setAbilityField(
 		if (n === undefined) delete ability[field];
 		else ability[field] = n;
 	}
+}
+
+/** Whether a `hook` ability holds what its line lands and then throws it (its `carry`, at the
+ *  defaults when turned on). Another effect has none. */
+export function setAbilityCarry(doc: GameConfigDoc, index: number, on: boolean): void {
+	const ability = onlineOf(doc)?.rules?.abilities?.[index];
+	if (!ability) return;
+	if (on && ability.effect === 'hook') ability.carry ??= {};
+	else delete ability.carry;
+}
+
+/** One field of a `carry`: `holdMs`, `throwPx` and `flightMs` positive, empty for the default;
+ *  `walk` on (the default, not stored) or off. */
+export function setCarryField(
+	doc: GameConfigDoc,
+	index: number,
+	field: 'holdMs' | 'throwPx' | 'flightMs' | 'walk',
+	value: string | boolean,
+): void {
+	const carry = onlineOf(doc)?.rules?.abilities?.[index]?.carry;
+	if (!carry) return;
+	if (field === 'walk') {
+		if (value === false) carry.walk = false;
+		else delete carry.walk;
+		return;
+	}
+	const n = positive(String(value));
+	if (n === undefined) delete carry[field];
+	else carry[field] = n;
+}
+
+/** How see-through the rules' marks are drawn (`rules.stains`): 0 to 1, empty for the default. */
+export function setStainField(
+	doc: GameConfigDoc,
+	field: 'opacity' | 'trailOpacity',
+	value: string,
+): void {
+	const online = onlineOf(doc);
+	if (!online) return;
+	const n = atLeastZero(value);
+	const stains = (rulesOf(online).stains ??= {});
+	if (n === undefined) delete stains[field];
+	else stains[field] = Math.min(1, n);
+	pruneRules(online);
 }
 
 /** One number of the round: `seconds` positive (empty: until the goal), `nextRoundSeconds` from 0,

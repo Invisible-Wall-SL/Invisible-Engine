@@ -61,6 +61,7 @@ import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
 	resolveArcade,
+	onlineGameWithCarry,
 } from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
@@ -820,7 +821,8 @@ const salmonsGame = (() => {
 	delete doc.arcade.online.bots;
 	const game = onlineGameOf(normalizeGameConfigDoc(doc));
 	assert.ok(game && !('refused' in game), 'Salmons is an online game');
-	return game;
+	// As the game server plays it (`configSource.ts`): the hook's `carry` off the raw doc.
+	return onlineGameWithCarry(game, doc);
 })();
 const thousandths = (v) => Math.round(v * 1000) / 1000;
 
@@ -945,10 +947,13 @@ const TRACES = (() => {
 			],
 			runs: [
 				// A cast onto the bank is refused; then one at the water past b hooks b (the first
-				// salmon near the bobber), drags it in and lands it; b taps jump all the while.
+				// salmon near the bobber), drags it in and lands it into his hands; b taps jump all
+				// the while. His next press throws b back onto the water, where it dies; the one
+				// after is a cast again, and hooks a.
 				['f', 21, 21, 0, 0, BUTTONS.ability1, 0, lineBand.left - 120, mid],
 				['f', 31, 31, 0, 0, BUTTONS.ability1, 0, lineBand.left + 260, mid],
 				['f', 32, 32, 0, 0, BUTTONS.ability1, 0, lineBand.left + 120, mid],
+				['f', 100, 100, 0, 0, BUTTONS.ability1, 0, lineBand.left + 120, mid + 60],
 				['f', 140, 140, 0, 0, BUTTONS.ability1, 0, lineBand.left + 120, mid],
 				['a', 1, 200, 0, HOVER],
 				['b', 1, 30, 0, HOVER],
@@ -1041,32 +1046,44 @@ await check('Salmons: a sandbank grounds a salmon until it jumps, and not again 
 });
 
 await check(
-	'Salmons: the line is cast at the water, hooks the first salmon by its bobber, drags it in and lands it',
+	'Salmons: the line is cast at the water, hooks the first salmon by its bobber, drags it into his hands, and he throws it',
 	() => {
 		const { result } = played.line;
 		const kinds = result.events
-			.filter((e) => ['hooked', 'caught', 'escaped', 'respawned'].includes(e.type))
+			.filter((e) =>
+				['hooked', 'held', 'thrown', 'landed', 'caught', 'escaped', 'respawned'].includes(e.type),
+			)
 			.map((e) => [e.type, e.by ?? e.id, e.target ?? e.character, e.effect ?? '']);
 		assert.deepEqual(kinds, [
 			['hooked', 'f', 'b', ''],
+			['held', 'f', 'b', ''],
+			['thrown', 'f', 'b', ''],
+			['landed', 'f', 'b', ''],
 			['caught', 'f', 'b', 'hook'],
 			['hooked', 'f', 'a', ''],
 			['respawned', 'b', 'fisherman', ''],
-			['caught', 'f', 'a', 'hook'],
+			['held', 'f', 'a', ''],
 		]);
 		const casts = result.events.filter((e) => e.type === 'ability' && e.by === 'f');
 		assert.deepEqual(
 			casts.map((e) => e.step),
-			[31, 140],
-			'a cast onto the bank, or while the line is out, is refused',
+			[31, 100, 140],
+			'a cast onto the bank, or while the line is out, is refused; the throw is a use too',
 		);
 		assert.equal(result.events.find((e) => e.type === 'hooked').step, 31);
 		assert.equal(at(result, 'b', 40).status, STATUS.hooked, 'no taps shake the hook');
 		assert.ok(at(result, 'b', 40).x < at(result, 'b', 30).x, 'dragged towards the bank');
-		assert.equal(result.end.f.score, 2, '+1 a landing');
+		const held = result.events.find((e) => e.type === 'held');
+		const thrown = result.events.find((e) => e.type === 'thrown');
+		const landed = result.events.find((e) => e.type === 'landed');
+		assert.equal(at(result, 'b', 60).status, STATUS.held, 'landed alive, in his hands');
+		assert.ok(held.step < 60 && thrown.step === 100);
+		assert.equal(at(result, 'b', 110).status, STATUS.thrown, 'in the air');
+		assert.equal(landed.step, 100 + Math.round(0.6 * 30), 'down after the flight');
+		assert.equal(result.end.f.score, 1, '+1 a death: none for the one still in his hands');
 		assert.equal(result.end.b.character, 'fisherman', 'b came back as the class it picked');
 		assert.equal(result.end.b.status, STATUS.free);
-		assert.equal(result.end.a.status, STATUS.out, 'caught, a waits for its Respawn');
+		assert.equal(result.end.a.status, STATUS.held, 'a is in his hands as the trace ends');
 		assert.equal(result.end.f.line, null, 'the line is home');
 	},
 );
@@ -1218,7 +1235,7 @@ await check(
 );
 
 await check(
-	'Salmons: a caught salmon leaves a bloodstain where it died; a landed one where it was hooked',
+	'Salmons: a caught salmon leaves a bloodstain where it died; a thrown one where it lands',
 	() => {
 		const stainsOf = (trace) => {
 			let before = new Map();
@@ -1248,22 +1265,23 @@ await check(
 		assert.equal(golden.expected.length, 3, 'the bear catches three');
 		assert.deepEqual(golden.room.rules.stains.list, golden.expected, 'one where each was caught');
 		assert.equal(golden.room.rules.stains.made, 3);
+		// The fisherman's catch is carried (the hook's `carry`): no stain where it was hooked nor
+		// on the bank it was reeled onto; one where he threw it, when it lands. The one still in
+		// his hands as the trace ends has left none. (A hook with no carry stains where it hooked:
+		// `check:salmons-throw`.)
 		const line = stainsOf(TRACES.line);
-		assert.equal(line.landings.length, 2, 'two landed');
+		assert.equal(line.expected.length, 2, 'two hooked');
+		assert.equal(line.landings.length, 1, 'one thrown and landed');
 		const stains = line.room.rules.stains.list;
-		assert.equal(stains.length, 2, 'one stain a landing');
-		stains.forEach((stain, i) => {
-			// Where the bobber hooked it: within a step's move of where it was the step before.
-			const was = line.expected[i];
+		assert.equal(stains.length, 1, 'one stain: the one that died');
+		assert.deepEqual(stains[0], line.landings[0], 'where it landed');
+		const thrownAt = TRACES.line.runs.find((run) => run[0] === 'f' && run[1] === 100);
+		assert.deepEqual(stains[0], { x: thrownAt[7], y: thrownAt[8] }, 'which is where he threw it');
+		for (const was of line.expected)
 			assert.ok(
-				Math.hypot(stain.x - was.x, stain.y - was.y) < 20,
-				`stain ${i} where it was hooked`,
+				Math.hypot(stains[0].x - was.x, stains[0].y - was.y) > 20,
+				'not where either was hooked',
 			);
-			assert.ok(
-				stain.x > line.landings[i].x + LINE.landCells * 48,
-				'not on the bank it was reeled onto',
-			);
-		});
 		for (const name of ['climb', 'sandbank'])
 			assert.equal(stainsOf(TRACES[name]).room.rules.stains.made, 0, `${name}: no catch, no stain`);
 	},
@@ -1320,6 +1338,7 @@ await check(
 					sim.game.online.rules.zones,
 					player.character.id,
 					sim.game.field,
+					sim.game.online.slide,
 				),
 			});
 		const devices = { s: device(fish), k: device(bear) };

@@ -574,9 +574,11 @@ plays, as before. The converter never writes a hold, so a converted block plays 
 | `flow` | A Flow node, *Play character action* (new, presentation only) | yes | yes | yes |
 
 Built in C2a, for an online room: `motion` (`still`, `moving`), `ability`, `event` and `status`.
-An event's user is the room event's `player`, or its `by` (`hit`, `caught`, `hooked`, `escaped`
-name their user so); `as: 'target'` is its `target`. The statuses a room feeds are `holding`,
-`marked` and the room status' name (`free`, `stunned`, `out`, `grounded`, `hooked`). The other
+An event's user is the room event's `player`, or its `by` (`hit`, `caught`, `hooked`, `escaped`,
+`held`, `thrown`, `landed` name their user so); `as: 'target'` is its `target`. The statuses a
+room feeds are `holding`, `carrying` (while a `hook` with a `carry` has a catch in the
+character's hands), `marked` and the room status' name (`free`, `stunned`, `out`, `grounded`,
+`hooked`, `held`, `thrown`). The other
 movement states, `brain` and `flow` arrive with C4.
 
 ### 12.7 Draw box, attach points, variants

@@ -91,11 +91,15 @@ import {
 	ARCADE_TOUCH_DEFAULTS,
 	ARCADE_TOUCH_LIMITS,
 	ARCADE_TOUCH_PRESETS,
+	slideOf,
 	touchOf,
 	withCharacterSheets,
+	withOnlineCarry,
+	withSlide,
 	withTouchSchemes,
 	type ConfigSection,
 	type GameConfigDoc,
+	type GameConfigIssue,
 } from 'game-config';
 import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import { kindCapabilities, type KindCapabilities } from 'engine-layout';
@@ -283,7 +287,9 @@ const step = (
 	expect?: (d: GameConfigDoc) => boolean,
 ) => {
 	edit(doc);
-	const stored = normalizeGameConfigDoc(structuredClone(doc));
+	// A save stores the normalized doc with the rules' `carry` and `stains` carried past it
+	// (`gameConfigStorage.ts` `withStoredBlocks`).
+	const stored = withOnlineCarry(normalizeGameConfigDoc(structuredClone(doc)), doc);
 	check(
 		`2. ${label}: the page holds what a save stores`,
 		JSON.stringify(canonical(stored)) === JSON.stringify(canonical(doc)),
@@ -737,6 +743,47 @@ step(
 			!('cooldownMs' in a)
 		);
 	},
+);
+step(
+	'a hook holds its catch and throws it: on at the defaults, each field, and off with the effect',
+	(d) => {
+		// Only a hook has a carry.
+		onlineDoc.setAbilityCarry(d, 0, true);
+		const refused = d.arcade?.online?.rules?.abilities?.[0].carry === undefined;
+		onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+		onlineDoc.setAbilityCarry(d, 0, true);
+		const on = JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) === '{}';
+		onlineDoc.setCarryField(d, 0, 'holdMs', '6000');
+		onlineDoc.setCarryField(d, 0, 'throwPx', '500');
+		onlineDoc.setCarryField(d, 0, 'flightMs', '-3');
+		onlineDoc.setCarryField(d, 0, 'walk', false);
+		const set =
+			JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) ===
+			'{"holdMs":6000,"throwPx":500,"walk":false}';
+		onlineDoc.setCarryField(d, 0, 'holdMs', '');
+		onlineDoc.setCarryField(d, 0, 'walk', true);
+		const cleared =
+			JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) === '{"throwPx":500}';
+		// Another effect has no carry: changing the effect drops it.
+		onlineDoc.setAbilityField(d, 0, 'effect', 'stun');
+		if (!(refused && on && set && cleared)) throw new Error('carry edits');
+	},
+	(d) => !('carry' in (d.arcade?.online?.rules?.abilities?.[0] ?? { carry: 1 })),
+);
+step(
+	'how see-through the marks are drawn: 0 to 1, empty for the default',
+	(d) => {
+		onlineDoc.setStainField(d, 'opacity', '0.5');
+		onlineDoc.setStainField(d, 'trailOpacity', '7');
+		onlineDoc.setStainField(d, 'opacity', '');
+		onlineDoc.setStainField(d, 'opacity', '-1');
+	},
+	(d) => JSON.stringify(d.arcade?.online?.rules?.stains) === '{"trailOpacity":1}',
+);
+step(
+	'…and cleared, the block is gone',
+	(d) => onlineDoc.setStainField(d, 'trailOpacity', ''),
+	(d) => !('stains' in (d.arcade?.online?.rules ?? { stains: 1 })),
 );
 step(
 	'renaming a character renames what names it',
@@ -1334,6 +1381,26 @@ try {
 		/disabled/.test(maxInput('width', shownOnline)) &&
 			/disabled/.test(maxInput('height', shownOnline)),
 		maxInput('width', shownOnline),
+	);
+	const slideInput = (body: string) =>
+		/Slide round corners \(px\)[\s\S]*?(<input[^>]*)/.exec(body)?.[1] ?? '';
+	const slideLike = structuredClone(salmonsLike);
+	slideLike.arcade!.online!.slide = { corner: 168 };
+	const shownSlide = renderPage(slideLike).body;
+	check(
+		'3. arcade: the Online room card shows the corner slide, empty when off, explained in a tip',
+		/value="168"/.test(slideInput(shownSlide)) &&
+			/value=""/.test(slideInput(shownOnline)) &&
+			/role="tooltip"[^>]*>(?:<!--[^>]*-->|\s)*A player stopped by a solid/.test(shownOnline),
+		slideInput(shownSlide) + slideInput(shownOnline),
+	);
+	const farSlide = structuredClone(salmonsLike);
+	farSlide.arcade!.online!.slide = { corner: 900 };
+	const SLIDE_ISSUE = 'arcade.online.slide.corner</code>';
+	same(
+		'3. arcade: a corner slide out of range is warned of in the page’s summary and in the Online room',
+		[count(renderPage(farSlide).body, SLIDE_ISSUE), count(shownSlide, SLIDE_ISSUE)],
+		[2, 0],
 	);
 	const generatedNotices = (config: GameConfigDoc) =>
 		(renderPage(config).body.match(/Each room's generator \(<code>/g) ?? []).length;
@@ -2969,14 +3036,47 @@ check(
 	/** What a load makes of stored bytes: the normalizer, then the carries
 	 *  (`loadGameConfigDocWithEtag`). */
 	const load = (stored: unknown): GameConfigDoc =>
-		withTouchSchemes(
-			withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+		withSlide(
+			withOnlineCarry(
+				withTouchSchemes(
+					withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+					stored,
+				),
+				stored,
+			),
 			stored,
 		);
 	const save = (live: GameConfigDoc) =>
 		prepareGameConfigDoc(JSON.parse(text(pageDoc.bodyFor(live))));
 	const touchIn = (doc: unknown) =>
 		((((doc as Entry).arcade as Entry).online as Entry) ?? {}).touch as Entry | undefined;
+
+	// A hook's `carry` and the marks' opacity ride the same carry through a save and a load.
+	{
+		const live = game() as GameConfigDoc;
+		const rules = (live.arcade!.online!.rules ??= {});
+		rules.abilities = [
+			{
+				character: live.arcade!.online!.characters[0].id,
+				button: 'ability1',
+				reach: 60,
+				targets: [live.arcade!.online!.characters[0].id],
+				effect: 'hook',
+				carry: { holdMs: 6000, walk: false },
+			},
+		];
+		rules.stains = { opacity: 0.5 };
+		const saved = save(live);
+		const back = load(JSON.parse(text(saved.doc)));
+		same(
+			'7. a hook’s carry survives a save and a load',
+			back.arcade?.online?.rules?.abilities?.[0].carry,
+			{ holdMs: 6000, walk: false },
+		);
+		same('7. …and so does the marks’ opacity', back.arcade?.online?.rules?.stains, {
+			opacity: 0.5,
+		});
+	}
 
 	// No touch block: nothing changes.
 	for (const name of readdirSync(fileURLToPath(dataDir)).filter((n) => n.endsWith('.json'))) {
@@ -3003,6 +3103,90 @@ check(
 		!plainBytes.includes('"touch"') &&
 			!storedPlain.warnings.some((i) => i.path.startsWith('arcade.online.touch')),
 	);
+
+	// The slide (`arcade.online.slide`): dropped by the normalizer, carried by the save and the load.
+	{
+		const slideIn = (doc: unknown) =>
+			((((doc as Entry).arcade as Entry).online as Entry) ?? {}).slide;
+		const slideWarnings = (issues: GameConfigIssue[]) =>
+			issues.filter((i) => i.path.startsWith('arcade.online.slide')).map((i) => i.severity);
+		check(
+			'7. no slide: the save adds none and warns of none',
+			!plainBytes.includes('"slide"') && !slideWarnings(storedPlain.warnings).length,
+		);
+		const sliding = prepareGameConfigDoc(game({ slide: { corner: 168 } }));
+		same(
+			'7. a slide: the normalizer drops it, the save keeps it and has no warning of it',
+			[
+				slideIn(normalizeGameConfigDoc(game({ slide: { corner: 168 } }))),
+				slideIn(sliding.doc),
+				slideWarnings(sliding.warnings),
+			],
+			[undefined, { corner: 168 }, []],
+		);
+		const slidingBytes = text(sliding.doc);
+		check(
+			'7. …a load and the save after it give the same bytes',
+			text(save(pageDoc.openDoc(load(JSON.parse(slidingBytes)))).doc) === slidingBytes,
+		);
+		const far = prepareGameConfigDoc(game({ slide: { corner: 900 } }));
+		same(
+			'7. a corner out of range is stored as written and the save warns of it',
+			[slideIn(far.doc), slideWarnings(far.warnings)],
+			[{ corner: 900 }, ['warning']],
+		);
+		same(
+			'7. a corner of no size, or not a number, is not stored',
+			[
+				text(prepareGameConfigDoc(game({ slide: { corner: 0 } })).doc),
+				text(prepareGameConfigDoc(game({ slide: { corner: 'far' } })).doc),
+			],
+			[plainBytes, plainBytes],
+		);
+		same(
+			'7. a slide on a game not played online is not stored',
+			text(
+				prepareGameConfigDoc({ ...seed, arcade: { ...(seed.arcade as object), slide: 168 } }).doc,
+			).includes('"slide"'),
+			false,
+		);
+		const paged = pageDoc.openDoc(load(JSON.parse(plainBytes)));
+		const pagedSlide = () => paged.arcade?.online?.slide;
+		const typedSlide = (value: string) => {
+			onlineDoc.setSlideCorner(paged, value);
+			return [pagedSlide(), slideOf(paged), slideIn(save(paged).doc)];
+		};
+		same(
+			'7. the page’s setter: a corner as typed, as the carry reads it and as the save stores it',
+			typedSlide('168'),
+			[{ corner: 168 }, { corner: 168 }, { corner: 168 }],
+		);
+		same(
+			'7. …the page lists an out-of-range corner as the save warns of it',
+			[
+				(typedSlide('900'), pageDoc.pageIssues(paged, 'arcade').map((i) => i.path)).filter((p) =>
+					p.startsWith('arcade.online.slide'),
+				),
+				slideWarnings(save(paged).warnings),
+			],
+			[['arcade.online.slide.corner'], ['warning']],
+		);
+		for (const [what, value] of [
+			['of no size', '0'],
+			['that cannot be read', 'far'],
+			['left empty', ''],
+		]) {
+			onlineDoc.setSlideCorner(paged, '168');
+			same(`7. …a corner ${what} is none`, typedSlide(value), [undefined, undefined, undefined]);
+		}
+		same('7. …and the save is the plain one again', text(save(paged).doc), plainBytes);
+		const pasted = pageDoc.applyPasted(game({ slide: { corner: 168 } }));
+		same(
+			'7. Raw JSON’s Apply keeps the pasted slide, and one removed from the text is removed',
+			[pasted?.arcade?.online?.slide, pageDoc.applyPasted(game())?.arcade?.online?.slide],
+			[{ corner: 168 }, undefined],
+		);
+	}
 
 	// The setters, on the page's live doc.
 	const live = pageDoc.openDoc(load(JSON.parse(plainBytes)));

@@ -347,7 +347,7 @@ export function reconcilerOptions(game, id, player) {
 			speed: character.speed,
 			ctx: stepContext(online.tickHz, online.subSteps),
 			field: game.field,
-			level: onlineLevel(game.zones, online.rules.zones, character.id, game.field),
+			level: onlineLevel(game.zones, online.rules.zones, character.id, game.field, online.slide),
 		}),
 		snap: snapFor(character.speed + strongestForce(online.rules.zones), online.patchHz),
 	};

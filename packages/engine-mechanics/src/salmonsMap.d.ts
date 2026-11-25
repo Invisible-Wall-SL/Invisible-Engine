@@ -29,7 +29,48 @@ export type SalmonsOverlay = {
 /** An overlay entry the level it was applied to has no place for: kept, not applied. */
 export type SalmonsOrphan = { op: 'add' | 'remove' | 'set'; cell: SalmonsCell; kind?: string };
 /** A config's `arcade.online.levels`: pinned seeds, and overlays by seed (`'*'`: every level). */
-export type SalmonsLevels = { seeds?: number[]; overlays?: Record<string, SalmonsOverlay> };
+export type SalmonsLevels = {
+	seeds?: number[];
+	overlays?: Record<string, SalmonsOverlay>;
+	river?: { winding?: number; sharpestTurn?: number; sourceBias?: number };
+	waterfalls?: { count?: number; heightMin?: number; heightMax?: number };
+};
+/** `levels` as the generator reads it: every river field set, heights whole and ordered. */
+export type SalmonsShape = {
+	river?: { winding: number; sharpestTurn: number; sourceBias: number };
+	waterfalls?: { count?: number; heightMin?: number; heightMax?: number };
+};
+export const RIVER_SHAPE: Readonly<{ winding: number; sharpestTurn: number; sourceBias: number }>;
+export const RIVER_SHAPE_LIMITS: Readonly<
+	Record<
+		'winding' | 'sharpestTurn' | 'sourceBias' | 'waterfallCount' | 'waterfallHeight',
+		readonly [number, number]
+	>
+>;
+export function levelShape(levels: SalmonsLevels | undefined): SalmonsShape | undefined;
+/** Where a river's water is, column by column (`salmonsMap.js` `riverCourse`). */
+export type SalmonsCourse = {
+	winding: boolean;
+	/** A winding course's turns, from the source down: where, and by how many degrees. */
+	bends?: { gx: number; deg: number }[];
+	lo(gx: number): number;
+	hi(gx: number): number;
+	axis(u: number): number;
+	edge(u: number, side: number): number;
+	past(u: number, side: number, by: number, more: number): number;
+};
+export function riverCourse(seed: string | number, shape?: SalmonsShape): SalmonsCourse;
+export function inCourse(course: SalmonsCourse, gx: number, gy: number): boolean;
+export type SalmonsCourseFacts = {
+	sharpest: number;
+	turns: { gx: number; deg: number }[];
+	across: { from: number; to: number; side: 1 | -1; cells: number }[];
+	screen: Record<'mirrored' | 'plain', { leftToRight: number; rightToLeft: number }>;
+	length: number;
+	narrowest: number;
+	passage: number;
+};
+export function courseFacts(river: Pick<SalmonsRiver, 'bands'>): SalmonsCourseFacts;
 
 export type SalmonsMapRiver = SalmonsRiver & {
 	generator: 'salmonsMap';
@@ -45,15 +86,20 @@ export type SalmonsMapRiver = SalmonsRiver & {
 export function buildMeanderTable(seed: string | number): Float32Array;
 export function riverHalfWidth(u: number): number;
 export function meanderAt(table: Float32Array, u: number): number;
-export function generateSalmonsMap(seed: string | number): SalmonsMap;
+export function generateSalmonsMap(seed: string | number, shape?: SalmonsShape): SalmonsMap;
 export function inRiver(meander: Float32Array, gx: number, gy: number): boolean;
 export function applySalmonsOverlay(
 	map: SalmonsMap,
 	overlay: SalmonsOverlay | undefined,
 	seed: string | number,
+	shape?: SalmonsShape,
 ): { map: SalmonsMap; orphans: SalmonsOrphan[] };
 export function levelOverlay(
 	levels: SalmonsLevels | undefined,
 	seed: string | number,
 ): SalmonsOverlay | undefined;
-export function salmonsMapRiver(seed?: string | number, overlay?: SalmonsOverlay): SalmonsMapRiver;
+export function salmonsMapRiver(
+	seed?: string | number,
+	overlay?: SalmonsOverlay,
+	shape?: SalmonsShape,
+): SalmonsMapRiver;

@@ -35,10 +35,11 @@ upload.
     `joinOnlineRoom`, which refuses a generator game whose room names no seed). The zones were the
     scene's level (seed 1), which no room plays, and they were most of the file every device
     downloads, the game server caches and `/config` loads.
-  - **Size** (the export as written, tab-indented): 296,615 → 15,791 bytes (−94.7 %). The two
-    lists were 1,307 zones (127,151 bytes) and 1,293 zone rules (153,645 bytes); the spawns that
-    stay are about 4 KB.
-  - **Proof.** `check:salmons-export` (37, 16 of them new) runs the export and holds its config
+  - **Size** (the export as written, tab-indented, with the winding river of #1898): 655,474 →
+    16,342 bytes (−97.5 %). The two lists are 2,917 zones and 2,903 zone rules for the scene's
+    level (before #1898's river: 1,307 and 1,293, 296,615 → 15,791 bytes); the spawns that stay
+    are about 4 KB.
+  - **Proof.** `check:salmons-export` (39) runs the export and holds its config
     to `salmonsConfig`'s with the zones: the same doc less the two lists; no validator error, and
     no issue the old config lacks (the old one's only issue, "A room runs at most 256 zone rules",
     goes: it was about the snapshot, while a room plays its generator's 1,293 rules as made);
@@ -47,23 +48,99 @@ upload.
     room's size and at a test size of 10.
     - **Device** (`apps/lines/src/game/online.ts`): before the level is made, `joinOnlineRoom`
       reads only the config's `online` (generator, netcode, step and state rates, the classes'
-      speeds; lines 576–611 and 655–664; `listenOnline` the pointer, 1172);
-      `generatedOnlineGame(resolved, seed)` (644) runs for every generator game, and every zone
-      read is of its game (663, 943–945, 1289, 1973, 2293).
-      `ArcadeStage.svelte` (42–43) starts no local loop for a room game, so `arcade.ts`
-      `startArcade`, the other reader of a config's zones, never runs for Salmons.
-    - **Live code:** `git diff ceaeb16afbd9 HEAD` is empty for `services/game-server/src`,
-      `onlineGenerators.js`, `online.ts`, `ArcadeStage.svelte` and `game-config`'s
-      `arcadeOnline.ts`, `family.ts`, `familyValidate.ts`. At `ceaeb16afbd9` the game server reads
-      a config through `onlineGameOf` only (`configSource.ts` 83, 113) and generates before any
-      zone (`roomSim.ts` 154, then 165, and the rules on the generated game at 181), and the
-      device is the code above. So the smaller config can go live before any redeploy.
+      speeds; `listenOnline` the pointer). A generator game whose room names no seed is refused,
+      else `generatedOnlineGame(resolved, seed)` runs, and every zone read is of its game.
+      `ArcadeStage.svelte` starts no local loop for a room game, so `arcade.ts` `startArcade`, the
+      other reader of a config's zones, never runs for Salmons.
+    - **Game server:** it reads a config through `configSource.ts` `parse` (`onlineGameOf`, then
+      the slide, the levels' shape and a hook's carry off the raw doc) and generates before any
+      zone (`roomSim.ts` `createRoomSim`: `generatedOnlineGame`, then `onlineLevel` and the rules
+      on the generated game). Checked first at `ceaeb16afbd9` (live on 2026-11-22) and again on
+      `main` at `396d90d` (2026-11-25), so the smaller config can go live without a redeploy.
     - **Editor:** `/editor` draws the level from the generator and the scene node's seed
       (`generatedLevel.ts` `regenerate`: `ONLINE_GENERATORS`, `FIELD_DRAWINGS`, the config's
       `levels`) and saves only `arcade.online.levels`; the layout is `editor/scenes.json`. Neither
       reads the config's zones. `/config` and `/characters` show no zones for Salmons (the
       Characters tool's zone forces are `arcade.forces`, which Salmons has none of).
 
+- **A winding river and tall waterfalls, from the config (built 2026-11-24; in review; branch
+  `claude/salmons-river-turns`; [design/salmons-levels §5](../design/salmons-levels.md); NOT live
+  until the re-export and a publish, Owner steps below).** Owner, 2026-11-24: waterfalls "not
+  getting as tall as I expect"; "more turns, that can have the player go right to left sometimes
+  … more 140 degree turns around the source".
+  - **Why the waterfalls were short:** the ported original caps a waterfall by its place, 8 cells
+    at the source down to 1 at the sea. Over 2,000 seeds 32 % of waterfalls were 1 cell (a 72 px
+    cliff: a ripple line on the screen), the three nearest the sea, the first a salmon meets, were
+    always 1 or 2, and 3 % reached 8. Nothing scaled a tall one down in the drawing. The range was
+    not a setting.
+  - **Now:** `arcade.online.levels.waterfalls` (`count` 0–12, `heightMin` / `heightMax` 1–16
+    cells) and `levels.river` (`winding` 0–1, `sharpestTurn` 0–150°, `sourceBias` 0–1), edited in
+    `/editor` → **Generated level** and previewed on the stage. Salmons ships `SALMONS_LEVELS`: 6
+    waterfalls of 5 to 10 cells (168 to 288 px cliffs; every height 5–10 comes up) and a river of
+    `winding` 0.75, `sharpestTurn` 140, `sourceBias` 0.6.
+  - **The river over 48 seeds:** every level has reaches that run the other way across the screen
+    (44 to 120 cells of a 480 to 540 cell swim on 64 seeds, about a sixth; the original's: none of
+    410). The sharpest bend of each level turns 126° to 140° along the river's axis, always above
+    column 120 (the banks, which round a corner, show 100° to 134°, median 124°); bends of 100° and
+    more: 9 in 10 are above column 150. The river runs straight for 4 columns at the source, 3 to 6
+    each side of a waterfall and below column 300 (the delta, its sand and the spawns as before).
+  - **One run of water a column, still.** A reach is turned up to 70° from straight up the river
+    but never back down its own columns, so a waterfall is still one line across the world and the
+    raised river, the bears' waterfall block, sight and the bots' chart are unchanged. A hairpin
+    that doubles back in the world is not made (design §5, Left open).
+  - **A config from before keeps its river to the byte** (`check:salmons-course` holds
+    `salmonsMapRiver` to hashes recorded on main for 307 seeds and an overlay). The two blocks are
+    carried past the shared normalizer (`game-config` `levelsShape.ts`), so the slot, match-3 and
+    card runtimes are byte for byte.
+  - **Played** (headless rooms as shipped, `scripts/salmons/measure-room.mjs`, new levels against
+    `--original`): a bot salmon won in 8 of 8 rooms of 10, 8 of 8 of 30 and 4 of 4 of 100 on both;
+    bot salmon stalled 0.0 % of their time on both; the river full (5.0 of 5, 16.8 of 17, 57.6 of
+    59). On main with the slide (#1896) and the fisherman's throw (#1899) merged: a game is
+    longer, median 121–122 s (10), 119–123 against 99–102 (30), 134 against 117 (100); catches
+    are close to the original's in the larger rooms: bears 1.14 against 1.40 a minute a room (30),
+    11.91 against 13.19 (100); fishermen 2.51 / 2.59, 18.88 / 19.23; in a room of 10 (one bear,
+    three fishermen) they are rare on both (0.00 and 0.06 here). In a
+    browser (`scripts/playtest/salmons-river-tour.mjs`, seeds 1, 4, 7, 12 / 12): the page draws the
+    seed's level in the art, a cliff under every waterfall, and a 10-cell waterfall is climbed by
+    tapping Space with Up + Left held and swum over.
+  - **Known limits, as seen:** on a slanted reach the grass strip and the forest wall are measured
+    along the column, so across the flow they are about a third as deep: trees stand close to the
+    water there and hide the near bank, and the world's dark edge shows nearer the outside of a
+    sharp bend. The current still pushes straight down the columns on a slanted reach. In the wide
+    lower river a waterfall can sit within a few columns of a bend; with `sourceBias` 0 or a
+    `sharpestTurn` of 150 its face can be much wider than the river (up to 2.5 widths; as shipped
+    at most 1.1). Bears catch a little less (above). A device on a bundle from before this draws
+    the original's river while the room plays the new one, until it reloads (design §3).
+  - Proof: `check:salmons-course` 21 (each of 11 mutations of the generator fails it; it also
+    makes a level at every corner of the limits and reads the config through the game server's
+    own reader),
+    `check:salmons-levels` 18, `check:salmons-heights` 24, `check:salmons-jump` 37,
+    `check:salmons-art` 22, `check:salmons-throw` 21, `check:online-rules` 40, `check:room-bots` 56,
+    `check:salmon-bots` 13,
+    `check:room-lobby` 16, `check:room-sim` 43, `check:room-size` 20, `check:arcade-touch` 55,
+    launcher `check:salmons-export` 18, `check:game-config-family` 509. `check:runtime-bytes`:
+    `lines`, `match3`, `card` unchanged; `arcade` +1860 B and `arcade3d` +1860 B gzip in the
+    bundle, re-recorded.
+
+- **Slide: a player pressed against a bank or a prop is carried round it (2026-11-24; owner: "add
+  slide to the collision, so a player is not getting stuck"; branch `claude/salmons-collision-slide`,
+  in review; runtime, game server and config change).** On an original level a bank is a stair of
+  solid zones a cell or two a step and a rock a 72 px box, and `stepSolid` slides along one flat
+  face only, so a player stopped under every step and under a rock. On the isometric screen a single
+  Up or Left key is a diagonal in the world (straight upstream is Up + Left), so a player holding
+  one key is always pressed into a bank. Now `engine-mechanics` `motion.js` `stepSlide`, the same
+  step on the room and on the predicting device: a player stopped by a solid that ends within
+  `arcade.online.slide.corner` px is carried round that end at the speed of the move that was
+  stopped; a flat wall keeps `stepSolid`'s slide (nothing for a straight push). Salmons sets 168 px
+  (3.5 cells, `SALMONS_SLIDE`) on the original's levels; the band river has none. Editable in
+  `/config` → Online room → **Slide round corners (px)**; empty = off, as every other online game
+  plays. The shared normalizer drops the block, as it drops the touch schemes (it ships in the
+  slot runtimes, which must not move): `game-config` `onlineSlide.ts` reads it off the raw doc,
+  the launcher and the export carry it on a save (`withSlide`), and the room and the device put
+  it on the game they play (`withOnlineSlide`; a harness asks `playedOnlineGame(raw)`). Known and kept: a push straight at a stair walks the player along it (a bear at the bank
+  limit, a salmon at a bank); a fisherman pushed at the water within 3.5 cells of a bridge is
+  carried onto it; a diagonal push into a bank that faces it (flatter than 45°, in the delta) still
+  holds; a bank glide runs at about 40 % of open-water speed. Detail in Recent changes.
 - **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session
   against the live services. Game server `rooms.invisiblewall.org` on `ceaeb16afbd9` (`/healthz`;
   every Salmons merge through #1866, #1832 included); arcade runtime pointer on `ceaeb16afbd9`
@@ -77,6 +154,51 @@ upload.
   62 → 23 for one declaring none, so the published config carries `max`. **Not checked yet:** the
   published link in a browser (start menu, catch and respawn, the win lock), which needs the
   link's read token.
+
+- **The fisherman holds his catch, then throws it; blood on top of the water (2026-11-24; owner
+  request; in review; branch `claude/salmons-fisherman-throw`; engine-mechanics, game server,
+  game-config, `/config` and the runtime)**. This replaces the bullets below where they say a
+  landed salmon is out at the landing, its stain is where it was hooked, or a stain is drawn
+  under anything.
+  - **Held.** A salmon the line lands is not out and leaves no blood. It is alive in the
+    fisherman's hands (status `held`, its `heldBy` his id): drawn on his place, and nobody else
+    can hook or claw it. He walks at his normal speed and casts no line while he holds.
+  - **Thrown.** His next click or tap anywhere throws it (not in the first 350 ms after the
+    catch), at most 8 cells (384 px) away: a click further off lands at 8 cells in that
+    direction, held to the field, on water or land. A press with no aim (a key) throws it the
+    full reach along his last move. It flies for 600 ms in an arc (status `thrown`), lands, and
+    is out THERE: `caught` (effect `hook`), +1 to the fisherman, the death screen, and the pool
+    of blood at the landing place.
+  - **Dropped.** Not thrown within 4 s, it is dropped at his feet and dies there. The same at
+    once when he leaves, drops his connection or is caught; it is scored to him if he is still
+    in the room. A round that ends lets a held or thrown salmon go alive.
+  - **A bot fisherman** throws after 600–1600 ms: at the nearest salmon he knows of within the
+    throw, else onto water 3 cells from him, else 1.5 cells beside him (`BOT_THROW`).
+  - **General, not Salmons'.** Any `hook` ability with a `carry` block, in a game whose rules
+    module runs the line (`fishingLine` or `salmons`), does this
+    (`arcade.online.rules.abilities[].carry`: `holdMs`, `throwPx`, `flightMs`, `walk`; `{}`
+    turns it on). Salmons turns it on (`salmons.js`) and draws it (`salmonsArt/looks.ts`
+    `CARRIED`). A config with no `carry` plays as before: out when landed, the stain where it
+    was hooked.
+  - **On the device.** The held salmon is drawn in its holder's hands (his sheet's hand point,
+    else 3/4 up his body) and tumbles in the air. It reads "<holder> has you!", he reads "tap to
+    throw it!". On touch, with a catch in hand any tap is a target, so a scheme that acts on
+    a target throws anywhere; a held finger still walks. The camera follows the own salmon through the throw.
+  - **Events and statuses.** `held`, `thrown`, `landed` (with `dropped`), then `caught`, reach
+    Flow and the sheets. A sheet's `status` triggers: `carrying` (the holder), `held`, `thrown`
+    (the salmon).
+  - **Blood.** Pools and the trail are drawn on top of the water, 70 % transparent
+    (`arcade.online.rules.stains`: `opacity` 0.3, `trailOpacity` 0.3; the device reads it, the
+    room does not). Bottom to top: a salmon swimming under the surface, the trail, the pools;
+    all over the water's tint and under what stands on the water. The colours are their own and
+    brighter (0xd01018 over 0x8a0f12); the water's tint is no longer mixed in.
+  - **Tuned in** Game Config, Online rules ([tools/game-config](../tools/game-config.md)).
+  - **No art yet.** The fisherman is still the placeholder circle: there is no hold or throw
+    animation, and no sound (Owner steps).
+  - **Not live until** the merge AND a re-export and re-publish of Salmons (Owner steps).
+  - Proof: `check:salmons-throw` 21, `check:salmons-art` 22, `check:online-rules` 40 (the `line`
+    trace re-recorded), `scripts/playtest/salmons-throw-play.mjs`
+    ([playtest/salmons](../playtest/salmons.md)).
 
 - **A room of 100 filled by shares, and a test size (2026-11-21; in review; branch
   `claude/salmons-room-size-bots`; game server, config, `/config`, and the runtime's `room_size`
@@ -552,6 +674,8 @@ upload.
     salmon is now (no rewind: decided 2026-11-21, Open items), is hooked and dragged with it; at
     0.3 tiles from the fisherman it is landed (+1). No escape. The line is synced
     (`Player.lineX/lineY/lineActive`).
+    Since 2026-11-24 a landed salmon is held and then thrown, and the +1 is at its death (the
+    hold-and-throw bullet, above).
     A key-only press aims at 0, 0, so it casts nothing (the original's Space did not cast either).
   - **Caught**: out until Respawn (`rules.respawn: 'manual'`). The input's `respawn` is `1 +` the
     index in `arcade.online.characters` of the class picked (salmon 1, bear 2, fisherman 3); the
@@ -566,6 +690,7 @@ upload.
   - **Bloodstains** are #1747's (`rules.stains`, `state.stains`, below). With the travelling
     line, the line notes the hook point as it hooks (`memo.hookAt/hookX/hookY`), so a landed
     salmon's stain is exactly where it was hooked; a catcher a bear catches leaves none.
+    Since 2026-11-24 a carried salmon's stain is where it lands or is dropped, not at the hook.
   - A bot fisherman casts at the nearest salmon he sees and a device in his place would be sent
     (the line's reach, above; since 2026-11-19, no longer at any distance), through the same aimed
     cast as a person; the line-out rule and the cooldown hold it back, and since 2026-11-20 his
@@ -674,6 +799,9 @@ upload.
   for 3 s and sheds a red trail fading over 3 s (`engine-layout` `salmonsArt/blood.ts`). Proof:
   `check:online-rules` (3 checks), `check:salmons-art` (6), `salmons-play.mjs` pages K and Q. No config or upload: it arrives
   with the runtime release and the game server's deploy.
+  Since 2026-11-24: a thrown or dropped salmon's stain is where it came down, and the stains and
+  the trail are drawn on top of the water at the config's opacity, 0.3 (the hold-and-throw
+  bullet, above).
 - **Mouse and touch, as the original (2026-11-17; in review;
   [design/arcade-pointer-controller](../design/arcade-pointer-controller.md))**: an online game's
   Game Config `arcade.online.pointer` (off unless named) lets a player steer with the mouse or a
@@ -821,20 +949,87 @@ upload.
 ## Owner steps (P10.16) — not done by the build
 
 **The config without its level (2026-11-24; once `claude/affectionate-bell-mwyn5r` merges;
-nothing uploaded or published). No deploy is needed: the live game server and runtime
-(`ceaeb16afbd9`) already make every room's zones (Current state).**
+nothing uploaded or published). No deploy is needed: the game server and the runtime already make
+every room's zones (Current state). Do not run the Salmons project upload whole for this:**
+without fields it replaces the config and deletes what was authored in the tools (the bear's
+sheet with rig `R_Bear` and its `sheet: "bearBot"` link).
 
-1. **Upload.** Run the **Salmons project upload** workflow (GitHub → Actions → Salmons project
-   upload → Run workflow, on `main`) as a dry run first. Its `salmons-project-diff` artifact
-   should list only `config/config.json`, losing `arcade.zones` and `arcade.online.rules.zones`.
-   If it shows anything else in the config (an edit saved in `/config` or `/editor` since the
-   2026-11-22 dry run), stop: the upload would overwrite it. Then run it again with **apply**
-   ticked; it copies the old config to `_backups/salmons-project/<UTC>/` before writing.
+1. **Upload only the two lists.** A listed field the export does not have is taken OUT of the live
+   config (`merge_fields.py` `with_fields`), and everything else in it stays.
+   - **From CI, once #1901 is on main** (the workflow then writes only the config fields in
+     `scripts/salmons/upload-fields.txt`): add `arcade.zones` and `arcade.online.rules.zones` to
+     that list (whichever of #1901 and this PR merges second adds them), then run the **Salmons
+     project upload** workflow as a dry run. Its diff should show the config losing exactly those
+     two lists, plus whatever else the list names, and keep the sheets. Then run it with
+     **apply**; it backs the old config up to `_backups/salmons-project/<UTC>/` first.
+   - **Or by hand, now** (R2 access): `scripts/salmons/upload-project.py --fields
+     arcade.zones,arcade.online.rules.zones`, dry run first, then `--apply`.
 2. **Publish** `salmons` from Game Maker. A device boots, and the game server plays, the
    published snapshot's config (`/api/game-server/config`), not the project's, so until then
    nothing changes for a player. Rooms made after the publish read the small config; a room
    already running keeps its own, and both play the same game.
 3. **To go back:** put the backed-up `config/config.json` back into the project and publish.
+
+**The winding river and the tall waterfalls reach the live game (2026-11-24; once
+`claude/salmons-river-turns` merges and the launcher, the game server and the arcade runtime are
+out).** The published config has no `levels.river` or `levels.waterfalls`, so live rooms keep the
+river they have until one of these is done and the game is published. **Do not run the Salmons
+project upload whole for this:** without `fields` it replaces the config and deletes what was
+authored in the tools (the bear's sheet with rig `R_Bear` and its `sheet: "bearBot"` link).
+- **By hand, in the tools (nothing else is touched):**
+  1. Studio launcher, Salmons project active → **Scene Editor** (`/editor`) → the river screen →
+     the **Generated level** card (under World and camera).
+  2. Tick **Winding river**. Leave **Winding**, **Sharpest turn (°)** and **Towards the source**
+     empty for Salmons' values (0.75, 140, 0.6), or type them.
+  3. **Waterfalls** 6, **Lowest (cells)** 5, **Highest (cells)** 10.
+  4. **Save levels** (it writes only `arcade.online.levels` into the Game Config; the stage shows
+     the river as you set it).
+  5. **Invisible Game Maker** → **Publish**. Rooms made after it play the new river; a page
+     opened before it must reload.
+- **Or from CI, the same fields only (after one more small PR):** `scripts/salmons/upload-project.py
+  --fields arcade.online.levels.river,arcade.online.levels.waterfalls` touches only the config and
+  only those paths of it (`merge_fields.py`; `test_merge_fields.py` 28, on a stand-in store: the
+  sheet link, the rig and a tuned number are kept, the old config is backed up first). The
+  **Salmons project upload** workflow does not pass `--fields` yet: a PR that edits a workflow
+  fails the `current-games` status by design, so the `fields` input (a string input, an env var
+  and one line of the run step) is left for a PR of its own. Not run against the live bucket by
+  the build.
+
+To change the shape later: `/editor` → the river screen → **Generated level** → tick **Winding
+river** and set **Winding**, **Sharpest turn (°)**, **Towards the source**, **Waterfalls**,
+**Lowest (cells)**, **Highest (cells)** (each has a tip) → **Save levels** → publish. To go back to
+the original's river: untick **Winding river**, clear the three waterfall fields, save, publish.
+
+**After the slide merges (2026-11-24; `claude/salmons-collision-slide`).** The game server deploys
+and the arcade runtime is released from `main` on merge, and both then know the slide; a room
+plays it only once the project's config carries `arcade.online.slide`. So, in this order:
+1. Wait for the game server deploy and the arcade runtime release of the merge.
+2. Run the **Salmons project upload** workflow (dry run, then `apply`): `config/config.json` gains
+   `slide: { corner: 168 }`. Before step 1 is done a device on the old runtime would predict
+   without the slide and be corrected at every bank.
+3. To tune it: `/config` → Online room → **Slide round corners (px)** (empty = off; 96 follows a
+   one-or-two-cell stair but not a rock from under its middle), save, publish.
+
+**The fisherman's hold and throw (2026-11-24; once `claude/salmons-fisherman-throw` merges).**
+The game server deploys itself on the merge and the drawing arrives with the runtime release.
+The hold itself is in the config (`carry: {}` on the fisherman's hook), which the game server
+reads per room. So until step 1 the live game keeps the old catch, with the new blood drawing.
+1. **Re-export and re-publish Salmons**, so the published config carries `carry`.
+2. **Tune it** in Game Config → **Online rules** ([tools/game-config](../tools/game-config.md)):
+   **Held for (ms)**, **Throw up to (px)**, **Flight (ms)**, **Walks while holding**, and under
+   **Marks on the field** the **Mark opacity** and **Trail opacity**. Then publish again.
+3. **Author the hold and throw animations** in Invisible Characters
+   ([tools/invisible-characters](../tools/invisible-characters.md)); there are none, and the
+   fisherman is a placeholder circle:
+   - the fisherman's sheet: an action on status `carrying` (the holding pose), and one on event
+     `thrown` as its user (the throw);
+   - the salmon's sheet: actions on status `held` and `thrown`, and on event `landed` as its
+     target.
+4. **Give the fisherman's sheet or look a hand point** (`draw.points`, or a rig bone:
+   [design/character-pipeline](../design/character-pipeline.md)), so the fish sits in his hand.
+   Without one it is drawn 3/4 up his body.
+5. **Sounds** in Invisible Flow on the events `held`, `thrown` and `landed`
+   ([tools/flow](../tools/flow.md)).
 
 **The bear's smooth turn (2026-11-24; once `claude/character-turn-blend` merges and the arcade
 runtime is released). Nothing to edit.** The owner turned the option on for the bear
@@ -1554,8 +1749,143 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 - 2026-11-24 — **The exported config drops its level** (owner decision; branch
   `claude/affectionate-bell-mwyn5r`): no `arcade.zones` and no `arcade.online.rules.zones`,
-  296,615 → 15,791 bytes, every room's game unchanged (`check:salmons-export`). Detail and proof in
+  655,474 → 16,342 bytes, every room's game unchanged (`check:salmons-export`). Detail and proof in
   Current state; the upload and publish are Owner steps.
+
+- 2026-11-24 — **A winding river and tall waterfalls, from the config** (owner, 2026-11-24; branch
+  `claude/salmons-river-turns`; in review; detail in Current state and
+  [design/salmons-levels §5](../design/salmons-levels.md)). `engine-mechanics` `salmonsMap.js`
+  (`riverCourse`, `levelShape`, `courseFacts`), `salmons.js` `SALMONS_LEVELS`; `game-config`
+  `levelsShape.ts` (carried, not normalized); game server `configSource.ts` and the device's
+  `online.ts` read the shape off the raw config; `/editor` Generated level card; the export ships
+  it. New: `check:salmons-course`, `scripts/salmons/river-overview.mjs`,
+  `scripts/playtest/salmons-river-tour.mjs`; `measure-room.mjs` measures the shipped levels
+  (`--original` for the old). Two bugs found on the way: the first attempt changed the shared
+  normalizer and moved the slot, match-3 and card runtimes (+308 to +383 B gzip; caught by
+  `check:runtime-bytes`, moved to a carried module), and a bank spawn could land in the water on a
+  slanted reach (caught by the new gate). Not in CI: the root Salmons gates are run by hand, as
+  before.
+  After #1896 (the slide) merged: a held move sticks no more often on the winding river than on
+  the original's with the slide on (four seeds, 132 places from mid-water, held 4 s, stuck = under
+  half a cell in two of the last three seconds: straight upstream 21 against 38, the screen's Up
+  31 against 37, its Left 26 against 29; with the slide off 72, 39 and 42). The project upload
+  gained `fields` (only named paths of the config), since the whole upload deletes tool-authored
+  sheets.
+
+- 2026-11-24 — **Slide** (branch `claude/salmons-collision-slide`; in review; Current state has
+  what it is).
+  - **Where players stuck, before** (a simulated room of the shipped level, four seeds, a held
+    move, stuck = under half a cell in a second): a salmon up or diagonally along a bank in 185 to
+    187 of 284 places; under a rock 94 of 94; a bear or a fisherman diagonally at the bank limit
+    about 157 of 328; a fisherman along the water's edge 167 of 328; a bear at the end of a
+    waterfall's block 24 of 24. **After:** 1 and 11 of 284 (the 11 are diagonal pushes into the
+    delta's bank, which faces them), at most 3 of 94 under a rock, 3 of 328, 8 of 328, 0 of 24.
+    What still stops a salmon is meant to: a waterfall's foot, sand, a whirlpool.
+  - **Played in a browser** (`scripts/playtest/salmons-slide-play.mjs`, a real local game server,
+    level 31337, both netcodes): off, 12 of 14 bank and rock cases stick; on, none (a salmon on a
+    bank 257 to 355 px in 3 s where it made 50 to 72; under a rock 566 to 636 where it made 70; a
+    bear at the limit 318 where it made 3). The own player's predictor: 0 corrections and 0 snaps
+    over every hold, drawn 0 px off the room's path. Nobody passed a waterfall's line, the water
+    (fisherman), the bank limit or the field. Not played: a bad network, a phone, the band river.
+  - **Bots** (rooms of 10 / 30 / 100, 24 rooms each): share of time stalled, fishermen 12.7 / 13.0 /
+    14.9 % → 4.3 / 4.8 / 5.2 % (longest 56 s → 11 s at 100), bears 6.3 / 4.7 / 4.6 % → 2.6 / 2.4 /
+    2.4 %, bot salmon unchanged (about 1 %). Wins, game length and bot salmon on the river did
+    not move.
+  - **How it picks a way** (`motion.js` `roundCorner`): a push straight in rounds the nearer end;
+    a push that leans towards an open end slides there; one that leans into a dead end follows
+    the longer free way from the solid's end, y on a tie, so a body never rounds one corner both
+    ways in turn. Lengths, not speeds: a current must not turn a body back down a bank. A drift
+    under 0.35 of the push (`SLIDE_LEAN`) neither picks the way nor is itself carried round.
+    One-way solids are filtered by the caller as before, a way round that leaves the field is
+    refused, and a step longer than half the body is taken in parts.
+  - **Gates:** `check:arcade-slide` 17 (off = `stepSolid`'s digest on `main`; a flat wall; a wall
+    ahead; stairs 48/48 to 48/144; corner distance; a round prop; a drift; a post in the way;
+    large steps; seeded scenes, also for a body turning back and forth; Salmons' levels off
+    against on; nothing passed; a predictor follows the room to the bit; the config's carry).
+    24 of 25 mutations fail it (the other removes an early return that changes no outcome). No
+    trace fixture re-recorded (the band river plays without it). `check:salmons-levels` 18, two
+    checks rewritten: a bear pushed straight at the bank limit rests on the tightest limit of the
+    bands it stands in (it may end a step along the limit); the fisherman's "the water stops
+    him" starts 7 cells from the bridge, and 3 cells off he is checked every step never to be in
+    the water. Launcher: `check:game-config-family` 518, `check:salmons-export` 20 (the exported
+    config carries the slide).
+  - **Review** (`code-reviewer`): a diagonal push along a long face stopped short of a wall ahead
+    and trod back and forth (the dead end was measured from the body, so the answer changed as
+    it moved); now measured from the solid's end. A step is taken in at most 64 parts.
+  - **Runtimes:** `lines`, `match3` and `card` byte for byte; `arcade` and `arcade3d` re-recorded.
+
+- 2026-11-24 — **The fisherman holds his catch, then throws it; blood on top of the water**
+  (owner request, 2026-11-24; branch `claude/salmons-fisherman-throw`; in review;
+  engine-mechanics, game server, game-config, `/config` and the runtime; nothing uploaded or
+  published: Owner steps).
+  - **Before.** A salmon the line landed was out at the landing, and its stain was where it was
+    hooked. The blood looked as if it were under the water.
+  - **The rule** (`salmonsRules.js` `fishingLine`, "CARRY"; statuses `held: 5`, `thrown: 6` in
+    `abilities.js`; the synced `heldBy`, the last of `schema.ts` `playerFields`). A landed
+    salmon is held in the fisherman's hands, alive, on his place; nobody else can hook or hit
+    it. His next press throws it to the aim; it flies in an arc, lands, and only there is it
+    out, scored and stained. A round's end frees a held or thrown player (`onlineRules.js`). A
+    bot's rules play may carry an aim (`onlineBots.js`), so a bot fisherman throws (`BOT_THROW`:
+    after 600–1600 ms, at the nearest known salmon within the throw, else water 3 cells away,
+    else 1.5 cells beside him).
+  - **Carried, not normalized.** `carry` and `rules.stains` live in `game-config`
+    `onlineCarry.ts`, as the touch schemes do: `normalizeGameConfigDoc` drops them (the slot,
+    match-3 and card runtimes keep the normalizer and stay the same bytes), the launcher's load
+    and save and Salmons' export put them back (`withOnlineCarry`), and the game server reads the
+    carry off the published doc (`configSource.ts`, `onlineGameWithCarry`). A first cut put them
+    in the normalizer and moved `lines`, `match3` and `card` by about 470 B gzip each;
+    `check:runtime-bytes` caught it.
+  - **General.** The capability is any `hook` ability's `carry` under a line module
+    (`fishingLine` or `salmons`). Salmons only turns it on (`salmons.js`, `carry: {}`) and draws
+    it (`salmonsArt/looks.ts` `CARRIED`, `LookFrame.carried`).
+  - **Config** (`game-config` `family.ts`, `familyValidate.ts`):
+    `arcade.online.rules.abilities[].carry` `{ holdMs?, throwPx?, flightMs?, walk? }`, defaults
+    4000 / 384 / 600 / true; a room holds them to 500–60000 ms, 1–2000 px and 100–5000 ms. No
+    `carry`: the old behaviour, so a config published before this plays as before.
+    `arcade.online.rules.stains` `{ opacity?, trailOpacity? }`, 0.3 / 0.3, each 0–1; the device
+    reads it, the room does not. Edited in Game Config's Online rules (`OnlineSection.svelte`,
+    `onlineDoc.ts`).
+  - **Decisions.** The furthest throw is 8 cells (384 px); a click beyond lands at 8 cells in
+    that direction, held to the field. Held 4 s, then dropped at his feet. The holder walks at
+    normal speed (the config can pin him). No cast while holding. A press in the first 350 ms
+    after the catch throws nothing (`CARRY.gripMs`). With no aim (a key) it is thrown the full
+    reach along his last move. The holder leaves, drops his connection or is caught: it is
+    dropped and dies, scored to him if he is still in the room. Round end: let go alive.
+  - **Events** (`onlineFlow.js`, `engine-flow-v2` `reference/arcade.ts`): `held` (`x`, `y` the
+    holder's), `thrown` (`x`, `y` where it will land), `landed` (`x`, `y`, `dropped`), then the
+    existing `caught` (effect `hook`) at the death. Sheet `event` triggers hear them as user
+    (`by`) or target; sheet `status` triggers get `carrying`, `held`, `thrown` (`online.ts`
+    `statusesOf`; suggested in `/characters`).
+  - **The device** (`apps/lines` `online.ts`). A held player is drawn at its holder's place, in
+    his hands (`carriedPlace`, `handsOf`: his hand point from `standOf`, else 3/4 up his body; a
+    clip, a sheet or the placeholder is raised whole, a code look places itself). The held
+    player reads "<holder> has you!", the holder "tap to throw it!". Touch: with a catch in hand
+    any tap is a target (`onTouchTarget`, `carries`); a held finger still walks. The camera
+    follows the own player through the throw (no change: it follows the own place).
+  - **Why the blood looked under the water** (`salmonsArt/blood.ts`). Nothing was layered under
+    the water. The kit copied the old client's underwater layer on purpose: it mixed the
+    water's tint into the stain's colour (`underTintColour`, removed) and drew the trail beneath
+    the swimming salmon. **Now**: own colours (0xd01018 over 0x8a0f12), mounted bottom to top
+    `sunk` (a salmon under the surface), `wake` (the trail), `surface` (the pools), all after
+    the water's tint and before what stands on the water (`index.ts` `aboveWater`), at the
+    opacity of `rules.stains` (`bloodOpacity`).
+  - **Proof.** New `pnpm check:salmons-throw` (`scripts/check-salmons-throw.mjs`) 21;
+    `check:salmons-art` 22 (its blood checks updated); `check:online-rules` 40, the `line` trace
+    re-recorded (`fixtures/salmons-traces.json`; only `line` moved). New play script
+    `scripts/playtest/salmons-throw-play.mjs`: five rooms (`throw-water`, `throw-land`,
+    `throw-drop`, `throw-leave`, `throw-phone`), screenshots at 2×.
+  - **Seen playing** (2026-11-24, headless Chromium, two pages a room). The held salmon is drawn
+    over the fisherman's circle on both pages. It tumbles in the air. The salmon's page shows
+    "You have been caught by Hal", as before. One pool at the landing place, none at the catch.
+  - **What still looks off.** On blue water a 0.3 pool reads as a dim violet-red patch
+    (overlapping trail puffs read redder); on grass it reads brownish. A pool dropped at his
+    feet is hidden under him until he walks off. The fisherman is still the placeholder tan
+    circle: there is no hold or throw art.
+  - **Live game.** The game server deploys on the merge and the drawing arrives with the runtime
+    release; the hold needs Salmons re-exported and re-published. Before that the live game
+    keeps the old catch and gets the new blood drawing (Owner steps).
+  - **Not verified.** No real phone (Chromium's touch emulation only). The live game was not
+    played.
 
 - 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
   adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and

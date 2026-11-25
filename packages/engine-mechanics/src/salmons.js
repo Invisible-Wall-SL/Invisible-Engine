@@ -76,6 +76,15 @@ export const WHIRLPOOL_PULL = Object.freeze({ radius: 4 * CELL, strength: 14 * C
  */
 export const SALMONS_BOUNDS = Object.freeze({ bank: 12, ends: 5, fallReach: 1.5 });
 
+/**
+ * The slide on the original's levels (`arcade.online.slide`; owner, 2026-11-24: "so a player is not
+ * getting stuck"): a bank there is a stair of solid zones, a cell or two a step, and a rock a box of
+ * a cell and a half, so a player pressed into one is carried round an end within 3.5 cells: far
+ * enough for a salmon (90 px wide) to round a rock (72 px) from anywhere under it, also one that
+ * stands against the bank. The band river has no such bank and plays without it.
+ */
+export const SALMONS_SLIDE = Object.freeze({ corner: 3.5 * CELL });
+
 /** The characters' bodies (`arcade.bodies`, by online character id). */
 const BODIES = Object.freeze({
 	salmon: { shape: 'box', w: 90, h: 44 },
@@ -464,6 +473,17 @@ export function salmonsGeometry(river) {
 	};
 }
 
+/**
+ * Salmons' levels (owner, 2026-11-24): a winding river whose bends turn it by up to 140°, sharpest
+ * round the source, and six waterfalls each 5 to 10 cells high (the original capped them towards
+ * the sea, where most were 1 or 2). `scripts/salmons/export.mjs` ships it as the config's
+ * `arcade.online.levels`; a config without it plays the original's levels.
+ */
+export const SALMONS_LEVELS = Object.freeze({
+	river: Object.freeze({ winding: 0.75, sharpestTurn: 140, sourceBias: 0.6 }),
+	waterfalls: Object.freeze({ count: 6, heightMin: 5, heightMax: 10 }),
+});
+
 /** Salmons' lobby (owner, 2026-11-17): 4 people, or 60 s after the first, then a 10 s countdown. */
 export const SALMONS_LOBBY = Object.freeze({
 	minPlayers: 4,
@@ -652,9 +672,10 @@ export const SALMONS_BOT_NAMES = Object.freeze({
 /**
  * The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room from the
  * generator that made it (`salmonsMap`'s rivers name theirs; P10.16's band river is `salmonsRiver`).
- * With `lobby` ({@link SALMONS_LOBBY}, what the export ships) a room waits before its first round.
+ * With `lobby` ({@link SALMONS_LOBBY}, what the export ships) a room waits before its first round;
+ * with `levels` ({@link SALMONS_LEVELS}, shipped too) its rooms' rivers are shaped by them.
  */
-export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
+export function salmonsConfig(river = salmonsRiver(), { lobby, levels } = {}) {
 	const C = SALMONS_COMPONENTS;
 	const geometry = salmonsGeometry(river);
 	const original = river.generator === 'salmonsMap';
@@ -710,6 +731,7 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				],
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
+				...(levels ? { levels: structuredClone(levels) } : {}),
 				// The box: what every device is sent, whatever it says of its screen, and what holds
 				// a bot fisherman's aim. It must cover what the layout's camera shows (`engine-layout`
 				// `SALMONS_CAMERA`) on the two windows `check:room-bots` names, and a fisherman's
@@ -737,12 +759,14 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				// The original's keys (`client/input.js`): screen-relative on the isometric river, and
 				// Space swipes a bear (a fisherman's cast is aimed, so Space does nothing for him).
 				keys: 'screen',
+				...(original ? { slide: { ...SALMONS_SLIDE } } : {}),
 				rules: {
 					zones: geometry.zoneRules,
 					// The original's (`GuiltyForever/salmon-` fb907fb `server/index.js`): a bear swipes
 					// 1.5 tiles around the tile ahead of its last move and catches anyone there; a
 					// fisherman casts at the tapped water and hooks the first salmon within 1.5 tiles
-					// of its travelling bobber. Each scores 1; a bot is back after `ms`.
+					// of its travelling bobber. Each scores 1; a bot is back after `ms`. Not the
+					// original's: the fisherman's `carry`.
 					abilities: [
 						{
 							character: 'bear',
@@ -766,6 +790,9 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 							score: 1,
 							cooldownMs: 250,
 							onPress: true,
+							// Owner, 2026-11-24: the salmon he lands is alive in his hands; his next tap
+							// throws it, and it dies where it lands (the defaults: 4 s held, 8 cells thrown).
+							carry: {},
 						},
 					],
 					// One game a room: the first salmon to the source wins it.

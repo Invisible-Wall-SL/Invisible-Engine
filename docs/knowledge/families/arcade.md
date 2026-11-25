@@ -67,6 +67,7 @@ A seed and the same keys replay the same game.
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
   it, and one trace gives both the same hits (`check:online-rules`). None configured, no stage.
+- **A `hook` with a `carry` holds, then throws** (any game on a line module): the landed target is `held` in its user's hands, `thrown` by the next press, and out, scored and stained only where it lands or is dropped. `held` / `thrown` are not `hittable`. A status a module sets must be freed at round end (`onlineRules.js`: `status >= STATUS.hooked`). No `carry`, the old catch. `check:salmons-throw`.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it as a device's (`onlineBots.js`, `roomSim.ts`).
   Its limits are a person's, from the rules module: sight (`sees`), a reaction time, a short cast
@@ -155,8 +156,7 @@ A seed and the same keys replay the same game.
   went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag (`room-load.mjs`).
   The box must cover what the camera shows (or players pop in) and whoever can act on a player; a
   declared view only adds to it, to `nearby.max`, or a salmon is hooked unseen: `check:room-bots`.
-- **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input
-  map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
+- **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
 - **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not follow references. **Guard:** none.
 - **Symptom:** a new reader of the published clips map does not see a smoothly turning character, or its gold differs. **Cause:** it is drawn by `sheetClipLook.ts`, not published. **Guard:** a gold-tint change in `SpawnLayer.svelte` is mirrored in `SHEET_CLIP_GOLD` (`check:character-turn` holds them equal); the map: none.
 - **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** a spawn layer placed

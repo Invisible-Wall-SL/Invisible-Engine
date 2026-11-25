@@ -40,6 +40,7 @@ import {
 	normalizeGameConfigDoc,
 	validateGameConfigDoc,
 	withCharacterSheets,
+	withSlide,
 	withTouchSchemes,
 	UNPLAYED_CHARACTER_WARNING,
 	type GameConfigDoc,
@@ -154,8 +155,11 @@ const touched = structuredClone(sheeted);
 
 /** What a load makes of stored bytes: the normalizer, then the carries (`loadGameConfigDocWithEtag`). */
 const load = (stored: unknown): GameConfigDoc =>
-	withTouchSchemes(
-		withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+	withSlide(
+		withTouchSchemes(
+			withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+			stored,
+		),
 		stored,
 	);
 /** The page's live doc for a project whose stored config is the save of `authored`. */
@@ -382,6 +386,7 @@ const SHEETED_STATE = {
 				onlineDoc.setNearbyMax(d, '1600', '1200');
 			},
 		],
+		setSlideCorner: [(d) => onlineDoc.setSlideCorner(d, '168')],
 		setPointerOn: [(d) => onlineDoc.setPointerOn(d, false)],
 		setPointerField: [(d) => onlineDoc.setPointerField(d, 'deadZone', '40')],
 		setPointerTap: [(d) => onlineDoc.setPointerTap(d, 'bear', 'ability1')],
@@ -411,6 +416,21 @@ const SHEETED_STATE = {
 		addAbility: [(d) => onlineDoc.addAbility(d)],
 		removeAbility: [(d) => onlineDoc.removeAbility(d, 0)],
 		setAbilityField: [(d) => onlineDoc.setAbilityField(d, 0, 'reach', '140')],
+		// Only a hook holds and throws: the ability is made one first.
+		setAbilityCarry: [
+			(d) => {
+				onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+				onlineDoc.setAbilityCarry(d, 0, true);
+			},
+		],
+		setCarryField: [
+			(d) => {
+				onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+				onlineDoc.setAbilityCarry(d, 0, true);
+				onlineDoc.setCarryField(d, 0, 'holdMs', '5000');
+			},
+		],
+		setStainField: [(d) => onlineDoc.setStainField(d, 'opacity', '0.5')],
 		setRoundField: [(d) => onlineDoc.setRoundField(d, 'seconds', '90')],
 		setLobbyOn: [(d) => onlineDoc.setLobbyOn(d, false)],
 		setLobbyField: [(d) => onlineDoc.setLobbyField(d, 'minPlayers', '3')],

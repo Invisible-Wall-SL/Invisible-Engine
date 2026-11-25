@@ -415,8 +415,10 @@ What the character can be seen doing: one row per action, then the grid and the 
 | **Stands in** | The action drawn in its place when it has no clip, animation or image in any facing. A facing with none is first stood in for by its mirror twin, then the nearest facing | none |
 
 The event and status fields suggest the names a room raises (`jumped`, `climbed`, `hit`,
-`caught`, `hooked`, `escaped`; `holding`, `marked` and the room's statuses) and take any other,
-since a rules module may raise its own.
+`caught`, `hooked`, `escaped`, `held`, `thrown`, `landed`; `holding`, `carrying`, `marked` and the
+room's statuses, `held` and `thrown` among them) and take any other, since a rules module may raise
+its own. `carrying` holds for a character while a catch is in its hands; `held` and `thrown` hold
+for the one carried.
 
 Type an id in the last row and press **Add action** (blank gives `action`, `action2`, …). The bin
 removes an action; the actions it stood in for lose that stand-in, and a note says which.

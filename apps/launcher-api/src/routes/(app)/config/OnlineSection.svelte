@@ -22,13 +22,17 @@
 	import {
 		ARCADE_NETCODES,
 		ARCADE_ONLINE_BOT_DEFAULTS,
+		ARCADE_ONLINE_CARRY_DEFAULTS,
+		ARCADE_ONLINE_CARRY_LIMITS,
 		ARCADE_ONLINE_DEFAULTS,
 		ARCADE_ONLINE_LIMITS,
 		ARCADE_ONLINE_RULE_DEFAULTS,
+		ARCADE_ONLINE_STAIN_DEFAULTS,
 		ARCADE_POINTER_DEFAULTS,
 		ARCADE_POINTER_LIMITS,
 		ARCADE_POINTER_MOUSE_MODES,
 		ARCADE_POINTER_TAP_BUTTONS,
+		ARCADE_SLIDE_LIMITS,
 		ARCADE_TOUCH_ABILITY_PRESSES,
 		ARCADE_TOUCH_AIMS,
 		ARCADE_TOUCH_DEFAULTS,
@@ -62,7 +66,10 @@
 		removeBot,
 		removeOnlineCharacter,
 		removeZoneRule,
+		setAbilityCarry,
 		setAbilityField,
+		setCarryField,
+		setStainField,
 		setBotField,
 		setBotShare,
 		setBotsByShares,
@@ -80,6 +87,7 @@
 		setLobbyOn,
 		setRoundField,
 		setRulesModule,
+		setSlideCorner,
 		setZoneRuleField,
 		sheetUnlinkedNote,
 		testSizeParam,
@@ -152,6 +160,7 @@
 		['patchHz', 'States per second', ARCADE_ONLINE_LIMITS.patchHz],
 		['rejoinSeconds', 'Rejoin seconds', ARCADE_ONLINE_LIMITS.rejoinSeconds],
 	] as const;
+	const SLIDE = ARCADE_SLIDE_LIMITS.corner;
 
 	const bodies = $derived(Object.keys(doc.arcade?.bodies ?? {}));
 	const zones = $derived((doc.arcade?.zones ?? []).map((z) => z.id));
@@ -439,6 +448,22 @@
 					onchange={typeNearbyMax}
 				/></label
 			>
+			<label
+				>Slide round corners (px)<InfoTip
+					>A player stopped by a solid (a zone a zone rule makes solid: a bank, a rock) that ends
+					within this many field px of the player is carried round that end instead of stopping. So
+					a player follows a bank drawn as a stair of zones and rounds the corner of a rock. A push
+					straight into a solid that goes on further still stops. Empty: players stop at a corner,
+					as before. From {SLIDE.min} to {SLIDE.max}.</InfoTip
+				><input
+					type="number"
+					min={SLIDE.min}
+					max={SLIDE.max}
+					value={online.slide?.corner ?? ''}
+					placeholder="off"
+					onchange={(e) => setSlideCorner(doc, e.currentTarget.value)}
+				/></label
+			>
 		</div>
 		{@render generated('the spawn')}
 		<span class="legend">Characters <em>what a player can be</em></span>
@@ -584,6 +609,7 @@
 	{@render issueList('arcade.online.patchHz')}
 	{@render issueList('arcade.online.spawn')}
 	{@render issueList('arcade.online.nearby')}
+	{@render issueList('arcade.online.slide')}
 </SectionCard>
 
 <div id={TOUCH_CARD_ANCHOR}>
@@ -1243,12 +1269,110 @@
 					</tbody>
 				</table>
 			{/if}
+			{#each rules?.abilities ?? [] as ability, i (i)}
+				{#if ability.effect === 'hook'}
+					<div class="row tight">
+						<label class="check"
+							><input
+								type="checkbox"
+								checked={ability.carry !== undefined}
+								onchange={(e) => setAbilityCarry(doc, i, e.currentTarget.checked)}
+							/>{ability.character}'s hook holds its catch, then throws it<InfoTip
+								>The player the line lands is not out: it is alive in the hands of {ability.character},
+								where nobody else can hit it. The next press of the ability (a click or a tap
+								anywhere) throws it there; it is out where it lands, and the ability scores then. Off:
+								it is out as soon as it is landed.</InfoTip
+							></label
+						>
+						{#if ability.carry}
+							<label
+								>Held for (ms)<InfoTip
+									>How long it stays in the hands when it is not thrown. After that it is dropped
+									where its holder stands, and is out there. It is dropped at once if its holder is
+									caught or leaves.</InfoTip
+								><input
+									type="number"
+									min={ARCADE_ONLINE_CARRY_LIMITS.holdMs.min}
+									max={ARCADE_ONLINE_CARRY_LIMITS.holdMs.max}
+									value={ability.carry.holdMs ?? ''}
+									placeholder={String(ARCADE_ONLINE_CARRY_DEFAULTS.holdMs)}
+									onchange={(e) => setCarryField(doc, i, 'holdMs', e.currentTarget.value)}
+								/></label
+							>
+							<label
+								>Throw up to (px)<InfoTip
+									>The furthest it is thrown, in field px from the holder. A click further away lands
+									this far, in that direction.</InfoTip
+								><input
+									type="number"
+									min={ARCADE_ONLINE_CARRY_LIMITS.throwPx.min}
+									max={ARCADE_ONLINE_CARRY_LIMITS.throwPx.max}
+									value={ability.carry.throwPx ?? ''}
+									placeholder={String(ARCADE_ONLINE_CARRY_DEFAULTS.throwPx)}
+									onchange={(e) => setCarryField(doc, i, 'throwPx', e.currentTarget.value)}
+								/></label
+							>
+							<label
+								>Flight (ms)<InfoTip>How long it is in the air, whatever the distance.</InfoTip><input
+									type="number"
+									min={ARCADE_ONLINE_CARRY_LIMITS.flightMs.min}
+									max={ARCADE_ONLINE_CARRY_LIMITS.flightMs.max}
+									value={ability.carry.flightMs ?? ''}
+									placeholder={String(ARCADE_ONLINE_CARRY_DEFAULTS.flightMs)}
+									onchange={(e) => setCarryField(doc, i, 'flightMs', e.currentTarget.value)}
+								/></label
+							>
+							<label class="check"
+								><input
+									type="checkbox"
+									checked={ability.carry.walk !== false}
+									onchange={(e) => setCarryField(doc, i, 'walk', e.currentTarget.checked)}
+								/>Walks while holding<InfoTip
+									>Off: the holder stands still until it throws or drops what it holds.</InfoTip
+								></label
+							>
+						{/if}
+					</div>
+				{/if}
+			{/each}
 			<div class="row tight">
 				{#if characters.length}
 					<button class="small" onclick={() => addAbility(doc)}>Add ability</button>
 				{:else}
 					<span class="hint">Add a character in Online room first.</span>
 				{/if}
+			</div>
+			<span class="legend">Marks on the field</span>
+			<div class="row tight">
+				<label
+					>Mark opacity<InfoTip
+						>How solid a mark the rules leave on the field is drawn (Salmons: a pool of blood where a
+						salmon died), from 0 (not drawn) to 1 (solid). It is drawn on top of the water. Default: {ARCADE_ONLINE_STAIN_DEFAULTS.opacity}
+						(70 % transparent).</InfoTip
+					><input
+						type="number"
+						min="0"
+						max="1"
+						step="0.05"
+						value={rules?.stains?.opacity ?? ''}
+						placeholder={String(ARCADE_ONLINE_STAIN_DEFAULTS.opacity)}
+						onchange={(e) => setStainField(doc, 'opacity', e.currentTarget.value)}
+					/></label
+				>
+				<label
+					>Trail opacity<InfoTip
+						>How solid the trail is where it starts (Salmons: the blood a salmon carries off after
+						swimming through a pool); it fades from there. 0 to 1. Default: {ARCADE_ONLINE_STAIN_DEFAULTS.trailOpacity}.</InfoTip
+					><input
+						type="number"
+						min="0"
+						max="1"
+						step="0.05"
+						value={rules?.stains?.trailOpacity ?? ''}
+						placeholder={String(ARCADE_ONLINE_STAIN_DEFAULTS.trailOpacity)}
+						onchange={(e) => setStainField(doc, 'trailOpacity', e.currentTarget.value)}
+					/></label
+				>
 			</div>
 		</fieldset>
 	</div>

@@ -49,6 +49,8 @@ export type OnlineLevel = {
 	currents: StaticIndex<OnlineCurrent>;
 	/** Absent ⇒ none. */
 	solids?: StaticIndex<OnlineSolid>;
+	/** The game's slide (`arcade.online.slide`). Absent ⇒ a player stops at a solid's corner. */
+	slide?: Slide;
 };
 
 /** The side a one-way solid stops a body coming from; `true` = every side. */
@@ -79,6 +81,7 @@ export function moveAgainstSolids<B extends Body>(
 	dt: number,
 	solids: StaticIndex<OnlineSolid>,
 	field?: Field,
+	slide?: Slide,
 ): B;
 export function onlineLevel(
 	zones: readonly StaticShape[] | undefined,
@@ -92,6 +95,7 @@ export function onlineLevel(
 		| undefined,
 	character: string,
 	field: Field,
+	slide?: Slide,
 ): OnlineLevel;
 /** A zone held to the field; `undefined` when none of it is on it. */
 export function clipToField<Z extends StaticShape>(zone: Z, field: Field): Z | undefined;

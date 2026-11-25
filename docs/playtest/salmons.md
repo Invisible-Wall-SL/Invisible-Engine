@@ -75,9 +75,16 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   diagonals no faster; up the river is Up + Right until the world is mirrored); Space swipes a bear
   and does nothing for a fisherman; J casts four cells ahead into the water.
 
+The slide (`arcade.online.slide`, on the original's levels) has its own run:
+`scripts/playtest/salmons-slide-play.mjs` holds real keys against banks, a rock, the bank limit
+and the water's edge with the slide off and on, and checks that nobody is stuck, passes a
+waterfall or is corrected by the room.
+
 It is not a published project: the playtest builds its own snapshot and config and starts its own
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
-project (owner steps in [status/salmons](../status/salmons.md)).
+project (owner steps in [status/salmons](../status/salmons.md)). Since 2026-11-24 the export ships
+`SALMONS_LEVELS` as the config's `arcade.online.levels`: a winding river and six waterfalls of 5 to
+10 cells ([salmons-levels §5](../design/salmons-levels.md)).
 
 **What it looks like (2026-11-18):** the original's orientation, the source top-left and the sea
 bottom-right, waterfalls running up-right; a cell 64 × 32 CSS px (32 × 16 on a phone). On the
@@ -585,6 +592,59 @@ a tap swipes, or casts where tapped. Get caught as a salmon and press Respawn wi
 comes back and neither leaps nor swims off. The page must not scroll or zoom under the finger.
 The live game plays the schemes only after the owner's upload
 ([status/salmons](../status/salmons.md), Owner steps).
+
+## A tour of a river (`salmons-river-tour.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-river-tour.mjs --runtime apps/lines/build --out <dir> \
+  [--seeds 1,4] [--original] [--chrome <exe>]
+```
+
+One page per seed, on the same runtime build and a real game server on localhost, on the level the
+seed makes with `SALMONS_LEVELS` (`--original`: the original's level). It stands the page's salmon
+below each waterfall, in the middle of each reach that runs across the screen's other diagonal and
+at each sharp bend, and saves a screenshot of each (`<out>/<seed>-<stop>.png`). The screenshots are
+for a person to look at: no verdict reads them. Then it climbs the level's tallest waterfall with
+the keys.
+
+Its verdicts: the page made the level the room's seed makes in Node; a cliff stands under every
+waterfall; each stop is on water the page draws its salmon on; the tallest waterfall is climbed by
+tapping Space and swum over; no page error. Exit 1 when one fails. The shape's rules over many
+seeds are `pnpm check:salmons-course`'s, not this run's.
+
+## The fisherman's hold and throw (`salmons-throw-play.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-throw-play.mjs --runtime apps/lines/build --out .cache/salmons-throw-play \
+  [--only <room>]
+```
+
+A `hook` ability's `carry`, on the same runtime build (`PUBLIC_IE_FAMILIES=arcade pnpm --filter
+lines build`) and a real game server on localhost. Every page boots the game its room plays (the
+`salmonsRiver` generator, the original art, no bots). Each room has a fisherman's page (Hal) and a
+salmon's page (Gil), 1280 × 720 at 2×. Screenshots and what each page's probe said go to `--out`;
+`report.json` holds the verdicts. Exit 1 when a verdict fails.
+
+Five rooms (`--only` plays one):
+
+- `throw-water`: Hal clicks on Gil's salmon; the line hooks it and reels it into his hands. Both
+  pages draw it there (held, on his place, out of the water), with no stain anywhere. Hal walks
+  and it goes with him. Hal clicks on the water: it flies (in the air on both pages), lands, Gil's
+  page shows its death screen "by Hal", and the one pool of blood is where it landed. Gil respawns
+  and swims through the pool: red, and a trail on the water.
+- `throw-land`: the same catch, thrown onto the bank. The pool is on the grass.
+- `throw-drop`: Hal never throws. After the hold time the salmon is dropped at his feet and dies
+  there.
+- `throw-leave`: Hal's page closes while he holds. The salmon is dropped and dies.
+- `throw-phone`: Hal on a phone (390 × 844, touch). A tap on the salmon casts, a tap on the bank
+  (not a cast's target) throws there, and a held finger still walks him.
+
+Look at the 2× screenshots as well as the verdicts: whether the blood reads as on top of the water
+is a picture, not a number (`<room>-5-landed-fisherman.png`, `throw-water-6-trail-salmon.png`).
+The rules themselves are `pnpm check:salmons-throw`; how the pools and the trail are layered is
+`pnpm check:salmons-art`.
 
 ## What the gates already prove (not replayed here)
 

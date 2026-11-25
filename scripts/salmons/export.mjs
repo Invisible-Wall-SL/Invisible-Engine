@@ -20,9 +20,14 @@ import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { ONLINE_GENERATORS } from '../../packages/engine-mechanics/src/onlineGenerators.js';
-import { SALMONS_LOBBY, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_LEVELS,
+	SALMONS_LOBBY,
+	salmonsConfig,
+} from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
+	levelShape,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
 import {
@@ -30,7 +35,13 @@ import {
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc, withTouchSchemes } from '../../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	withLevelsShape,
+	withOnlineCarry,
+	withSlide,
+	withTouchSchemes,
+} from '../../packages/game-config/index.ts';
 import { validateFamily } from '../../packages/game-config/src/familyValidate.ts';
 import { r2Slug } from './r2Slug.mjs';
 
@@ -51,8 +62,10 @@ const write = (key, doc) => {
 };
 
 // The original game's generator (`salmonsMap`): the scene holds one level, each room plays its own.
-const river = salmonsMapRiver(SALMONS_MAP_SEED);
-const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY });
+// The scene's level and every room's are shaped by Salmons' levels (the winding river, the tall
+// waterfalls).
+const river = salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS));
+const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS });
 // A room's zones and zone rules are its generator's (`generatedOnlineGame` replaces both), so the
 // scene's level's are a snapshot no room plays, and most of what every device and the game server
 // download (owner, 2026-11-24). The field and the spawns stay: `onlineGameOf` needs the field.
@@ -61,8 +74,16 @@ if (Object.hasOwn(ONLINE_GENERATORS, authored.arcade.online.generator)) {
 	delete authored.arcade.zones;
 	delete authored.arcade.online.rules.zones;
 }
-// The touch schemes are carried past the normalizer, which drops them (`touchScheme.ts`).
-const config = withTouchSchemes(normalizeGameConfigDoc(authored), authored);
+// The touch schemes, the rules' carry, the slide and the levels' shape are carried past the
+// normalizer, which drops them (`touchScheme.ts`, `onlineCarry.ts`, `onlineSlide.ts`,
+// `levelsShape.ts`).
+const config = withLevelsShape(
+	withSlide(
+		withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
+		authored,
+	),
+	authored,
+);
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');
 if (errors.length)
 	throw new Error(`the Salmons config does not validate: ${JSON.stringify(errors)}`);
