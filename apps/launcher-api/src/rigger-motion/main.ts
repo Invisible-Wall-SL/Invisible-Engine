@@ -36,6 +36,7 @@ import {
 	SHEET_JOINT_LABELS,
 	faceJoints,
 	guessSheetJoints,
+	mirroredName,
 	propName,
 	sheetKind,
 	sheetSide,
@@ -462,8 +463,8 @@ const api = {
 	refitIrig,
 	refitRig3d,
 	templateOnRig,
-	// 🗺 From my sheet (frame-to-rig §13): regions to parts by name, joints from a drawing's shape,
-	// where a part's first joint snaps to on the arrange canvas.
+	// 🗺 From my sheet (frame-to-rig §13): regions to parts by name (⇄ its sides read mirrored),
+	// joints from a drawing's shape, where a part's first joint snaps to on the arrange canvas.
 	SHEET_JOINTS,
 	SHEET_JOINT_LABELS,
 	sheetKind,
@@ -472,6 +473,7 @@ const api = {
 	suggestSheetMap,
 	suggestProp,
 	propName,
+	mirroredName,
 	guessSheetJoints,
 	faceJoints,
 };

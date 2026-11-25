@@ -1639,14 +1639,6 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
   clip is drawn on land too (or, switched at the water's edge, starts the clip again there). Not
   taken: no bear clip exists. Take it with the first bear clips, or give `<SpawnLayer>` a way to
   put a filter on a clip.
-- **A smooth turn's cross-fade does not fade on a rig** (found 2026-11-25; `sheetRigLook.ts`
-  `opacity`; since #1895). Its `AlphaFilter` is on a `RigView`, which Pixi measures 0 × 0 for a
-  filter, so the pass is skipped and both pictures are drawn at full strength. Since #1902 only
-  a sheet that sets **Blend (ms)** fades, and the bear's sets none, so no live character shows
-  it today. The fix is the wading's: a `filterArea` on the fading view. Not done here: it
-  changes how a blended turn looks, which is its own look to judge
-  (`scripts/playtest/character-turn-strip.mjs`). `check:character-turn` holds only that the
-  filter is set, not that it is drawn.
 - **Owner: look at the live bear.** The waterline's numbers were judged on the bear sprite and a
   stand-in rig. If `R_Bear`'s body is much narrower than its box the curve will read flatter
   than here; `WADE.reach` and `WADE.sag` are the two to move.
@@ -2074,6 +2066,20 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-25 — **A smooth turn's cross-fade fades on a rig** (bug found with the wading; branch
+  `claude/laughing-ritchie-jj9vuc`, #1905; in review). `sheetRigLook.ts`
+  flattened a fading `RigView` with an `AlphaFilter` that Pixi sized by its fast measure, which
+  finds nothing in a rig, so every pass was skipped and both pictures were drawn at full
+  strength until the blend ended (since #1895). The fading view now carries a `filterArea`:
+  its local bounds each frame, 25 % of the longer side as a margin (8 px at least), the rig's
+  box if it measures empty; cleared when it is opaque again. `check:character-turn` 113 → 115:
+  every fading view's pass, read as Pixi reads it, must have a size and hold the pose drawn (red
+  on the unfixed look: "a pass of no size is skipped"), an opaque one has none, and two
+  mutations (no `filterArea`; a pass that cuts the pose). Looked at with
+  `character-turn-strip.mjs`: only `iso-rig-blend` changes, from a cut with both pictures solid
+  to a fade of two whole pictures; the eleven other strips, the bear as saved among them, are
+  the same bytes. Only a sheet that sets **Blend (ms)** draws differently; the bear sets none.
 
 - 2026-11-25 — **A device plays its room's levels** (owner: "changing the seed generates a new
   level, but does not update collisions"; branch `claude/zealous-darwin-t8xiyc`; in review). The

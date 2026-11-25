@@ -11,7 +11,9 @@
  * different parts (a rig of one drawing a facing), or the same one mirrored, cannot be: they are
  * two pictures, each a rig view of its own, CROSS-FADED. A rig drawn part by part at an alpha
  * would show its parts through one another, so the fading view is flattened by a filter while it
- * fades.
+ * fades. The pass covers the view's box as it is drawn this frame: Pixi's own measure for a filter
+ * finds no size in a `RigView` (it is measured through a part that is not drawn) and would skip
+ * the pass, drawing both pictures at full strength.
  *
  * Imported lazily, and only by a room whose config names a rig on a sheet
  * (`engine-layout/sheet-rig`): a game with none never loads this module.
@@ -20,7 +22,7 @@
 import * as RIG from 'engine-rig/pixi';
 import type { CharacterSheet } from 'game-config';
 import { getRigLoadScale } from 'pixi-svelte';
-import { AlphaFilter, Container } from 'pixi.js';
+import { AlphaFilter, Container, Rectangle } from 'pixi.js';
 
 import type { ArtMount } from './arcadeArt.svelte';
 import { fadeAlphas, leanedPoint, phaseKept } from './characterTurn';
@@ -55,6 +57,10 @@ export function rigHeaderBox(header: RigHeader, loadScale: number): RigBox | und
 
 /** The longest a rig moves on in one frame: a look drawn again after a while does not leap. */
 const MAX_STEP_MS = 100;
+
+/** How far a fading view's pass reaches past its box: a share of the box's longer side, and no
+ *  less than `min` px, so a part that swings out of it between two measures is not cut. */
+const FADE_MARGIN = Object.freeze({ share: 0.25, min: 8 });
 
 /**
  * Whether two animations of a rig may be mixed as one pose: they show the same attachment in
@@ -129,6 +135,8 @@ type Layer = {
 	fade: AlphaFilter | undefined;
 	/** Whether its filter is on: set only when that changes. */
 	faded: boolean;
+	/** The box its filter's pass covers while it fades, in its own space. */
+	area: Rectangle;
 };
 
 /**
@@ -151,6 +159,7 @@ export function createSheetRigLook(
 			flipX: false,
 			fade: undefined,
 			faded: false,
+			area: new Rectangle(),
 		};
 	};
 	/** The view the frame's own picture is drawn by, and the one a cross-fade leaves (made with
@@ -231,7 +240,22 @@ export function createSheetRigLook(
 		}
 		if (faded === on.faded) return;
 		on.faded = faded;
+		on.view.filterArea = faded ? on.area : undefined;
 		on.view.filters = faded && on.fade ? [on.fade] : [];
+	};
+	/** Fit a fading view's pass to its box as it is drawn now, else to the rig's. */
+	const cover = (on: Layer) => {
+		const drawn = on.view.getLocalBounds();
+		const at =
+			drawn.width > 0 && drawn.height > 0
+				? { x: drawn.minX, y: drawn.minY, w: drawn.width, h: drawn.height }
+				: box;
+		if (!at) return;
+		const margin = Math.max(FADE_MARGIN.min, FADE_MARGIN.share * Math.max(at.w, at.h));
+		on.area.x = at.x - margin;
+		on.area.y = at.y - margin;
+		on.area.width = at.w + 2 * margin;
+		on.area.height = at.h + 2 * margin;
 	};
 	const rest = () => {
 		fading = undefined;
@@ -310,6 +334,7 @@ export function createSheetRigLook(
 					? blend.from.lean + (frame.lean - blend.from.lean) * blend.weight
 					: frame.lean;
 			place(front, frame.flipX, lean);
+			for (const on of [front, back]) if (on?.faded && on.view.visible) cover(on);
 		},
 		points() {
 			const flipX = shown?.flipX === true;
