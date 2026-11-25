@@ -773,7 +773,8 @@ are mixed (eased, the cycle carried on); the drawn heading waits at the edge of 
 until it is done (only then: a sheet with no blend never waits), so never more than two pictures are mixed. A rig's two animations that show the
 same parts are mixed as one pose by the rig runtime; different parts, a mirrored twin, two clips
 or two stills are cross-faded, each picture opaque for its own half (`fadeAlphas`), a fading rig
-view flattened by an `AlphaFilter`. Two rigs are not mixed. It is off by default because it is
+view flattened by an `AlphaFilter` over a `filterArea` of its own box (Pixi measures a rig as
+empty for a filter and would skip the pass). Two rigs are not mixed. It is off by default because it is
 what the owner saw flicker: for the length of the fade both pictures are on the screen at once,
 two heads and four legs half over each other at every step of a sweep (the frames drawn are
 complete: no blank or missing frame was found in `character-turn-strip.mjs`). Open: whether any
