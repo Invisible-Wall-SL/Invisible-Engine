@@ -104,6 +104,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-25 — **Invisible Model Viewer is offered only to a 3D game; the home grid's "new" tags
+  are gone.** The `(app)` layout drops `models` from the manifest unless the project is arcade AND
+  its Game Config has `arcade.world3d` (`server/view3d.ts` `cachedProjectIsView3d`, 30 s, cleared
+  by a Game Config save); a direct `/models` link on a 2D arcade project gets the "is for 3D games"
+  notice, so the page's own "no 3D world yet" note went. The home cards no longer render `isNew`
+  (static flags that never expired); Admin › Roles still tags new tools so they get granted.
 - 2026-11-25 — **The engine pill's "Release pending · N ahead" no longer cries wolf.** It compared
   `main` against the commit the live `lines` bundle was BUILT at, so every arcade/Salmons engine
   merge since (which the release job skips for `lines` as byte-identical) kept it amber, and N was

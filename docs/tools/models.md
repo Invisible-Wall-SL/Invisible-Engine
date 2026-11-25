@@ -33,18 +33,18 @@ fold is remembered in this browser.
   the admin panel. **Editing the Game Config defaults** also needs access to
   [Invisible Game Config](game-config.md): of those roles the `animator` does not have it by
   default, and sees that card read-only.
-- **Scope:** per **active project**, and **arcade projects only** (a 3D game is an arcade game). A
-  slot, match-3 or card project does not list the tool, and a direct link shows "Invisible Model
-  Viewer is not used by slot games" (or "match-3", "card") with a link back to the launcher.
-
-A project whose Game Config has no 3D world yet shows a note at the top: "This game's config has no
-3D world yet, so nothing draws these models. They can still be uploaded and tuned."
+- **Scope:** per **active project**, and **3D games only**: an arcade project whose Game Config
+  has a 3D world (`arcade.world3d`). A slot, match-3 or card project does not list the tool, and a
+  direct link shows "Invisible Model Viewer is not used by slot games" (or "match-3", "card"). An
+  arcade project with no 3D world does not list it either, and a direct link shows "Invisible Model
+  Viewer is for 3D games". Add the 3D world in [Invisible Game Config](game-config.md) and the tool
+  appears on the next page.
 
 ## How to use it
 
 ### Open it
 
-Sign in to the launcher (`app.invisiblewall.org`), pick an arcade project in the top bar, and open
+Sign in to the launcher (`app.invisiblewall.org`), pick a 3D arcade project in the top bar, and open
 **Invisible Model Viewer**. The page opens the first model of the list. Opening a model puts it in
 the URL (`/models?model=<id>`), so a reload or a shared link opens the same one.
 

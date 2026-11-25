@@ -22,6 +22,7 @@ import { putDocWithBackup, type BackupMode } from './docBackups';
 import { gameConfig3dBlocksOf, gameConfig3dErrors, withGameConfig3dBlocks } from './gameConfig3d';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
 import { gameConfigDocBackupTarget, gameConfigDocKey } from './projectPaths';
+import { forgetProjectIsView3d } from './view3d';
 import { ConflictError, getObjectTextWithEtag } from './r2';
 
 /**
@@ -288,6 +289,7 @@ export async function saveGameConfigDoc(
 		baseEtag,
 		backup,
 	);
+	forgetProjectIsView3d(clientKey, projectKey);
 	return { doc: stamped, etag, warnings };
 }
 

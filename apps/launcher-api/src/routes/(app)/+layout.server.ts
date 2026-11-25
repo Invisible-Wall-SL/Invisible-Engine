@@ -17,8 +17,10 @@ import {
 } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { enginePending } from '$lib/server/engineSource';
+import { MODELS_TOOL } from '$lib/server/modelAccess';
 import { engineDeployStatus, type EngineDeployStatus } from '$lib/server/testServerManifest';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { cachedProjectIsView3d } from '$lib/server/view3d';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
@@ -57,6 +59,12 @@ export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 		accessible.find((p) => p.key === activeProjectKey);
 	const familyProjectKey = familyRow?.key ?? activeProjectKey;
 	const family = projectFamily(familyProjectKey, familyRow?.gameType);
+	// Invisible Model Viewer is for a 3D game: an arcade project whose Game Config has a 3D world
+	// (`arcade.world3d`). Other families already exclude it, so only an arcade project pays the read.
+	const world3d =
+		family === 'arcade' && !!familyRow?.clientKey
+			? await cachedProjectIsView3d(familyRow.clientKey, familyProjectKey)
+			: false;
 
 	// Which engine commit the live shared `lines` runtime bundle was built from + whether a release
 	// is building right now (the bundle-vs-source axis). Best-effort + a single R2 read: a test-server
@@ -83,10 +91,11 @@ export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 
 	return {
 		user: locals.user,
-		tools: manifestForRole(locals.user.role, roleOverrides, overrides).filter((t) =>
-			familyUsesTool(family, t.id),
+		tools: manifestForRole(locals.user.role, roleOverrides, overrides).filter(
+			(t) => familyUsesTool(family, t.id) && (t.id !== MODELS_TOOL || world3d),
 		),
 		family,
+		world3d,
 		familyProjectKey,
 		canAdmin: roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides, overrides),
 		// Whether Invisible Pipeline Changes may show its Approve (and, later, Merge) controls: the
