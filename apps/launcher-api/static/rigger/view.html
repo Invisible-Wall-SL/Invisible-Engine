@@ -14143,7 +14143,11 @@ function moveSlot(z, dir){
   selSlot = movedName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
-  const row = [...document.querySelectorAll("#slotList .trow[data-slot]")].find((r) => r.dataset.slot === movedName);
+  revealSlotRow(movedName);
+}
+/** Scroll the panel just enough to show slot `name`'s row (a move can take it past the edge). */
+function revealSlotRow(name){
+  const row = [...document.querySelectorAll("#slotList .trow[data-slot]")].find((r) => r.dataset.slot === name);
   if (row) row.scrollIntoView({ block: "nearest" });
 }
 
