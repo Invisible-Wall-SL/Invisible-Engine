@@ -29,7 +29,7 @@
  * be made from it again.
  */
 import { armTail, PROP_NAME } from './rigCutEdits';
-import { faceNote, frameFace } from './rigFrameFace';
+import { apartFace, faceNote, frameFace } from './rigFrameFace';
 import { fitFromJoints, framePose, skinBends, turnedAtSetup, type Fitted } from './rigFrameFit';
 import {
 	boneWorld,
@@ -85,8 +85,11 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		'props',
 		'scale',
 		'arrange',
+		'swapSides',
 	]);
 	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
+	if (raw.swapSides !== undefined && typeof raw.swapSides !== 'boolean')
+		return no('`swapSides` is true or false');
 	if (raw.sheet !== 1) return no('a sheet mapping is version 1 (`sheet: 1`)');
 	if (typeof raw.manifestKey !== 'string' || !raw.manifestKey) return no('it names its sheet');
 	const tpl = raw.template;
@@ -168,6 +171,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		props,
 		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),
 		...(arrange ? { arrange } : {}),
+		...(raw.swapSides === true ? { swapSides: true as const } : {}),
 	};
 	return { mapping };
 }
@@ -316,6 +320,21 @@ const onCanvas = ({ at, turn }: SheetPlace): Affine => {
 };
 /** Canvas pixels to the rig's world: `k` rig units a pixel, y up, the rig's origin at `o`. */
 const canvasToWorld = (k: number, o: P): Affine => [k, 0, 0, -k, -k * o[0], k * o[1]];
+/** A drawing's ink as a box of its image (from the untrimmed middle, y up; a trim's `offY` is from its bottom). */
+function inkBox(r: TemplateRegion): P[] {
+	const [w, h] = [r.origW ?? r.w, r.origH ?? r.h];
+	const x0 = (r.offX ?? (w - r.w) / 2) - w / 2;
+	const y0 = (r.offY ?? (h - r.h) / 2) - h / 2;
+	return [
+		[x0, y0],
+		[x0 + r.w, y0],
+		[x0 + r.w, y0 + r.h],
+		[x0, y0 + r.h],
+	];
+}
+/** The create report's line on a head drawn without its face. */
+const APART_FACE =
+	'The head’s middle turns and nods with the face, its outline staying where it is: the face is drawn apart, each feature on its own bone.';
 /** A drawing's joint as a point of its image: from the middle of the untrimmed region, y up. */
 const imagePoint = (r: TemplateRegion, [x, y]: P): P => [
 	x - (r.origW ?? r.w) / 2,
@@ -545,13 +564,23 @@ export function sheetRig(
 		art[x.part] = { region: x.map.region, matrix };
 	}
 
-	// The face on a drawn head, where the tracker found it.
-	const head = mapped.find((x) => x.kind === 'head' && x.main && x.map.face);
+	// The face on a drawn head, where the tracker found it; else the head's middle on the face.
+	const drawnHead = mapped.find((x) => x.kind === 'head' && x.main);
+	const head = drawnHead?.map.face ? drawnHead : undefined;
 	const faceWorld = head
 		? head.map.face!.map((p) => apply(art[head.part].matrix, imagePoint(head.r, p)))
 		: null;
 	const lengthened: RigFit = { bones, ...(frame ? { frame } : {}) };
-	const drawn = faceWorld ? frameFace(t, lengthened, faceWorld) : null;
+	const found = faceWorld ? frameFace(t, lengthened, faceWorld) : null;
+	const drawn =
+		found ??
+		(drawnHead
+			? apartFace(
+					t,
+					lengthened,
+					inkBox(drawnHead.r).map((p) => apply(art[drawnHead.part].matrix, p)),
+				)
+			: null);
 
 	// Props: a bone of their own where they sit on their host's drawing, drawn just over it (on the
 	// skeleton with the face's bones where the drawn face has them), turned against it as they say.
@@ -629,7 +658,13 @@ export function sheetRig(
 	if (problem) return no(problem);
 	return {
 		ok: true,
-		value: { fit, art, scale: k, face: drawn ? faceNote(drawn.moves) : '', origin },
+		value: {
+			fit,
+			art,
+			scale: k,
+			face: found ? faceNote(found.moves) : drawn ? APART_FACE : '',
+			origin,
+		},
 	};
 }
 

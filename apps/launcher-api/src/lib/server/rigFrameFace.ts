@@ -20,6 +20,7 @@ import type { RigTemplate } from './rigTemplates';
 import {
 	boneWorld,
 	faceBones,
+	fitRatios,
 	fitTemplate,
 	frameWorld,
 	skinShares,
@@ -78,6 +79,10 @@ const PRIORITY: Record<string, number> = {
 const OUTLINE = 0.04;
 /** A region reaches no less than this share of the eyes' distance (a feature drawn as a dot). */
 const LEAST = 0.02;
+/** The face's own region is whole over this share of its reach (the features inside it). */
+const FACE_CORE = 0.6;
+/** A head drawn without its face: the face's region reaches this share of the way to its ink. */
+const APART_REACH = 0.9;
 /** The furthest a 3D import turns and nods a drawn face (its cannot list: about 40°, and 25°). */
 const TURN_3D = (40 * Math.PI) / 180;
 const NOD_3D = (25 * Math.PI) / 180;
@@ -335,8 +340,7 @@ export function frameFace(t: RigTemplate, fit: RigFit, face: readonly P[]): Fram
 	// No region reaches past the face's outline (the tracker's, a little out: a drawn face runs past
 	// it; a brow, two of its thicknesses: the skin about it is the face's, though the tracker's outline
 	// cuts through the far brow of a turned face) but below its jaw (from one jaw corner to the chin
-	// to the other, and straight under the chin: the head is not drawn there). A quarter of it reaching out is drawn in, its side
-	// first (its run, when the run's own end is out), then its height, then both.
+	// to the other, and straight under the chin: the head is not drawn there).
 	const hull = convexHull(face.slice(0, MESH) as P[]);
 	const jawLine = [at(JAW_CORNER.l), chin, at(JAW_CORNER.r)];
 	const belowJaw = (p: P) => {
@@ -353,38 +357,8 @@ export function frameFace(t: RigTemplate, fit: RigFit, face: readonly P[]): Fram
 		const brow = /^brow_/.test(bone) ? brows[bone.slice(-1) as Side] : undefined;
 		return Math.max(OUTLINE * apart, brow ? 2 * brow.thick : 0);
 	};
-	for (const sp of spots) {
-		const inFace = (p: P) => inside(hull, p, outward(sp.bone)) || belowJaw(p);
-		let run = sp.run ?? 0;
-		for (const [su, sv] of [
-			[-1, -1],
-			[1, -1],
-			[-1, 1],
-			[1, 1],
-		]) {
-			const [iu, iv] = [su < 0 ? 0 : 1, sv < 0 ? 2 : 3];
-			const edge = (a: number): P =>
-				add(
-					sp.at,
-					add(
-						mul(ex, su * (run + sp.extent[iu] * Math.cos(a))),
-						mul(up, sv * sp.extent[iv] * Math.sin(a)),
-					),
-				);
-			for (let pass = 0; pass < CLAMP_PASSES; pass++) {
-				const out = EDGE.filter((a) => !inFace(edge(a)));
-				if (!out.length) break;
-				const side = out.includes(0);
-				const height = out.includes(EDGE[EDGE.length - 1]);
-				if (side && run > 0 && !inFace(add(sp.at, mul(ex, su * run)))) run *= CLAMP_STEP;
-				else {
-					if (side || !height) sp.extent[iu] *= CLAMP_STEP;
-					if (height || !side) sp.extent[iv] *= CLAMP_STEP;
-				}
-			}
-		}
-		if (sp.run !== undefined) sp.run = run;
-	}
+	for (const sp of spots)
+		drawIn(sp, (p) => inside(hull, p, outward(sp.bone)) || belowJaw(p), ex, up);
 
 	// Each bone under the face where the frame draws it, else at its template place scaled to the
 	// drawn face, in its parent's frame (the face's turn in the frame's pose, the parent where placed).
@@ -417,6 +391,96 @@ export function frameFace(t: RigTemplate, fit: RigFit, face: readonly P[]): Fram
 		...new Set(spots.map((sp) => MOVES[sp.bone.replace(/_[lr]$/, '')]).filter(Boolean)),
 	];
 	return { features: { at: at0, scale }, spots, moves };
+}
+
+/**
+ * A region drawn in until its edge lies inside the face (`inFace`), sampled by quarter: a quarter
+ * reaching out is drawn in its side first (its run, when the run's own end is out), then its height,
+ * then both.
+ */
+function drawIn(sp: RigSkinSpot, inFace: (p: P) => boolean, ex: P, up: P): void {
+	let run = sp.run ?? 0;
+	for (const [su, sv] of [
+		[-1, -1],
+		[1, -1],
+		[-1, 1],
+		[1, 1],
+	]) {
+		const [iu, iv] = [su < 0 ? 0 : 1, sv < 0 ? 2 : 3];
+		const edge = (a: number): P =>
+			add(
+				sp.at,
+				add(
+					mul(ex, su * (run + sp.extent[iu] * Math.cos(a))),
+					mul(up, sv * sp.extent[iv] * Math.sin(a)),
+				),
+			);
+		for (let pass = 0; pass < CLAMP_PASSES; pass++) {
+			const out = EDGE.filter((a) => !inFace(edge(a)));
+			if (!out.length) break;
+			const side = out.includes(0);
+			const height = out.includes(EDGE[EDGE.length - 1]);
+			if (side && run > 0 && !inFace(add(sp.at, mul(ex, su * run)))) run *= CLAMP_STEP;
+			else {
+				if (side || !height) sp.extent[iu] *= CLAMP_STEP;
+				if (height || !side) sp.extent[iv] *= CLAMP_STEP;
+			}
+		}
+	}
+	if (sp.run !== undefined) sp.run = run;
+}
+
+/**
+ * The face of template `t` (fitted as `fit`) on a drawn head the tracker found no face on — its
+ * features drawn apart, or not drawn — inside `outline` (the head drawing's ink, rig units in the
+ * frame's pose): its bones where the fit puts them, and one region of the head, the face's, whole
+ * about the face bone and falling to `APART_REACH` of the way to the outline, so a head turn and
+ * nod carry the head's middle with the face (and the features drawn on its bones) while its outline
+ * stays; the face's move cut to the room that leaves (`roomScales`, from its fitted length's).
+ */
+export function apartFace(t: RigTemplate, fit: RigFit, outline: readonly P[]): FrameFace | null {
+	const under = faceBones(t.bones);
+	if (!under.has('face') || outline.length < 3) return null;
+	const Wf = frameWorld(fitTemplate(t, fit).bones, fit.frame).get('face')!;
+	const e: P = [Wf[0], Wf[2]];
+	if (!(len(e) > 1e-9)) return null;
+	const ex: P = mul(e, 1 / len(e));
+	const up: P = [-ex[1], ex[0]];
+	const o: P = [Wf[4], Wf[5]];
+	const hull = convexHull(outline);
+	if (!inside(hull, o)) return null;
+	// How far from `o` along `d` the outline is.
+	const reach = (d: P): number => {
+		let best = Infinity;
+		for (let i = 0; i < hull.length; i++) {
+			const [a, b] = [hull[i], hull[(i + 1) % hull.length]];
+			const edge = sub(b, a);
+			const den = d[0] * edge[1] - d[1] * edge[0];
+			if (Math.abs(den) < 1e-12) continue;
+			const w = sub(a, o);
+			const tt = (w[0] * edge[1] - w[1] * edge[0]) / den;
+			const ss = (w[0] * d[1] - w[1] * d[0]) / den;
+			if (tt > 0 && ss >= 0 && ss <= 1) best = Math.min(best, tt);
+		}
+		return Number.isFinite(best) ? APART_REACH * best : 0;
+	};
+	const extent = [reach(mul(ex, -1)), reach(ex), reach(mul(up, -1)), reach(up)];
+	if (!extent.every((v) => v > 1e-3)) return null;
+	const sp: RigSkinSpot = {
+		bone: 'face',
+		at: o,
+		dir: ex,
+		extent: extent as [number, number, number, number],
+		core: FACE_CORE,
+	};
+	drawIn(sp, (p) => inside(hull, p), ex, up);
+	const s = fitRatios(t.bones, fit.bones).get('face') ?? 1;
+	const scale = roomScales(t, under, [sp], hull, 0, ex, up, s);
+	return {
+		features: { at: {}, scale: { face: scale.face } },
+		spots: [sp],
+		moves: ['the head turn and nod'],
+	};
 }
 
 /**

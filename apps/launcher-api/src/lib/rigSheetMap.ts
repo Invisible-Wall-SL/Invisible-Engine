@@ -64,6 +64,12 @@ export interface SheetMapping {
 	 * bones at rest.
 	 */
 	arrange?: Record<string, SheetPlace>;
+	/**
+	 * The sheet names sides as the character's own left and right (`UpperArmL`, the arm on the
+	 * picture's right of a character facing the viewer), the template's `_l` being the picture's
+	 * left: its names are read mirrored. None: as the template's.
+	 */
+	swapSides?: true;
 }
 
 export const SHEET_SIDECAR = 'sheet.json';
@@ -115,6 +121,16 @@ export function sheetKind(slot: string): SheetKind {
 /** The body side of a slot (`_l`, the picture's left), or null. */
 export const sheetSide = (slot: string): 'l' | 'r' | null =>
 	(/_([lr])$/.exec(slot)?.[1] as 'l' | 'r' | undefined) ?? null;
+
+/**
+ * A part's or bone's name mirrored, every side in it the other way round (`upper_arm_l` ↔
+ * `upper_arm_r`, `hand_l_3q_r` ↔ `hand_r_3q_l`), or null for a name with no side.
+ */
+export function mirroredName(name: string): string | null {
+	const words = name.split('_');
+	const out = words.map((w) => (w === 'l' ? 'r' : w === 'r' ? 'l' : w));
+	return out.some((w, i) => w !== words[i]) ? out.join('_') : null;
+}
 
 /**
  * Where a part's first joint meets the part it hangs from, by kind (`_s` its side): the joints it
@@ -314,6 +330,22 @@ const KINDS = [
 	'pinky',
 ];
 
+/** The side a word names (`l`, `left`, `izq`, `sx` …), as the template's, or null. */
+function sideOf(word: string): 'l' | 'r' | null {
+	if (word === 'l' || word === 'r') return word;
+	const c = SYNONYMS[word];
+	return c?.length === 1 && (c[0] === 'l' || c[0] === 'r') ? c[0] : null;
+}
+/**
+ * A name's words with its sides the other way round when `swap` (a sheet naming the character's
+ * own): `l` and `r`, `left` and `right`, any other side word as the other side's letter.
+ */
+function sidesRead(words: string[], swap: boolean): string[] {
+	if (!swap) return words;
+	const other: Record<string, string> = { l: 'r', r: 'l', left: 'right', right: 'left' };
+	return words.map((w) => other[w] ?? (sideOf(w) === 'l' ? 'r' : sideOf(w) === 'r' ? 'l' : w));
+}
+
 /** A name as its words: `L_armUpper2` → l, arm, upper, 2. */
 export function nameWords(name: string): string[] {
 	return name
@@ -326,10 +358,13 @@ export function nameWords(name: string): string[] {
 		.filter(Boolean);
 }
 
-/** A name's words as the template's: synonyms read, `arm 1` (`ArmL1`, `brazo_izq_2`) a segment. */
-export function canonicalWords(name: string): Set<string> {
+/**
+ * A name's words as the template's: synonyms read, `arm 1` (`ArmL1`, `brazo_izq_2`) a segment, its
+ * sides the other way round with `swap`.
+ */
+export function canonicalWords(name: string, swap = false): Set<string> {
 	const out = new Set<string>();
-	const words = nameWords(name);
+	const words = sidesRead(nameWords(name), swap);
 	for (const w of words) for (const c of PART_WORDS[w] ?? SYNONYMS[w] ?? [w]) out.add(c);
 	const limb = Object.keys(SEGMENTED).filter((k) => out.has(k));
 	const digit = words.find((w) => w === '1' || w === '2');
@@ -340,17 +375,18 @@ export function canonicalWords(name: string): Set<string> {
 	return out;
 }
 
-const plain = (name: string) => nameWords(name).join('_');
+const plain = (name: string, swap = false) => sidesRead(nameWords(name), swap).join('_');
 
 /**
  * How well a region's name fits a template part's, 0 for not at all: the part's kind word must be
  * there, its side must not be the other one, and every word that says what the part is must match.
- * An exact name (any case, any separators) beats every other.
+ * An exact name (any case, any separators) beats every other. With `swap` the region's sides are
+ * read the other way round (`SheetMapping.swapSides`).
  */
-export function nameScore(part: string, region: string): number {
-	if (plain(part) === plain(region)) return 10;
+export function nameScore(part: string, region: string, swap = false): number {
+	if (plain(part) === plain(region, swap)) return 10;
 	const want = canonicalWords(part);
-	const have = canonicalWords(region);
+	const have = canonicalWords(region, swap);
 	const kind = KINDS.find((k) => want.has(k));
 	if (!kind || !have.has(kind)) return 0;
 	const side = want.has('l') ? 'l' : want.has('r') ? 'r' : null;
@@ -372,16 +408,18 @@ export function nameScore(part: string, region: string): number {
 
 /**
  * Each template part's best region by name, one region to one part: the pairs are taken best first.
- * `parts` in the template's order; a part no region fits is left out.
+ * `parts` in the template's order; a part no region fits is left out. `swap`: the regions name
+ * the character's own sides (`nameScore`).
  */
 export function suggestSheetMap(
 	parts: readonly string[],
 	regions: readonly string[],
+	swap = false,
 ): Record<string, string> {
 	const pairs: { part: string; region: string; score: number; at: number }[] = [];
 	parts.forEach((part, at) => {
 		for (const region of regions) {
-			const score = nameScore(part, region);
+			const score = nameScore(part, region, swap);
 			if (score > 0.3) pairs.push({ part, region, score, at });
 		}
 	});
@@ -404,12 +442,16 @@ const PROP_HOSTS: [string[], string][] = [
 	[['sword', 'weapon', 'gun', 'staff', 'wand', 'shield', 'ring', 'cup', 'flag', 'axe'], 'hand_s'],
 ];
 
-/** A region named like a worn thing (`Hat_01`, `sword_R`): its prop name and the part it is on. */
+/**
+ * A region named like a worn thing (`Hat_01`, `sword_R`): its prop name and the part it is on (its
+ * side read the other way round with `swap`).
+ */
 export function suggestProp(
 	region: string,
 	mapped: ReadonlySet<string>,
+	swap = false,
 ): { name: string; host: string } | null {
-	const words = canonicalWords(region);
+	const words = canonicalWords(region, swap);
 	const side = words.has('r') ? 'r' : 'l';
 	const host = PROP_HOSTS.find(([names]) => names.some((n) => words.has(n)))?.[1];
 	if (!host) return null;
