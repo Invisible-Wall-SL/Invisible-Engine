@@ -26,12 +26,12 @@ import {
 	createRng,
 	createSnapshotClock,
 	createTouchControl,
-	generatedOnlineGame,
 	launchJoin,
 	mobileDevice,
 	onlineLevel,
 	pointerMove,
 	reconcilerOptions,
+	roomLevelGame,
 	snapFor,
 	stepCamera,
 	stepContext,
@@ -45,6 +45,8 @@ import {
 	type OnlineEvent,
 	type PointerTracker,
 	type Predictor,
+	type RoomLevelRefusal,
+	type RoomLevelReport,
 	type Shown,
 	type SnapshotClock,
 	type TouchControl,
@@ -140,6 +142,7 @@ import {
 } from 'game-config';
 
 import {
+	AUTHORING_PARAM,
 	bakedFlowV2Doc,
 	bakedGameConfig,
 	editorArtSheetsWhere,
@@ -194,8 +197,13 @@ import { stateApp } from './stateApp';
  *
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
- * (`generatedOnlineGame`, the very function the server ran) and draws it in place of the authored
- * one ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load.
+ * (the very function the server ran) and draws it in place of the authored one
+ * ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load. The state also carries the levels
+ * the room's generator read and a fingerprint of the level it made, and the device makes its field
+ * through `engine-mechanics` `roomLevelGame` alone: it plays the ROOM's levels, never its own
+ * config's where the two differ (an authoring boot is told so, {@link showLevelsNotice}), and
+ * leaves a room whose level it still cannot make ({@link otherLevel}). What it draws is what the
+ * room collides against.
  *
  * ART IN CODE: a generator with built-in art ({@link FIELD_ART}: Salmons' original images) has it
  * loaded in the background after the join, from a lazy chunk no other game fetches. Once loaded,
@@ -307,6 +315,11 @@ type RoomState = {
 	winner: string;
 	/** The room's seed, from which a generated field is made (P11.2 (e)). */
 	seed: number;
+	/** The levels the room's generator read for that seed, as JSON, and a fingerprint of the level
+	 *  it made (`engine-mechanics` `roomLevelState`); unset from an older server, or by a game with
+	 *  no generator. */
+	levels?: string;
+	levelHash?: string;
 	players: Map<string, PlayerState>;
 	/** What its rules module left on the field (Salmons' bloodstains); unset from an older server. */
 	stains?: StainList;
@@ -388,6 +401,9 @@ type Session = {
 	field: LayoutNode | undefined;
 	/** Whether the loaded doc drew {@link field}: `undefined` until the scenes load. */
 	fieldDrawn: boolean | undefined;
+	/** What the join did about the room's level (`engine-mechanics` `roomLevelGame`; the
+	 *  probe's): `undefined` in a game with no generator. */
+	level: RoomLevelReport | undefined;
 	/** The generator's built-in art, once loaded ({@link FIELD_ART}). */
 	art: SalmonsArt | undefined;
 	/** Room player id → its code look, while it is drawn. */
@@ -678,8 +694,14 @@ export async function joinOnlineRoom(): Promise<void> {
 		room.leave().catch(() => {});
 		return refuseOnlineBoot('the room did not say which field it plays');
 	}
-	const played =
-		seed === undefined ? { game: resolved, made: undefined } : generatedOnlineGame(resolved, seed);
+	const authoring = params.get(AUTHORING_PARAM) === '1';
+	// The room's levels, not this boot's config's: the state that carried the seed carries them.
+	const level = seed === undefined ? undefined : roomLevelGame(resolved, seed, stateOf(room));
+	if (level && 'refused' in level) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot(otherLevel(level, authoring));
+	}
+	const played = level ?? { game: resolved, made: undefined };
 	const draw = generator ? FIELD_DRAWINGS[generator] : undefined;
 	const field = played.made && draw?.(played.made);
 	const prepared = preparedEditorDoc();
@@ -737,6 +759,12 @@ export async function joinOnlineRoom(): Promise<void> {
 		seed,
 		field,
 		fieldDrawn: undefined,
+		level: level && {
+			adopted: level.adopted,
+			differs: level.differs,
+			levelHash: level.levelHash,
+			roomLevelHash: level.roomLevelHash,
+		},
 		art: undefined,
 		codeLooks: new Map(),
 		casts: new Map(),
@@ -754,6 +782,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	// A key pressed before the room (the menu, a join) is not the first step's press.
 	keyLatch.clear();
 	session = current;
+	if (level?.adopted && authoring) showLevelsNotice(level.differs);
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	if (loadArt && field && played.made && seed !== undefined)
 		loadArt(played.made, seed, onlineStainsOf(bakedGameConfig())).then(
@@ -844,6 +873,72 @@ function roomSeed(room: Room): Promise<number | undefined> {
 		}, SEED_WAIT_MS);
 		room.onStateChange.once(first);
 	});
+}
+
+/**
+ * Why a device leaves a room whose level it cannot make (`roomLevelGame`'s refusal): its picture
+ * would not be the room's collisions. It made another level from the room's own levels (the
+ * runtime's generator is not the game server's: the two are released apart), so a reload is what
+ * helps; or the room sent no levels (too long), and on an authoring boot the likely difference is
+ * the editor's unpublished ones.
+ */
+const otherLevel = ({ refused }: RoomLevelRefusal, authoring: boolean) =>
+	refused === 'levels' && authoring
+		? 'the room plays other level settings than the ones saved in the editor, too long for ' +
+			'it to send: publish in Game Maker to play yours'
+		: 'the room plays a level this game cannot make from its seed (the game and the game ' +
+			'server are of different versions): reload to get the newest game';
+
+const LEVELS_NOTICE_ID = 'ie-room-levels-notice';
+
+/** `['overlays', 'river', 'waterfalls']` as "overlays, river and waterfalls". */
+const listed = (parts: readonly string[]) =>
+	parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+
+/** What an author is told when the room's levels are not the editor's ({@link showLevelsNotice}). */
+const levelsNotice = (differs: readonly string[]) =>
+	`This room plays the level settings published when it opened, not the ones saved in the ` +
+	`editor (different: ${listed(differs)}). Publish in Game Maker to play yours in new rooms.`;
+
+/**
+ * Tell an AUTHOR (an `ie_authoring=1` boot, every launcher link) that the game plays the room's
+ * levels, not the ones the editor last saved: without it a Save levels that changed nothing on
+ * screen reads as a broken editor. A player is told nothing: the level a player sees is simply
+ * the room's. A small strip over the top of the game that takes no click but its own ✕ and stays
+ * until that is pressed.
+ */
+function showLevelsNotice(differs: readonly string[]) {
+	const show = () => {
+		if (document.getElementById(LEVELS_NOTICE_ID)) return;
+		const notice = document.createElement('div');
+		notice.id = LEVELS_NOTICE_ID;
+		notice.setAttribute('role', 'status');
+		notice.setAttribute(
+			'style',
+			'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483646;' +
+				'display:flex;align-items:flex-start;gap:10px;box-sizing:border-box;' +
+				'width:max-content;max-width:min(560px,calc(100vw - 20px));padding:8px 8px 8px 12px;' +
+				'border-radius:8px;border-left:4px solid #f5b83d;background:#1c1b1ff2;color:#fff;' +
+				'font:500 13px/1.4 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.45)',
+		);
+		const text = document.createElement('span');
+		text.textContent = levelsNotice(differs);
+		const close = document.createElement('button');
+		close.type = 'button';
+		close.textContent = '✕';
+		close.title = 'Dismiss';
+		close.setAttribute('aria-label', 'Dismiss');
+		close.setAttribute(
+			'style',
+			'flex:none;border:0;border-radius:4px;padding:2px 6px;background:transparent;' +
+				'color:#fff;opacity:.8;font:600 14px/1.4 system-ui,sans-serif;cursor:pointer',
+		);
+		close.onclick = () => notice.remove();
+		notice.append(text, close);
+		document.body.appendChild(notice);
+	};
+	if (document.body) show();
+	else window.addEventListener('DOMContentLoaded', show, { once: true });
 }
 
 /** Whether a screen of `doc` has a top-level node `id`, where a generated field is drawn. */
@@ -2496,6 +2591,7 @@ export function onlineProbe() {
 						seed: current.seed ?? null,
 						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
 						fieldDrawn: current.fieldDrawn ?? null,
+						level: current.level ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),

@@ -6,6 +6,19 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A new level was drawn, and the players collided against another
+
+- **Symptom:** owner, 2026-11-25: "changing the seed generates a new level, but does not update
+  collisions". One seed, two rivers: about 397 of 400 columns of water apart.
+- **Cause:** a room makes its level from the PUBLISHED config and a device from the config it
+  booted; a launcher link (`ie_authoring=1`) boots the LIVE one, so `levels` saved in `/editor`
+  and not yet published drew one river over another's collisions. Nothing compared the two.
+- **Fix:** the room's state says its levels and a fingerprint of its level; the device plays the
+  room's (`onlineGenerators.js` `roomLevelGame`), tells an author, and leaves a level it cannot make.
+- **Guard:** `check:room-levels`; `salmons-room-levels-play.mjs`. Two sides that each derive a
+  thing from their own copy of a config must compare what they derived, not only share the code.
+- **PR:** branch `claude/zealous-darwin-t8xiyc` (2026-11-25)
+
 ### Salmons' waterfalls came out short: a third were the lowest height
 
 - **Symptom:** owner, 2026-11-24: waterfalls "not getting as tall as I expect". Over 2,000 seeds
@@ -44,9 +57,9 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 
 - **Symptom:** building `salmons-touch-play.mjs` (2026-11-21): a tap acted late; a tap aimed wrongly.
 - **Cause:** a page stepped faster than real time queues its inputs at the room; and a page whose
-  config generates a different river than its room plays maps a tap to another place.
-- **Fix:** pace the page's steps to real time; boot the page on the room's own game.
-- **Guard:** none in a gate; a playbook rule.
+  config generated a different river than its room played mapped a tap to another place.
+- **Fix:** pace the page's steps to real time. The other river: the first entry here (2026-11-25).
+- **Guard:** none in a gate for the pace; a playbook rule.
 - **PR:** branch `claude/touch-controls` (2026-11-21)
 
 ### A cast at the fisherman's feet played and spent its cooldown, but never hooked
@@ -252,19 +265,6 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   shared level, silent / dropped players, 0 corrections on resume).
 - **PR:** fix for #1717 (2026-11-18, branch `fix/1717-game-server-freeze`) · source:
   `docs/status/3d.md`
-
-### The rebuilt Salmons played a river the original game never made
-
-- **Symptom:** the owner found the Scene Editor's level unlike the original's, only one of it, and
-  thought the original generator had been removed.
-- **Cause:** P10.16 wrote a new band generator instead of porting `generateMap` (its source was in
-  another repository), and the export baked one seed of it into the scene; the generator also
-  replaced any authored zones.
-- **Fix:** the original ported line for line on its own PRNG (`salmonsMap.js`, `seedrandom.js`),
-  `/editor` regenerating any seed, authored overlays in the Game Config.
-- **Guard:** root `check:salmons-levels` (the original's recorded output for seven seeds; room,
-  device and editor alike; an overlay survives a reseed).
-- **PR:** #1699 (2026-11-17) · source: `docs/status/salmons.md`
 
 ### The owner was never asked to approve the Salmons art pass
 

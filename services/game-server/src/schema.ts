@@ -17,7 +17,10 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * (`air`, `carryX`, `carryY`). Per room the phase, the step every state is stamped with, the
  * round, the step its phase ends at (0 = never) and the last round's winner, the room's seed,
  * from which a device makes a generated field, and the stains its rules module left on the field
- * (Salmons' bloodstains, the newest last). The level is never in the state.
+ * (Salmons' bloodstains, the newest last). The level itself is never in the state. For a game
+ * with a generator the state carries what the level was made from and a check on the result: the
+ * seed, the levels the room's generator read for it (`levels`) and a fingerprint of the level it
+ * made (`levelHash`). A device makes the room's level from the first two and holds it to the third.
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
  * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
@@ -116,6 +119,16 @@ const roomFields = {
 	/** The rules module's stains, the newest last, at most its own cap: every device draws them,
 	 *  in a nearby room too (`engine-mechanics` `OnlineRules.stains`). */
 	stains: t.array(Stain),
+	/** The levels the room's generator read for its seed (`engine-mechanics` `roomLevelState`): the
+	 *  JSON of the published config's `arcade.online.levels` as that one level reads them. A device
+	 *  plays these in place of its own config's, so its picture is the room's collisions. '' for a
+	 *  generator that reads none, or levels too long to send. */
+	levels: t.string(),
+	/** A fingerprint of the level the room made (`engine-mechanics` `levelHash`): a device whose
+	 *  own level has another leaves the room. Both are written once, when the room is made, and
+	 *  never for a game with no generator (no default: unset, they are not sent at all). The last
+	 *  two fields, so a runtime older than them reads every other as before. */
+	levelHash: t.string(),
 };
 
 export const RoomState = schema({ ...roomFields, players: t.map(Player) });

@@ -74,14 +74,14 @@ A seed and the same keys replay the same game.
   (`botAim`, `BOT_*`); what a brain cannot say the module plays (`botPlay`; `check:salmon-bots`);
   it wins at a goal only if `bots.canWin`; named from `names`, unique, a person's kept
   (`check:bot-names`). By shares a room is full; a test size is its own room type; no `bots`, none.
-- **A generated field is one function on both sides (P11.2 e).** A config naming
-  `arcade.online.generator` plays, per room, the field `generatedOnlineGame(game, seed)` makes from
-  the room's `seed`: `createRoomSim` runs it on the server, `online.ts` on the device, and
-  `FIELD_DRAWINGS` draws it in place of the layout node of its id (via `setRoomDocChange`;
-  `Game.svelte` untouched). One seed drives bots and field. Change generator, geometry and drawing
-  together (`check:room-bots`, `salmons-play.mjs`). **The layout must keep that node id** (`river`
-  for Salmons; S0 art may restyle it, never rename or delete it): without it `joinOnlineRoom`
-  leaves the room and refuses the boot before the game mounts.
+- **A generated field is one function on both sides, on the ROOM's levels (P11.2 e).** A config
+  naming `arcade.online.generator` plays, per room, the field `generatedOnlineGame` makes from the
+  room's `seed`: `createRoomSim` on the server; the device through `roomLevelGame` only, on the
+  `levels` and `levelHash` the state carries, never its own config's levels (`check:room-levels`).
+  `FIELD_DRAWINGS` draws it in place of the layout node of its id (`setRoomDocChange`). A level the
+  device cannot make refuses the boot. One seed drives bots and field. Change generator, geometry
+  and drawing together (`check:room-bots`). **The layout must keep that node id** (`river` for
+  Salmons; S0 art may restyle, never rename or delete it): without it the boot is refused.
 - **Built-in art only for its generator:** `salmonsArt/`, lazily via `online.ts` `FIELD_ART`; clip >
   code look > placeholder, and canvas screens' nodes (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
   clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
@@ -170,8 +170,8 @@ A seed and the same keys replay the same game.
 
 - **Root gates:** `pnpm check:arcade-motion`, `pnpm check:arcade-characters`,
   `pnpm check:arcade-platformer`, `pnpm check:character-clips`, `pnpm check:room-sim` (starts a
-  real Colyseus server, ~30 s), `check:arcade-3d`, `check:room-sim-3d`, `check:game-app-deps`. Each
-  mechanics gate compares a committed replay (`--update` rewrites it; only when the change is meant to move it).
+  real Colyseus server, ~30 s), `check:room-levels`, `check:arcade-3d`, `check:room-sim-3d`,
+  `check:game-app-deps`. Each mechanics gate compares a committed replay (`--update` rewrites it; only when the change is meant to move it).
 - **Launcher gates** (`pnpm --filter launcher-api <name>`): `check:arcade-rules`,
   `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
   `check:arcade-platformer`, `check:characters-tool`, `check:editor-tilemap`,

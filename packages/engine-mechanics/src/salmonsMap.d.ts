@@ -98,6 +98,17 @@ export function levelOverlay(
 	levels: SalmonsLevels | undefined,
 	seed: string | number,
 ): SalmonsOverlay | undefined;
+/** A config's `levels` as one seed's level reads them (`seedLevels`): each part present only when
+ *  the config says something of it, the seed's one overlay under `'*'`. */
+export type SalmonsSeedLevels = {
+	river?: { winding: number; sharpestTurn: number; sourceBias: number };
+	waterfalls?: { count?: number; heightMin?: number; heightMax?: number };
+	overlays?: { '*': SalmonsOverlay };
+};
+export function seedLevels(
+	levels: SalmonsLevels | undefined,
+	seed: string | number,
+): SalmonsSeedLevels;
 export function salmonsMapRiver(
 	seed?: string | number,
 	overlay?: SalmonsOverlay,

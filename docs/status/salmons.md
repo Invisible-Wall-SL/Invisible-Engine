@@ -19,6 +19,116 @@ upload.
 
 ## Current state
 
+- **A device plays its room's levels: the picture is the collisions (2026-11-25; owner: "changing
+  the seed generates a new level, but does not update collisions"; in review; branch
+  `claude/zealous-darwin-t8xiyc`; runtime and game-server change, no config change; NOT live
+  until the runtime release and the game-server deploy of the merge: Owner steps).**
+  - **What was wrong.** A game whose config names a generator makes its level twice from the
+    room's seed, and nothing checked that both sides read the same `arcade.online.levels`. The
+    game server reads the PUBLISHED config (`configSource.ts`, then `createRoomSim`). The device
+    read the config it booted with (`online.ts` `joinOnlineRoom`), and every launcher link is an
+    authoring boot (`ie_authoring=1`), which boots the project's LIVE config. So from a **Save
+    levels** in `/editor` until the next Publish, the launcher's game drew the saved levels while
+    its room collided against the published ones. On 2026-11-25 the live config had
+    `levels.river { winding 0.75, sharpestTurn 140, sourceBias 0.6 }` and `levels.waterfalls
+    { count 6, heightMin 5, heightMax 10 }` and the published snapshot had no `levels` (as read
+    off the project when the bug was found; this build reached neither). With those two, for one
+    seed, 395 to 400 of the river's 400 columns of water lie elsewhere (8 seeds measured).
+    [design/salmons-levels §3](../design/salmons-levels.md) listed only a device on an old bundle.
+  - **The owner's decision (2026-11-25): the device adopts the room's levels.** A game opened
+    from the launcher after **Save levels** still plays, on the published level, and says so.
+  - **As built.**
+    - **What a room says.** Its state carries two more fields beside `seed`
+      (`services/game-server` `schema.ts` `roomFields`, so both `RoomState` and
+      `NearbyRoomState`): `levels`, the JSON of the levels its generator read for that seed, and
+      `levelHash`, a fingerprint of the level it made. `arcadeRoom.ts` writes both once, when the
+      room is made, from the game the sim plays and what its own generator made
+      (`roomLevelState(sim.game, seed, sim.made)`; `RoomSim.made` is new). A game with no
+      generator sets neither, and an unset field is not sent.
+    - **The levels, in one form** (`engine-mechanics` `salmonsMap.js` `seedLevels`): the shape
+      (`levelShape`) and, under `'*'`, the one overlay laid on that seed's level (`levelOverlay`);
+      no pinned seeds, no empty part. It is itself a config's `levels`, read again it is itself
+      and makes the same level. `salmonsRiver` reads no levels and says none. Longer than 16,384
+      characters (`ROOM_LEVELS_MAX`: about 1,600 removed cells or 400 added pieces) it is not
+      sent.
+    - **The fingerprint** (`onlineGenerators.js` `levelHash`): 16 hex digits over the generator's
+      geometry (field, zones, zone rules, spawns) and nothing else in the config, so a config
+      that differs outside its levels does not trip it. Whole-number arithmetic only
+      (`Math.imul`); keys in name order; every number as whole thousandths.
+    - **The device** (`onlineGenerators.js` `roomLevelGame`, the one decision `online.ts` wires and
+      the gate runs in Node): it makes its level from the room's levels; `differs` names the parts
+      of its own that are not the room's (`river`, `waterfalls`, `overlays`); with none it plays
+      its own config. If the room said a fingerprint and the device's level has another, the
+      answer is a refusal and no game.
+    - **On screen.** An authoring boot that adopted shows a small strip over the top of the game,
+      until its ✕ is pressed: "This room plays the level settings published when it opened, not
+      the ones saved in the editor (different: river and waterfalls). Publish in Game Maker to
+      play yours in new rooms." A player's boot shows nothing and needs no reload. A refusal
+      leaves the room and stops on the error screen (`refuseOnlineBoot`, with Reload); its
+      reason, shown to an authoring boot and logged: "the room plays a level this game cannot
+      make from its seed (the game and the game server are of different versions): reload to
+      get the newest game", or, when the room sent no levels and the boot is an authoring one,
+      "the room plays other level settings than the ones saved in the editor, too long for it
+      to send: publish in Game Maker to play yours".
+    - **The probe** (`online.level`): `adopted`, `differs`, `levelHash`, `roomLevelHash`.
+  - **What the state carries for Salmons.** As published today (no `levels`): `levels` `{}` and
+    the 16 digits, 22 bytes more in the first state a device is sent. Once the winding river is
+    published: 116 characters of levels, 137 bytes more. The schema a device is sent when it
+    joins grows by about 45 bytes. Both fields are written once and never patched. A game with
+    no generator: no byte more in its state.
+  - **`Math.sin` and the fingerprint.** `salmonsMap.js` takes numbers from the engine's own
+    libm, whose last bit need not be the same in JavaScriptCore as in V8: `Math.sin` (the meander
+    table, kept as float32), and in a winding course `Math.cos`, `Math.tan`, `**` and
+    `Math.hypot` (`Math.atan2` and `Math.atan` only measure). Every one reaches the level
+    through `Math.round`, `floor` or `ceil`: all 370,587 numbers of the original's geometry and
+    749,845 of the shipped levels' over 60 seeds are whole px. So such a bit moves the
+    fingerprint only where it moves a cell of the level, and then the levels do differ and a
+    refusal is right. The thousandths are for a later generator whose geometry is not whole.
+  - **Either side alone changes nothing.** A config with no generator: nothing read, made, said
+    or checked. A new runtime in a room of an older game server: the fields are absent, and it
+    plays its own config's level, unchecked, as today. An older runtime in a room of the new
+    game server: it ignores the fields (the SDK decodes a state by the schema the server sends
+    at the handshake, `SchemaSerializer.handshake` with no state class of its own, which is how
+    `online.ts` joins; the gate's live half decodes them that way). Equal levels: nothing
+    adopted, no notice.
+  - **Proof.**
+    - `pnpm check:room-levels` (13; new, run by Checks' `check-all` like its siblings). The room
+      side is the game server's own code (`createConfigSource`, `createRoomSim`, and a live
+      Colyseus room with an SDK client). Over 7 configs as the room's and as the device's and 4
+      seeds, 196 decisions: 154 would have played another level than their room, all 154
+      adopted the room's levels, each device's field, zones, zone rules and spawns are the room
+      sim's own with the right parts named, none refused. The real pair both ways. A room made
+      by a generator one pixel off is refused; levels too long to send leave the fingerprint to
+      decide; an older server and a game with no generator are untouched; the levels are in one
+      form; two rooms of one seed have one fingerprint exactly when they play one level; source
+      pins hold `arcadeRoom.ts` and `online.ts` to the decision.
+    - **The gate bites.** Each of four breaks fails it and was put back: the decision generating
+      from the device's own config ("refused (generator)"); that and no refusal, the bug as it
+      was ("the device plays another level than its room, and was not refused: zones,
+      zoneRules, spawn, spawns, botSpawns"); `online.ts` calling `generatedOnlineGame` itself
+      (the source pin); `arcadeRoom.ts` not writing `levelHash` (the live room).
+    - **In a browser** (`scripts/playtest/salmons-room-levels-play.mjs`,
+      [playbook](../playtest/salmons.md), 29 of 29): a published room and a live page on an
+      authoring boot (adopted, river and waterfalls, the room's fingerprint, the room's zones
+      and art, the notice shown, kept and dismissed); the same as a player (no notice); equal
+      configs (nothing adopted, no notice); the reverse; and a room of another generator
+      release (the error screen with its reason, the room left).
+    - Also green: `check:salmons-levels` 18, `check:salmons-course` 21, `check:room-sim` 43
+      (its pin on the device's generator call now holds it to the decision), launcher
+      `check:salmons-export` 39, `check:agents-knowledge`, `check:svelte --only apps/lines` (145,
+      the baseline), the game server's `tsc`. `check:runtime-bytes`: `lines`, `match3` and
+      `card` byte for byte; `arcade` +1,444 B and `arcade3d` +1,491 B gzip, re-recorded.
+  - **Known limits.**
+    - A room keeps the levels it opened with. After a Publish, a launcher link that lands in a
+      room opened before it still plays that room's levels and still shows the notice, until
+      the room closes (and the game server reads a new publish within about 90 s).
+    - A room whose config names no generator says nothing, so a device whose own config names
+      one, or the reverse, is not caught: the generator's id is not part of its levels.
+    - No JavaScriptCore run: that the fingerprint is the same in Safari is the argument above
+      and the gate's whole-px check, not a browser run.
+    - A room creation and a join each pay one more pass over the level (about 5 to 8 ms here).
+    - The notice and the refusals are English only, as the stale-data banner is.
+
 - **The config no longer carries a level (2026-11-24; owner: "drop the snapshot from the
   Salmons config"; in review; branch `claude/affectionate-bell-mwyn5r`; the export only, no
   runtime or game-server change; not uploaded and not published: Owner steps)**.
@@ -49,7 +159,8 @@ upload.
     - **Device** (`apps/lines/src/game/online.ts`): before the level is made, `joinOnlineRoom`
       reads only the config's `online` (generator, netcode, step and state rates, the classes'
       speeds; `listenOnline` the pointer). A generator game whose room names no seed is refused,
-      else `generatedOnlineGame(resolved, seed)` runs, and every zone read is of its game.
+      else the level is generated (since 2026-11-25 through `roomLevelGame`, on the room's
+      levels: the entry above), and every zone read is of its game.
       `ArcadeStage.svelte` starts no local loop for a room game, so `arcade.ts` `startArcade`, the
       other reader of a config's zones, never runs for Salmons.
     - **Game server:** it reads a config through `configSource.ts` `parse` (`onlineGameOf`, then
@@ -109,8 +220,9 @@ upload.
     sharp bend. The current still pushes straight down the columns on a slanted reach. In the wide
     lower river a waterfall can sit within a few columns of a bend; with `sourceBias` 0 or a
     `sharpestTurn` of 150 its face can be much wider than the river (up to 2.5 widths; as shipped
-    at most 1.1). Bears catch a little less (above). A device on a bundle from before this draws
-    the original's river while the room plays the new one, until it reloads (design §3).
+    at most 1.1). Bears catch a little less (above). A device on a bundle from before this drew
+    the original's river while the room played the new one, until it reloaded: closed
+    2026-11-25 (the first entry here), once that change is live.
   - Proof: `check:salmons-course` 21 (each of 11 mutations of the generator fails it; it also
     makes a level at every corner of the limits and reads the config through the game server's
     own reader),
@@ -948,6 +1060,30 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**A device plays its room's levels (2026-11-25; once `claude/zealous-darwin-t8xiyc` merges).
+Nothing to upload, export or publish for the change itself.**
+
+1. **The merge does both halves, and one of them closes rooms.** It releases the arcade runtime
+   (the runtime release) and deploys the game server (Railway, by its watch paths: this change
+   touches `services/game-server` and `packages/engine-mechanics`). **The game-server deploy
+   closes every running room**: rooms live in that one process's memory, and each device in one
+   stops on "the room closed". Merge when the rooms are quiet.
+2. **Either order is safe, and so is the time between the two.** A new game server with the old
+   runtime: the device ignores the two new fields. The new runtime with the old game server: the
+   fields are absent and the device plays its own config's level, unchecked, as today. The fix
+   is live once both are out: compare `rooms.invisiblewall.org/healthz`'s commit and the
+   runtime's release with `main`.
+3. **What you will see first.** The live Salmons config has the winding river and the tall
+   waterfalls; the published one does not (the publish in the next block is still pending). So
+   once this is live, Salmons opened from the launcher plays the PUBLISHED river, the
+   original's, with the notice naming river and waterfalls, where it drew the winding one over
+   the original's collisions before. To play the winding river: **Invisible Game Maker →
+   Publish**, then open the game again once the old room has closed.
+4. **To check it by hand:** `/editor` → the river screen → **Generated level** → change
+   **Waterfalls** → **Save levels**, no publish. Open the game from its card: the notice names
+   "waterfalls", and the banks and waterfalls stop the salmon where they are drawn. Press ✕: it
+   goes, and stays gone until the next boot.
+
 **The config without its level (2026-11-24; once `claude/affectionate-bell-mwyn5r` merges;
 nothing uploaded or published). No deploy is needed: the game server and the runtime already make
 every room's zones (Current state). Do not run the Salmons project upload whole for this:**
@@ -984,8 +1120,9 @@ authored in the tools (the bear's sheet with rig `R_Bear` and its `sheet: "bearB
   3. **Waterfalls** 6, **Lowest (cells)** 5, **Highest (cells)** 10.
   4. **Save levels** (it writes only `arcade.online.levels` into the Game Config; the stage shows
      the river as you set it).
-  5. **Invisible Game Maker** → **Publish**. Rooms made after it play the new river; a page
-     opened before it must reload.
+  5. **Invisible Game Maker** → **Publish**. Rooms made after it play the new river; a room
+     already open keeps the river it has. A page opened before it must reload (not once
+     2026-11-25's change is live, the first block here: a page then plays its room's levels).
 - **Or from CI, fields only:** the **Salmons project upload** workflow now writes ONLY the config
   fields listed in `scripts/salmons/upload-fields.txt` (`arcade.online.slide`,
   `arcade.online.levels.river`, `arcade.online.levels.waterfalls`, and the stored level snapshot
@@ -1749,6 +1886,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-25 — **A device plays its room's levels** (owner: "changing the seed generates a new
+  level, but does not update collisions"; branch `claude/zealous-darwin-t8xiyc`; in review). The
+  room's state says the levels its generator read and a fingerprint of its level; the device
+  makes its level from them, an authoring boot is told what differs, and a level it cannot make
+  is refused (`check:room-levels` 13, `salmons-room-levels-play.mjs` 29). Detail and proof in
+  Current state; the merge's deploy closes running rooms: Owner steps.
 
 - 2026-11-24 — **The exported config drops its level** (owner decision; branch
   `claude/affectionate-bell-mwyn5r`): no `arcade.zones` and no `arcade.online.rules.zones`,
