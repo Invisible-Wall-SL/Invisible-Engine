@@ -440,6 +440,8 @@ type PlayerLook = (
 				lean?: number;
 				/** The clip it is turning from while such a sheet mixes two pictures. */
 				blend?: { from: CharacterClipFrame & { lean?: number }; weight: number };
+				/** Its cycle carried on from the clip before (a change of facing in the turn). */
+				kept?: true;
 		  })
 		| undefined;
 	box: { w: number; h: number } | undefined;
@@ -1944,6 +1946,7 @@ function drawClips(
 		turn.frame(clip, {
 			lean: frame.lean ?? 0,
 			about,
+			kept: frame.kept === true,
 			marked: player.mark && !current.codeLooks.has(id),
 			...(left
 				? {

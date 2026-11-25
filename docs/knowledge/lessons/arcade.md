@@ -289,12 +289,12 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   carries its frame names, so an unnamed one would be skipped).
 - **PR:** character pipeline C6a (2026-11-20) · source: `docs/status/game-families.md`
 
-### The smooth turn passed 53 checks and tipped the owner's bear over
+### The smooth turn was guessed twice before the owner picked one by eye
 
-- **Symptom:** `view.turn` leaned an isometric rig 23° about its feet, then snapped to the next
-  facing with its walk restarted. The owner: "totally broken, snappy".
-- **Cause:** a lean turns a subject seen from above; it tips an upright one. And #1891 was judged
-  by gates on one-colour boxes, where all of that is numbers in range.
-- **Fix:** the turn is a blend of the two pictures, phase kept; no lean on an isometric view.
-- **Guard:** LOOK at `scripts/playtest/character-turn-strip.mjs` before and after; `check:character-turn`.
-- **PR:** #1895 (2026-11-24) · source: `docs/design/character-pipeline.md` §13
+- **Symptom:** #1891 tipped the upright bear 23° about its feet; #1895 cross-faded it instead.
+  Owner: "blending without turning at all, and now it flickers … the alpha merge I never asked for".
+- **Cause:** both were guesses at a look, judged by gates; a fade draws both pictures at once.
+- **Fix:** the owner chose sample B from five drawn side by side: a linear 8° screen tilt, one-frame
+  switch at the halfway point, no fade (`blend` 0), the walk's phase kept (`kept`).
+- **Guard:** `character-turn-strip.mjs` `sweep` against the sample; `check:character-turn`. Show samples first.
+- **PR:** branch `claude/character-turn-tilt` (2026-11-25) · source: `docs/design/character-pipeline.md` §13
