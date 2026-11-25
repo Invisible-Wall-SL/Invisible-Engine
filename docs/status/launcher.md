@@ -104,6 +104,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-25 — **The engine pill's "Release pending · N ahead" no longer cries wolf.** It compared
+  `main` against the commit the live `lines` bundle was BUILT at, so every arcade/Salmons engine
+  merge since (which the release job skips for `lines` as byte-identical) kept it amber, and N was
+  GitHub's `ahead_by` — every commit, launcher and docs included (43 on 2026-11-25, 28 of them
+  `launcher(rigger)`). Now a skip-unchanged run stamps `checkedCommit` onto `release.json`
+  (`publish-runtime-bundle.mjs --unchanged`, compare-and-swap, only onto the live release's stamp)
+  and `engineSource.ts` compares from it; N counts only commits touching `apps/lines/` or
+  `packages/` (two path-filtered commit listings, intersected with the compare range). The pill
+  clears on the next engine merge's release run.
 - 2026-11-24 — **Every game card of an online game names its game server.** A card registered by
   the desktop launcher's ☁ Publish (`register-game`, e.g. `salmonsbuild`) stored a URL with no
   `rooms_url`, so the online runtime stopped before joining a room. The home grid and Game Maker

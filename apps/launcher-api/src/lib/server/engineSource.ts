@@ -14,6 +14,7 @@ import { ENV } from './env';
 
 export interface EnginePending {
 	pending: boolean;
+	/** Commits on `main` past the base that touch engine paths — not every commit (docs, launcher). */
 	aheadBy: number;
 	mainCommit: string;
 }
@@ -31,11 +32,12 @@ function readToken(): string {
 	return ENV.GITHUB_ENGINE_READ_TOKEN || ENV.GIT_CLONE_TOKEN || '';
 }
 
-// Paths whose changes mean the runtime bundle is actually behind (vs a docs/launcher-only merge).
+// Paths whose changes mean the runtime bundle may be behind (vs a docs/launcher-only merge).
+const ENGINE_PATHS = ['apps/lines', 'packages'];
+
 function touchesEngine(files: { filename?: string }[]): boolean {
 	return files.some(
-		(f) =>
-			!!f.filename && (f.filename.startsWith('apps/lines/') || f.filename.startsWith('packages/')),
+		(f) => !!f.filename && ENGINE_PATHS.some((p) => f.filename!.startsWith(`${p}/`)),
 	);
 }
 
@@ -47,9 +49,14 @@ const NULL_TTL_MS = 20_000;
 const FETCH_TIMEOUT_MS = 4_000;
 
 /**
+ * `deployedCommit` is the newest commit proven to build the live bytes: the release's own commit,
+ * or a later one whose release run found the bundle unchanged (`checkedCommit` on `release.json`).
+ * Comparing from the release commit alone flagged every merge since as pending, even ones the
+ * release job had already proven never reach this runtime.
+ *
  * Returns `null` (feature unavailable — pill stays green) when: no token, `deployedCommit` is
  * falsy or `'unknown'`, or any fetch error / non-2xx / timeout. Otherwise reports whether `main`
- * has engine-touching commits ahead of the deployed commit.
+ * has engine-touching commits ahead of it.
  */
 export async function enginePending(deployedCommit: string): Promise<EnginePending | null> {
 	if (!deployedCommit || deployedCommit === 'unknown') return null;
@@ -69,12 +76,10 @@ export async function enginePending(deployedCommit: string): Promise<EnginePendi
 
 async function compare(deployedCommit: string, token: string): Promise<EnginePending | null> {
 	const repo = ENV.GITHUB_ENGINE_REPO;
-	const url = `https://api.github.com/repos/${repo}/compare/${deployedCommit}...main`;
-
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-	try {
-		const res = await fetch(url, {
+	const get = (path: string) =>
+		fetch(`https://api.github.com/repos/${repo}/${path}`, {
 			headers: {
 				Authorization: `Bearer ${token}`,
 				Accept: 'application/vnd.github+json',
@@ -83,6 +88,8 @@ async function compare(deployedCommit: string, token: string): Promise<EnginePen
 			},
 			signal: controller.signal,
 		});
+	try {
+		const res = await get(`compare/${deployedCommit}...main`);
 		if (!res.ok) return null;
 		const data = (await res.json()) as GitHubCompare;
 
@@ -93,14 +100,31 @@ async function compare(deployedCommit: string, token: string): Promise<EnginePen
 		const files = data.files ?? [];
 		const commits = data.commits ?? [];
 		const mainCommit = commits.at(-1)?.sha ?? deployedCommit;
-		return {
-			pending: touchesEngine(files),
-			aheadBy: typeof data.ahead_by === 'number' ? data.ahead_by : 0,
-			mainCommit,
-		};
+		const pending = touchesEngine(files);
+		return { pending, aheadBy: pending ? await engineCommits(get, commits) : 0, mainCommit };
 	} catch {
 		return null;
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+/**
+ * How many of the compared commits touch an engine path. The compare payload has no per-commit
+ * files, so this lists `main`'s recent commits per path and keeps those inside the compare range.
+ * A failed listing gives 0 — the pill then shows "Release pending" with no count, never a wrong one.
+ */
+async function engineCommits(
+	get: (path: string) => Promise<Response>,
+	commits: { sha?: string }[],
+): Promise<number> {
+	const inRange = new Set(commits.map((c) => c.sha).filter((sha): sha is string => !!sha));
+	const hits = new Set<string>();
+	for (const path of ENGINE_PATHS) {
+		const res = await get(`commits?sha=main&path=${path}&per_page=100`);
+		if (!res.ok) return 0;
+		for (const c of (await res.json()) as { sha?: string }[])
+			if (c.sha && inRange.has(c.sha)) hits.add(c.sha);
+	}
+	return hits.size;
 }
