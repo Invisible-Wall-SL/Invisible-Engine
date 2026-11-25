@@ -6,10 +6,11 @@
 //  1. off is off: a sheet with no `turn` gives frames with no `lean` and no `blend`, field for
 //     field what they were, a side and a `3d` view never take one, and what such a sheet draws is
 //     `check:character-sheet`'s to hold (unchanged);
-//  2. the drawn direction is continuous where the picture leans half a sector (a top-down view's
-//     default, an isometric one's when its sheet says so): across every change of picture of a
-//     full sweep, on a flat screen and on the isometric one, in eight facings and in four. An
-//     isometric view leans none by default;
+//  2. THE TILT (sample B, picked by the owner by eye): the lean is a rotation on the screen in
+//     proportion to the heading's distance from its facing's middle, `frac × most`, the same for
+//     every facing and mirrored too; the picture switches at the halfway point, +most before and
+//     −most after. An isometric view's default most is 8°; a top-down view's is half the sector,
+//     where the drawn direction is continuous across every change (the numbers it had before);
 //  3. the lean never passes the sheet's, and a smaller one is respected;
 //  4. the turn speed limits the sweep, and a reversal passes through the facings in between;
 //  5. a mirrored facing leans the way the character turns;
@@ -25,7 +26,8 @@
 //     published clip (frames, Bounds box, speed, loop, restart, mirror, anchor, width, gold), turned
 //     by the lean about its pivot (the feet, or the middle of its box), the same way mirrored; its
 //     gold is `SpawnLayer.svelte`'s;
-// 11. the blend: its weights, the frames an animator carries it on (a loop's change of facing,
+// 11. the blend (off by default: a saved `turn: {}` has no blend object in any frame, and its
+//     walk keeps its phase across a change of picture): its weights, the frames an animator carries it on (a loop's change of facing,
 //     turned back, swept, never on a one-shot, a hold, a change of action or after `reset`), the
 //     phase a cycle is carried on at, and which two pictures are one pose;
 // 12. the looks that draw a blend, on pixi's own objects and the rig runtime's with no renderer:
@@ -59,12 +61,14 @@ import {
 } from '../packages/engine-layout/src/lib/characterSheet.ts';
 import {
 	SHEET_TURN_BLEND,
+	SHEET_TURN_ISO_LEAN,
 	SHEET_TURN_SPEED,
 	blendWeight,
 	drawnDirection,
 	facingHeading,
 	fadeAlphas,
 	frameKept,
+	leanOf,
 	leanedPoint,
 	phaseKept,
 	sheetTurnOf,
@@ -83,6 +87,7 @@ import {
 import {
 	CHARACTER_TURN_BLEND,
 	CHARACTER_TURN_BLEND_MAX,
+	CHARACTER_TURN_ISO_LEAN,
 	CHARACTER_TURN_SPEED,
 	CHARACTER_TURN_SPEED_MAX,
 	characterTurnLean,
@@ -198,6 +203,9 @@ const ISO_FOUR = { kind: 'isometric', turn: {} };
 const ISO_EIGHT_LEANT = { kind: 'isometric', facings: 8, turn: { lean: 22.5 } };
 const ISO_FOUR_LEANT = { kind: 'isometric', turn: { lean: 45 } };
 const ISO_SCREEN = { velocity: iso, project: ISO_PROJECTOR.project };
+/** A sheet that sets a blend (none is the default): the cross-fade checks run on it. */
+const BLEND_MS = 160;
+const BLENDS = { blend: BLEND_MS };
 
 /** What a frame draws, whichever source it is of: two frames of one picture are not blended. */
 const pictureOf = (frame) => `${frame.clipId ?? frame.animation}|${frame.flipX}`;
@@ -317,77 +325,165 @@ check(
 check('four facings, flat screen: continuous across every picture change', () => {
 	continuous(FOUR);
 });
-check(
-	'eight facings on the isometric screen, leaning half a sector: continuous on the screen',
-	() => {
-		continuous(ISO_EIGHT_LEANT, ISO_SCREEN, 2);
-	},
-);
-check(
-	'four facings on the isometric screen, leaning half a sector: continuous on the screen',
-	() => {
-		continuous(ISO_FOUR_LEANT, ISO_SCREEN, 2);
-	},
-);
-
-/** A slow circle on the isometric screen: the leans drawn, every facing having been. */
-const isoLeans = (view) => {
-	const frames = circle(view, ISO_SCREEN);
-	assert.ok(changesOf(frames).length >= (view.facings === 8 ? 8 : 4), 'every facing was drawn');
-	assert.ok(
-		frames.every((f) => Object.hasOwn(f.frame, 'lean')),
-		'a turning sheet says its lean',
-	);
-	return frames.map((f) => f.frame.lean);
+/** What sample B draws at `heading` for a facing of `sector`: the tilt, on the screen. */
+const sampleTilt = (heading, facing, sector, most) => {
+	const rest = wrapAngle(heading - facingHeading(facing));
+	return (rest / (sector / 2)) * most;
 };
-const upright = (view) => assert.ok(isoLeans(view).every((lean) => lean === 0));
 
-check('an isometric view leans none by default: upright all the way round a circle', () => {
-	upright(ISO_EIGHT);
-	upright(ISO_FOUR);
-	assert.equal(sheetTurnOf(ISO_EIGHT).lean, 0);
-	assert.equal(sheetTurnOf(ISO_FOUR).lean, 0);
-	// And one whose sheet asks for a lean has it.
-	assert.ok(Math.max(...isoLeans(ISO_EIGHT_LEANT).map(Math.abs)) > 10 * DEG);
+/** `leanOf` against the sample over a sweep of headings, every facing, straight and mirrored
+ *  alike (the lean is the facing SEEN's, after any mirror). */
+const linearTilt = (leanAt) => {
+	for (const [facings, sector] of [
+		[CLIP_FACINGS, 45 * DEG],
+		[['ne', 'se', 'sw', 'nw'], 90 * DEG],
+	])
+		for (const most of [SHEET_TURN_ISO_LEAN * DEG, 3 * DEG, sector / 2])
+			for (const facing of facings)
+				for (let rest = -sector / 2; rest <= sector / 2 + 1e-9; rest += sector / 36) {
+					const heading = facingHeading(facing) + rest;
+					const want = sampleTilt(heading, facing, sector, most);
+					const lean = leanAt(heading, facing, most, sector);
+					assert.ok(
+						Math.abs(lean - want) < 1e-9,
+						`${facing} ${(rest / DEG).toFixed(1)}° off: ${lean / DEG}°, the sample ${want / DEG}°`,
+					);
+				}
+};
+
+check(
+	'the tilt is `frac × most` on the screen, for every facing, the same in four and eight',
+	() => {
+		linearTilt(leanOf);
+	},
+);
+
+/** The switch at the halfway point: +most just before it, −most just after, on the next picture. */
+const switchAtHalf = (leanAt) => {
+	const most = SHEET_TURN_ISO_LEAN * DEG;
+	for (let i = 0; i < 8; i++) {
+		const a = CLIP_FACINGS[i];
+		const b = CLIP_FACINGS[(i + 1) % 8];
+		const edge = facingHeading(a) + 22.5 * DEG;
+		assert.ok(Math.abs(leanAt(edge - 1e-6, a, most, 45 * DEG) - most) < 1e-5, `${a} before`);
+		assert.ok(Math.abs(leanAt(edge + 1e-6, b, most, 45 * DEG) + most) < 1e-5, `${b} after`);
+	}
+};
+
+check(
+	'the switch: tilted +most just before the halfway point, the next one −most just after',
+	() => {
+		switchAtHalf(leanOf);
+	},
+);
+
+/** An isometric eight on its own screen at `turn: {}`, aimed at once (speed 0): each frame's lean
+ *  is the sample's at the heading aimed, and the picture is the facing of that heading. */
+const isoSaved = (view) => {
+	const animator = createSheetAnimator(
+		sheetOf(view),
+		clipsOf(
+			new Set(ACTIONS.flatMap((a) => ['n', 'ne', 'e', 'se', 's'].map((f) => `hero_${a.id}_${f}`))),
+		),
+	);
+	let seen = 0;
+	for (let h = 0; h < 360; h += 2.5) {
+		const heading = h * DEG;
+		// A fresh look a while along the heading: the facing rule has settled on its facing.
+		const frames = drive(animator, () => heading, 600, {
+			...ISO_SCREEN,
+			from: (h / 2.5) * 1000,
+		});
+		const { frame, facing } = frames.at(-1);
+		const step = CLIP_FACINGS[((Math.round(h / 45) % 8) + 8) % 8];
+		if (facing !== step) continue;
+		seen += 1;
+		const want = sampleTilt(heading, facing, 45 * DEG, SHEET_TURN_ISO_LEAN * DEG);
+		assert.ok(
+			Math.abs(frame.lean - want) < 0.1 * DEG,
+			`${h}°: ${facing}${frame.flipX ? ' mirrored' : ''} ${frame.lean / DEG}°, the sample ${want / DEG}°`,
+		);
+	}
+	assert.ok(seen >= 100, `${seen} headings drawn in the sample's facing`);
+};
+
+check(
+	'an isometric eight saved `turn: {}` tilts as sample B: 8° at the switch, linear between',
+	() => {
+		isoSaved({ ...ISO_EIGHT, turn: { speed: 0 } });
+		assert.equal(sheetTurnOf(ISO_EIGHT).lean, 8 * DEG);
+		assert.equal(sheetTurnOf(ISO_FOUR).lean, 8 * DEG);
+	},
+);
+
+/** Each change of a slow circle at the default speed: the frame before tilted +most towards the
+ *  next facing, the frame of the change the next picture turned back by nearly −most (the drawn
+ *  heading moves on at most a frame's turn past the edge). */
+const changesAtDefault = (view) => {
+	const most = sheetTurnOf(view).lean;
+	const half = sheetTurnOf(view).sector / 2;
+	const frames = circle(view, ISO_SCREEN);
+	const changes = changesOf(frames);
+	assert.ok(changes.length >= 8, `${changes.length} changes`);
+	const frameStep = (SHEET_TURN_SPEED * DEG * FRAME_MS) / 1000;
+	for (const i of changes) {
+		const before = frames[i - 1].frame.lean;
+		const after = frames[i].frame.lean;
+		assert.ok(Math.abs(before - most) < 1e-9, `before: ${before / DEG}°`);
+		assert.ok(
+			after < 0 && after <= -most * (1 - frameStep / half) + 1e-9,
+			`after: ${after / DEG}°`,
+		);
+	}
+};
+
+check(
+	'a slow circle at the default speed: +8° before every switch, the next picture back by ~8°',
+	() => {
+		changesAtDefault(ISO_EIGHT);
+	},
+);
+
+/** A top-down view's default lean (half the sector) against the lean before sample B, as it
+ *  was on a top-down screen (flattening 1), over every heading and facing. */
+const sameAsBefore = (leanAt) => {
+	const old = (heading, facing, most, sector) => {
+		const from = wrapAngle(heading - facingHeading(facing));
+		const far = Math.abs(from);
+		const kept = Math.min(Math.max((Math.PI - far) / (Math.PI - sector / 2), 0), 1);
+		return Math.sign(from) * Math.min(far, most) * kept;
+	};
+	for (const sector of [45 * DEG, 90 * DEG])
+		for (const facing of CLIP_FACINGS)
+			for (let h = 0; h < 360; h += 1.5) {
+				const now = leanAt(h * DEG, facing, sector / 2, sector);
+				assert.ok(Math.abs(now - old(h * DEG, facing, sector / 2, sector)) < 1e-12);
+			}
+};
+
+check('a top-down view at its default lean draws the numbers it had before (flattening 1)', () => {
+	sameAsBefore(leanOf);
 });
 
 /** The exact statement: at the instant a sweep changes its picture, both pictures are drawn in the
  *  same direction. A swept heading is sampled either side of every edge. */
-const edgeGap = (view, lean, flattening = 1, asGround = false) => {
-	const turn = sheetTurnOf({ ...view, turn: lean === undefined ? {} : { lean } });
-	const facings =
-		view.facings === 8
-			? CLIP_FACINGS
-			: view.kind === 'topDown'
-				? ['n', 'e', 's', 'w']
-				: ['ne', 'se', 'sw', 'nw'];
+const edgeGap = (view) => {
+	const turn = sheetTurnOf(view);
+	const facings = view.facings === 8 ? CLIP_FACINGS : ['n', 'e', 's', 'w'];
 	let gap = 0;
 	for (let i = 0; i < facings.length; i++) {
 		const a = facings[i];
 		const b = facings[(i + 1) % facings.length];
-		const off = (h, f) =>
-			Math.min(Math.max(wrapAngle(h - facingHeading(f)), -turn.lean), turn.lean);
 		const edge = facingHeading(a) + turn.sector / 2;
-		const onScreen = (h) => Math.atan2(Math.sin(h), Math.cos(h) / flattening);
-		// `asGround`: the lean taken as the ground's angle, as it is not on a flattened screen.
-		const seen = (f) =>
-			asGround
-				? onScreen(facingHeading(f)) + off(edge, f)
-				: onScreen(facingHeading(f) + off(edge, f));
+		const seen = (f) => facingHeading(f) + leanOf(edge, f, turn.lean, turn.sector);
 		gap = Math.max(gap, Math.abs(wrapAngle(seen(a) - seen(b))));
 	}
 	return gap;
 };
 
-check(
-	'on the edge of two sectors both pictures are drawn in one direction, leaning half a sector',
-	() => {
-		// A top-down view's default.
-		for (const view of [EIGHT, FOUR]) assert.ok(edgeGap(view) < 1e-9);
-		assert.ok(edgeGap(ISO_EIGHT, 22.5, 2) < 1e-9);
-		assert.ok(edgeGap(ISO_FOUR, 45, 2) < 1e-9);
-	},
-);
+check('top-down: on the edge of two sectors both pictures are drawn in one direction', () => {
+	for (const view of [EIGHT, FOUR]) assert.ok(edgeGap(view) < 1e-9);
+});
 
 // ── 3. the maximum ───────────────────────────────────────────────────────────────────────────
 
@@ -450,11 +546,13 @@ check('a reversal sweeps through the facings in between, no faster than the turn
 	// A blend in hand keeps the heading at the edge of the next sector until it is done: the same
 	// facings, no faster, each of the three in between drawn for the blend's time (a sector at
 	// 360° a second is 125 ms, less than a blend), and half a sector at either end.
-	const blended = sweeps({}, SHEET_TURN_SPEED);
-	const whole = CLIP_TURN_MS + 125 + 3 * SHEET_TURN_BLEND;
+	const blended = sweeps(BLENDS, SHEET_TURN_SPEED);
+	const whole = CLIP_TURN_MS + 125 + 3 * BLEND_MS;
 	assert.ok(Math.abs(blended - whole) <= 3 * FRAME_MS, `blended, it took ${blended} ms`);
 	// A sweep slower than the blend is not held.
-	assert.equal(sweeps({ speed: 90 }, 90), slow);
+	assert.equal(sweeps({ ...BLENDS, speed: 90 }, 90), slow);
+	// And the default draws no blend: the same as `blend: 0`.
+	assert.equal(sweeps({}, SHEET_TURN_SPEED), ms);
 });
 
 check('speed 0 is the lean alone: the heading is where the character is aimed, at once', () => {
@@ -583,9 +681,8 @@ check('an isometric view of four turns over its four diagonals', () => {
 	// North-east on the ground is the middle of `ne`; 10° past it leans towards `se`.
 	const before = drive(animator, () => 55 * DEG, 1000, options).at(-1);
 	assert.equal(before.facing, 'ne');
-	assert.ok(before.frame.lean > 0);
-	const heading = Math.atan2(Math.sin(55 * DEG), Math.cos(55 * DEG) / 2);
-	assert.ok(Math.abs(wrapAngle(before.direction - heading)) < 1e-9, 'drawn where it heads');
+	// Tilted on the screen by its share of the half sector: 10° of 45°, of a most of 45°.
+	assert.ok(Math.abs(before.frame.lean - 10 * DEG) < 1e-9, `it leans ${before.frame.lean / DEG}°`);
 });
 
 // ── 8. a rig, a still, a one-shot ────────────────────────────────────────────────────────────
@@ -682,7 +779,7 @@ check(
 		assert.deepEqual(normalized({ kind: 'topDown', facings: 8, turn: {} }), EIGHT);
 		const defaults = { speed: 360, blend: CHARACTER_TURN_BLEND, pivot: 'middle' };
 		assert.deepEqual(
-			normalized({ kind: 'isometric', turn: { lean: 0, ...defaults } }),
+			normalized({ kind: 'isometric', turn: { lean: 8, ...defaults } }),
 			ISO_FOUR,
 			'defaults are not stored',
 		);
@@ -703,16 +800,15 @@ check(
 		);
 		assert.deepEqual(normalized({ kind: 'isometric', turn: { lean: 45 } }), ISO_FOUR_LEANT);
 		assert.deepEqual(normalized({ kind: 'topDown', turn: { lean: 0 } }).turn, { lean: 0 });
-		assert.deepEqual(normalized({ kind: 'isometric', turn: { blend: 0, pivot: 'feet' } }).turn, {
-			blend: 0,
+		assert.deepEqual(normalized({ kind: 'isometric', turn: { lean: 0 } }).turn, { lean: 0 });
+		assert.deepEqual(normalized({ kind: 'isometric', turn: { blend: 160, pivot: 'feet' } }).turn, {
+			blend: 160,
 			pivot: 'feet',
 		});
 		assert.deepEqual(normalized({ kind: 'topDown', turn: { blend: 1e9 } }).turn, {
 			blend: CHARACTER_TURN_BLEND_MAX,
 		});
-		assert.deepEqual(normalized({ kind: 'topDown', turn: { blend: -40, pivot: 'head' } }).turn, {
-			blend: 0,
-		});
+		assert.deepEqual(normalized({ kind: 'topDown', turn: { blend: -40, pivot: 'head' } }).turn, {});
 		assert.deepEqual(normalized({ kind: 'topDown', turn: { blend: 'x', pivot: 1 } }).turn, {});
 		assert.deepEqual(normalized({ kind: 'topDown', turn: { lean: 30, speed: 0 } }).turn, {
 			lean: 30,
@@ -751,6 +847,7 @@ check('a side view and a `3d` view drop it', () => {
 check('the two packages agree on the defaults', () => {
 	assert.equal(SHEET_TURN_SPEED, CHARACTER_TURN_SPEED);
 	assert.equal(SHEET_TURN_BLEND, CHARACTER_TURN_BLEND);
+	assert.equal(SHEET_TURN_ISO_LEAN, CHARACTER_TURN_ISO_LEAN);
 	for (const view of [
 		EIGHT,
 		FOUR,
@@ -786,7 +883,7 @@ const savedDefaults = (leanOf) => {
 		const lean = leanOf(kind, sector);
 		assert.equal(characterTurnLean(view), lean);
 		assert.deepEqual(characterTurnOf(view), {
-			blend: 160,
+			blend: 0,
 			lean,
 			pivot: 'middle',
 			speed: 360,
@@ -796,16 +893,17 @@ const savedDefaults = (leanOf) => {
 			sector: sector * DEG,
 			lean: lean * DEG,
 			speed: 360 * DEG,
-			blend: 160,
+			blend: 0,
 			feet: false,
 		});
 	}
 };
 
 check('a saved `turn: {}` stays `{}` and is read at the defaults of its kind of view', () => {
-	// Seen from above a picture leans half its sector; an upright one, isometric, does not lean.
-	savedDefaults((kind, sector) => (kind === 'isometric' ? 0 : sector / 2));
-	assert.equal(CHARACTER_TURN_BLEND, 160);
+	// Seen from above a picture leans half its sector; isometric, the 8° picked by eye. No blend.
+	savedDefaults((kind, sector) => (kind === 'isometric' ? 8 : sector / 2));
+	assert.equal(CHARACTER_TURN_BLEND, 0);
+	assert.equal(CHARACTER_TURN_ISO_LEAN, 8);
 });
 
 const issuesOf = (view) =>
@@ -1272,7 +1370,7 @@ const blendsOver = (turn, blend, shareOf = blendWeight, leftOf = (ms) => blend -
 };
 
 check('a loop whose facing changes carries a blend that rises to done within `blend` ms', () => {
-	blendsOver({}, SHEET_TURN_BLEND);
+	blendsOver(BLENDS, BLEND_MS);
 	blendsOver({ blend: 400 }, 400);
 	blendsOver({ blend: 50, speed: 0 }, 50);
 });
@@ -1290,8 +1388,9 @@ const neverBlends = (turn) => {
 		assert.ok(posed.every((f) => f.frame && !Object.hasOwn(f.frame, 'blend')));
 	}
 };
-check('`blend: 0`: the picture changes at once, no frame ever carries a blend', () => {
+check('`blend: 0` and the default: the picture changes at once, no frame carries a blend', () => {
 	neverBlends({ blend: 0 });
+	neverBlends({});
 	assert.equal(sheetTurnOf({ ...EIGHT, turn: { blend: 0 } }).blend, 0);
 	assert.equal(sheetTurnOf({ ...EIGHT, turn: { blend: -5 } }).blend, 0);
 });
@@ -1374,7 +1473,7 @@ const sweepBlends = (turn, blend, wholeOf) => {
 };
 check('a reversal`s sweep blends each step whole, never a third picture', () => {
 	const wholeOf = (left) => left?.weight ?? 1;
-	sweepBlends({}, SHEET_TURN_BLEND, wholeOf);
+	sweepBlends(BLENDS, BLEND_MS, wholeOf);
 	sweepBlends({ blend: 400 }, 400, wholeOf);
 	sweepBlends({ blend: 300, speed: 1440 }, 300, wholeOf);
 	sweepBlends({ blend: 60, speed: 90 }, 60, wholeOf);
@@ -1382,7 +1481,10 @@ check('a reversal`s sweep blends each step whole, never a third picture', () => 
 
 /** The frames from when a walk north is cut by `cut(animator)`, heading east from then on. */
 const cutBy = (cut, actions = ACTIONS) => {
-	const animator = createSheetAnimator({ ...sheetOf(EIGHT), actions }, clipsOf());
+	const animator = createSheetAnimator(
+		{ ...sheetOf({ ...EIGHT, turn: BLENDS }), actions },
+		clipsOf(),
+	);
 	drive(animator, () => 0, SETTLE_MS);
 	cut(animator);
 	return drive(animator, () => Math.PI / 2, 1500, { from: AFTER });
@@ -1435,7 +1537,7 @@ const CARRY_CLIPS = new Set([...EVERY, ...CLIP_FACINGS.map((facing) => `hero_car
 /** North, then east at once (speed 0): the frame the facing changes in, the status `holding`
  *  starting in that same frame when `carried`. */
 const facingChange = (carried, at) => {
-	const sheet = { ...sheetOf({ ...EIGHT, turn: { speed: 0 } }), actions: CARRYING };
+	const sheet = { ...sheetOf({ ...EIGHT, turn: { ...BLENDS, speed: 0 } }), actions: CARRYING };
 	const animator = createSheetAnimator(sheet, clipsOf(CARRY_CLIPS));
 	drive(animator, () => 0, SETTLE_MS);
 	const frames = [];
@@ -1570,6 +1672,27 @@ const clipFades = (startOf) => {
 	look.destroy();
 	assert.ok(front.destroyed && back.destroyed && root.destroyed);
 };
+/** A clip look with no blend handed a change of clip: `kept` carries the frame reached on. */
+const clipKept = (turnOf) => {
+	const { look, sprite } = stage();
+	look.frame(published(), UPRIGHT);
+	sprite.currentFrame = 2;
+	look.frame(published({ clipId: 'hero_walk_s' }), turnOf({ ...UPRIGHT, kept: true }));
+	assert.equal(look.drawn().clipId, 'hero_walk_s');
+	assert.equal(sprite.currentFrame, 2, 'the same frame of a clip as long');
+	assert.equal(look.drawn().blend, undefined);
+	sprite.currentFrame = 1;
+	look.frame(published({ clipId: 'hero_walk_n' }), turnOf({ ...UPRIGHT, kept: true }));
+	assert.equal(sprite.currentFrame, frameKept(1, 3, 6), 'its share of one twice as long');
+	// Not kept (a change of action, a sheet without the turn): it starts again.
+	look.frame(published(), UPRIGHT);
+	assert.equal(sprite.currentFrame, 0);
+	look.destroy();
+};
+check('the clip look with no blend: a kept change of clip carries the cycle on', () => {
+	clipKept((turn) => turn);
+});
+
 check(
 	'the clip look cross-fades two sprites, the clip taken at the frame the other reached',
 	() => {
@@ -1718,12 +1841,12 @@ const rigStage = (sheet, facing = 'n') => {
  * Drive a rig's animator and its look together along `headingAt` (degrees), as `online.ts` does:
  * each frame with what the look drew, its views, and the phase of each.
  */
-function rigDrive(stage, headingAt, ms, from = 0) {
+function rigDrive(stage, headingAt, ms, from = 0, handOver = (frame) => frame) {
 	const { animator, look, root, entryOf, phaseOf } = stage;
 	const samples = [];
 	for (let atMs = from; atMs <= from + ms; atMs += FRAME_MS) {
 		const frame = animator.frame({ atMs, ...flat(headingAt(atMs) * DEG) });
-		look.frame(frame, atMs);
+		look.frame(handOver(frame), atMs);
 		// The views are the look's own and are used again: what each is NOW is read off here.
 		const views = root.children.map((view) => ({
 			view,
@@ -1784,7 +1907,7 @@ const walksOn = (samples, phaseStep = (moved) => moved) =>
 	});
 
 const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose }) => {
-	const stage = rigStage(rigSheet({}), 'ne');
+	const stage = rigStage(rigSheet(BLENDS), 'ne');
 	const samples = rigDrive(stage, ROUND, 1100 + 700 * 5 + 400);
 	const changes = changesOf(samples);
 	assert.equal(changes.length, ROUND_CHANGES.length, 'every change of the round is drawn');
@@ -1803,7 +1926,7 @@ const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose }) => {
 		assert.equal(posesOf(frame), frame.blend.pose);
 		assert.deepEqual([drawn.blend.from, drawn.blend.weight], [from, frame.blend.weight]);
 		const run = samples.slice(at, changes[i + 1] ?? samples.length).filter((s) => s.frame.blend);
-		assert.equal(run.length, Math.ceil(SHEET_TURN_BLEND / FRAME_MS));
+		assert.equal(run.length, Math.ceil(BLEND_MS / FRAME_MS));
 		const done = samples[at + run.length];
 		if (pose) {
 			// ONE POSE, IN ONE VIEW: the runtime mixes the animation in over the blend's time, from
@@ -1824,7 +1947,7 @@ const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose }) => {
 			}
 			assert.equal(sample.front.animation, to);
 			assert.equal(sample.mix.from, from);
-			assert.ok(Math.abs(sample.mix.seconds - SHEET_TURN_BLEND / 1000) < 1e-9);
+			assert.ok(Math.abs(sample.mix.seconds - BLEND_MS / 1000) < 1e-9);
 		} else {
 			// TWO PICTURES, CROSS-FADED: the view that drew the one left goes behind and plays on,
 			// a second takes the frame's at the same phase.
@@ -1885,7 +2008,7 @@ check(
 
 const rigMirrored = (viewsOf) => {
 	// East, then west at once: west is east's animation, mirrored.
-	const stage = rigStage(rigSheet({ speed: 0 }), 'e');
+	const stage = rigStage(rigSheet({ ...BLENDS, speed: 0 }), 'e');
 	const samples = rigDrive(stage, (ms) => (ms < 1100 ? 90 : 270), 1100 + 600);
 	const [at, ...more] = changesOf(samples);
 	assert.equal(more.length, 0);
@@ -1977,7 +2100,7 @@ const rigLeansAbout = (turn, pivotOf) => {
  * that drew north, not drawn since, draws it again, at the phase the east walk has reached.
  */
 const rigComesBack = (phaseStep) => {
-	const stage = rigStage(rigSheet({ speed: 0 }));
+	const stage = rigStage(rigSheet({ ...BLENDS, speed: 0 }));
 	const samples = rigDrive(stage, (ms) => (ms < 1100 || ms >= 1800 ? 0 : 90), 2600);
 	const [out, back, ...more] = changesOf(samples);
 	assert.ok(back > out && more.length === 0, 'it turns out and back');
@@ -1994,6 +2117,31 @@ check('a rig turned back to a picture after its cross-fade is done carries the w
 	rigComesBack();
 });
 
+/** The round on a rig sheet saved `turn: {}`: no blend anywhere, one view, never faded, and the
+ *  walk carried on at its phase through every change of picture (`kept` on the frame of each). */
+const savedRigWalksOn = (handOver) => {
+	const stage = rigStage(rigSheet({}), 'ne');
+	const samples = rigDrive(stage, ROUND, 1100 + 700 * 5 + 400, 0, handOver);
+	const changes = changesOf(samples);
+	assert.equal(changes.length, ROUND_CHANGES.length, 'every change of the round is drawn');
+	assert.ok(
+		samples.every((s) => !Object.hasOwn(s.frame, 'blend')),
+		'no blend object',
+	);
+	assert.ok(samples.every((s) => s.views.length === 1 && s.drawn.blend === undefined));
+	assert.ok(
+		samples.every((s) => s.front.fade.length === 0),
+		'never filtered',
+	);
+	for (const at of changes) assert.equal(samples[at].frame.kept, true);
+	assert.equal(samples.filter((s) => s.frame.kept).length, changes.length);
+	walksOn(samples);
+	stage.look.destroy();
+};
+check('a rig saved `turn: {}`: no blend, one view, the walk carried on through each switch', () => {
+	savedRigWalksOn((frame) => frame);
+});
+
 check('pivot middle, the default: a rig leans about the middle of its box, mirrored or not', () => {
 	const about = sheetLeanPivot(rigSheet({}), RIG_BOX);
 	assert.ok(near(about, (0.9 - 0.5) * 80 * 1.6) && about > 0);
@@ -2006,7 +2154,7 @@ check('pivot feet: a rig leans about its place, mirrored or not', () => {
 });
 
 check('a rig look is its root on the mount: gone with the unmount, destroyed with the look', () => {
-	const stage = rigStage(rigSheet({}));
+	const stage = rigStage(rigSheet(BLENDS));
 	rigDrive(stage, ROUND, 2200);
 	const views = [...stage.root.children];
 	assert.equal(views.length, 2);
@@ -2021,14 +2169,35 @@ check('a rig look is its root on the mount: gone with the unmount, destroyed wit
 // ── 13. each goes red ────────────────────────────────────────────────────────────────────────
 
 mutation('a lean below half the sector is not continuous', () => {
-	assert.ok(edgeGap(EIGHT, 10) < 1e-9);
+	assert.ok(edgeGap({ ...EIGHT, turn: { lean: 10 } }) < 1e-9);
 });
-mutation('the lean read as a ground angle is not continuous on the isometric screen', () => {
-	assert.ok(edgeGap(ISO_EIGHT, 22.5, 2, true) < 1e-9);
+/** The lean before sample B: the heading's distance held at `most`, as the flattened screen
+ *  draws that ground angle. */
+const saturating = (flattening) => (heading, facing, most, sector) => {
+	const centre = facingHeading(facing);
+	const from = wrapAngle(heading - centre);
+	const far = Math.abs(from);
+	const kept = Math.min(Math.max((Math.PI - far) / (Math.PI - sector / 2), 0), 1);
+	const screen = (h) => Math.atan2(Math.sin(h), Math.cos(h) / flattening);
+	return wrapAngle(screen(centre + Math.sign(from) * Math.min(far, most) * kept) - screen(centre));
+};
+mutation('the old lean, held at its most for most of the sector, is not linear', () => {
+	linearTilt(saturating(1));
 });
-mutation('the isometric circle, its directions read without the flattening', () => {
-	const frames = circle(ISO_EIGHT_LEANT, { ...ISO_SCREEN, flattening: 1 });
-	assert.ok(steps(frames).atChange <= SHEET_TURN_SPEED * DEG * (FRAME_MS / 1000) + 1e-6);
+mutation('a lean passed through the isometric flattening differs per facing', () => {
+	linearTilt((h, f, most, sector) => leanOf(h, f, most, sector) * (f.length === 1 ? 1 : 1.2));
+});
+mutation('a tilt spread over a whole sector each way is not `most` at the switch', () => {
+	switchAtHalf((h, f, most, sector) => leanOf(h, f, most, sector * 2));
+});
+mutation('an isometric `turn: {}` read with no tilt is not sample B', () => {
+	isoSaved({ ...ISO_EIGHT, turn: { speed: 0, lean: 0 } });
+});
+mutation('an isometric `turn: {}` that tilts against the turn', () => {
+	changesAtDefault({ ...ISO_EIGHT, turn: { lean: 0 } });
+});
+mutation('a top-down view read through the saturating lean on a flattened screen', () => {
+	sameAsBefore(saturating(2));
 });
 mutation('with no turn speed a quick circle jumps at its picture changes', () => {
 	// The same sweep with the option off: the direction drawn is the facing's own.
@@ -2050,6 +2219,12 @@ mutation('at speed 0 a reversal passes through no facing in between', () => {
 });
 mutation('a sweep at 360° a second is faster than 90° a second allows', () => {
 	sweeps({}, 90);
+});
+mutation('a rig look that does not carry a kept walk on starts it again at a switch', () => {
+	savedRigWalksOn((frame) => ({ ...frame, kept: undefined }));
+});
+mutation('a clip look that does not carry a kept clip on starts it again', () => {
+	clipKept((turn) => ({ ...turn, kept: undefined }));
 });
 mutation('a mirrored facing that leaned as its made twin would turn the wrong way', () => {
 	mirroredLean((frame) => -frame.lean);
@@ -2084,14 +2259,8 @@ mutation('a clip handed no pivot and turned about its middle', () => {
 mutation('a sheet whose pivot is always its feet', () => {
 	pivots(() => 0);
 });
-mutation('an isometric view at its default lean is not continuous: it does not lean', () => {
-	continuous(ISO_EIGHT, ISO_SCREEN, 2);
-});
 mutation('an isometric view read at a top-down view`s default lean', () => {
 	savedDefaults((kind, sector) => sector / 2);
-});
-mutation('an isometric view that leans half its sector is not upright', () => {
-	upright(ISO_EIGHT_LEANT);
 });
 mutation('a frame with a `blend` key, absent or not, is not the frame it was', () => {
 	plainFrames((frame) => Object.keys({ ...frame, blend: undefined }));
@@ -2109,19 +2278,19 @@ mutation('a blend eased in only is not the same weights turned back', () => {
 	weights((progress) => Math.min(Math.max(progress, 0), 1) ** 2, fadeAlphas);
 });
 mutation('a blend of 160 ms is not done in 100', () => {
-	blendsOver({}, 100);
+	blendsOver(BLENDS, 100);
 });
 mutation('a blend whose weight is its time is not eased', () => {
-	blendsOver({}, SHEET_TURN_BLEND, (progress) => progress);
+	blendsOver(BLENDS, BLEND_MS, (progress) => progress);
 });
 mutation('a sheet that blends carries a blend', () => {
-	neverBlends({});
+	neverBlends(BLENDS);
 });
 mutation('a blend turned back that started again from 0 jumps', () => {
 	turnedBack((weight) => weight);
 });
 mutation('a sweep read as cutting each blend half way', () => {
-	sweepBlends({}, SHEET_TURN_BLEND, (left) => (left ? left.weight / 2 : 1));
+	sweepBlends(BLENDS, BLEND_MS, (left) => (left ? left.weight / 2 : 1));
 });
 mutation('a one-shot read as blended', () => {
 	onceKeeps((frame) => frame.action === 'hop' || Object.hasOwn(frame, 'blend'));

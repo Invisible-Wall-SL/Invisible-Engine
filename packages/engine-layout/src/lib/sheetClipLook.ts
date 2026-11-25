@@ -95,7 +95,8 @@ const sameFrames = (a: readonly unknown[], b: readonly unknown[]) =>
 
 /** How a clip is turned: its `lean`, radians clockwise, about the point `about` px above the
  *  character's place (absent ⇒ the place). */
-export type SheetClipTurn = { lean: number; about?: number };
+/** `kept`: the clip carries on the cycle of the one drawn before (`SheetClipFrame.kept`). */
+export type SheetClipTurn = { lean: number; about?: number; kept?: boolean };
 
 export type SheetClipLook = {
 	readonly mount: ArtMount;
@@ -342,7 +343,7 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 				back?.hide();
 				fading = undefined;
 				front.sprite.alpha = 1;
-				front.draw(clip, turn, marked);
+				front.draw(clip, turn, marked, turn.kept ? reached(front) : undefined);
 				return;
 			}
 			// The sprite that drew the clip left goes behind and plays on, and the other takes

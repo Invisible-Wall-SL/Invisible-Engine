@@ -4,7 +4,8 @@
 	 * round a slow circle, each frame the answer of the game's own animator (`sheetTurn.ts`
 	 * `turnAnimator`) to a velocity sample along the heading. With the sheet's smooth turn off the
 	 * picture snaps from facing to facing; with it on it sweeps through the facings in between, each
-	 * change of picture a blend of the two, and leans where the sheet has a lean, which *Turn about*
+	 * picture tilted by its share of the sheet's lean (a change of picture a blend where the sheet
+	 * sets one), which *Turn about*
 	 * (the heading turned half round at once) shows.
 	 *
 	 * A clip or a still image is drawn with the directions preview's parts (`clipDrawing.ts`,

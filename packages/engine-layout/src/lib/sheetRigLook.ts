@@ -294,7 +294,7 @@ export function createSheetRigLook(
 				// One pose: the runtime mixes the animation in from the one playing, over what is
 				// left of the blend, and carries its cycle on.
 				if (blend) play(front, frame, phaseOf(front), blend.leftMs);
-				else play(front, frame);
+				else play(front, frame, frame.kept ? phaseOf(front) : undefined);
 			}
 			front.view.update(step);
 			if (!box && front.playing !== undefined) {

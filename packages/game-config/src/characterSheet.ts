@@ -47,26 +47,25 @@ export type CharacterView =
 /**
  * A smooth turn between the facings of a view of four or eight. Three things, each its own field:
  *
- * - the BLEND: when the picture drawn changes with the facing, the picture it leaves and the one
- *   it takes are mixed for `blend` ms, the walk carried on where it was, so the directions merge
- *   as they are drawn;
  * - the SWEEP: the character's drawn heading follows where it moves at `speed`, and its picture is
- *   the facing that heading is in, so an about-turn is drawn through the facings in between;
- * - the LEAN: the picture is rotated, about its `pivot`, by how far the heading is from its
- *   facing's middle. That is how a subject SEEN FROM ABOVE turns; an upright character seen from
- *   the side or in three-quarter view turns about its own height, and a rotation of its picture
- *   tips it over. So an isometric view has none unless the sheet asks for some.
+ *   the facing whose sector that heading is in, so an about-turn is drawn through the facings in
+ *   between and the picture changes, in one frame, halfway between two facings;
+ * - the TILT (`lean`): the picture is rotated on the screen, about its `pivot`, in proportion to
+ *   how far the heading is from its facing's middle: none there, `lean` degrees at the halfway
+ *   point either way. So just before a change the picture is tilted `lean` towards the next
+ *   facing, and just after it the next picture is tilted `lean` back;
+ * - the BLEND, off unless set: the two pictures are cross-faded for `blend` ms at a change.
  *
  * It is how the character is drawn only: nothing of how it moves reads it. `{}` is the option on
  * at its defaults. A side view has two facings and a `3d` one none, so neither has it.
  */
 export type CharacterTurn = {
-	/** How long two pictures are mixed when the facing drawn changes, ms; 0 ⇒ the picture changes
-	 *  at once. Absent ⇒ {@link CHARACTER_TURN_BLEND}. */
+	/** How long two pictures are cross-faded when the facing drawn changes, ms; 0 ⇒ the picture
+	 *  changes at once. Absent ⇒ {@link CHARACTER_TURN_BLEND} (0). */
 	blend?: number;
-	/** The most the picture leans from its facing, degrees: 0 to half the angle between two
-	 *  facings (22.5 of eight, 45 of four). Absent ⇒ that half for a top-down view, and none for
-	 *  an isometric one ({@link characterTurnLean}). */
+	/** The tilt on the screen at the halfway point between two facings, degrees: 0 to half the
+	 *  angle between two facings (22.5 of eight, 45 of four). Absent ⇒ that half for a top-down
+	 *  view, 8 for an isometric one ({@link characterTurnLean}). */
 	lean?: number;
 	/** What the lean turns the picture about: the middle of its box, or its feet (the character's
 	 *  place). Absent ⇒ the middle. */
@@ -83,19 +82,23 @@ export type CharacterTurnPivot = (typeof CHARACTER_TURN_PIVOTS)[number];
 export const CHARACTER_TURN_SPEED = 360;
 export const CHARACTER_TURN_SPEED_MAX = 3600;
 
-/** A smooth turn's `blend` when it names none, and the most it can be, ms. */
-export const CHARACTER_TURN_BLEND = 160;
+/** A smooth turn's `blend` when it names none (no cross-fade), and the most it can be, ms. */
+export const CHARACTER_TURN_BLEND = 0;
 export const CHARACTER_TURN_BLEND_MAX = 1000;
 
 /** The angle between two facings of a view that can turn smoothly, degrees. */
 export const characterTurnSector = (view: { facings?: 8 }): number =>
 	view.facings === 8 ? 45 : 90;
 
+/** An isometric view's `lean` when its turn names none, degrees on the screen: the tilt the owner
+ *  picked by eye for an upright character (`docs/design/character-pipeline.md` §13). */
+export const CHARACTER_TURN_ISO_LEAN = 8;
+
 /** A view's `lean` when its turn names none, degrees: half the angle between two facings seen
- *  from above (where both pictures then point the same way as one becomes the other), and none
- *  for an isometric view, whose upright character a lean would tip over. */
+ *  from above (where both pictures then point the same way as one becomes the other), and
+ *  {@link CHARACTER_TURN_ISO_LEAN} for an isometric view. */
 export const characterTurnLean = (view: { kind: 'topDown' | 'isometric'; facings?: 8 }): number =>
-	view.kind === 'isometric' ? 0 : characterTurnSector(view) / 2;
+	view.kind === 'isometric' ? CHARACTER_TURN_ISO_LEAN : characterTurnSector(view) / 2;
 
 /**
  * A view's smooth turn as it is drawn, defaults filled in (degrees, degrees a second and ms), or
@@ -326,8 +329,10 @@ const normalizeTurn = (
 	if (!isObject(raw)) return undefined;
 	const turn: CharacterTurn = {};
 	const blend = finite(raw.blend);
-	if (blend !== undefined && blend !== CHARACTER_TURN_BLEND)
-		turn.blend = Math.min(Math.max(blend, 0), CHARACTER_TURN_BLEND_MAX);
+	if (blend !== undefined) {
+		const held = Math.min(Math.max(blend, 0), CHARACTER_TURN_BLEND_MAX);
+		if (held !== CHARACTER_TURN_BLEND) turn.blend = held;
+	}
 	const lean = finite(raw.lean);
 	if (lean !== undefined) {
 		const held = Math.min(Math.max(lean, 0), characterTurnSector(view) / 2);

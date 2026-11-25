@@ -479,6 +479,9 @@ export type SheetClipFrame = CharacterClipFrame & {
 	variant: string | undefined;
 	lean?: number;
 	blend?: SheetBlend<SheetClipFrame>;
+	/** On the frame a smooth turn's loop changes picture with the facing: the clip taken carries
+	 *  on the cycle of the one left, at its phase, instead of starting again. */
+	kept?: true;
 };
 
 export type SheetAnimator = {
@@ -519,7 +522,7 @@ const answers = (trigger: CharacterTrigger, signal: SheetSignal): boolean =>
 type Found = { flipX: boolean; action: string; variant: string | undefined; facing: ClipFacing };
 
 /** What a frame of either source carries of a smooth turn. */
-type Turned<F> = { lean?: number; blend?: SheetBlend<F> };
+type Turned<F> = { lean?: number; blend?: SheetBlend<F>; kept?: true };
 
 /** A sheet's animator, whatever it draws: `F` is its frame. */
 type Animator<F> = {
@@ -704,7 +707,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 
 	const leaned = (found: R, loop: boolean, play: number): F => {
 		const frame = frameOf(found, loop, play);
-		if (turn) frame.lean = leanOf(heading, found.facing, turn.lean, flattening, turn.sector);
+		if (turn) frame.lean = leanOf(heading, found.facing, turn.lean, turn.sector);
 		return frame;
 	};
 
@@ -715,13 +718,17 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 		return leaned(found, loop, play);
 	};
 
-	/** A loop's frame: blended from the picture it has just left, if the sheet blends. */
+	/** A loop's frame: its cycle carried on when its picture changes with the facing, and
+	 *  blended from the picture it has just left, if the sheet blends. */
 	const drawnLoop = (found: R, atMs: number): F => {
 		const frame = leaned(found, true, 0);
-		if (!turn || !(turn.blend > 0)) return frame;
+		if (!turn) return frame;
 		const picture = pictureOf(found);
 		const last = looped;
 		looped = { found, shown };
+		if (last && last.found.action === found.action && pictureOf(last.found) !== picture)
+			frame.kept = true;
+		if (!(turn.blend > 0)) return frame;
 		if (last && last.found.action !== found.action) fade = undefined;
 		else if (last && last.shown !== shown && pictureOf(last.found) !== picture)
 			fade = mixes(last.found, found)
@@ -1028,6 +1035,8 @@ export type SheetRigFrame = {
 	/** As a clip frame's ({@link SheetClipFrame}): only for a sheet that turns smoothly. */
 	lean?: number;
 	blend?: SheetBlend<SheetRigFrame>;
+	/** As a clip frame's ({@link SheetClipFrame}). */
+	kept?: true;
 };
 
 export type SheetRigAnimator = Animator<SheetRigFrame>;

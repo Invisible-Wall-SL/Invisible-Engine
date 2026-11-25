@@ -2845,17 +2845,18 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     engine only; #1830) and C6b (the tool chooses what draws a character: frame clips, a rig or
     still images; adding a character by name; #1846) are merged.**
 
-    **C9, the smooth turn, is merged (#1891) and was rebuilt the same day** (branch
-    `claude/character-turn-blend`, #1895, in review; Recent changes, 2026-11-24; plan §13). The
-    owner tried #1891 on the Salmons bear and found it "totally broken": the lean tipped the
-    upright picture over and it still snapped. A sheet with `view.turn` now BLENDS each facing
-    into the next (a rig's pose mix or a cross-fade, the walk carried on) and sweeps through the
-    facings in between; the lean is an extra for a subject seen from above, none by default on
-    an isometric view. It is off unless a sheet says so, and no reference config or export says
-    so: every current game is drawn as before, and the slot, match-3 and card runtimes are the
-    same bytes. It does not wait on C3 and C3 does not wait on it. The control is on the sheet's
-    View card ([tools/invisible-characters](../tools/invisible-characters.md), _View_); the
-    bear's owner step is a reload ([status/salmons](salmons.md)).
+    **C9, the smooth turn, is merged (#1891, then #1895) and is rebuilt as the owner's pick**
+    (branch `claude/character-turn-tilt`, in review; Recent changes, 2026-11-25; plan §13). #1891
+    tipped the bear over; #1895 cross-faded it, which the owner never asked for and saw flicker.
+    The owner then chose one of five styles from a samples page by eye ("B as it is set up now"):
+    a sheet with `view.turn` sweeps through the facings in between, switches picture in one frame
+    at the halfway point, and tilts each picture linearly on the screen, none at its facing's
+    middle and `lean` at the switch (8° by default on an isometric view, half the sector top-down),
+    the walk carried on. No fade unless a sheet sets `blend`. It is off unless a sheet says so,
+    and no reference config or export says so: every current game is drawn as before, and the
+    slot, match-3 and card runtimes are the same bytes. The control is on the sheet's View card
+    ([tools/invisible-characters](../tools/invisible-characters.md), _View_); the bear's owner
+    step is a reload ([status/salmons](salmons.md)).
 
     **Next is C3, Salmons moved onto the sheet, which a person does in the tool** (plan §6 C3
     gate, §9). C6b changed none of these labels:
@@ -2925,6 +2926,34 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-11-25 — **The smooth turn is the owner's sample B: a tilt and a switch, no fade**
+  (`view.turn`, plan §13 rewritten; branch `claude/character-turn-tilt`, in review). The owner on
+  #1895: "the image is blending without turning at all, and now it flickers at turn, because of
+  the alpha merge I never asked for". Shown five styles side by side, they chose B.
+  - **What it draws:** the picture of the facing nearest the drawn heading, rotated on the
+    screen by `rest / half × lean` about the body's middle; it switches at the halfway point in
+    one frame, `+lean` before and `−lean` after. `leanOf` lost the flattening (the tilt is a
+    screen angle, the same for every facing) and its saturation (it was `min(far, most)`).
+  - **Defaults:** `blend` 0 on every view (`CHARACTER_TURN_BLEND`), an isometric `lean` 8
+    (`CHARACTER_TURN_ISO_LEAN`), top-down the half sector (its numbers unchanged: the gate holds
+    them equal), `pivot` middle, `speed` 360 unchanged. A saved `turn: {}` gives B with no edit.
+    A top-down `turn: {}` changes only by losing its default fade.
+  - **The walk is carried on at a switch with no fade:** the frame carries `kept`, the rig look
+    starts the next animation at the phase reached, the clip look at the frame reached. Before,
+    at `blend: 0`, both restarted the cycle.
+  - **The flicker's cause:** the cross-fade itself. For its 160 ms both pictures are on the
+    screen (two heads, four legs half over each other), at every step of a sweep. The frames are
+    complete: no blank or missing frame in `character-turn-strip.mjs`. Off by default; kept for a
+    sheet that sets `blend`.
+  - **Seen:** `character-turn-strip.mjs` gained a `sweep` case (one cell a heading, as the
+    samples page draws it): the engine's isometric eight-facing rig on `turn: {}` from 0° to 90°
+    and 270° to 360° (mirrored) draws what stage B draws, the tilt measured on the look against
+    `frac × 8` to 0.0000°. In a walk the switch waits at the edge for the facing rule (7.5° and
+    150 ms), then the next picture swings back from −8° at 6° a frame.
+  - **Gates:** `check:character-turn` 110 (the linear rule per facing, four and eight, mirrored;
+    the switch; the saved `turn: {}`; top-down equal to before; no blend object at blend 0; the
+    phase kept, rig and clip; each with a mutation), `check:characters-tool` 1321.
 
 - 2026-11-24 — **The smooth turn is a blend, not a lean** (`view.turn`, plan §13 rewritten;
   branch `claude/character-turn-blend`, #1895, in review). The owner, after trying #1891 on the

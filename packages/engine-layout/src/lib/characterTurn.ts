@@ -3,14 +3,16 @@
  * angles and the weights behind `view.turn`. A view of four or eight facings draws one picture per
  * facing, and without the option the picture changes at once when the facing does. With it the
  * character has a DRAWN HEADING that follows where it moves at a limited rate, the picture is the
- * facing whose sector that heading is in, and a change of picture is a BLEND: the two are mixed
- * for a while, the cycle carried on where it was. A subject seen from above is also rotated by
- * what the heading has left over (its LEAN); an upright one is not, a lean would tip it over.
+ * facing whose sector that heading is in (so it changes, in one frame, halfway between two
+ * facings, its cycle carried on where it was), and the picture is TILTED on the screen in
+ * proportion to what the heading has left over: none at its facing's middle, the sheet's `lean`
+ * at the halfway point (its LEAN). A cross-fade at the change (its BLEND) is there only for a
+ * sheet that sets one.
  *
  * Every heading here is in radians, clockwise from north, on the ground: the screen's direction
  * with its flattening of the ground taken out (`characterClips.ts` `screenFlattening`), which is
  * the space the facings are 45° or 90° apart in. A lean is an angle on the screen, clockwise, the
- * rotation the picture is drawn at.
+ * rotation the picture is drawn at: the same for every facing.
  *
  * `characterSheet.ts` `createSheetAnimator` and `createSheetRigAnimator` drive these; this module
  * holds no state. Pure and Svelte-free: `scripts/check-character-turn.mjs` runs it in Node.
@@ -31,7 +33,7 @@ export const SHEET_TURN_SPEED = 360;
 export type SheetTurn = {
 	/** The angle between two facings of the view. */
 	sector: number;
-	/** The most a picture leans from its facing, at most half the sector. */
+	/** The tilt on the screen at the halfway point between two facings, at most half the sector. */
 	lean: number;
 	/** How far the drawn heading turns in a second; 0 ⇒ it is the heading aimed at, at once. */
 	speed: number;
@@ -41,9 +43,13 @@ export type SheetTurn = {
 	feet: boolean;
 };
 
-/** How long two pictures are mixed when the sheet names no `blend`, ms (`game-config`
+/** How long two pictures are mixed when the sheet names no `blend`, ms: none (`game-config`
  *  `CHARACTER_TURN_BLEND`; the gate holds the two equal). */
-export const SHEET_TURN_BLEND = 160;
+export const SHEET_TURN_BLEND = 0;
+
+/** An isometric sheet's `lean` when it names none, degrees on the screen (`game-config`
+ *  `CHARACTER_TURN_ISO_LEAN`; the gate holds the two equal). */
+export const SHEET_TURN_ISO_LEAN = 8;
 
 /**
  * The smooth turn of a view, or `undefined` when it has none: a view with no `turn`, a side view
@@ -54,8 +60,13 @@ export function sheetTurnOf(view: CharacterView | undefined): SheetTurn | undefi
 	const sector = TURN / (view.facings === 8 ? 8 : 4);
 	const { lean, speed, blend, pivot } = view.turn;
 	// Seen from above, a picture leans half a sector, where the turn is continuous; an upright
-	// character in an isometric view does not lean unless its sheet says so.
-	const most = lean === undefined ? (view.kind === 'isometric' ? 0 : Infinity) : lean * DEGREE;
+	// character in an isometric view tilts the few degrees picked by eye.
+	const most =
+		lean === undefined
+			? view.kind === 'isometric'
+				? SHEET_TURN_ISO_LEAN * DEGREE
+				: Infinity
+			: lean * DEGREE;
 	return {
 		sector,
 		lean: Math.min(Math.max(most, 0), sector / 2),
@@ -126,29 +137,23 @@ export function facingOfHeading(
 }
 
 /**
- * The lean a picture made for `facing` is drawn at while the character heads `heading`: the
- * heading's distance from the facing's middle, `most` at most either way, as the angle that is on
- * the screen (a flattened ground squeezes the angles between its facings). It is the same for a
- * picture drawn mirrored: the lean turns what is seen, after the mirror.
+ * The lean a picture made for `facing` is drawn at while the character heads `heading`: in
+ * proportion to the heading's distance from the facing's middle, none there and `most` at the
+ * edge of its `sector` (halfway to the next facing) either way, as is on the screen for every
+ * facing. It is the same for a picture drawn mirrored: the lean turns what is seen, after the
+ * mirror.
  *
- * A picture may be kept while the heading leaves its `sector` (a one-shot or a hold keeps the
+ * A picture may be kept while the heading leaves its sector (a one-shot or a hold keeps the
  * facing it started in, a stand-in is another facing's): past the sector's edge the lean eases
  * back, to none when the heading is opposite the picture. So it never flips from one side to the
  * other there, where a heading a hair either way is as far round both ways.
  */
-export function leanOf(
-	heading: number,
-	facing: ClipFacing,
-	most: number,
-	flattening = 1,
-	sector = most * 2,
-): number {
-	const centre = facingHeading(facing);
-	const from = wrapAngle(heading - centre);
+export function leanOf(heading: number, facing: ClipFacing, most: number, sector: number): number {
+	const from = wrapAngle(heading - facingHeading(facing));
 	const far = Math.abs(from);
-	const kept = Math.min(Math.max((Math.PI - far) / (Math.PI - sector / 2), 0), 1);
-	const off = Math.sign(from) * Math.min(far, most) * kept;
-	return wrapAngle(onScreen(centre + off, flattening) - onScreen(centre, flattening));
+	const half = sector / 2;
+	const kept = Math.min(Math.max((Math.PI - far) / (Math.PI - half), 0), 1);
+	return Math.sign(from) * Math.min(far / half, 1) * most * kept;
 }
 
 /** The direction a picture of `facing` drawn at `lean` is seen heading, on the screen. */

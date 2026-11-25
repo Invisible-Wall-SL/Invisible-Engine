@@ -6,6 +6,10 @@
 
 import * as RIG from 'engine-rig/pixi';
 import type { CharacterSheet } from 'game-config';
+import {
+	CLIP_FACINGS,
+	type ClipFacing,
+} from '../../../packages/engine-layout/src/lib/characterClips';
 import { Application, Container, Graphics, Texture, TextureSource, Ticker } from 'pixi.js';
 
 import {
@@ -45,13 +49,25 @@ export type StripRequest = {
 	after: number;
 	/** How fast the walked direction goes round, degrees a second. */
 	circle: number;
+	/** In place of the walk: one cell a ground heading, `from` to `to` (degrees, clockwise from
+	 *  north) in `step`s, each drawn by a fresh character started in the facing nearest that
+	 *  heading (as the samples page draws it) and walked along it on the 2:1 isometric screen
+	 *  until its turn has settled. */
+	sweep?: { from: number; to: number; step: number };
 };
+
+/** One cell of a sweep: the heading, the facing drawn, mirrored or not, and the lean the look
+ *  drew (its view's rotation), radians. */
+export type SweepCell = { heading: number; facing: string; flipX: boolean; lean: number };
 
 type Cell = { image: HTMLCanvasElement; label: string; mark: boolean };
 
 type Subject = {
 	/** Draw the frame of `atMs` for a character moving (`x`, `y`) on the screen; what it drew. */
-	frame(atMs: number, on: { x: number; y: number }): { key: string; label: string } | undefined;
+	frame(
+		atMs: number,
+		on: { x: number; y: number },
+	): { key: string; label: string; facing: string; flipX: boolean; lean: number } | undefined;
 	destroy(): void;
 };
 
@@ -59,7 +75,18 @@ const degrees = (lean: number | undefined) => `${Math.round(((lean ?? 0) * 180) 
 const mixed = (blend: { weight: number; pose: boolean } | undefined) =>
 	blend ? ` ${blend.pose ? 'pose' : 'fade'} ${blend.weight.toFixed(2)}` : '';
 
-function rigSubject(request: StripRequest, into: Container): Subject {
+/** The screen's projection of a world vector: the strip's world IS the screen, or (a sweep) the
+ *  ground flattened twice as wide as deep, as the isometric screen draws it. */
+type Project = (x: number, y: number) => { x: number; y: number };
+const SCREEN: Project = (x, y) => ({ x, y });
+const ISO_SCREEN: Project = (x, y) => ({ x, y: y / 2 });
+
+function rigSubject(
+	request: StripRequest,
+	into: Container,
+	start: ClipFacing = 'e',
+	project: Project = SCREEN,
+): Subject {
 	const atlas = new RIG.TextureAtlas(bearAtlasText('bear.png'));
 	atlas.pages[0].setTexture(RIG.RigPageTexture.from(TextureSource.from(drawBearAtlas())));
 	const data = new RIG.SkeletonJson(new RIG.AtlasAttachmentLoader(atlas)).readSkeletonData(
@@ -72,17 +99,21 @@ function rigSubject(request: StripRequest, into: Container): Subject {
 			has: (_rig, animation) => !!data.findAnimation(animation),
 			durationMs: (_rig, animation) => (data.findAnimation(animation)?.duration ?? 0) * 1000,
 		},
-		'e',
+		start,
 	);
 	const look = createSheetRigLook('R_Bear', data, sheet);
 	look.mount(into);
 	return {
 		frame(atMs, on) {
-			const frame = animator.frame({ atMs, vx: on.x, vy: on.y, project: (x, y) => ({ x, y }) });
+			const world = project === SCREEN ? on : { x: on.x, y: on.y * 2 };
+			const frame = animator.frame({ atMs, vx: world.x, vy: world.y, project });
 			if (!frame) return undefined;
 			look.frame(frame, atMs);
 			const name = frame.animation.replace(/^Walk_|^Idle_/, '');
 			return {
+				facing: animator.facing,
+				flipX: frame.flipX,
+				lean: look.drawn().lean,
 				key: `${frame.animation}|${frame.flipX}`,
 				label: `${Math.round(atMs)} ${name}${frame.flipX ? '↔' : ''} ${degrees(frame.lean)}${mixed(look.drawn().blend)}`,
 			};
@@ -130,6 +161,7 @@ function clipSubject(request: StripRequest, into: Container): Subject {
 			look.frame(clipOf(frame), {
 				lean: frame.lean ?? 0,
 				about,
+				kept: frame.kept === true,
 				marked: false,
 				...(frame.blend
 					? {
@@ -143,6 +175,9 @@ function clipSubject(request: StripRequest, into: Container): Subject {
 			});
 			Ticker.shared.update(performance.timeOrigin + 1000 + atMs);
 			return {
+				facing: animator.facing,
+				flipX: frame.flipX,
+				lean: look.drawn().lean,
 				key: `${frame.clipId}|${frame.flipX}`,
 				label: `${Math.round(atMs)} ${frame.clipId.replace('fish_swim_', '')}${frame.flipX ? '↔' : ''} ${degrees(frame.lean)}${mixed(frame.blend)}`,
 			};
@@ -151,7 +186,9 @@ function clipSubject(request: StripRequest, into: Container): Subject {
 	};
 }
 
-async function run(request: StripRequest): Promise<{ events: string[]; cells: number }> {
+async function run(
+	request: StripRequest,
+): Promise<{ events: string[]; cells: number; sweep?: SweepCell[] }> {
 	const app = new Application();
 	await app.init({
 		width: CELL.w,
@@ -170,6 +207,40 @@ async function run(request: StripRequest): Promise<{ events: string[]; cells: nu
 	world.position.set(CELL.w / 2, top ? CELL.h / 2 : CELL.h - 34);
 	world.addChild(ground, body, arrow);
 	app.stage.addChild(world);
+	if (request.sweep) {
+		const { from, to, step } = request.sweep;
+		const cells: Cell[] = [];
+		const measured: SweepCell[] = [];
+		for (let h = from; h <= to + 1e-9; h += step) {
+			const start = CLIP_FACINGS[((Math.round(h / 45) % 8) + 8) % 8];
+			const one = rigSubject(request, body, start, ISO_SCREEN);
+			const heading = (h * Math.PI) / 180;
+			// The screen direction of the ground heading: the ground drawn half as deep.
+			const on = { x: Math.sin(heading) * 120, y: (-Math.cos(heading) * 120) / 2 };
+			let drew: ReturnType<Subject['frame']>;
+			for (let atMs = 0; atMs <= 400; atMs += FRAME_MS) drew = one.frame(atMs, on);
+			arrow
+				.clear()
+				.moveTo(0, 0)
+				.lineTo(on.x * 0.2, on.y * 0.2)
+				.stroke({ color: 0xffffff, width: 2 });
+			app.render();
+			if (drew) {
+				const image = document.createElement('canvas');
+				image.width = app.canvas.width;
+				image.height = app.canvas.height;
+				image.getContext('2d')?.drawImage(app.canvas, 0, 0);
+				const flip = drew.flipX ? '↔' : '';
+				const label = `${h}° ${drew.facing}${flip} ${((drew.lean * 180) / Math.PI).toFixed(1)}°`;
+				cells.push({ image, label, mark: drew.facing !== start });
+				measured.push({ heading: h, facing: drew.facing, flipX: drew.flipX, lean: drew.lean });
+			}
+			one.destroy();
+		}
+		paint(cells, app.canvas.width / CELL.w, 8);
+		app.destroy();
+		return { events: [], cells: cells.length, sweep: measured };
+	}
 	const subject = top ? clipSubject(request, body) : rigSubject(request, body);
 
 	// The walk: east, round to the south-east and the south, about turn (a reversal), then on.
@@ -217,8 +288,14 @@ async function run(request: StripRequest): Promise<{ events: string[]; cells: nu
 		if (frame.image)
 			kept.push({ image: frame.image, label: frame.label, mark: changes.includes(i) });
 	}
-	const columns = 12;
-	const scale = app.canvas.width / CELL.w;
+	paint(kept, app.canvas.width / CELL.w, 12);
+	subject.destroy();
+	app.destroy();
+	return { events, cells: kept.length };
+}
+
+/** Paint `kept` into one strip of `columns`, each cell labelled (a marked one in yellow). */
+function paint(kept: Cell[], scale: number, columns: number): void {
 	const strip = document.createElement('canvas');
 	strip.id = 'strip';
 	strip.width = columns * CELL.w * scale;
@@ -237,9 +314,6 @@ async function run(request: StripRequest): Promise<{ events: string[]; cells: nu
 		g.fillText(cell.label, x + 3 * scale, y + (CELL.h + 10) * scale);
 	});
 	document.body.replaceChildren(strip);
-	subject.destroy();
-	app.destroy();
-	return { events, cells: kept.length };
 }
 
 (window as unknown as { strip: typeof run }).strip = run;
