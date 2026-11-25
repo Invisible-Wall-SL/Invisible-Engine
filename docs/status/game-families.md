@@ -2949,14 +2949,23 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   - **Seen:** `character-turn-strip.mjs` gained a `sweep` case (one cell a heading, as the
     samples page draws it): the engine's isometric eight-facing rig on `turn: {}` from 0° to 90°
     and 270° to 360° (mirrored) draws what stage B draws, the tilt measured on the look against
-    `frac × 8` to 0.0000°. In a walk the switch waits at the edge for the facing rule (7.5° and
-    150 ms), then the next picture swings back from −8° at 6° a frame.
+    `frac × 8` to 0.0000°.
+  - **No wait at the edge (owner, on the PR: "do the fix then merge").** First built, the drawn
+    heading waited at the halfway point for the facing rule (7.5° past it and 150 ms), then the
+    next picture swung back from −8°: a hold-then-rock. A turning sheet now aims where the
+    character moves, with no dead band or hold, and draws the facing whose sector the drawn
+    heading is in; going straight back to the facing just left needs 2° past the edge
+    (`SHEET_TURN_BACK_BAND`), so a heading on an edge does not flicker. Walked round on the
+    isometric screen (`character-turn-strip.mjs` `iso-rig-round-70` / `-360`) every switch is
+    within a frame of the halfway point: +7.6° to +8° then −7.6° to −8° at 70°/s, ±6.4° to ±7.5°
+    at 360°/s (6° a frame). A sheet without `turn` keeps the facing rule.
   - **A clip kept its frame but not its time at a switch** (found by the real boot): the clip
     look started the frame it carried on afresh, so a walk held that frame up to twice as long
     at each change. It now carries the time into the frame too (`sheetClipLook.ts`, pixi's
     `_currentTime`: no public reader of it).
-  - **Gates:** `check:character-turn` 111 (the linear rule per facing, four and eight, mirrored;
-    the switch; the saved `turn: {}`; top-down equal to before; no blend object at blend 0; the
+  - **Gates:** `check:character-turn` 113 (the linear rule per facing, four and eight, mirrored;
+    the switch; a circle at 70° and 360° a second switching within a frame of the halfway point;
+    the saved `turn: {}`; top-down equal to before; no blend object at blend 0; the
     phase and the time kept, rig and clip; each with a mutation), `check:characters-tool` 1321,
     `salmons-play.mjs --turn` 27 / 27 (both rooms on `turn: {}`; rewritten from the blend's 25),
     `check:runtime-bytes` (`lines`, `match3`, `card` the same; `arcade`, `arcade3d` re-recorded).

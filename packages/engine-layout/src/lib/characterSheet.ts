@@ -555,18 +555,16 @@ type Animator<F> = {
  * once. `resolve` is the source's adapter (stage 3), `lengthMs` how long what it found plays once
  * (absent ⇒ `CLIP_ONE_SHOT_MS`), `frameOf` the frame it is drawn by.
  *
- * THE SMOOTH TURN (`view.turn`, `characterTurn.ts`). The facing rule above is not changed and no
- * second one is added: what it answers (dead bands and turn hold included) is the facing the
- * character is AIMED at, exactly the facing a sheet without the option draws. While the direction
- * it moves in is that facing's by the rule, its heading is aimed at too, held inside the facing's
- * sector; while a turn is in hand, the aim waits as the facing does. The DRAWN heading follows the
- * aim at the sheet's speed, the picture is the facing whose sector the drawn heading is in, and
- * the frame's `lean` is the drawn heading's distance from the middle of the facing its picture is
- * SEEN in (a stand-in's own, a one-shot's the one it started in), at most the sheet's lean, eased
- * back to none as the heading goes from that facing's sector to its opposite. So a
- * picture changes on the very edge of two sectors, where both lean the same way to the same
- * direction, and a heading that sits on an edge changes nothing: the aim crosses it only when the
- * rule turns the facing.
+ * THE SMOOTH TURN (`view.turn`, `characterTurn.ts`). The facing rule above (dead bands and turn
+ * hold) still decides the facing `at` of a sheet without the option; a sheet with it draws by its
+ * DRAWN heading instead, which follows where the character moves at the sheet's speed. The picture
+ * is the facing whose sector the drawn heading is in: it changes in the frame the heading crosses
+ * the halfway point between two facings, with no wait there. The facing just left is drawn again
+ * only once the heading is back past that edge by `SHEET_TURN_BACK_BAND` (2°), so a heading that
+ * sits on an edge does not flicker. The frame's `lean` is the drawn heading's share of the half
+ * sector from the middle of the facing its picture is SEEN in (a stand-in's own, a one-shot's the
+ * one it started in), times the sheet's lean (`leanOf`), eased back to none as the heading goes
+ * from that facing's sector to its opposite.
  *
  * THE BLEND (`turn.blend`). When the picture a LOOP is drawn by changes with the facing (the same
  * action, another facing drawn, another picture: `pictureOf`; and a pair the look can mix:
@@ -630,6 +628,8 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 	let aimed = facingHeading(at);
 	let heading = aimed;
 	let sweptAt: number | undefined;
+	/** The facing drawn before `shown`: taken back only past a band ({@link facingOfHeading}). */
+	let before: ClipFacing | undefined;
 	let flattening = 1;
 	const orders: (StandIn[] | undefined)[] = [];
 	const near = (prefer: ClipFacing | undefined): StandIn[] => {
@@ -675,7 +675,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 			: clipFacing4Of(dx, dy, isDiagonal(at) ? 's' : at);
 	};
 
-	/** Where a smooth turn is aimed while the character moves in the direction of its facing. */
+	/** Where a smooth turn is aimed while the character moves: where it moves, as it is. */
 	const aim = (vx: number, vy: number, project: SheetSample['project']): void => {
 		if (!view || !turn) return;
 		const on = project?.(vx, vy);
@@ -685,7 +685,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 					? { dx: on.x, dy: on.y }
 					: projectedVelocity(vx, vy)
 				: { dx: on ? on.x : vx, dy: on ? on.y : vy };
-		aimed = headingWithin(headingOf(dx, dy, flattening), at, turn.sector);
+		aimed = headingOf(dx, dy, flattening);
 	};
 
 	/** Move a smooth turn's drawn heading on to `atMs`, and the facing drawn with it. */
@@ -694,7 +694,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 		const ms = sweptAt === undefined ? 0 : Math.max(atMs - sweptAt, 0);
 		sweptAt = atMs;
 		const next = turn.speed > 0 ? turnTowards(heading, aimed, (turn.speed * ms) / 1000) : aimed;
-		const into = facingOfHeading(next, view.facings, shown, turn.sector);
+		const into = facingOfHeading(next, view.facings, shown, turn.sector, before);
 		// A blend in hand is of two pictures: the heading goes on into a third facing only once
 		// it is done (back into the one it left, at any time).
 		if (turn.speed > 0 && fade && into !== shown && into !== fade.left && progressOf(atMs) < 1) {
@@ -702,6 +702,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 			return;
 		}
 		heading = next;
+		if (into !== shown) before = shown;
 		shown = into;
 	};
 
@@ -819,7 +820,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 					at = to;
 					turning = undefined;
 				}
-				if (to === at) aim(vx, vy, project);
+				aim(vx, vy, project);
 				lastMovedAt = atMs;
 			} else turning = undefined;
 			if (turn) sweep(atMs);

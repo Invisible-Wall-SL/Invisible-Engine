@@ -501,10 +501,12 @@ Twenty-seven verdicts:
   one picture standing; the bear a published clip with no `lean` and no such look. **No fade**:
   no `blend` on any frame, one sprite on the stage, alpha 1, no filter. Every frame leans,
   within ±8°. **At every change of picture the tilt swaps sides**: the frame before leans toward
-  the turn, the change frame the other way, each 8° or within a frame's turn of it (5.9° to 8°),
-  the frame before at 8° exactly where the heading waited at the edge for the facing rule. The
-  reversal passes through the facings in between, no faster than 6° a frame (360°/s); the
-  circle shows all eight; within a picture the lean only grows the way it turns, mirrored too.
+  the turn, the change frame the other way, each within a frame's turn (and the 2° band) of 8°
+  (5.2° to 8°): the picture changes where the drawn heading crosses the halfway point, with no
+  wait there. The reversal passes through the facings in between, no faster than 6° a frame
+  (360°/s); the circle shows all eight (back one facing at most twice, where the swim wavers on
+  an edge by more than the band); within a picture the lean goes the way it turns, mirrored too,
+  never back more than a frame's turn.
   The shots show one clip's colour, never a mix. **The cycle is kept**: the clip taken is on the
   frame the one left was on, and **keeps its time**: no frame is held past its 125 ms, a frame a
   change falls in too. The look's rotation and mirror are the frame's.

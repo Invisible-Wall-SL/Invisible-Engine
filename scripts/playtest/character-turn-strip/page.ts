@@ -54,6 +54,9 @@ export type StripRequest = {
 	 *  heading (as the samples page draws it) and walked along it on the 2:1 isometric screen
 	 *  until its turn has settled. */
 	sweep?: { from: number; to: number; step: number };
+	/** In place of the walk with its about-turn: round and round clockwise at `circle` degrees a
+	 *  second from north, on the 2:1 isometric screen, as the samples page sweeps its heading. */
+	round?: boolean;
 };
 
 /** One cell of a sweep: the heading, the facing drawn, mirrored or not, and the lean the look
@@ -241,38 +244,57 @@ async function run(
 		app.destroy();
 		return { events: [], cells: cells.length, sweep: measured };
 	}
-	const subject = top ? clipSubject(request, body) : rigSubject(request, body);
+	const round = request.round === true && !top;
+	const subject = top
+		? clipSubject(request, body)
+		: round
+			? rigSubject(request, body, 'n', ISO_SCREEN)
+			: rigSubject(request, body);
 
-	// The walk: east, round to the south-east and the south, about turn (a reversal), then on.
+	// The walk: east, round to the south-east and the south, about turn (a reversal), then on; or
+	// round and round from north.
 	const plan = (atMs: number): number => {
 		const s = atMs / 1000;
+		if (round) return request.circle * s;
 		const turnAt = 150 / request.circle;
 		return s < turnAt ? 90 + request.circle * s : 90 + request.circle * turnAt + 180;
 	};
 	const kept: Cell[] = [];
 	const events: string[] = [];
 	const frames: { at: number; key: string; label: string; image?: HTMLCanvasElement }[] = [];
-	const total = Math.ceil(((150 / request.circle) * 1000 + 1400) / FRAME_MS);
+	const total = Math.ceil(
+		(round ? (450 / request.circle) * 1000 : (150 / request.circle) * 1000 + 1400) / FRAME_MS,
+	);
 	let last = '';
+	let lastLean = 0;
 	const changes: number[] = [];
 	for (let i = 0; i < total; i += 1) {
 		const atMs = i * FRAME_MS;
 		const heading = (plan(atMs) * Math.PI) / 180;
-		// A direction on the SCREEN: the world's axes are the screen's here.
-		const on = { x: Math.sin(heading) * 120, y: -Math.cos(heading) * 120 };
+		// A direction on the SCREEN: the world's axes are the screen's here, or the ground drawn
+		// half as deep.
+		const on = {
+			x: Math.sin(heading) * 120,
+			y: (-Math.cos(heading) * 120) / (round ? 2 : 1),
+		};
 		const drew = subject.frame(atMs, on);
 		if (!drew) continue;
 		arrow
 			.clear()
 			.moveTo(0, 0)
-			.lineTo(on.x * 0.2, on.y * 0.2 * (top ? 1 : 0.5))
+			.lineTo(on.x * 0.2, on.y * 0.2 * (top || round ? 1 : 0.5))
 			.stroke({ color: 0xffffff, width: 2, alpha: top ? 0.5 : 1 });
 		app.render();
 		if (last && drew.key !== last) {
 			changes.push(frames.length);
-			events.push(`${Math.round(atMs)} ms: ${last} → ${drew.key}`);
+			const deg = (lean: number) => ((lean * 180) / Math.PI).toFixed(2);
+			const ground = (plan(atMs) % 360).toFixed(1);
+			events.push(
+				`${Math.round(atMs)} ms (heading ${ground}°): ${last} → ${drew.key}, tilt ${deg(lastLean)}° → ${deg(drew.lean)}°`,
+			);
 		}
 		last = drew.key;
+		lastLean = drew.lean;
 		const image = document.createElement('canvas');
 		image.width = app.canvas.width;
 		image.height = app.canvas.height;

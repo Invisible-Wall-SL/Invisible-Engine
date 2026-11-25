@@ -416,33 +416,42 @@ check(
 	},
 );
 
-/** Each change of a slow circle at the default speed: the frame before tilted +most towards the
- *  next facing, the frame of the change the next picture turned back by nearly −most (the drawn
- *  heading moves on at most a frame's turn past the edge). */
-const changesAtDefault = (view) => {
-	const most = sheetTurnOf(view).lean;
-	const half = sheetTurnOf(view).sector / 2;
-	const frames = circle(view, ISO_SCREEN);
+/**
+ * A circle at a constant `rate` (degrees a second): every change of picture comes within one
+ * frame's turn of the halfway point between the two facings (`headingAt` is where the frame
+ * heads, on the ground), the frame before tilted +most towards the next facing and the frame of
+ * the change −most, each within that frame's turn. No wait at the edge, no hold.
+ */
+const switchesAtHalf = (view, rate, headingAt = (f) => circling(rate)(f.atMs)) => {
+	const turn = sheetTurnOf(view) ?? { lean: 8 * DEG, sector: 45 * DEG };
+	const half = turn.sector / 2;
+	// Started facing north, where the circle starts: the drawn heading is the circle's throughout.
+	const frames = drive(
+		createSheetAnimator(sheetOf(view), clipsOf(), 'n'),
+		circling(rate),
+		(360 / rate) * 1000 * 2,
+		view.kind === 'isometric' ? ISO_SCREEN : {},
+	).filter((f) => f.atMs > 100);
 	const changes = changesOf(frames);
 	assert.ok(changes.length >= 8, `${changes.length} changes`);
-	const frameStep = (SHEET_TURN_SPEED * DEG * FRAME_MS) / 1000;
+	const step = (rate * DEG * FRAME_MS) / 1000;
 	for (const i of changes) {
-		const before = frames[i - 1].frame.lean;
-		const after = frames[i].frame.lean;
-		assert.ok(Math.abs(before - most) < 1e-9, `before: ${before / DEG}°`);
-		assert.ok(
-			after < 0 && after <= -most * (1 - frameStep / half) + 1e-9,
-			`after: ${after / DEG}°`,
-		);
+		const from = frames[i - 1].facing;
+		const edge = facingHeading(from) + half;
+		const off = Math.abs(wrapAngle(headingAt(frames[i]) - edge));
+		assert.ok(off <= step + 1e-9, `${from} → ${frames[i].facing} ${off / DEG}° past the edge`);
+		const tilt = (lean) => Math.abs(lean) >= turn.lean * (1 - step / half) - 1e-9;
+		assert.ok(frames[i - 1].frame.lean > 0 && tilt(frames[i - 1].frame.lean), 'before: +most');
+		assert.ok(frames[i].frame.lean < 0 && tilt(frames[i].frame.lean), 'after: −most');
 	}
 };
 
-check(
-	'a slow circle at the default speed: +8° before every switch, the next picture back by ~8°',
-	() => {
-		changesAtDefault(ISO_EIGHT);
-	},
-);
+check('a circle at 70° and at 360° a second switches within a frame of the halfway point', () => {
+	switchesAtHalf(ISO_EIGHT, 70);
+	switchesAtHalf(ISO_EIGHT, 360);
+	switchesAtHalf(EIGHT, 70);
+	switchesAtHalf({ ...ISO_EIGHT, turn: { lean: 3 } }, 70);
+});
 
 /** A top-down view's default lean (half the sector) against the lean before sample B, as it
  *  was on a top-down screen (flattening 1), over every heading and facing. */
@@ -521,7 +530,14 @@ const settled = (view, heading = 0, clips = clipsOf()) => {
 };
 
 /** North, then south: the frames of the reversal. */
-const reversal = (turn) => drive(settled({ ...EIGHT, turn }), () => Math.PI, 3000, { from: AFTER });
+const reversal = (turn) => {
+	const animator = createSheetAnimator(sheetOf({ ...EIGHT, turn }), clipsOf());
+	// The last frame of the settled walk north leads, so a change in the first frame is seen.
+	return [
+		drive(animator, () => 0, SETTLE_MS).at(-1),
+		...drive(animator, () => Math.PI, 3000, { from: AFTER }),
+	];
+};
 const facingsSeen = (frames) => frames.map((f) => f.facing).filter((f, i, all) => f !== all[i - 1]);
 
 const sweeps = (turn, rate) => {
@@ -538,16 +554,16 @@ const sweeps = (turn, rate) => {
 };
 
 check('a reversal sweeps through the facings in between, no faster than the turn speed', () => {
-	// The facing rule holds a new facing for CLIP_TURN_MS first; then 180° at 360° a second.
+	// No wait for the facing rule's hold: 180° at 360° a second.
 	const ms = sweeps({ blend: 0 }, SHEET_TURN_SPEED);
-	assert.ok(Math.abs(ms - (CLIP_TURN_MS + 500)) <= 3 * FRAME_MS, `it took ${ms} ms`);
+	assert.ok(Math.abs(ms - 500) <= 3 * FRAME_MS, `it took ${ms} ms`);
 	const slow = sweeps({ speed: 90, blend: 0 }, 90);
-	assert.ok(Math.abs(slow - (CLIP_TURN_MS + 2000)) <= 3 * FRAME_MS, `at 90° a second: ${slow} ms`);
+	assert.ok(Math.abs(slow - 2000) <= 3 * FRAME_MS, `at 90° a second: ${slow} ms`);
 	// A blend in hand keeps the heading at the edge of the next sector until it is done: the same
 	// facings, no faster, each of the three in between drawn for the blend's time (a sector at
 	// 360° a second is 125 ms, less than a blend), and half a sector at either end.
 	const blended = sweeps(BLENDS, SHEET_TURN_SPEED);
-	const whole = CLIP_TURN_MS + 125 + 3 * BLEND_MS;
+	const whole = 125 + 3 * BLEND_MS;
 	assert.ok(Math.abs(blended - whole) <= 3 * FRAME_MS, `blended, it took ${blended} ms`);
 	// A sweep slower than the blend is not held.
 	assert.equal(sweeps({ ...BLENDS, speed: 90 }, 90), slow);
@@ -647,7 +663,8 @@ const steady = (changesOf) => {
 		[FOUR, 45],
 		[{ ...EIGHT, turn: { speed: 0 } }, 22.5],
 	])
-		for (const by of [0, 0.5, 3]) {
+		// Within the 2° band a heading may go back past the edge it has crossed.
+		for (const by of [0, 0.5, 1.5]) {
 			const animator = createSheetAnimator(sheetOf(view), clipsOf());
 			// Its first turn, from the facing it starts in, is over: up to four blended changes.
 			const frames = drive(animator, jitter(edge, by), 4000).filter((f) => f.atMs > 1500);
@@ -736,7 +753,7 @@ check('a one-shot keeps the facing it started in and leans from it, at most the 
 	// more than it will be a quarter turn away.
 	const last = frames.at(-1).frame.lean / DEG;
 	const quarter = (22.5 * (180 - 90)) / (180 - 22.5);
-	assert.ok(last < 22.5 - 1e-6 && last > quarter, `it leans ${last}°`);
+	assert.ok(last < 22.5 - 1e-6 && last >= quarter - 1e-9, `it leans ${last}°`);
 	assert.ok(Math.max(...frames.map((f) => f.frame.lean)) <= 22.5 * DEG + 1e-9);
 });
 
@@ -1332,7 +1349,12 @@ check(
  * blend and the frame the picture changed in.
  */
 const turnOf = (turn, heading = 45 * DEG) => {
-	const frames = drive(settled({ ...EIGHT, turn }), () => heading, 1500, { from: AFTER });
+	const animator = createSheetAnimator(sheetOf({ ...EIGHT, turn }), clipsOf());
+	// The last frame of the settled walk north leads, so a change in the first frame is seen.
+	const frames = [
+		drive(animator, () => 0, SETTLE_MS).at(-1),
+		...drive(animator, () => heading, 1500, { from: AFTER }),
+	];
 	const [start, ...more] = changesOf(frames);
 	assert.ok(start !== undefined && more.length === 0, 'its picture changes once');
 	return { frames, start, run: frames.filter((f) => f.frame.blend) };
@@ -1480,18 +1502,19 @@ check('a reversal`s sweep blends each step whole, never a third picture', () => 
 });
 
 /** The frames from when a walk north is cut by `cut(animator)`, heading east from then on. */
-const cutBy = (cut, actions = ACTIONS) => {
+const cutBy = (cut, actions = ACTIONS, heading = Math.PI / 2) => {
 	const animator = createSheetAnimator(
 		{ ...sheetOf({ ...EIGHT, turn: BLENDS }), actions },
 		clipsOf(),
 	);
 	drive(animator, () => 0, SETTLE_MS);
 	cut(animator);
-	return drive(animator, () => Math.PI / 2, 1500, { from: AFTER });
+	return drive(animator, () => heading, 1500, { from: AFTER });
 };
 
 const onceKeeps = (blendOf) => {
-	const frames = cutBy((animator) => animator.raise({ ability: 'ability1' }));
+	// An about-turn: the sweep is still on its way when the one-shot ends.
+	const frames = cutBy((animator) => animator.raise({ ability: 'ability1' }), ACTIONS, Math.PI);
 	const hop = frames.filter((f) => f.frame.action === 'hop');
 	assert.ok(hop.length >= 15, 'the one-shot plays');
 	for (const { frame } of hop) {
@@ -1539,8 +1562,7 @@ const CARRY_CLIPS = new Set([...EVERY, ...CLIP_FACINGS.map((facing) => `hero_car
 const facingChange = (carried, at) => {
 	const sheet = { ...sheetOf({ ...EIGHT, turn: { ...BLENDS, speed: 0 } }), actions: CARRYING };
 	const animator = createSheetAnimator(sheet, clipsOf(CARRY_CLIPS));
-	drive(animator, () => 0, SETTLE_MS);
-	const frames = [];
+	const frames = [drive(animator, () => 0, SETTLE_MS).at(-1)];
 	for (let atMs = AFTER; atMs <= AFTER + 600; atMs += FRAME_MS) {
 		const statuses = carried && atMs >= at ? ['holding'] : [];
 		frames.push({ atMs, frame: animator.frame({ atMs, ...flat(Math.PI / 2), statuses }) });
@@ -2195,8 +2217,14 @@ mutation('a tilt spread over a whole sector each way is not `most` at the switch
 mutation('an isometric `turn: {}` read with no tilt is not sample B', () => {
 	isoSaved({ ...ISO_EIGHT, turn: { speed: 0, lean: 0 } });
 });
+mutation('a switch read where the facing rule turns (7.5° past the edge, after its hold)', () => {
+	switchesAtHalf(ISO_EIGHT, 70, (f) => circling(70)(f.atMs - CLIP_TURN_MS) - 7.5 * DEG);
+});
+mutation('a sheet without the turn switches where the facing rule does', () => {
+	switchesAtHalf({ kind: 'isometric', facings: 8 }, 70);
+});
 mutation('an isometric `turn: {}` that tilts against the turn', () => {
-	changesAtDefault({ ...ISO_EIGHT, turn: { lean: 0 } });
+	switchesAtHalf({ ...ISO_EIGHT, turn: { lean: 0 } }, 70);
 });
 mutation('a top-down view read through the saturating lean on a flattened screen', () => {
 	sameAsBefore(saturating(2));

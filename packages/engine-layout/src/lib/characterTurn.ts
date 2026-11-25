@@ -112,19 +112,33 @@ export function turnTowards(from: number, to: number, step: number): number {
  *  share never changes the picture. */
 const EDGE = 1e-9;
 
+/** How far a drawn heading must go back past the edge it has just crossed before the picture it
+ *  left is drawn again, radians (2°): a heading that sits on an edge does not flicker between
+ *  two pictures, and one that crosses it goes on at once. */
+export const SHEET_TURN_BACK_BAND = (2 * Math.PI) / 180;
+
 /**
  * The facing, of `facings`, a heading is drawn in: `current` while the heading is in its sector
- * (its edges included), else the facing whose middle is nearest.
+ * (its edges included), else the facing whose middle is nearest. `left`, the facing drawn before
+ * `current`, is taken back only once the heading is {@link SHEET_TURN_BACK_BAND} past the edge.
  */
 export function facingOfHeading(
 	heading: number,
 	facings: readonly ClipFacing[],
 	current: ClipFacing,
 	sector: number,
+	left?: ClipFacing,
 ): ClipFacing {
 	let nearest = current;
 	let least = Math.abs(wrapAngle(heading - facingHeading(current)));
 	if (facings.includes(current) && least <= sector / 2 + EDGE) return current;
+	if (
+		left !== undefined &&
+		facings.includes(current) &&
+		least <= sector / 2 + SHEET_TURN_BACK_BAND &&
+		Math.abs(wrapAngle(heading - facingHeading(left))) < least
+	)
+		return current;
 	if (!facings.includes(current)) least = Infinity;
 	for (const facing of facings) {
 		const off = Math.abs(wrapAngle(heading - facingHeading(facing)));

@@ -747,32 +747,30 @@ draw picture[step] rotated by tilt about the pivot
 
 **How the drawn heading moves.** Each frame, in this order:
 
-1. **The aim.** The facing rule of §12.3 is not changed and no second one is added. What it
-   answers, dead bands and the 150 ms turn hold included, is the facing the character is *aimed*
-   at: exactly the facing a sheet without the option draws. While the direction it moves in is
-   that facing's by the rule, its heading is aimed at too, held inside the facing's sector; while
-   a turn is in hand, the aim waits as the facing does.
-2. **The drawn heading** follows the aim the short way round at `speed`. The picture is the
-   facing whose sector the drawn heading is in. It goes on while the character stands, and a
-   `reset` ends it where it was aimed.
-3. **The tilt** is the drawn heading's share of the half sector from the middle of the facing
+1. **The aim** is where the character moves, as it is: no dead band and no hold. (The facing
+   rule of §12.3, dead bands and the 150 ms hold, still draws every sheet without the option.)
+2. **The drawn heading** follows the aim the short way round at `speed`. It goes on while the
+   character stands, and a `reset` ends it where it was aimed.
+3. **The picture** is the facing whose sector the drawn heading is in: it switches in the frame
+   the heading crosses the halfway point, with no wait there. The facing just left is drawn again
+   only once the heading is back past that edge by 2° (`SHEET_TURN_BACK_BAND`), so a heading that
+   sits on an edge does not flicker; one that goes on is not delayed.
+4. **The tilt** is the drawn heading's share of the half sector from the middle of the facing
    the picture is *seen* in (a stand-in's own facing; a one-shot's or a hold's, the one it started
    in), times `lean`, about the `pivot`. A picture kept while the heading leaves its sector eases
    its tilt back, to none when the heading is opposite it.
 
-So in a game the switch is not quite the samples page's continuous sweep: a direction that
-crosses the halfway point slowly waits there, tilted `+lean`, until the facing rule turns (7.5°
-past the edge and 150 ms), and the next picture then swings from `−lean` to where the character
-heads at `speed`. At 360°/s (6° a frame) a 45° change of direction tilts to the edge in 0.06 s,
-waits there for the facing rule's 150 ms, switches and swings back upright in another 0.06 s
-(about 0.2 s in all); a 180° about-turn is the 150 ms hold, then 0.5 s through the three facings
-between, each shown for 0.125 s. At 70°/s (the samples page's sweep) a 45° change takes about
-0.65 s, the switch a third of a second in, and an about-turn about 2.7 s, each facing between
-shown for 0.65 s. The tool's Turn preview shows it at the sheet's speed.
+So a walk round at a steady rate draws what the samples page draws: the tilt reaches `+lean` at
+the halfway point and the next picture comes in at `−lean`, within one frame's turn (at 70°/s,
+1.2° a frame: +7.6° to +8° before, −7.6° to −8° after; at 360°/s, 6° a frame: ±6.4° to ±7.5°).
+At 360°/s a 45° change of direction is drawn in 0.125 s and a 180° about-turn in 0.5 s, each of
+the three facings between shown for 0.125 s; at 70°/s a 45° change takes 0.65 s and an about-turn
+2.6 s. A heading that only wavers about an edge by less than 2° keeps its picture. The tool's
+Turn preview shows it at the sheet's speed.
 
 **A cross-fade, when a sheet sets `blend`.** For `blend` ms the picture left and the one taken
 are mixed (eased, the cycle carried on); the drawn heading waits at the edge of the next sector
-until it is done, so never more than two pictures are mixed. A rig's two animations that show the
+until it is done (only then: a sheet with no blend never waits), so never more than two pictures are mixed. A rig's two animations that show the
 same parts are mixed as one pose by the rig runtime; different parts, a mirrored twin, two clips
 or two stills are cross-faded, each picture opaque for its own half (`fadeAlphas`), a fading rig
 view flattened by an `AlphaFilter`. Two rigs are not mixed. It is off by default because it is

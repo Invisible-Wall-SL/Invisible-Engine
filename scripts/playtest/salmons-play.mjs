@@ -83,7 +83,11 @@ import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { CLIP_FACINGS, clipMirrorOf } from '../../packages/engine-layout/src/lib/characterClips.ts';
 import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
-import { facingHeading, wrapAngle } from '../../packages/engine-layout/src/lib/characterTurn.ts';
+import {
+	SHEET_TURN_BACK_BAND,
+	facingHeading,
+	wrapAngle,
+} from '../../packages/engine-layout/src/lib/characterTurn.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
 	SALMONS_CAMERA,
@@ -1167,9 +1171,12 @@ play: try {
 		// At the sheet's 360° a second a frame of the stepped clock (60 a second) turns the drawn
 		// heading 6°, which is 2.13° of lean.
 		const STEP = 6 * DEG;
-		const LEAN_STEP = (MOST * STEP) / (SECTOR / 2);
-		// The frame a picture changes on, the heading is a frame's turn past the edge at most.
-		const EDGE_LEAN = MOST - LEAN_STEP;
+		// A heading that goes back over the edge it has just crossed keeps its picture for
+		// `SHEET_TURN_BACK_BAND` (2°), its lean held at 8° there: so a picture changes a frame's
+		// turn past the edge at most, or that and the band where the heading wavered on it, and a
+		// heading read back from the lean is that much short.
+		const SLACK = STEP + SHEET_TURN_BACK_BAND;
+		const EDGE_LEAN = MOST - (MOST * SLACK) / (SECTOR / 2);
 		const raw = (game, code, type) =>
 			game.page.page('Input.dispatchKeyEvent', {
 				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
@@ -1365,7 +1372,6 @@ play: try {
 				`${page}: every frame leans (a number, within ±8°: the default isometric lean), and the lean changes from frame to frame, up to 8° either way`,
 				all.length > 200 &&
 					all.every((s) => Number.isFinite(s.lean) && Math.abs(s.lean) <= MOST + EPS) &&
-					Math.max(...leans) > MOST - EPS &&
 					all.some((s) => s.lean > 7 * DEG) &&
 					all.some((s) => s.lean < -7 * DEG) &&
 					new Set(all.map((s) => degrees(s.lean))).size > 20,
@@ -1377,13 +1383,10 @@ play: try {
 				},
 			);
 			const changes = [reversal, circle].flatMap(changesOf);
-			const waited = changes.filter((c) => Math.abs(Math.abs(c.before.lean) - MOST) < EPS);
 			verdict(
-				'…at every change of picture the tilt swaps sides: the frame before leans toward the turn and the frame of the change the other way, each 8° or within a frame’s turn of it (5.9° to 8°); where the heading waited at the edge for the facing to change, the frame before is at 8° exactly',
-				changes.length >= 10 &&
-					changes.every((change) => changeFaults(change).length === 0) &&
-					waited.length >= 4,
-				{ waited: waited.length, changes: changeDetail([reversal, circle]) },
+				'…at every change of picture the tilt swaps sides: the frame before leans toward the turn and the frame of the change the other way, each within a frame’s turn (and the 2° band) of 8° (5.2° to 8°): the picture changes where the drawn heading crosses the halfway point, with no wait there',
+				changes.length >= 10 && changes.every((change) => changeFaults(change).length === 0),
+				{ changes: changeDetail([reversal, circle]) },
 			);
 			// The current skews what the keys ask (down the screen is drawn some 163°, up it 24°).
 			const back = reversal.filter((s) => s.leg === 1);
@@ -1393,11 +1396,11 @@ play: try {
 				samples.slice(1).map((s, i) => Math.abs(wrapAngle(s.heading - samples[i].heading))),
 			);
 			verdict(
-				'…the reversal sweeps through the facings in between (three or more pictures, each the next one round: none is skipped), 120° or more of heading in all, and no frame turns the heading more than 360° a second does (6°)',
+				'…the reversal sweeps through the facings in between (three or more pictures, each the next one round: none is skipped), 120° or more of heading in all, and no frame turns the heading more than 360° a second does (6°, and the 2° band)',
 				between.size >= 3 &&
 					Math.abs(turnOf(back)) > 120 * DEG &&
 					backSteps.every((step) => step === backSteps[0] && Math.abs(step) === 1) &&
-					Math.max(...steps) <= STEP + 1e-4,
+					Math.max(...steps) <= SLACK + 1e-4,
 				{
 					facings: [...between],
 					turned: degrees(turnOf(back)),
@@ -1407,21 +1410,32 @@ play: try {
 			);
 			const seen = new Set(circle.map((s) => s.facing));
 			verdict(
-				'…the circle is drawn in all eight facings, turning clockwise 270° or more, each step to the next facing round',
+				'…the circle is drawn in all eight facings, turning clockwise 270° or more, each step to the next facing round (back one, at most twice, where the swim wavers on an edge by more than the 2° band)',
 				CLIP_FACINGS.every((facing) => seen.has(facing)) &&
 					turnOf(circle) > 270 * DEG &&
-					facingSteps(circle).every((step) => step === 1),
+					facingSteps(circle).every((step) => Math.abs(step) === 1) &&
+					facingSteps(circle).filter((step) => step === -1).length <= 2,
 				{ facings: [...seen], turned: degrees(turnOf(circle)), steps: facingSteps(circle) },
 			);
 			// A picture the clockwise circle passes through whole: it comes in leaning back and
 			// goes out leaning on, mirrored or not.
-			const whole = runsOf(circle).slice(1, -1);
+			const runs = runsOf(circle);
+			const whole = runs.filter(
+				(run, i) =>
+					i > 0 &&
+					i < runs.length - 1 &&
+					roundOf(run[0], runs[i - 1].at(-1)) === 1 &&
+					roundOf(runs[i + 1][0], run.at(-1)) === 1,
+			);
 			const mirrored = whole.filter((run) => run[0].flipX);
+			// The drawn heading follows where the salmon swims, which swings back a little as the
+			// keys change against the current: a frame may go back, a frame's turn at most.
+			const backStep = (MOST * STEP) / (SECTOR / 2);
 			const withTheTurn = (run) =>
 				run.at(-1).lean - run[0].lean > 10 * DEG &&
-				run.slice(1).every((s, i) => s.lean >= run[i].lean - EPS);
+				run.slice(1).every((s, i) => s.lean >= run[i].lean - backStep - EPS);
 			verdict(
-				'…a mirrored facing leans the way the character turns, as an unmirrored one does: clockwise, its lean only grows, from one side to the other',
+				'…a mirrored facing leans the way the character turns, as an unmirrored one does: clockwise, from one side to the other, never going back more than a frame’s turn (where the swim itself swings back as the keys change)',
 				mirrored.length >= 2 && whole.every(withTheTurn),
 				whole.map((run) => ({
 					facing: run[0].facing,

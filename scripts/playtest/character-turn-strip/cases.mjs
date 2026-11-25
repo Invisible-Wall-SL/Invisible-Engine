@@ -19,6 +19,24 @@ export default {
 		...around,
 		sweep: { from: 270, to: 360, step: 2.5 },
 	},
+	// The same sheet walked round and round from north on the isometric screen, at the samples
+	// page's 70° a second and at the default turn speed's 360: every frame around each switch.
+	'iso-rig-round-70': {
+		subject: 'rig',
+		view: iso({}),
+		before: 3,
+		after: 3,
+		circle: 70,
+		round: true,
+	},
+	'iso-rig-round-360': {
+		subject: 'rig',
+		view: iso({}),
+		before: 2,
+		after: 2,
+		circle: 360,
+		round: true,
+	},
 	// The same sheet walked round: every frame around each switch (no fade, the walk carried on).
 	'iso-rig-saved': { subject: 'rig', view: iso({}), ...around },
 	// The same sheet without the option: the cut every sheet without `turn` draws.
