@@ -138,25 +138,27 @@ countdown; both notes then count 2 people in the one river (`lobby-countdown.png
 round 1 starts and both pages drop the lobby and its note. On a runtime that still draws the form
 in the lobby the note's two verdicts fail.
 
-**A class picked in the lobby** (2026-11-25, the same run and the same pages; 11 verdicts).
+**A class picked in the lobby** (2026-11-25, the same run and the same pages; 13 verdicts).
 Under the note the first page has "Play as" and a row of Salmon, Fisherman and Bear inside its
 1280 × 720 window, Salmon lit (the probe's `online.screens.lobby` gains `choice`, `refused` and
 `buttons`, each button's centre on the canvas). A click beside the row is a tap for the game (the
 probe's `online.buttons`, the last input's, shows a press within 16 frames) and a click on Salmon,
 the class it plays, is not, and changes nothing. It clicks Fisherman: the note reads "You are
 Lia, a Fisherman" with Fisherman lit, the room has it as a fisherman, drawn as one
-(`lobby-picked.png`), in the same room, still waiting, with one `respawned`, no leave or join of
-its own, and nothing more asked (`online.pick` is `null`). The second page clicks Bear during the
-countdown and is a bear, the countdown going on (`lobby-countdown-picked.png`). Round 1 starts
-with the two as a fisherman and a bear, drawn as such. Then two more pages join
-`salmons-lobby-full` (no bots, one bear's place, no start before three people): a bear, and a
-390 × 844 phone as a salmon. On the phone the row fits the window (`lobby-phone.png`). It taps
-Bear: "No place left for that one: pick another" shows under the row and it stays a salmon
-(`lobby-phone-refused.png`; `online.pick.refused`, one `respawnRefused`); it taps Bear again and
-the room says so again; it taps Fisherman, is a fisherman, and the line goes
-(`lobby-phone-picked.png`). No page error. On a runtime from before the pick the note has no
-`buttons` and these fail; on a game server from before it the room never says `picking`, the
-note draws no row, and they fail the same way.
+(`lobby-picked.png`), and the instance the page spawned for it is the fisherman's component
+where it joined as the salmon's (the probe's `online.spawned`: `salmonsSalmon`, then
+`salmonsFisherman`); in the same room, still waiting, with one `respawned`, no leave or join of
+its own, and nothing more asked (the probe's `online.ask` is `null`). The second page clicks Bear
+during the countdown and is a bear, the countdown going on (`lobby-countdown-picked.png`). Round
+1 starts with the two as a fisherman and a bear, drawn as such, each spawned as its class's
+component with no salmon's left on either stage. Then two more pages join `salmons-lobby-full`
+(no bots, one bear's place, no start before three people): a bear, and a 390 × 844 phone as a
+salmon. On the phone the row fits the window (`lobby-phone.png`). It taps Bear: "No place left
+for that one: pick another" shows under the row and it stays a salmon
+(`lobby-phone-refused.png`; `online.ask.refused`, one `respawnRefused`); it taps Bear again and
+the room says so again; it taps Fisherman, is a fisherman spawned as one, and the line goes
+(`lobby-phone-picked.png`). No page error. A runtime without the despawn on a class change fails
+the three verdicts that read `online.spawned` (played: the control build of the review).
 
 **The start menu before the join** (2026-11-19, the same run): those two pages have started
 `salmons-lobby` and its lobby is over. A page then opens the game as the published link does, with no
@@ -199,7 +201,7 @@ salmon is in it. It steps until it hears `gameWon` (about 100 s; at most
 (`SALMONS_BOT_NAMES`, no "bot" in it), not the page; its win screen comes up (`salmonsWon` in
 the flow) titled "NAME won!!!", with no eggs and no "You Won!" (`bot-won.png`);
 no page error. The measure prints how long it took (`botWinSeconds`). On a server from before (a
-bot at the source sent home), the first verdict times out. 52 verdicts in all.
+bot at the source sent home), the first verdict times out. 54 verdicts in all.
 
 Add `--netcode colyseus` to this run too (2026-11-20): its pages then play the Colyseus SDK's own
 prediction, and the view's pages must report it.
