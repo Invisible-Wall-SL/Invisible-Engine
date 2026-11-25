@@ -14,7 +14,6 @@
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { untrack } from 'svelte';
 	import {
-		MAX_SEED,
 		addPiece,
 		canGenerate,
 		dropEntry,
@@ -25,12 +24,12 @@
 		setRiver,
 		setWaterfalls,
 		togglePinned,
-		validSeed,
 		type GeneratedNode,
 		type LevelOrphan,
 		type LoadedConfig,
 		type OverlayScope,
 	} from '$lib/editor/generatedLevel';
+	import { MAX_SEED, validSeed } from '$lib/editor/generatedLevelCore';
 
 	/**
 	 * A screen's GENERATED LEVEL (`docs/design/salmons-levels.md` §2 c–d): pick a seed and the stage

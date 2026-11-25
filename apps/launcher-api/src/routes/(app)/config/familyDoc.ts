@@ -14,6 +14,7 @@ import {
 	type GameOutcome,
 	type Match3Goal,
 } from 'game-config';
+import { wholeRect } from './zones';
 
 /**
  * How `/config` edits the family fields (`docs/design/game-families.md` §2.1). Every setter writes
@@ -86,7 +87,9 @@ export function setMoves(doc: GameConfigDoc, value: string): void {
 export function addGoal(doc: GameConfigDoc, type: Match3Goal['type'], firstGem: string): void {
 	const goal: Match3Goal =
 		type === 'score' ? { type, target: 1000 } : { type, symbol: firstGem, count: 10 };
-	(match3Block(doc).goals ??= []).push(goal);
+	const block = match3Block(doc);
+	block.goals ??= [];
+	block.goals.push(goal);
 }
 
 /** Change one number or the gem of a goal. A number that is not a positive whole number is left
@@ -204,8 +207,9 @@ export function setNetcode(doc: GameConfigDoc, value: string): void {
 export function addBody(doc: GameConfigDoc, componentId: string): void {
 	const id = componentId.trim();
 	if (!id) return;
-	const bodies = (arcadeBlock(doc).bodies ??= {});
-	bodies[id] ??= { shape: 'box', w: 100, h: 100 };
+	const block = arcadeBlock(doc);
+	block.bodies ??= {};
+	block.bodies[id] ??= { shape: 'box', w: 100, h: 100 };
 }
 
 export function removeBody(doc: GameConfigDoc, id: string): void {
@@ -319,12 +323,26 @@ export function setPairs(doc: GameConfigDoc, text: string): void {
 export const pairsText = (doc: GameConfigDoc): string =>
 	(doc.arcade?.pairs ?? []).map(([a, b]) => `${a} + ${b}`).join(', ');
 
-/** Add a zone with a fresh id, as a 200 × 200 square at the field's corner. */
-export function addZone(doc: GameConfigDoc): void {
-	const zones = (arcadeBlock(doc).zones ??= []);
+/** Add a zone with a fresh id (`zoneN`): `rect` in whole px (the zone map's drawn box), or a
+ *  200 × 200 square at the field's corner. Answers its index. */
+export function addZone(
+	doc: GameConfigDoc,
+	rect: Omit<ArcadeZone, 'id'> = { x: 0, y: 0, w: 200, h: 200 },
+): number {
+	const block = arcadeBlock(doc);
+	block.zones ??= [];
+	const zones = block.zones;
+	const taken = new Set(zones.map((z) => z.id));
 	let n = zones.length + 1;
-	while (zones.some((z) => z.id === `zone${n}`)) n += 1;
-	zones.push({ id: `zone${n}`, x: 0, y: 0, w: 200, h: 200 });
+	while (taken.has(`zone${n}`)) n += 1;
+	return zones.push({ id: `zone${n}`, ...wholeRect(rect) }) - 1;
+}
+
+/** A zone's corner and size at once (the zone map's move and resize), in whole px. */
+export function setZoneRect(doc: GameConfigDoc, index: number, rect: Omit<ArcadeZone, 'id'>): void {
+	const zone = doc.arcade?.zones?.[index];
+	if (!zone || ![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) return;
+	Object.assign(zone, wholeRect(rect));
 }
 
 export function removeZone(doc: GameConfigDoc, index: number): void {

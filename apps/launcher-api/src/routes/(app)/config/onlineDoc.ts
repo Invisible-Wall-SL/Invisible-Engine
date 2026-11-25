@@ -10,6 +10,7 @@ import {
 	type ArcadeOnlineHitEffect,
 	type ArcadeOnlineLobby,
 	type ArcadeOnlineRules,
+	type ArcadeOnlineZoneRule,
 	type GameConfigDoc,
 	type GameConfigIssue,
 	botShareClasses,
@@ -19,6 +20,7 @@ import {
 	onlineTestSizeRange,
 } from 'game-config';
 import { removeTouchClass, renameTouchClass } from './touchDoc';
+import { solidFromChoice, zoneRuleActs } from './zones';
 
 /**
  * How `/config` edits an online arcade game (`arcade.online`, its `rules` and its `bots`;
@@ -347,12 +349,27 @@ function pruneRules(online: ArcadeOnline): void {
 	if (!Object.keys(rules).length) delete online.rules;
 }
 
-/** Add a zone rule on `zone`, as the round's goal (a rule that neither pushes nor is the goal is
- *  not stored). No zone ⇒ nothing. */
-export function addZoneRule(doc: GameConfigDoc, zone: string): void {
+/** Why a zone can not be a rule's: blank, or not one of `arcade.zones` (a typo the validator
+ *  would refuse the save for). `null` when it can. */
+function zoneRefusal(doc: GameConfigDoc, zone: string): string | null {
+	const id = zone.trim();
+	if (!id) return 'A zone rule needs a zone: the change was not taken.';
+	return (doc.arcade?.zones ?? []).some((z) => z.id === id)
+		? null
+		: `The Arcade section has no zone "${id}": the change was not taken.`;
+}
+
+/** Add a zone rule on `zone`, as the round's goal (a rule that does nothing is not stored).
+ *  Answers why not when it is refused ({@link zoneRefusal}), else `null`. */
+export function addZoneRule(doc: GameConfigDoc, zone: string): string | null {
 	const online = onlineOf(doc);
-	if (!online || !zone.trim()) return;
-	(rulesOf(online).zones ??= []).push({ zone: zone.trim(), goal: true });
+	if (!online) return 'The game is not played online.';
+	const refused = zoneRefusal(doc, zone);
+	if (refused) return refused;
+	const rules = rulesOf(online);
+	rules.zones ??= [];
+	rules.zones.push({ zone: zone.trim(), goal: true });
+	return null;
 }
 
 export function removeZoneRule(doc: GameConfigDoc, index: number): void {
@@ -362,41 +379,57 @@ export function removeZoneRule(doc: GameConfigDoc, index: number): void {
 	pruneRules(online);
 }
 
-/** One field of a zone rule: its zone, the current's push (`forceX` / `forceY`, px/s), whether it
- *  is the goal, and the characters it applies to (a comma list, empty for every one). An edit that
- *  would leave a rule neither pushing nor the goal is refused. */
+/** One field of a zone rule: its zone (one of `arcade.zones`), the current's push (`forceX` /
+ *  `forceY`, px/s), whether it is the goal, whether it is solid (`./zones` `SOLID_CHOICES`), its
+ *  kind (empty for none), and the characters it applies to (a comma list, empty for every one). An
+ *  edit that would leave a rule doing nothing ({@link zoneRuleActs}) is refused. Answers why when
+ *  it is refused, else `null`. */
 export function setZoneRuleField(
 	doc: GameConfigDoc,
 	index: number,
-	field: 'zone' | 'forceX' | 'forceY' | 'goal' | 'characters',
+	field: 'zone' | 'forceX' | 'forceY' | 'goal' | 'solid' | 'kind' | 'characters',
 	value: string | boolean,
-): void {
+): string | null {
 	const rule = onlineOf(doc)?.rules?.zones?.[index];
-	if (!rule) return;
+	if (!rule) return 'No such zone rule.';
 	const text = String(value);
 	if (field === 'zone') {
-		if (text.trim()) rule.zone = text.trim();
-		return;
+		const refused = zoneRefusal(doc, text);
+		if (!refused) rule.zone = text.trim();
+		return refused;
 	}
 	if (field === 'characters') {
 		const list = idList(text);
 		if (list.length) rule.characters = list;
 		else delete rule.characters;
-		return;
+		return null;
 	}
-	const next = { force: rule.force, goal: rule.goal };
+	const next: Omit<ArcadeOnlineZoneRule, 'zone' | 'characters'> = {
+		force: rule.force,
+		solid: rule.solid,
+		kind: rule.kind,
+		goal: rule.goal,
+	};
 	if (field === 'goal') next.goal = value === true ? true : undefined;
+	else if (field === 'solid') next.solid = solidFromChoice(text);
+	else if (field === 'kind') next.kind = text.trim() || undefined;
 	else {
 		const n = numberOf(text) ?? 0;
 		const force = { x: rule.force?.x ?? 0, y: rule.force?.y ?? 0 };
 		force[field === 'forceX' ? 'x' : 'y'] = n;
 		next.force = force.x || force.y ? force : undefined;
 	}
-	if (!next.force && !next.goal && !rule.solid && !rule.kind) return;
+	if (!zoneRuleActs(next))
+		return 'A zone rule must push, be the goal, be solid or have a kind: the change was not taken.';
 	if (next.force) rule.force = next.force;
 	else delete rule.force;
+	if (next.solid) rule.solid = next.solid;
+	else delete rule.solid;
+	if (next.kind) rule.kind = next.kind;
+	else delete rule.kind;
 	if (next.goal) rule.goal = true;
 	else delete rule.goal;
+	return null;
 }
 
 /** Add an ability: the first character's first button, catching every other character (or
@@ -406,7 +439,9 @@ export function addAbility(doc: GameConfigDoc): void {
 	const user = online?.characters[0]?.id;
 	if (!online || !user) return;
 	const others = online.characters.map((c) => c.id).filter((id) => id !== user);
-	(rulesOf(online).abilities ??= []).push({
+	const rules = rulesOf(online);
+	rules.abilities ??= [];
+	rules.abilities.push({
 		character: user,
 		button: 'ability1',
 		reach: 100,
@@ -515,7 +550,10 @@ export function setRoundField(
 	const rules = rulesOf(online);
 	if (n === undefined) {
 		if (rules.round) delete rules.round[field];
-	} else (rules.round ??= {})[field] = n;
+	} else {
+		rules.round ??= {};
+		rules.round[field] = n;
+	}
 	pruneRules(online);
 }
 

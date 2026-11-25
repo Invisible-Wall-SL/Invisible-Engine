@@ -11,6 +11,26 @@ under its game key ([ways](../families/ways.md)), Hold and Win role symbols
 ([hold-and-win](../families/hold-and-win.md)). A type error that ships green (the launcher build is
 not a type-check): [launcher.md](launcher.md#a-type-error-ships-green).
 
+### The first zone, rule or goal added to an empty list vanished
+- **Symptom:** the first zone (drawn or added), zone rule, ability, match-3 goal, game mode or
+  character never reached the save; the second one did.
+- **Cause:** `(block.list ??= []).push(x)`: `??=` evaluates to the RAW array, and the page's doc is a
+  `$state` proxy whose array `length` signal is made when it wraps the array, so the push is unseen.
+- **Fix:** assign, then read back through the parent (`block.list ??= []; block.list.push(x)`).
+- **Guard:** `check:game-config-family` §9 and `check:characters-tool` §6 run the setters on a real
+  `$state` proxy (`scripts/lib/liveState.ts`); plain-object fixtures cannot see it.
+- **PR:** see git log (2026-11-24) · source: review of #1897
+
+### /config took half a minute on a game with a thousand zones
+- **Symptom:** Salmons' Zones and Zone rules were two huge lists that "load super slow" (28 s to
+  first paint) and said nothing of what they were.
+- **Cause:** each of 1,293 rule rows held a `<select>` of all 1,307 zone ids (rows × ids: 1.69 M
+  `<option>`s, 98 MB of server HTML); and a generated game's stored zones are a level no room plays.
+- **Fix:** one `<datalist>` + `<input list>`, tables paged at 50 (`config/PagedRows.svelte`); a
+  generated game gets a line, counts and the zone map of a room's level, its snapshot in a fold.
+- **Guard:** `check:game-config-family` §3 renders Salmons with and without its snapshot.
+- **PR:** see git log (2026-11-24) · source: owner report
+
 ### A reset or a Raw JSON Apply wiped a 3D game's world
 - **Symptom:** after `/config`'s Raw JSON Apply (text untouched) or a reset to template or preset,
   the next Save stored the config without `arcade.world3d` and `models`, with no warning.

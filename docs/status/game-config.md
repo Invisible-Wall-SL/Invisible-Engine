@@ -790,6 +790,69 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-24 — **Zones and zone rules: a zone map, a generated game's level, paged tables** (branch
+  `claude/affectionate-bell-mwyn5r`, in review; owner on Salmons: "what are they, why are they
+  there, they load super slow, I have no idea how to edit them"). How to use it:
+  [tools/game-config](../tools/game-config.md) "Zones", "Zone rules", "A field per room".
+  - **Why it was slow.** Salmons' config stores one level's 1,307 zones and 1,293 zone rules, and
+    each rule row held a `<select>` of every zone id: 1,691,373 `<option>`s. Server render 5.3 s and
+    98 MB of HTML; in Chromium (the two sections mounted alone) 13.2 s to mount, 27.9 s to first
+    paint, 1.73 M nodes. Now 0.1 s and 215 KB on the server; 0.17 s to mount and 0.18 s to paint
+    in Chromium, 3,505 nodes (1,307 of them the map's zones). A hand-built config with the same
+    1,307 zones (no generator) paints in 0.18 s.
+  - **Why it said nothing.** Salmons names a generator (`salmonsMap`): each room makes its own
+    field, zones and rules from its seed, so the stored rows are a level no room plays. For a
+    generator game the two areas are now a line each (what the generator makes, how many the shown
+    level has, a link to the Scene Editor's level overlays), chips grouping them (zones by id with
+    the numbers out, rules by what they do), and the **zone map** of the level a room with the
+    shown seed plays: the room's own generator (`engine-mechanics` `ONLINE_GENERATORS`) with the
+    config's level overlays, first pinned seed else 1, a seed box and a ⟳ (`IconButton` `reroll`,
+    new). A stored snapshot is one line and **Show the snapshot**, read-only and paged, rendered
+    only when opened. A config with no zones stored (the re-exported Salmons) looks the same, less
+    that line; neither shows a table or an add button.
+  - **The zone map** (`config/ZoneMap.svelte`, pure half `config/zones.ts`): every zone a rect
+    coloured by its strongest rule (goal, solid, one-way, push, kind, none; an offline game's
+    forces), legend with counts, `<title>` per zone, zoom by resizing the pane (`clampZoom`), click
+    for an inspector. A hand-built game edits on it: `BoundsBox` handles on the selected zone
+    (`setZoneRect`, whole px by edges), a drag on the empty field (Shift: over zones) draws one
+    (`addZone(doc, rect)` answers its index), the inspector types id / x / y / w / h or deletes.
+  - **Tables** (hand-built games): 50 rows, then a filter and **Show 50 more** / **Show all N**
+    (`config/PagedRows.svelte`). A rule's zone is an `<input list>` on ONE `<datalist>`, as is
+    **Add zone rule** (enabled on a known id). **Solid** (— / every side / from below, above, left,
+    right) and **Kind** (shown with a rules module, or a rule that has one) are editable:
+    `setZoneRuleField` takes `solid` / `kind`, refuses an edit that leaves a rule doing nothing
+    (`zones.ts` `zoneRuleActs`: push, goal, solid or kind) and answers whether it was taken; the
+    page puts the control back and says why. The `generated()` note left the zone rules (3 notes,
+    the spawns, remain).
+  - **Invisible Characters → Zone forces** lists only zones with a force, plus a picker
+    (`<input list>`) and **Add a force** (`characterEdit.ts` `zoneForcesOf(doc, adding)`,
+    `zonesWithoutForce`): Salmons' 70 zones, or 1,300, render no row.
+  - **Not changed:** `game-config`, `engine-mechanics`, the export, the game server, R2. The
+    validator still warns "A room runs at most 256 zone rules" of a stored snapshot (it goes with
+    the snapshot); it raises nothing for a generator game with no zones.
+  - **Review fixes (#1897).** (1) The first entry of an empty list never reached the save: a
+    setter pushed into what `list ??= []` evaluates to, the RAW array behind the page's `$state`
+    proxy (its `length` signal is made when the proxy wraps it). Fixed by assigning, then reading
+    back through the parent, in `familyDoc.ts` (zones, bodies, goals), `onlineDoc.ts` (zone
+    rules, abilities, the round), `characterEdit.ts` (characters, abilities, forces, a state's
+    params, anim inputs), `GameModesSection.svelte` (modes) and `HoldAndWinRules.svelte` (row
+    jackpots); gated on a real proxy (`scripts/lib/liveState.ts`, `check:game-config-family` §9,
+    `check:characters-tool` §6), which fail on the old setters. (2) A zone dragged past the field,
+    zoomed in, ran away from the pointer (the area grew mid-drag and moved the pane's origin):
+    the map holds its area from pointer down to up (Chromium: −931 before, −400 as the pointer
+    said after). (3) The filter applies only while the table pages, and goes when the list is back
+    to 50; a row just added is shown past the page. (4, 5) A rule's zone must be one the field
+    has; each refusal says its own reason (`setZoneRuleField` / `addZoneRule` answer it, `null`
+    when taken) and the next edit taken clears it. Also: one generator answer (`zoneGenerator`,
+    passed down as the level), the seed bounds imported from `generatedLevelCore.ts` (no
+    re-export), the snapshot fold a chevron `IconButton`.
+  - Proof: `check:game-config-family` 544 (was 501: the Salmons render both ways, a 120-zone
+    hand-built render, the setters, §8 the zones view incl. the preview = `generatedOnlineGame`'s
+    room), `check:config-character-sheets` 305, `check:characters-tool` 1288. In Chromium, through
+    a harness mounting the real `FamilySection` (not the signed-in page): click, seed, reroll,
+    zoom, the folds, filter, Show all; draw, move, resize, inspector, delete, Solid / Kind, a
+    refused edit, Add zone rule, Shift-draw; no console error. Launcher only: no runtime release.
+
 - 2026-11-21 — **The Mouse and touch card edits touch schemes** (branch `claude/touch-controls`,
   in review; [design/arcade-touch-controls](../design/arcade-touch-controls.md)). How to use it:
   [tools/game-config](../tools/game-config.md) "Touch schemes".

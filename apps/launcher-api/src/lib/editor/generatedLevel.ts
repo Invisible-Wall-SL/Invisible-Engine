@@ -27,8 +27,6 @@ export type LevelOrphan = { op: 'add' | 'remove' | 'set'; cell: LevelCell; kind?
 /** The overlay scope: one seed's own (its decimal string), or `'*'` for every level. */
 export type OverlayScope = string;
 
-export const MAX_SEED = 0xffffffff;
-
 /** The screen's generated node, if it has one at its top level. */
 export function generatedNodeOf(scene: Scene): GeneratedNode | undefined {
 	return scene.nodes.find(
@@ -41,11 +39,6 @@ export function generatedNodeOf(scene: Scene): GeneratedNode | undefined {
 export function canGenerate(node: GeneratedNode): boolean {
 	const id = node.generated.generator;
 	return id in ONLINE_GENERATORS && id in FIELD_DRAWINGS;
-}
-
-/** A seed the editor accepts: a whole number in the room state's uint32 range. */
-export function validSeed(v: number): boolean {
-	return Number.isInteger(v) && v >= 0 && v <= MAX_SEED;
 }
 
 /**

@@ -6,7 +6,8 @@
 //     scripts/salmons/export.mjs --out <dir> [--client invisible_wall] [--project salmons]
 //
 // Writes:
-//   <client>/<project>/config/config.json   the online game config (`engine-mechanics` salmons.js)
+//   <client>/<project>/config/config.json   the online game config (`engine-mechanics` salmons.js),
+//                                           less the zones its generator makes per room
 //   <client>/<project>/editor/scenes.json   the river layout, HUD and round over (`engine-layout` salmons.ts)
 //   <client>/<project>/editor/flow-v2.json  its flow (`engine-flow-v2` salmonsSeed.ts)
 //   editor/<project>/components/<id>.json   the placeholder looks (characters, swipe, cast)
@@ -18,6 +19,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { ONLINE_GENERATORS } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import {
 	SALMONS_LEVELS,
 	SALMONS_LOBBY,
@@ -63,10 +65,18 @@ const write = (key, doc) => {
 // The scene's level and every room's are shaped by Salmons' levels (the winding river, the tall
 // waterfalls).
 const river = salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS));
+const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS });
+// A room's zones and zone rules are its generator's (`generatedOnlineGame` replaces both), so the
+// scene's level's are a snapshot no room plays, and most of what every device and the game server
+// download (owner, 2026-11-24). The field and the spawns stay: `onlineGameOf` needs the field.
+// `check:salmons-export` holds every room the same without them.
+if (Object.hasOwn(ONLINE_GENERATORS, authored.arcade.online.generator)) {
+	delete authored.arcade.zones;
+	delete authored.arcade.online.rules.zones;
+}
 // The touch schemes, the rules' carry, the slide and the levels' shape are carried past the
 // normalizer, which drops them (`touchScheme.ts`, `onlineCarry.ts`, `onlineSlide.ts`,
 // `levelsShape.ts`).
-const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS });
 const config = withLevelsShape(
 	withSlide(
 		withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
