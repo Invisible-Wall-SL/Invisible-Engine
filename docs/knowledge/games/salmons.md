@@ -76,5 +76,5 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 - After its kind switch, re-scaffold kept the old Book-of flow and the first publish was broken.
   Fix used: delete `editor/flow-v2.json`, re-scaffold, publish. Guarded now by
   `replaceOtherKindDocs` and the `flow-wrong-kind` publish refusal (PR #1369).
-- Deleting the starter's `complete:loading` chain leaves the loading screen up after the tap.
-- Placeholder shapes draw up and left of their bodies (known, not fixed; family file).
+- **The bear wades** (since 2026-11-25; `salmonsArt/wade.ts`, `check:salmons-art`): one filter on
+  the container its PUBLISHED MOUNT draws into, whatever draws it; a plain published clip has none.

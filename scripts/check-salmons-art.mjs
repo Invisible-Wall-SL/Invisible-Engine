@@ -13,12 +13,17 @@
 // - a press draws no circle (owner, 2026-11-20): the flow and the layout the export ships spawn
 //   nothing on an `ability` (the old `salmonsSwipe` / `salmonsCast` circles); a swipe shows the
 //   bear's claw and a cast its line, both drawn by the runtime's art.
+// - the bear wades (owner, 2026-11-25; `wade.ts`, `wadeFilter.ts`): its waterline's arc and its
+//   eased depth, pinned; a bear on open water of the original's level wades and one on the bank, a
+//   sandbank, a rock or the sea does not, nor a fisherman on a bridge's deck, nor a salmon; on land
+//   its look has no filter; under the line its colour is `underTint`'s, and the pass finds the
+//   look's place at any zoom and resolution; the runtime wraps every mount it publishes.
 //
 // Run: pnpm check:salmons-art
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { createRequire, registerHooks } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -47,7 +52,19 @@ import {
 	createBlood,
 	createRedness,
 } from '../packages/engine-layout/src/lib/salmonsArt/blood.ts';
+import { underTint } from '../packages/engine-layout/src/lib/salmonsArt/leap.ts';
 import { CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
+import {
+	WADE,
+	createWading,
+	wadeDepth,
+	wadeProgress,
+	wades,
+	wadingTint,
+	waterlineAt,
+	waterlineOf,
+} from '../packages/engine-layout/src/lib/salmonsArt/wade.ts';
+import { TINT_ALPHA, waterUnder } from '../packages/engine-layout/src/lib/salmonsArt/water.ts';
 import {
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
@@ -61,7 +78,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PIXI_CJS = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve(
 	'pixi.js',
 );
-const { Container, Texture } = await import(
+const { Container, Matrix, Rectangle, RendererType, Texture } = await import(
 	pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href
 );
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
@@ -504,5 +521,589 @@ check('a press draws no circle: the flow and the layout spawn nothing on an abil
 	);
 	assert.deepEqual(placeholders, [], 'the Salmons layout holds an ability placeholder');
 });
+
+// The bear wades (`wade.ts`). The pass itself (`wadeFilter.ts`) is loaded with the two names it
+// takes from `pixi-svelte` stood in for (Node has no GPU to ask): a renderer that carries
+// `links: false` is one whose driver refuses the program. Pixi asks a document for a canvas to
+// learn the GPU's float precision; there is none here.
+globalThis.document ??= { createElement: () => ({ getContext: () => null }) };
+registerHooks({
+	resolve: (specifier, context, next) =>
+		specifier === 'pixi-svelte/elementFx'
+			? {
+					url:
+						'data:text/javascript,' +
+						encodeURIComponent(
+							'export const FILTER_VERTEX = "void main(void){gl_Position=vec4(0.0);}";' +
+								'export const programLinks = (renderer) => renderer.links !== false;',
+						),
+					shortCircuit: true,
+				}
+			: next(specifier, context),
+});
+const { wadeSurface } = await import('../packages/engine-layout/src/lib/salmonsArt/wadeFilter.ts');
+
+check('wading: its tunables', () => {
+	assert.deepEqual(WADE, {
+		depth: 1.1,
+		reach: 0.5,
+		sag: 0.4,
+		sagMax: 0.35,
+		rim: { width: 3, alpha: 0.35 },
+		bob: { px: 1.2, ms: 2400 },
+		easeMs: 250,
+		margin: 0.25,
+		marginMin: 8,
+	});
+	assert.ok(Object.isFrozen(WADE) && Object.isFrozen(WADE.rim) && Object.isFrozen(WADE.bob));
+});
+
+check('wading: the waterline is the front arc of an ellipse, level beyond its ends', () => {
+	const line = { level: -60, sag: 15, reach: 40 };
+	assert.equal(waterlineAt(line, 0), -45, 'lowest in the middle: the level and the whole sag');
+	assert.equal(waterlineAt(line, 40), -60, 'at the level at its ends');
+	assert.equal(waterlineAt(line, -40), -60);
+	assert.equal(waterlineAt(line, 70), -60, 'and beyond them');
+	assert.equal(waterlineAt(line, -1000), -60);
+	for (const x of [1, 7.5, 20, 33, 39.9]) {
+		const y = waterlineAt(line, x);
+		assert.equal(waterlineAt(line, -x), y, 'the same on both sides');
+		// On the ellipse of half-axes `reach` and `sag` about the level.
+		assert.ok(Math.abs(((y - line.level) / line.sag) ** 2 + (x / line.reach) ** 2 - 1) < 1e-12);
+		assert.ok(y < waterlineAt(line, x - 1), 'rising to the sides (y is down)');
+	}
+	assert.equal(waterlineAt({ level: -30, sag: 0, reach: 40 }, 12), -30, 'no sag: a level line');
+});
+
+check('wading: a body’s line rises from under its look to over its middle, the arc opening', () => {
+	// An upright look: 108 tall, drawn 75 wide (the stand-in of the owner's bear rig).
+	const upright = { middle: 54, width: 75, bottom: 0 };
+	const still = WADE.bob.ms;
+	assert.deepEqual(waterlineOf(0, upright, still), { level: 0, sag: 0, reach: 37.5 });
+	const full = waterlineOf(1, upright, still);
+	assert.ok(Math.abs(full.level - -WADE.depth * 54) < 1e-9, 'its ends over the middle');
+	assert.ok(Math.abs(full.sag - WADE.sag * 37.5) < 1e-12, 'the sag a share of its half-width');
+	assert.equal(full.reach, WADE.reach * 75, 'its ends at the picture’s sides');
+	// About half the body under: the line's ends above its middle, its middle below it.
+	assert.ok(-full.level > 54 && -(full.level + full.sag) < 54);
+	const half = waterlineOf(0.5, upright, still);
+	assert.ok(
+		Math.abs(half.level - full.level / 2) < 1e-9 && Math.abs(half.sag - full.sag / 2) < 1e-12,
+	);
+	// A look that reaches below its place (the bear seen from above, heading down the screen):
+	// the line starts under all of it, so nothing is under the water the moment it steps in.
+	const low = { middle: 24.8, width: 92, bottom: 21 };
+	assert.equal(waterlineOf(0, low, still).level, 21);
+	const flat = waterlineOf(1, low, still);
+	// A low, wide look: the sag is held to a share of how high the line stands.
+	assert.ok(Math.abs(flat.sag - WADE.sagMax * WADE.depth * 24.8) < 1e-12);
+	assert.ok(flat.sag < WADE.sag * flat.reach);
+	// The bob: a pixel or so, a slow cycle, none at the feet.
+	const levels = Array.from({ length: 240 }, (_, i) => waterlineOf(1, upright, i * 10).level);
+	const swing = (Math.max(...levels) - Math.min(...levels)) / 2;
+	assert.ok(Math.abs(swing - WADE.bob.px) < 1e-3 && WADE.bob.px <= 2, `bobs ${swing} px`);
+	assert.ok(
+		Math.abs(waterlineOf(1, upright, 100).level - waterlineOf(1, upright, 2500).level) < 1e-9,
+	);
+	assert.equal(waterlineOf(0, upright, WADE.bob.ms / 4).level, 0);
+	assert.equal(waterlineOf(1, { middle: 10, width: 0, bottom: 0 }, 0).reach, 1, 'never no width');
+});
+
+check('wading: stepping in takes 250 ms and stepping out as long, eased at both ends', () => {
+	assert.equal(WADE.easeMs, 250);
+	assert.equal(wadeProgress(0, true, 125), 0.5);
+	assert.equal(wadeProgress(0.5, true, 125), 1);
+	assert.equal(wadeProgress(0.5, true, 9000), 1, 'no further than in');
+	assert.equal(wadeProgress(1, false, 100), 0.6);
+	assert.equal(wadeProgress(0.2, false, 9000), 0, 'nor than out');
+	assert.equal(wadeProgress(0.3, true, -50), 0.3, 'a clock that runs back moves nothing');
+	assert.equal(wadeProgress(0, false, 16), 0);
+	// At 60 fps: in after 250 ms, to a rounding of the frames' sum.
+	let progress = 0;
+	for (let i = 0; i < 14; i++) progress = wadeProgress(progress, true, 1000 / 60);
+	assert.ok(progress < 0.94, `still stepping in after 233 ms (${progress})`);
+	progress = wadeProgress(progress, true, 1000 / 60);
+	assert.ok(1 - progress < 1e-9, `in after 250 ms (${progress})`);
+	assert.deepEqual([wadeDepth(0), wadeDepth(0.5), wadeDepth(1)], [0, 0.5, 1]);
+	assert.ok(wadeDepth(0.1) < 0.1 && wadeDepth(0.9) > 0.9, 'slow at both ends');
+	for (let p = 0.05; p <= 1; p += 0.05) assert.ok(wadeDepth(p) > wadeDepth(p - 0.05));
+});
+
+// The original's level, as a room's device draws it.
+const wadeRiver = salmonsMapRiver(SALMONS_MAP_SEED);
+const wadeWater = (x, y) => waterUnder(wadeRiver, x, y);
+const centreOf = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+const WADE_PLACES = (() => {
+	const blocked = [...wadeRiver.sandbanks, ...wadeRiver.rocks];
+	const clear = (x, y) =>
+		!blocked.some(
+			(b) => x >= b.x - CELL && x < b.x + b.w + CELL && y >= b.y - CELL && y < b.y + b.h + CELL,
+		);
+	const band = wadeRiver.bands.find((b) => {
+		const x = (b.left + b.right) / 2;
+		return b.current <= 100 && b.right - b.left > 6 * CELL && clear(x, b.y + b.h / 2);
+	});
+	const rapids = wadeRiver.bands.find((b) => b.current > 100);
+	return {
+		water: { x: (band.left + band.right) / 2, y: band.y + band.h / 2 },
+		bank: { x: band.left - CELL, y: band.y + band.h / 2 },
+		rapids: rapids && { x: (rapids.left + rapids.right) / 2, y: rapids.y + rapids.h / 2 },
+		sandbank: centreOf(wadeRiver.sandbanks[0]),
+		rock: centreOf(wadeRiver.rocks[0]),
+		bridge: centreOf(wadeRiver.bridges[0]),
+		sea: { x: wadeRiver.world.w / 2, y: wadeRiver.sea.y + CELL },
+		source: centreOf(wadeRiver.source),
+	};
+})();
+
+check('wading: only the bear, and only on open water that has a tint', () => {
+	assert.deepEqual(['bear', 'salmon', 'fisherman', 'otter', ''].map(wades), [
+		true,
+		false,
+		false,
+		false,
+		false,
+	]);
+	const at = (place) => wadeWater(place.x, place.y);
+	assert.deepEqual(at(WADE_PLACES.water), { tint: 0x0ea5e9 });
+	assert.equal(wadingTint('bear', at(WADE_PLACES.water)), 0x0ea5e9, 'a bear in the river wades');
+	assert.equal(wadingTint('bear', at(WADE_PLACES.source)), 0x7dd3fc, 'in the source too');
+	if (WADE_PLACES.rapids) assert.equal(wadingTint('bear', at(WADE_PLACES.rapids)), 0x38bdf8);
+	for (const dry of ['bank', 'sandbank', 'rock']) {
+		assert.equal(at(WADE_PLACES[dry]), undefined, `${dry}: no water`);
+		assert.equal(wadingTint('bear', at(WADE_PLACES[dry])), undefined, `a bear on a ${dry}`);
+	}
+	assert.deepEqual(at(WADE_PLACES.sea), { tint: undefined }, 'the sea has no tint');
+	assert.equal(wadingTint('bear', at(WADE_PLACES.sea)), undefined);
+	// A bridge's deck is over open water: the fisherman on it is not in it, the bear under it is.
+	assert.deepEqual(at(WADE_PLACES.bridge), { tint: 0x0ea5e9 });
+	assert.equal(
+		wadingTint('fisherman', at(WADE_PLACES.bridge)),
+		undefined,
+		'a fisherman on a bridge',
+	);
+	assert.equal(wadingTint('bear', at(WADE_PLACES.bridge)), 0x0ea5e9);
+	assert.equal(wadingTint('salmon', at(WADE_PLACES.water)), undefined, 'the salmon swims under it');
+});
+
+/** A WebGL renderer as far as the pass asks one; `links: false` is a GPU that refuses it. */
+const wadeApp = (links = true) => ({ renderer: { type: RendererType.WEBGL, links } });
+/** A look of `box` about its place, as a code look, a rig or a turned clip is mounted. */
+const wadeLook = (box = new Rectangle(-37.5, -108, 75, 108)) => {
+	const view = new Container();
+	view.boundsArea = box;
+	const log = [];
+	return {
+		log,
+		mount: (into) => {
+			into.addChild(view);
+			log.push('mount');
+			return () => {
+				into.removeChild(view);
+				log.push('unmount');
+			};
+		},
+	};
+};
+/** A wading over the original's level whose surfaces are counted, and one player's frames in it. */
+const wadeKit = (app = wadeApp()) => {
+	const made = [];
+	const wading = createWading(wadeWater, TINT_ALPHA, (pixi) => {
+		const surface = wadeSurface(pixi);
+		made.push(surface);
+		return surface;
+	});
+	const frame = (character, place, atMs) => ({ character, ...place, atMs, middle: 54, width: 75 });
+	/** As `<SpawnLayer>` draws a published mount: a container of its own, kept while it is the same. */
+	const drawn = new Map();
+	const publish = (id, mount) => {
+		const was = drawn.get(id);
+		if (was?.mount === mount) return was.into;
+		was?.teardown();
+		const into = new Container();
+		drawn.set(id, { mount, into, teardown: mount(into, app) });
+		return into;
+	};
+	const unpublish = (id) => {
+		drawn.get(id)?.teardown();
+		drawn.delete(id);
+	};
+	return { wading, made, frame, publish, unpublish, app };
+};
+const filtersOf = (into) => into.filters ?? [];
+/** Whether a filter was destroyed: Pixi lets go of its program then. */
+const destroyed = (filter) => filter.glProgram === null;
+const uniformsOf = (filter) => filter.resources.wadeUniforms.uniforms;
+
+check(
+	'wading: on the bank a bear’s look has no filter; in the water it is half under underTint; out, none again',
+	() => {
+		const { wading, made, frame, publish } = wadeKit();
+		const look = wadeLook();
+		let at = 0;
+		const step = (place, ms = 1000 / 60) => {
+			at += ms;
+			return publish('b', wading.mount('b', look.mount, frame('bear', place, at)));
+		};
+		const into = step(WADE_PLACES.bank, 0);
+		for (let i = 0; i < 30; i++) step(WADE_PLACES.bank);
+		assert.deepEqual(look.log, ['mount'], 'mounted once, by the wading’s own mount');
+		assert.equal(into.filters, undefined, 'never touched on land');
+		assert.equal(into.filterArea, undefined);
+		assert.equal(made.length, 0, 'no filter is made for a bear that never wades');
+		assert.deepEqual(wading.drawn(), { b: { depth: 0, tint: null, line: null, filtered: false } });
+
+		// Into the water: the line rises from the feet to its level over 250 ms.
+		const levels = [];
+		for (let i = 0; i < 15; i++) {
+			step(WADE_PLACES.water);
+			levels.push(wading.drawn().b.line.level);
+		}
+		assert.equal(made.length, 1, 'one filter, made as it steps in');
+		const [surface] = made;
+		assert.deepEqual(filtersOf(into), [surface.filter]);
+		assert.equal(surface.filter.look, into, 'on the container its look is mounted in');
+		assert.ok(
+			levels.every((level, i) => i === 0 || level < levels[i - 1]),
+			'rising all the way',
+		);
+		assert.ok(levels[0] > -3 && levels[0] < 0, `from the feet (${levels[0]})`);
+		const wet = wading.drawn().b;
+		assert.equal(wet.depth, 1);
+		assert.equal(wet.tint, 0x0ea5e9);
+		assert.equal(wet.filtered, true);
+		assert.deepEqual(wet.line, waterlineOf(1, { middle: 54, width: 75, bottom: 0 }, at));
+		const { uLine, uUnder } = uniformsOf(surface.filter);
+		assert.deepEqual(
+			[...uLine].slice(0, 3),
+			[wet.line.level, wet.line.sag, wet.line.reach].map(Math.fround),
+			'the pass draws that line',
+		);
+		// The colour under the line: the matrix the swimming salmon is drawn with, its own numbers.
+		const matrix = underTint(0x0ea5e9, TINT_ALPHA);
+		assert.deepEqual([...uUnder], [matrix[4], matrix[9], matrix[14], matrix[0]].map(Math.fround));
+		// The pass covers the look's box and room round it, so a swinging limb is not cut.
+		const area = into.filterArea;
+		assert.ok(
+			area.x <= -37.5 - 27 && area.y <= -108 - 27 && area.right >= 37.5 + 27 && area.bottom >= 27,
+		);
+		assert.deepEqual(look.log, ['mount'], 'and the look was not mounted again');
+
+		// Back onto the bank: the line falls for 250 ms, then the look is as it was.
+		const falling = [];
+		for (let i = 0; i < 14; i++) {
+			step(WADE_PLACES.bank);
+			falling.push(wading.drawn().b.depth);
+		}
+		assert.ok(falling.every((depth, i) => depth > 0 && (i === 0 || depth < falling[i - 1])));
+		assert.deepEqual(filtersOf(into), [surface.filter], 'still under the line while it falls');
+		assert.equal(wading.drawn().b.tint, 0x0ea5e9, 'the tint of the water it leaves');
+		step(WADE_PLACES.bank);
+		assert.deepEqual(filtersOf(into), [], 'no filter on land');
+		assert.equal(into.filterArea, undefined);
+		assert.deepEqual(wading.drawn().b, { depth: 0, tint: null, line: null, filtered: false });
+		assert.equal(destroyed(surface.filter), false, 'kept for the next time it wades');
+		step(WADE_PLACES.water);
+		assert.deepEqual(filtersOf(into), [surface.filter]);
+		assert.equal(made.length, 1);
+	},
+);
+
+check(
+	'wading: not on a sandbank, a rock or the sea; nor a fisherman on a bridge, nor a salmon',
+	() => {
+		for (const dry of ['sandbank', 'rock', 'sea', 'bank']) {
+			const { wading, made, frame, publish } = wadeKit();
+			const look = wadeLook();
+			let into;
+			for (let i = 0; i < 30; i++)
+				into = publish('b', wading.mount('b', look.mount, frame('bear', WADE_PLACES[dry], i * 16)));
+			assert.equal(into.filters, undefined, `a bear on the ${dry}`);
+			assert.equal(made.length, 0);
+			assert.equal(wading.drawn().b.depth, 0);
+		}
+		// Out of the water onto a sandbank: it steps out as onto a bank.
+		{
+			const { wading, frame, publish } = wadeKit();
+			const look = wadeLook();
+			const step = (place, at) =>
+				publish('b', wading.mount('b', look.mount, frame('bear', place, at)));
+			const into = step(WADE_PLACES.water, 0);
+			assert.equal(filtersOf(into).length, 1);
+			for (let i = 1; i <= 16; i++) step(WADE_PLACES.sandbank, i * 17);
+			assert.deepEqual(filtersOf(into), []);
+		}
+		for (const [character, place] of [
+			['fisherman', 'bridge'],
+			['fisherman', 'water'],
+			['salmon', 'water'],
+		]) {
+			const { wading, made, frame } = wadeKit();
+			const look = wadeLook();
+			for (let i = 0; i < 30; i++)
+				assert.equal(
+					wading.mount('p', look.mount, frame(character, WADE_PLACES[place], i * 16)),
+					look.mount,
+					`a ${character} over the ${place}: its look’s own mount, untouched`,
+				);
+			assert.equal(made.length, 0);
+			assert.deepEqual(wading.drawn(), {});
+		}
+		// A bear under a bridge is in the river.
+		const { wading, frame, publish } = wadeKit();
+		const into = publish(
+			'b',
+			wading.mount('b', wadeLook().mount, frame('bear', WADE_PLACES.bridge, 0)),
+		);
+		assert.equal(filtersOf(into).length, 1);
+	},
+);
+
+check(
+	'wading: one mount a player and a look, the same every frame; another look takes it over where it stands',
+	() => {
+		const { wading, made, frame, publish, unpublish } = wadeKit();
+		const first = wadeLook();
+		const mounts = new Set();
+		let into;
+		for (let i = 0; i < 20; i++) {
+			const mount = wading.mount('b', first.mount, frame('bear', WADE_PLACES.water, i * 16));
+			mounts.add(mount);
+			into = publish('b', mount);
+		}
+		assert.equal(mounts.size, 1, 'the same mount every frame: its look is never mounted again');
+		assert.notEqual([...mounts][0], first.mount, 'the wading’s own');
+		assert.deepEqual(first.log, ['mount']);
+		// First seen in the water: it does not step in.
+		assert.equal(wading.drawn().b.depth, 1);
+		assert.equal(filtersOf(into).length, 1);
+		const other = wadeLook();
+		assert.notEqual(
+			wading.mount('other', other.mount, frame('bear', WADE_PLACES.water, 320)),
+			[...mounts][0],
+			'another player’s is its own',
+		);
+		// Its sheet turns to another rig: another look, another mount, and the bear as deep as it was.
+		const second = wadeLook();
+		const next = wading.mount('b', second.mount, frame('bear', WADE_PLACES.water, 336));
+		assert.ok(!mounts.has(next));
+		const [surface] = made;
+		const intoNext = publish('b', next);
+		assert.deepEqual(first.log, ['mount', 'unmount']);
+		assert.deepEqual(second.log, ['mount']);
+		assert.deepEqual(filtersOf(into), [], 'the container it left has no filter');
+		assert.deepEqual(filtersOf(intoNext), [surface.filter], 'the one it is in has it, at once');
+		assert.equal(wading.drawn().b.depth, 1, 'no stepping in again');
+		assert.equal(made.length, 1, 'one filter a wading player, and none for a look not mounted');
+		// Mounted the other way round (the new one before the old is taken down): the same end.
+		const third = wadeLook();
+		const last = wading.mount('b', third.mount, frame('bear', WADE_PLACES.water, 352));
+		const intoLast = new Container();
+		last(intoLast, wadeApp());
+		assert.deepEqual(filtersOf(intoLast), [surface.filter]);
+		assert.deepEqual(filtersOf(intoNext), [], 'one container has the filter');
+		unpublish('b');
+		assert.deepEqual(second.log, ['mount', 'unmount']);
+		assert.deepEqual(filtersOf(intoLast), [surface.filter], 'the old one’s teardown leaves it be');
+	},
+);
+
+check(
+	'wading: let go with the player, a respawn as another character and the room; a GPU that refuses draws it dry',
+	() => {
+		const { wading, made, frame, publish, unpublish } = wadeKit();
+		const look = wadeLook();
+		const wade = (id, character, at) =>
+			publish(id, wading.mount(id, look.mount, frame(character, WADE_PLACES.water, at)));
+		const gone = wade('gone', 'bear', 0);
+		const kept = wade('kept', 'bear', 0);
+		const turned = wade('turned', 'bear', 0);
+		const [goneSurface, keptSurface, turnedSurface] = made;
+		wading.keep((id) => id !== 'gone');
+		assert.deepEqual(filtersOf(gone), [], 'a player no longer drawn: its look bare');
+		assert.equal(destroyed(goneSurface.filter), true, 'and its filter destroyed');
+		assert.deepEqual(Object.keys(wading.drawn()).sort(), ['kept', 'turned']);
+		unpublish('gone');
+		assert.deepEqual(filtersOf(kept), [keptSurface.filter]);
+		// Respawned as a salmon: its new look is published as it is, and the bear's wading is gone.
+		const salmon = wadeLook();
+		assert.equal(
+			wading.mount('turned', salmon.mount, frame('salmon', WADE_PLACES.water, 16)),
+			salmon.mount,
+		);
+		assert.deepEqual(filtersOf(turned), []);
+		assert.equal(destroyed(turnedSurface.filter), true);
+		assert.deepEqual(Object.keys(wading.drawn()), ['kept']);
+		wading.destroy();
+		assert.deepEqual(filtersOf(kept), [], 'the room gone: every look bare');
+		assert.equal(destroyed(keptSurface.filter), true);
+		assert.deepEqual(wading.drawn(), {});
+		// Taken down after the room went: nothing left to undo, and no throw.
+		unpublish('kept');
+		unpublish('turned');
+
+		const refused = wadeKit(wadeApp(false));
+		const warn = console.warn;
+		const warned = [];
+		console.warn = (...args) => warned.push(args.join(' '));
+		try {
+			let into;
+			for (let i = 0; i < 20; i++)
+				into = refused.publish(
+					'b',
+					refused.wading.mount('b', look.mount, refused.frame('bear', WADE_PLACES.water, i * 16)),
+				);
+			assert.equal(into.filters, undefined, 'a refused pass is never put on a look');
+			assert.deepEqual(refused.made, [undefined], 'asked once a player');
+			assert.deepEqual(refused.wading.drawn().b.filtered, false);
+			assert.equal(warned.length, 1);
+			assert.match(warned[0], /wading pass did not compile/);
+		} finally {
+			console.warn = warn;
+		}
+		assert.equal(wadeSurface({ renderer: { type: RendererType.WEBGPU } }), undefined, 'WebGL only');
+	},
+);
+
+check(
+	'wading: the pass draws underTint’s colour under the line and finds the look’s place at any zoom and resolution',
+	() => {
+		const surface = wadeSurface(wadeApp());
+		const { filter } = surface;
+		assert.equal(filter.resolution, 'inherit', 'at the screen’s resolution, not Pixi’s 1');
+		assert.equal(filter.padding, 0, 'it draws nothing outside the look’s own pixels');
+		const source = filter.glProgram.fragment;
+		assert.match(source, /vec3 under = color\.rgb \* uUnder\.a \+ uUnder\.rgb \* color\.a;/);
+		assert.match(
+			source,
+			/finalColor = vec4\(mix\(rgb, vec3\(color\.a\), rim\), color\.a\);/,
+			'alpha kept',
+		);
+		assert.doesNotMatch(source, /fwidth|dFdx|dFdy/, 'nothing WebGL 1 lacks');
+		// Asked for `highp` (a place is hundreds of px, read to a fraction of one); Pixi lowers it on
+		// a GPU that has none, as it has here, where there is no GPU.
+		assert.match(
+			readFileSync(join(ART, 'wadeFilter.ts'), 'utf8'),
+			/const FRAGMENT = `precision highp float;\n/,
+		);
+		const look = new Container();
+		for (const [tint, alpha] of [
+			[0x0ea5e9, TINT_ALPHA],
+			[0x38bdf8, TINT_ALPHA],
+			[0x7dd3fc, 0.5],
+		]) {
+			const matrix = underTint(tint, alpha);
+			surface.draw(look, { level: -59, sag: 15, reach: 37.5 }, matrix);
+			const u = uniformsOf(filter).uUnder;
+			// Premultiplied pixels, as the pass is handed them, whole and half see-through.
+			for (const pixel of [
+				[0.48, 0.29, 0.15, 1],
+				[1, 1, 1, 1],
+				[0, 0, 0, 1],
+				[0.24, 0.145, 0.075, 0.5],
+				[0, 0, 0, 0],
+			]) {
+				const [r, g, b, a] = pixel;
+				const plain = a > 0 ? [r / a, g / a, b / a] : [0, 0, 0];
+				for (let c = 0; c < 3; c++) {
+					// Pixi's colour matrix pass on the un-premultiplied colour, premultiplied again.
+					const viaMatrix =
+						(matrix[c * 5] * plain[0] +
+							matrix[c * 5 + 1] * plain[1] +
+							matrix[c * 5 + 2] * plain[2] +
+							matrix[c * 5 + 3] * a +
+							matrix[c * 5 + 4]) *
+						a;
+					const viaPass = pixel[c] * u[3] + u[c] * a;
+					assert.ok(Math.abs(viaMatrix - viaPass) < 1e-6, `channel ${c} of ${pixel}`);
+				}
+			}
+		}
+		// As the pass is drawn: Pixi maps its frame to the screen, and the look's world transform
+		// says where its place is there and how large it is drawn.
+		for (const [zoom, resolution, mirror] of [
+			[1, 1, 1],
+			[2 / 3, 2, 1],
+			[1 / 3, 3, 1],
+			[1.5, 2, -1],
+		]) {
+			const frame = { x: 211.5, y: 97, w: 256, h: 128 };
+			const place = { x: 300.25, y: 180.5 };
+			const applied = [];
+			filter.look = { worldTransform: new Matrix(mirror * zoom, 0, 0, zoom, place.x, place.y) };
+			const input = { source: { resolution } };
+			filter.apply(
+				{
+					calculateSpriteMatrix: (matrix) => matrix.set(frame.w, 0, 0, frame.h, frame.x, frame.y),
+					applyFilter: (...args) => applied.push(args),
+				},
+				input,
+				'output',
+				true,
+			);
+			assert.deepEqual(applied, [[filter, input, 'output', true]], 'drawn once, as Pixi asked');
+			const { uFeet, uLine } = uniformsOf(filter);
+			for (const [u, v] of [
+				[0, 0],
+				[0.5, 0.25],
+				[1, 1],
+			]) {
+				const at = uFeet.apply({ x: u, y: v });
+				// Upright px about the place, at the size the look was made: right is right even
+				// under a mirrored parent.
+				assert.ok(Math.abs(at.x - (frame.x + u * frame.w - place.x) / zoom) < 1e-9);
+				assert.ok(Math.abs(at.y - (frame.y + v * frame.h - place.y) / zoom) < 1e-9);
+			}
+			assert.ok(
+				Math.abs(uLine[3] - 1 / (zoom * resolution)) < 1e-6,
+				'one screen pixel, in those px',
+			);
+		}
+		surface.destroy();
+		assert.equal(destroyed(filter), true);
+		assert.equal(filter.look, undefined);
+	},
+);
+
+check(
+	'wading: the runtime wraps every mount it publishes, and only the Salmons art draws it',
+	() => {
+		const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
+		const draws = /function drawCodeLooks\([\s\S]*?\n}\n/.exec(online)?.[0] ?? '';
+		const published = [...draws.matchAll(/mounts\.set\(\s*instance,\s*([\s\S]*?)\);\n/g)].map((m) =>
+			m[1].replace(/\s+/g, ' ').trim(),
+		);
+		assert.deepEqual(
+			published,
+			[
+				'waded(id, player, mount, clip?.sheet && sheetDraw(clip.sheet).width)',
+				'waded(id, player, look.mount)',
+			],
+			'a rig’s or a turned clip’s mount, and a code look’s',
+		);
+		assert.match(draws, /art\?\.wadersDrawn\(\(id\) => current\.drawn\.has\(id\)\);/);
+		assert.match(
+			draws,
+			/if \(!art\) return mount;/,
+			'a room with no such art publishes the look’s own',
+		);
+		assert.match(draws, /middle: standOf\(current, id\)\.middle \?\? body\.h \/ 2,/);
+		assert.match(online, /wading: current\.art\.wading\(\),/, 'the probe reads who wades');
+		// `<SpawnLayer>`, which every runtime bundles, knows nothing of it, and neither does the
+		// package's index: the pass ships in the Salmons chunk alone.
+		for (const file of ['SpawnLayer.svelte', 'MountedArt.svelte', 'index.ts', 'svelte.ts'])
+			assert.doesNotMatch(
+				readFileSync(join(ROOT, 'packages/engine-layout/src/lib', file), 'utf8'),
+				/\bwad(e|ing)/i,
+				`${file} knows of the wading`,
+			);
+		const pass = readFileSync(join(ART, 'wadeFilter.ts'), 'utf8');
+		assert.match(pass, /import \{ FILTER_VERTEX, programLinks \} from 'pixi-svelte\/elementFx';/);
+		assert.match(
+			readFileSync(join(ROOT, 'packages/pixi-svelte/src/lib/elementFx/index.ts'), 'utf8'),
+			/export \{ VERTEX as FILTER_VERTEX, programLinks, type ElementFxFilter \} from '\.\/shaders';/,
+		);
+	},
+);
 
 console.log(`check:salmons-art: ${passed} passed`);

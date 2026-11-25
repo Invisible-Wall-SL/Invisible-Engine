@@ -7,7 +7,7 @@ import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
 import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
-import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
+import { mountSalmonsRiver, type RiverArt } from './river';
 import {
 	createSalmonsScreens,
 	type CaughtShown,
@@ -16,6 +16,9 @@ import {
 	type SalmonsScreenHost,
 	type SalmonsScreens,
 } from './screens';
+import { createWading, type WadeDrawn, type WadeFrame } from './wade';
+import { wadeSurface } from './wadeFilter';
+import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';
 
 /**
@@ -23,6 +26,8 @@ import type { WinShown } from './winAnimation';
  * drawn with the old game's own images, animated in code as its client animated them. Imported
  * lazily by the online runtime (`apps/lines` `game/online.ts`) only for a room whose config names
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
+ * One thing here is not the old client's: the bear wades (`wade.ts`, `wadeFilter.ts`), drawn half
+ * under the water it stands in whatever draws it.
  */
 
 export type {
@@ -37,6 +42,8 @@ export type {
 	SalmonsScreenHost,
 	SalmonsScreens,
 	StainList,
+	WadeDrawn,
+	WadeFrame,
 	WinShown,
 };
 export { BLOOD };
@@ -52,6 +59,12 @@ export type SalmonsArt = {
 	river: ArtMount;
 	/** A character's look by its character id, at its body's size; none for another. */
 	look: (character: string, body: { w: number; h: number }) => CodeLook | undefined;
+	/** The mount to publish for player `id` this frame, whose look (a code look, a sheet's rig or
+	 *  its turned clip) is mounted by `look`: its own for a character that wades (the bear), which
+	 *  draws it half under the water it stands in, else `look` itself (`wade.ts`). */
+	wade: (id: string, look: ArtMount, frame: WadeFrame) => ArtMount;
+	/** The players drawn this frame: the wading of any other is let go. */
+	wadersDrawn: (drawn: (id: string) => boolean) => void;
 	/** Raise `text` over player `id` (the catcher's "you catch NAME!"): it rises and fades. */
 	float: (id: string, text: string, nowMs: number) => void;
 	/** This frame's rising texts, each over where its player is drawn (`at`), however it is drawn. */
@@ -79,6 +92,9 @@ export type SalmonsArt = {
 	};
 	/** How many stains and trail puffs are drawn (the probe's). */
 	blood: () => { stains: number; trail: number };
+	/** Each wading character whose look is mounted, by player: how deep, under which tint, at
+	 *  which waterline, and whether through the filter (the probe's). */
+	wading: () => Record<string, WadeDrawn>;
 	destroy: () => void;
 };
 
@@ -103,6 +119,7 @@ export async function loadSalmonsArt(
 	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	const floats = createFloats(() => worldDrawing().projector);
+	const wading = createWading(waterAt, TINT_ALPHA, wadeSurface);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
@@ -121,6 +138,8 @@ export async function loadSalmonsArt(
 			};
 		},
 		look: looks.look,
+		wade: wading.mount,
+		wadersDrawn: wading.keep,
 		float: floats.add,
 		floats: floats.frame,
 		floating: floats.drawn,
@@ -142,7 +161,9 @@ export async function loadSalmonsArt(
 		regions: () => drawn?.regions() ?? {},
 		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,
+		wading: wading.drawn,
 		destroy: () => {
+			wading.destroy();
 			looks.destroy();
 			floats.destroy();
 			blood.destroy();
