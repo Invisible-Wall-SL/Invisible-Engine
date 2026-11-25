@@ -183,6 +183,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-25 — **↑ ↓ on a slot no longer throws the panel back to the top.** Every structural
+  rebuild (`rebuildFromRawDoc` → `buildInspector`) empties the inspector's lists, which clamped the
+  `#inspector` scroller to 0, so moving a slot far down a long list meant scrolling back to it after
+  every click. `buildInspector` now keeps the scroll position across the rebuild (every caller
+  benefits: drag, Ctrl+[ / ], constraint picks, skin switches), and ↑ ↓ scroll the moved row into view
+  when it crosses the edge.
+
 - 2026-11-22 — **One view.html sandbox for the spikes, `tools/rigger-spike/view-sandbox.mjs`.**
   21 spikes each hand-built their `vm` sandbox and copied a `pull()` (some with a fixed list of
   functions), so a product change that made a view.html function call a new helper or read a new

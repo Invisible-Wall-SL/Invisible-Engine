@@ -2976,7 +2976,14 @@ function setAnim(name){
 // ---- inspector (the Rigger's read-model panel) ----------------------------
 function clearChildren(el){ while (el.firstChild) el.removeChild(el.firstChild); }
 
+// Every rebuild empties the panel's lists, which snaps the #inspector scroller to the top; keep the
+// place, so ↑ ↓ on a slot far down a long list leaves that slot where it was.
 function buildInspector(entry){
+  const sc = $("#inspector"), top = sc.scrollTop;
+  buildInspectorRows(entry);
+  sc.scrollTop = top;
+}
+function buildInspectorRows(entry){
   if (!skeletonData) return; // nothing built yet (e.g. a failed load) — don't deref it
   $("#insName").textContent = rigLabel(entry);
   $("#insSub").textContent = "rig " + (entry.version || entry.runtime) + " · "
@@ -14136,6 +14143,8 @@ function moveSlot(z, dir){
   selSlot = movedName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
+  const row = [...document.querySelectorAll("#slotList .trow[data-slot]")].find((r) => r.dataset.slot === movedName);
+  if (row) row.scrollIntoView({ block: "nearest" });
 }
 
 // The draw order with `moving` (slot names, kept in their order) at place `ins` of `names`: 0 is the
