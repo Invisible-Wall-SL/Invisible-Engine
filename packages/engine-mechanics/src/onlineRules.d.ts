@@ -171,9 +171,12 @@ export type OnlineRules = {
 	readonly winnerName: string;
 	/** Whether a caught player waits for its Respawn (`respawn: 'manual'`). */
 	awaitsRespawn(player: RulesPlayer): boolean;
+	/** Whether a person may change the class it plays in place: a game with a lobby, until its
+	 *  first round starts. */
+	readonly picking: boolean;
 	/** Back at its spawn, free, as the character the room gave it (`respawned`). */
 	respawned(player: RulesPlayer, stamp: number): void;
-	/** Tell its device the Respawn was refused (`respawnRefused`). */
+	/** Tell its device the Respawn, or the lobby's pick, was refused (`respawnRefused`). */
 	refused(player: RulesPlayer): void;
 	/** The marks the rules module left on the field; none without one that leaves them. */
 	readonly stains: RoomStains;

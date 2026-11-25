@@ -14,14 +14,16 @@ export const SALMONS_SCREEN_ART = {
 	won: 'sm-won-art',
 	/** The death screen: "You have been caught / by NAME", what to respawn as, Respawn. */
 	caught: 'sm-caught-art',
-	/** The lobby's note: the room's river, the people in it, who the device plays. The node's id is
-	 *  the published layout's, from when the start menu was drawn here (until 2026-11-20). */
+	/** The lobby's note: the room's river, the people in it, who the device plays and, until round
+	 *  1 starts, what else it may play. The node's id is the published layout's, from when the
+	 *  start menu was drawn here (until 2026-11-20). */
 	lobby: 'sm-lobby-menu',
 	/** The loading screen's phrases. */
 	phrases: 'sm-loading-phrases',
 } as const;
 
-/** What a caught player may respawn as (owner decision 4, 2026-11-18), in the order offered. */
+/** What a caught player may respawn as (owner decision 4, 2026-11-18) and a person waiting in the
+ *  lobby may change to (owner, 2026-11-25), in the order offered. */
 export const SALMONS_RESPAWN_CHARACTERS = ['salmon', 'fisherman', 'bear'] as const;
 
 /** The original's river names, hashed from a room's id. */

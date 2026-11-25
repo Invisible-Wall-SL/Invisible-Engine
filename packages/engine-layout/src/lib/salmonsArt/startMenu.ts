@@ -8,7 +8,8 @@ import { BUTTON, PIXEL_FONT } from './winAnimation';
  * screen, and joins a room only with its answer, so a person is never put in play as a class they
  * did not pick, and while they choose their device is in no room at all. DOM, as the original's:
  * nothing of the game is mounted before the join. It is the only place a name and a class are
- * asked for on the way in: a new room's lobby (`screens.ts`) shows who waits and asks nothing.
+ * asked for on the way in: a new room's lobby (`screens.ts`) shows who waits, and lets a person
+ * change its class there, in the room it is in.
  */
 
 /** What the player picked at Join River. */

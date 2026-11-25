@@ -15,9 +15,9 @@
  * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
  * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
- * bitfield of {@link BUTTONS}; `aim` is a point on the field. A caught player may add `respawn`
- * (`1 +` the index of the character it picked, at most {@link RESPAWN_MAX}; 0 none), read only while
- * the room waits for it to press Respawn.
+ * bitfield of {@link BUTTONS}; `aim` is a point on the field. A person may add `respawn` (`1 +` the
+ * index of the character it picked, at most {@link RESPAWN_MAX}; 0 none), read only while the room
+ * waits for it to press Respawn (it was caught) or lets its people pick (a lobby before round 1).
  *
  * A step with no input moves its player by nothing: the player stands still until the next input
  * arrives (a body has no momentum: the step sets its velocity to 0). A level's currents
@@ -351,6 +351,51 @@ export function launchJoin(carried, launch, hasMenu) {
 	return {
 		join: { name, character, ...(carried.pass ? { pass: carried.pass } : {}) },
 		choose: hasMenu && !character,
+	};
+}
+
+/**
+ * A PICK IN THE LOBBY, on the device (`apps/lines` `game/online.ts`; the room's half is
+ * `services/game-server` `roomSim.ts`): the character a person waiting for round 1 asks to play
+ * from now on, sent as an input's `respawn` and answered by the room's state alone.
+ *
+ * `press(respawn)` is a press of a character. `input(seq)` is the `respawn` input `seq` carries:
+ * the pick, on every input from the press until the room acknowledges one that carried it.
+ * `answer(ack, playing)` reads a state of the room, while the room lets its people pick: `ack`
+ * the newest input it applied for the own player and `playing` the character it has the player
+ * as, counted as `respawn` is. The room changes the character on the very input that asks, so
+ * the state whose `ack` reaches the first input that carried the pick says its answer too: the
+ * character asked for, or another, when no place was left (`refused`, kept until the next press
+ * and no longer sent). `drop()` forgets it (the room lets nobody pick any more: round 1 started).
+ *
+ * So every press is answered once, whatever events the room sends and in whatever order, and no
+ * pick is sent for longer than the room takes to acknowledge an input.
+ */
+export function createLobbyPick() {
+	/** `{ respawn, from, refused }`: `from` is the first input that carried it (0: none yet). */
+	let pick;
+	return {
+		press(respawn) {
+			pick = { respawn, from: 0, refused: false };
+		},
+		input(seq) {
+			if (!pick || pick.refused) return 0;
+			pick.from ||= seq;
+			return pick.respawn;
+		},
+		answer(ack, playing) {
+			if (!pick || !(pick.from > 0 && ack >= pick.from)) return;
+			if (playing === pick.respawn) pick = undefined;
+			else pick.refused = true;
+		},
+		drop() {
+			pick = undefined;
+		},
+		get refused() {
+			return pick?.refused === true;
+		},
+		/** What it holds, or `null` (the probe's). */
+		held: () => (pick ? { ...pick } : null),
 	};
 }
 

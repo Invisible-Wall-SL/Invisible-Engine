@@ -98,6 +98,7 @@ A seed and the same keys replay the same game.
 - **Who a person plays is picked before the join.** A game whose art has a start menu (`online.ts`
   `START_MENU`) shows it to a launch carrying no character and joins with its answer (`launchJoin`):
   in no room meanwhile. A carried join or `?rooms_character=` joins at once (`check:room-lobby`).
+- **After the join a class changes only in place, through the room**, by an input's `respawn`: a caught person's Respawn, or a pick while a lobby waits and the state says `picking` (an older server never does: no buttons). The device reads its answer off the state that acknowledges the pick (`createLobbyPick`), not off events. A press on a screen's button over a game in play must not reach the pointer (`screens.takes`).
 - **Isometric is drawing only (P11.4).** No place moves; `IsoWorld` projects top-level layers and
   tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`);
   `arcade.online.keys: 'screen'` turns keys by `screenToWorldDirection` (`keysOf`).

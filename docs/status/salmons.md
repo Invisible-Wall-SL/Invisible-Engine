@@ -19,6 +19,114 @@ upload.
 
 ## Current state
 
+- **A class picked in the lobby (2026-11-25; owner: "I would like to add some UI to the waiting
+  room so that a player can change the played character"; in review; branch
+  `claude/upbeat-cray-fzmgxe`; runtime and game-server change; no config, layout or flow change;
+  live once the runtime release AND the game-server deploy of the merge are both out: Owner
+  steps).**
+  - **What a person sees.** While a new room waits, under "You are NAME, a CLASS": "Play as" and
+    a row of **Salmon / Fisherman / Bear**, the class the ROOM has the person as lit. A press asks
+    the room at once (no second button); the person is that class a moment later, in the same
+    room, at that class's start, and the line and the lit button follow. A class whose places are
+    all people's shows "No place left for that one: pick another" (the death screen's words)
+    under the row until the next press. The row stays through the countdown and goes with the
+    lobby when round 1 starts; round 1 starts with each person as what it picked.
+  - **In place, through the room.** Nobody leaves and joins again (the lobby's first form did,
+    until 2026-11-20). The room (`services/game-server` `roomSim.ts`) reads the `respawn` an
+    input already carries: in a game with a lobby, until round 1 starts (`engine-mechanics`
+    `onlineRules.js` `picking`: the wait and its countdown), a person's input that asks for a
+    class other than its own changes it by the rule a caught person's Respawn follows: a place of
+    that class (by shares: one a person has not taken; by count: under the class's `max`), the
+    newest bot of that class leaves, a bot is let back into the class left, a new body, a new
+    start, `respawned`; with no place, `respawnRefused` and nothing changes. A pick of its own
+    class does nothing (no move, no spawn turn burnt: a device sends its pick on several inputs).
+    A refused pick does not spend the input: the person moves on it as on any other. Once round
+    1 runs, `respawn` is read only for a caught person, as before. Bots never pick. A game with
+    no lobby and a 3D room play exactly as before.
+  - **No config field.** Every game with `rules.lobby` has the pick. `normalizeGameConfigDoc` is
+    untouched; nothing is uploaded, exported or published.
+  - **The room says so** (`schema.ts` `roomFields.picking`, so both `RoomState` and
+    `NearbyRoomState`): one more field in the state, true while its people may pick, written
+    only once it is true (a game with no lobby never sends it). The device offers the row only
+    while the state says so. So the new runtime in a room of an older game server draws the lobby
+    as it was, with no row: no button that does nothing.
+  - **A refusal is told once for each run of inputs that ask for the same class**
+    (`SimPlayer.refused`). A device sends what it asks on every input until it is answered, so
+    the inputs after a refused one ask again with no new press; an input that asks for nothing,
+    or for another class, ends the run, and the next refusal is told. **This replaced "once a
+    catch" for a caught person too** (`onlineRules.js` `refused` no longer keeps a note): a
+    second refused Respawn is now told again. Before, it got no answer: the death screen had
+    cleared its line on the press, and the device went on sending that Respawn.
+  - **The device** (`engine-mechanics` `online.js` `createLobbyPick`, wired in `apps/lines`
+    `online.ts` `drawScreens` and `tickOnline`): a press is sent as `respawn` on every input from
+    the press until the room acknowledges one that carried it (the own player's `ack`). The room
+    changes the class on the very input that asks, so the state that acknowledges it says the
+    answer too: the class asked for (done), or another (no place left: shown until the next
+    press, and nothing more is sent). The answer is read off the state alone, so it does not
+    depend on the room's events or on their order (events are sent after the patch). `drawScreens`
+    still zeroes the caught player's `respawn` while it is not out; the lobby's pick is its own
+    field. A pick still waiting when the room stops saying `picking` (round 1 started) is
+    dropped. One press rides at most 2 × the delay + 2 inputs (measured in the gate at 0, 1, 4
+    and 9 steps each way).
+  - **A press on a class is the screen's, not the game's.** People move and act in the lobby, and
+    the mouse and the fingers are read on the same canvas. A press that lands on a class
+    (`screens.ts` `takes`, the row's own hit test) never reaches the pointer tracker or the touch
+    control (`online.ts` `listenPointer`): it steers nothing, and its lift is no tap, so no
+    jump, swipe or cast, also in the step round 1 starts. The death screen needed none of this:
+    its player is out, and the room holds it.
+  - **Events: none new.** `respawned` and `respawnRefused` are reused, and their Flow
+    descriptions name the lobby (`engine-flow-v2` `reference/arcade.ts`). What `respawned` does
+    on a device in a lobby: the Flow signal is raised (Salmons' flow has no node on it; a flow
+    that plays something on `respawned` would play it for a lobby pick too); a class's sheet
+    that names an action on `respawned` plays it, as after a catch; the player's look is made
+    afresh for its class and the camera follows it to the new start. No float, no code-look
+    event, no screen. The bot that leaves and the bot let back in raise `left` and `joined`, as
+    for any respawn. `respawnRefused` raises its Flow signal; the device shows it only for a
+    caught player, since the lobby's answer is the state's.
+  - **On screen** (`engine-layout` `salmonsArt/screens.ts` `createLobbyNote`, in the published
+    node `sm-lobby-menu`): fixed px from the canvas's middle, under the two lines the note had
+    ("Play as" at +14, the row from +34, the refusal 20 px under the row), above the layout's
+    countdown (+210). The row is about 312 px wide in the playtest browser's monospace (the pixel
+    font is not shipped) and is drawn smaller on a canvas narrower than it plus 12 px a side, as
+    is the refusal's line, so both fit a 390 px phone with the pixel font too. Its buttons are
+    the death screen's (`choiceRow`, `pixelButton`), opaque, so they read over the river.
+  - **Either side alone.** A new game server with the old runtime: the old runtime never asks
+    and does not read `picking`; nothing changes on screen (not played here: the SDK decodes a
+    state by the schema the server sends, as the levels' fields showed). The new runtime with
+    the old game server: no row, the lobby as it was (played here with the room's `picking`
+    forced off, which is what an older room does with a lobby: the lobby's and the start menu's
+    own verdicts pass, the 7 that need the row fail, no page error).
+  - **Proof.** `pnpm check:room-lobby` 29 (was 16; 1 rewritten, 13 new): the pick changes the
+    class in place with the bots swapped; its own class and a class the game does not have are
+    no-ops against a room that never got the pick (events, places, spawn turns alike); a full
+    class refuses once a run, the same class again, another full class, and is let in once a
+    place opens; a caught person's second refused Respawn is told; a pick during the countdown,
+    and round 1 as picked; after round 1 and in a game with no lobby a free person's `respawn`
+    changes nothing against a room that never got it; the device's half played against the room
+    0, 1, 4 and 9 steps away (each press answered once, a change of mind, nothing sent after);
+    a pick waiting at round 1 dropped; a live Colyseus room with an SDK client (the state says
+    `picking`, a pick changes the class, a refusal, round 1 ends it; a game with no lobby never
+    sends the field); source pins on the note and on `online.ts`. Also `check:room-sim` 43,
+    `check:room-levels` 15, `check:room-size` 20, `check:room-bots` 56, `check:online-rules` 40
+    (no committed trace moved), `check:netcode` 28, `check:salmons-art` 33,
+    `check:salmons-levels` 18. `salmons-levels-play.mjs` 52 / 52 (was 41; 11 new verdicts, 3
+    reworded; [playtest/salmons](../playtest/salmons.md)): Fisherman pressed alone in a lobby,
+    Bear during the countdown, round 1 as picked, a click on a class not a tap on the river, and
+    on a 390 × 844 phone the row inside the window, Bear refused twice and Fisherman let in. Its
+    lobby and menu pages alone under `--netcode colyseus`: 25 / 25 (the SDK's prediction keeps
+    the same `ack`). Earlier samples on the same build: `salmons-play.mjs` 101 / 101 (the death
+    screen's Respawn among them) and `online-play.mjs` 20 / 20, engine netcode. Gate mutations:
+    no dedupe, a run that never ends, the own class respawning, a pick read after round 1 and a
+    refused pick spending the input each fail `check:room-lobby`.
+  - **Bytes** (`check:runtime-bytes`): `lines`, `match3` and `card` the same bytes. `arcade`
+    2,123,265 → 2,123,912 B gzip (+647: the bundle +302, the lazy Salmons art chunk +345),
+    `arcade3d` 2,632,006 → 2,632,689 (+683); both manifests re-recorded. `pnpm check:svelte`:
+    `apps/lines` 145 (baseline 145), `packages/engine-layout` 290 (baseline 290).
+  - **Not done.** A pressed button shows nothing until the room answers (a round trip; the death
+    screen's row is local and answers at once). A person may change class as often as its inputs
+    arrive while the lobby lasts, and each change swaps a bot: cheap, and bounded by the lobby's
+    length and the room's message limit, but no limit of its own was added. The countdown's
+    "STARTING IN" is the layout's own text and is hard to read over trees, as before.
 - **A device plays its room's levels: the picture is the collisions (2026-11-25; owner: "changing
   the seed generates a new level, but does not update collisions"; in review; branch
   `claude/zealous-darwin-t8xiyc`; runtime and game-server change, no config change; NOT live
@@ -729,9 +837,11 @@ upload.
     only when named; in a Salmons room the first swipe after his reaction time, each next one no
     sooner, replayed from the seed; a person's swipe landing on the press).
 - **A new room's lobby asks nothing (2026-11-20; owner: "continue with the rest", the second
-  form #1792 left; in review; branch `claude/eloquent-planck-00ayqg`; runtime change only)**:
-  who a person plays is asked once, on the start menu before the join (the bullet "The start menu
-  comes before the join", below). While a new room waits its lobby shows, under the layout's own
+  form #1792 left; in review; branch `claude/eloquent-planck-00ayqg`; runtime change only;
+  superseded in part on 2026-11-25: the lobby offers the class again, in place, the first bullet.
+  Still true: no name field, no Join River, no leaving for another choice)**:
+  who a person joins as is asked once, on the start menu before the join (the bullet "The start
+  menu comes before the join", below). While a new room waits its lobby shows, under the layout's own
   "Salmons!!!", tagline and "WAITING FOR PLAYERS": the room's river with the people in it ("2
   players in Sleepy Salmon River") and who the device plays ("You are Leo, a Salmon"); then the
   flow's countdown ("STARTING IN 16") and round 1, as before.
@@ -744,7 +854,8 @@ upload.
     done about them from a lobby.
   - **Accepted (owner):** a launch that carried its character (`?rooms_character=`, the win
     screen's "Join New Game") never saw the start menu and gets no menu in the lobby either: it
-    plays what it carried. The death screen still lets a caught player pick a class on Respawn.
+    plays what it carried (since 2026-11-25 it can change class on the lobby's row). The death
+    screen still lets a caught player pick a class on Respawn.
   - **Nothing uploaded**: the note is drawn in the node the published layout already has for the
     menu (`sm-lobby-menu`), so layout, flow and config are as published (the export from this
     branch is byte for byte `main`'s) and an older game server serves it the same. Live with the
@@ -1178,6 +1289,28 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**A class picked in the lobby (2026-11-25; once `claude/upbeat-cray-fzmgxe` merges). Nothing to
+upload, export or publish: no config, layout or flow changed.**
+
+1. **The merge does both halves, and one of them closes rooms**, as the next block says of its
+   own merge: it releases the arcade runtime and deploys the game server (this change touches
+   `services/game-server` and `packages/engine-mechanics`), and **the game-server deploy closes
+   every running room**. Merge when the rooms are quiet.
+2. **Either order is safe.** A new game server with the old runtime: nothing changes on screen.
+   The new runtime with the old game server: the lobby looks as it did, with no row of classes,
+   because the room does not yet say its people may pick. The row is live once both are out:
+   compare `rooms.invisiblewall.org/healthz`'s commit and the runtime's release with `main`.
+3. **To check it by hand:** open the published link when no river is running (the start menu
+   lists none), pick Salmon and Join River. The lobby shows "Play as" and Salmon / Fisherman /
+   Bear under "You are NAME, a Salmon", Salmon lit. Press Fisherman: the line reads "a
+   Fisherman", Fisherman is lit and the view moves to a bank. Wait for the countdown: round 1
+   starts with you as a fisherman. No row: the game server is still the old one (its `healthz`
+   commit), or the page still runs the old runtime (reload once).
+4. **"No place left" is rare in a real room.** A room of 100 has 60 salmon's, 25 fishermen's and
+   15 bears' places, and bots hold what people do not. It shows only when every place of a class
+   is a person's. To see it: a test room of 5 (`&room_size=5`, one bear's place) with two pages,
+   the first joined as a bear.
+
 **A device plays its room's levels (2026-11-25; once `claude/zealous-darwin-t8xiyc` merges).
 Nothing to upload, export or publish for the change itself.**
 
@@ -1487,8 +1620,8 @@ If it is not, the page still runs the old runtime (reload once), or its link car
 publish or to deploy by hand; it is live once the runtime release is out. To check it: open the
 published link when no river is running (the start menu lists none), pick a class and Join River:
 the lobby shows "1 players in … River" and "You are NAME, a CLASS" under "WAITING FOR PLAYERS",
-and no name field or buttons. If the form is still there the page runs the old runtime (reload
-once).
+and no name field or Join River (since 2026-11-25 a row of classes under it: the first block of
+these steps). If the form is still there the page runs the old runtime (reload once).
 
 **Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
 runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
@@ -2026,6 +2159,18 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-25 — **A class picked in the lobby** (owner: "add some UI to the waiting room so that a
+  player can change the played character"; branch `claude/upbeat-cray-fzmgxe`; in review). Under
+  the lobby's note, Salmon / Fisherman / Bear: a press changes the class in place, through the
+  room, by the Respawn's rule. `roomSim.ts` (`picked`, `respawnAs` answers, `SimPlayer.refused`),
+  `onlineRules.js` (`picking`; `refused` keeps no note), `schema.ts` and `arcadeRoom.ts` (the
+  state's `picking`), `online.js` (`createLobbyPick`), `online.ts` (the pick, its answer off the
+  state, the press kept from the pointer; the probe's `pick` and `buttons`), `salmonsArt/screens.ts`
+  (the row, the refusal, `takes`), the Flow descriptions of `respawned` and `respawnRefused`. A
+  refusal is told once a run of inputs, not once a catch, so a caught person's second refused
+  Respawn is answered too. `check:room-lobby` 16 → 29; `salmons-levels-play.mjs` 41 → 52. Detail
+  and proof in Current state; the merge's deploy closes running rooms: Owner steps.
 
 - 2026-11-25 — **A device plays its room's levels** (owner: "changing the seed generates a new
   level, but does not update collisions"; branch `claude/zealous-darwin-t8xiyc`; in review). The

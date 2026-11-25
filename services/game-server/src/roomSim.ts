@@ -78,6 +78,20 @@ import type { ArcadeBrain, ArcadeOnlineCharacter, OnlineGame } from 'game-config
  * character it picked (`1 +` its index in `online.characters`). It comes back as that character,
  * at that character's spawn, if the character has a place (its own always has), taking a bot's place
  * when only bots fill it; else it stays out and is told (`respawnRefused`).
+ *
+ * A PICK IN THE LOBBY (`rules.lobby`): while the room waits for its first round, the countdown
+ * included (`rules.picking`), a person's input that carries `respawn` for a character other than
+ * its own changes what it plays in place, by the Respawn's rule: the place, the bot it takes it
+ * from, the bot let back into the class it left, its new body and start, or the refusal. A pick
+ * of its own character does nothing, so a device may send its pick on several inputs; neither
+ * does one that names no character. A refused pick does not spend the input: the person moves on
+ * it as on any other. Once round 1 runs a pick is read only as a caught person's Respawn. A bot
+ * never picks.
+ *
+ * A REFUSAL IS TOLD ONCE FOR EACH RUN of a person's inputs that ask for the same character: a
+ * device sends what it asks on every input until it hears the answer, so the inputs after a
+ * refused one ask again with no new press. An input that asks for nothing, or for another
+ * character, ends the run, and the next refusal is told again.
  */
 
 /** Inputs a step leaves waiting (a cushion against jitter), and the most it applies at once. */
@@ -110,6 +124,9 @@ export type SimPlayer = RulesPlayer & {
 	credit: number;
 	/** Where it (re)spawns, unless its character spawns at random (`randomSpawn`). */
 	home: { x: number; y: number };
+	/** The `respawn` its last input asked and the room refused (0: none): the same asked again by
+	 *  the next input is not told again. */
+	refused: number;
 };
 
 export type JoinOptions = {
@@ -280,23 +297,28 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		return homes?.length ? homes[n % homes.length] : online.spawn;
 	};
 
-	/** A caught person's Respawn as `online.characters[pick - 1]` (none such: as it was). */
-	const respawnAs = (player: SimPlayer, pick: number, stamp: number) => {
-		const character = online.characters[pick - 1] ?? player.character;
+	/** A person back at its start as `character`, which its input's `respawn` (`pick`) named: a
+	 *  caught person's Respawn, or a pick in the lobby. False when the character has no place left:
+	 *  the person stays as it was and is told, once for each run of inputs asking the same. */
+	const respawnAs = (
+		player: SimPlayer,
+		character: ArcadeOnlineCharacter,
+		pick: number,
+		stamp: number,
+	): boolean => {
+		const refuse = () => {
+			if (player.refused !== pick) rules.refused(player);
+			player.refused = pick;
+			return false;
+		};
 		if (places && character.id !== player.character.id) {
-			if (!openTo(character)) {
-				rules.refused(player);
-				return;
-			}
+			if (!openTo(character)) return refuse();
 			const evict = newestBot(character.id);
 			if (evict) removeBot(evict);
 			refill = true;
 		} else if (character.id !== player.character.id && !hasPlace(character)) {
 			const evict = newestBot(character.id);
-			if (!evict) {
-				rules.refused(player);
-				return;
-			}
+			if (!evict) return refuse();
 			removeBot(evict);
 			refill = true;
 		}
@@ -305,7 +327,27 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 			player.body = characterBody(player.id, game.bodies[character.body], player.body);
 		}
 		player.home = homeOf(character);
+		player.refused = 0;
 		rules.respawned(player, stamp);
+		return true;
+	};
+
+	/**
+	 * What a person's input asks with its `respawn` (`pick`; 0: nothing): a caught person's Respawn
+	 * as `online.characters[pick - 1]` (none such: as it was), or, while a lobby waits, that
+	 * character to play in place of its own. True when the input was spent on it: the person
+	 * stands for this input, and moves from the next.
+	 */
+	const picked = (player: SimPlayer, pick: number, stamp: number): boolean => {
+		if (player.refused !== pick) player.refused = 0;
+		if (!pick) return false;
+		const character = online.characters[pick - 1];
+		if (rules.awaitsRespawn(player)) {
+			respawnAs(player, character ?? player.character, pick, stamp);
+			return true;
+		}
+		if (!rules.picking || !character || character.id === player.character.id) return false;
+		return respawnAs(player, character, pick, stamp);
 	};
 
 	const addPlayer = (
@@ -326,6 +368,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 			ack: 0,
 			credit: 0,
 			home,
+			refused: 0,
 			score: 0,
 			status: 0,
 			until: 0,
@@ -496,9 +539,8 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				} else player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) {
 					player.ack = input.seq;
-					// The Respawn is this input: it comes back standing, and moves from the next.
-					if (input.respawn && !player.bot && rules.awaitsRespawn(player)) {
-						respawnAs(player, input.respawn, stamp);
+					// The Respawn, or the lobby's pick, is this input: it comes back standing.
+					if (!player.bot && picked(player, input.respawn ?? 0, stamp)) {
 						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 						player.moving = false;
 						continue;

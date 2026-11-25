@@ -66,11 +66,12 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   game won (`gameWon`: the big fish, "You Won!" or "NAME won!!!", eggs on the winner's device, a
   button that leaves for a new room, the winner with its pass), the lobby's note while a new room
   waits (the room's river with the people in it, "You are NAME, a CLASS"; no form since
-  2026-11-20) and the loading phrases; over the own catcher, "you catch NAME!". The start menu
+  2026-11-20; since 2026-11-25 a row of Salmon / Fisherman / Bear under it, which changes the
+  class in place) and the loading phrases; over the own catcher, "you catch NAME!". The start menu
   (name, Salmon / Catcher, Fisherman / Bear, Join River, the river list once the server lists
   rooms) comes first of all, before the join (2026-11-19), for a launch that carries no
   character: drawn in the page, and the device is in no room until Join River. It is the only
-  place that asks. With `arcade.online.keys: 'screen'` (Salmons' config), on the
+  place that asks a name. With `arcade.online.keys: 'screen'` (Salmons' config), on the
   isometric screen the keys are the screen's (Up straight up,
   diagonals no faster; up the river is Up + Right until the world is mirrored); Space swipes a bear
   and does nothing for a fisherman; J casts four cells ahead into the water.
@@ -128,14 +129,34 @@ the top and tapped on there (since 2026-11-18), it swims over, drawn nose up in 
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
 about 4 s, 133 MB, 24 fps).
 
-**The lobby asks nothing** (2026-11-20, the same run): a page joins `salmons-lobby` (no bots, a
+**The lobby has no form** (2026-11-20, the same run): a page joins `salmons-lobby` (no bots, a
 lobby that needs two people) and waits on the lobby screen with no countdown; under the layout's
 title its note reads "1 players in … River" and "You are Lia, a Salmon", and there is no form:
-nothing drawn in the canvas to fill in or press (the probe's `online.screens` has a `lobby` note
-and no `menu`), no text field on the page and no start menu over it (`lobby-waiting.png`). A
-second page starts the countdown; both notes then count 2 people in the one river
-(`lobby-countdown.png`). When it ends round 1 starts and both pages drop the lobby and its note.
-On a runtime that still draws the form in the lobby the note's two verdicts fail.
+no menu drawn in the canvas (the probe's `online.screens` has a `lobby` note and no `menu`), no
+text field on the page and no start menu over it (`lobby-waiting.png`). A second page starts the
+countdown; both notes then count 2 people in the one river (`lobby-countdown.png`). When it ends
+round 1 starts and both pages drop the lobby and its note. On a runtime that still draws the form
+in the lobby the note's two verdicts fail.
+
+**A class picked in the lobby** (2026-11-25, the same run and the same pages; 11 verdicts).
+Under the note the first page has "Play as" and a row of Salmon, Fisherman and Bear inside its
+1280 × 720 window, Salmon lit (the probe's `online.screens.lobby` gains `choice`, `refused` and
+`buttons`, each button's centre on the canvas). A click beside the row is a tap for the game (the
+probe's `online.buttons`, the last input's, shows a press within 16 frames) and a click on Salmon,
+the class it plays, is not, and changes nothing. It clicks Fisherman: the note reads "You are
+Lia, a Fisherman" with Fisherman lit, the room has it as a fisherman, drawn as one
+(`lobby-picked.png`), in the same room, still waiting, with one `respawned`, no leave or join of
+its own, and nothing more asked (`online.pick` is `null`). The second page clicks Bear during the
+countdown and is a bear, the countdown going on (`lobby-countdown-picked.png`). Round 1 starts
+with the two as a fisherman and a bear, drawn as such. Then two more pages join
+`salmons-lobby-full` (no bots, one bear's place, no start before three people): a bear, and a
+390 × 844 phone as a salmon. On the phone the row fits the window (`lobby-phone.png`). It taps
+Bear: "No place left for that one: pick another" shows under the row and it stays a salmon
+(`lobby-phone-refused.png`; `online.pick.refused`, one `respawnRefused`); it taps Bear again and
+the room says so again; it taps Fisherman, is a fisherman, and the line goes
+(`lobby-phone-picked.png`). No page error. On a runtime from before the pick the note has no
+`buttons` and these fail; on a game server from before it the room never says `picking`, the
+note draws no row, and they fail the same way.
 
 **The start menu before the join** (2026-11-19, the same run): those two pages have started
 `salmons-lobby` and its lobby is over. A page then opens the game as the published link does, with no
@@ -148,7 +169,8 @@ keys and shows no lobby (`joined-as-fisherman.png`). Another page picks Bear and
 and the room gains nobody meanwhile. A page whose last page carried its join (`ie:rooms:next-join`
 with a name and `bear`) plays at once with no menu. Last, a page comes through the menu (Bear)
 into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen, whose note says what
-was picked ("You are NAME, a Bear") and which does not ask again (`menu-then-lobby.png`). On a
+was picked ("You are NAME, a Bear", Bear lit in its row) and which draws no second form
+(`menu-then-lobby.png`). On a
 runtime without the menu the first two verdicts fail and a third says its choices could not be
 played.
 
@@ -177,7 +199,7 @@ salmon is in it. It steps until it hears `gameWon` (about 100 s; at most
 (`SALMONS_BOT_NAMES`, no "bot" in it), not the page; its win screen comes up (`salmonsWon` in
 the flow) titled "NAME won!!!", with no eggs and no "You Won!" (`bot-won.png`);
 no page error. The measure prints how long it took (`botWinSeconds`). On a server from before (a
-bot at the source sent home), the first verdict times out. 41 verdicts in all.
+bot at the source sent home), the first verdict times out. 52 verdicts in all.
 
 Add `--netcode colyseus` to this run too (2026-11-20): its pages then play the Colyseus SDK's own
 prediction, and the view's pages must report it.
@@ -213,7 +235,8 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt. Caught, the death scre
 the catcher's name. Opened with no `rooms_character` (as the published link is), the start menu
 comes first whatever the room is doing: a name, Salmon or Catcher (Fisherman or Bear), Join River;
 a reload asks again. In a new room the lobby then shows the river, the people in it and who you
-are while the room waits, and asks nothing more (2026-11-20).
+are while the room waits, with Salmon / Fisherman / Bear under it: press one and you are that,
+there and then, until round 1 starts (2026-11-25).
 
 ## A room of another size (`room_size`)
 

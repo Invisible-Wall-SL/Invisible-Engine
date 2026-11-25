@@ -21,6 +21,8 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * with a generator the state carries what the level was made from and a check on the result: the
  * seed, the levels the room's generator read for it (`levels`) and a fingerprint of the level it
  * made (`levelHash`). A device makes the room's level from the first two and holds it to the third.
+ * A game with a lobby also says, until its first round starts, that its people may change the
+ * character they play (`picking`).
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
  * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
@@ -41,9 +43,10 @@ export const Input = schema({
 	aimY: t.float32(),
 	/** The room step the device was drawing everyone else at (lag compensation, P10.15). */
 	view: t.uint32(),
-	/** A caught player's Respawn, as `1 +` the index of the character it picked in
-	 *  `arcade.online.characters` (0: none). Read only while the room waits for it (`rules.respawn:
-	 *  'manual'`); a device may send it on every input until it is back. */
+	/** The character a person asks to play, as `1 +` its index in `arcade.online.characters` (0:
+	 *  none): a caught player's Respawn, read only while the room waits for it (`rules.respawn:
+	 *  'manual'`), or a pick in the lobby, read only until round 1 starts (`RoomState.picking`). A
+	 *  device may send it on every input until it is answered. */
 	respawn: t.uint8(),
 	/** What the device's screen shows about its own player, whole px (`engine-mechanics`
 	 *  `shown.js`; 0 × 0: it says nothing): world x / y extents (`shownIso` 0), or a 2:1 isometric
@@ -113,6 +116,12 @@ const roomFields = {
 	winner: t.string(),
 	/** The last round's winner's name (a far winner is not in a nearby device's view). */
 	winnerName: t.string(),
+	/** Whether a person may change the character it plays in place now (`engine-mechanics`
+	 *  `OnlineRules.picking`: a game with a lobby, until its first round starts): a device offers the
+	 *  pick only while the room says so. Written only once it is true, so a game with no lobby never
+	 *  sends it, and a server older than it leaves it unset: no device offers a pick there. Like
+	 *  `levels` below, a runtime older than it reads every other field as before. */
+	picking: t.boolean(),
 	/** The room's seed (P11.2 (e)): a device makes the room's own field from it with the same
 	 *  generator the server ran (`engine-mechanics` `generatedOnlineGame`). */
 	seed: t.uint32(),

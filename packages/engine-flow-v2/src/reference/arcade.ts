@@ -243,14 +243,14 @@ const ONLINE_EVENTS: EventDecl[] = [
 		],
 		category: 'book',
 		description:
-			'Online (`rules.respawn: manual`): a caught player pressed Respawn and is back, as the character it picked.',
+			'Online: a player is back at its spawn as the character it picked. A caught player pressed Respawn (`rules.respawn: manual`), or a person changed character in the lobby, before the first round (`rules.lobby`).',
 	},
 	{
 		name: 'respawnRefused',
-		payload: [PLAYER('The player still out.'), ME('It is this device’s player.')],
+		payload: [PLAYER('The player, as it was.'), ME('It is this device’s player.')],
 		category: 'book',
 		description:
-			'Online (`rules.respawn: manual`): the character a caught player picked has no place left; it stays out.',
+			'Online: the character a player picked has no place left. A caught player stays out (`rules.respawn: manual`); a person in the lobby keeps the character it had (`rules.lobby`).',
 	},
 	{
 		name: 'lobby',

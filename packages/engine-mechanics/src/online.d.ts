@@ -19,8 +19,8 @@ export type OnlineInput = {
 	aimY: number;
 	/** The room step the device was drawing everyone else at. */
 	view: number;
-	/** A caught player's Respawn: `1 +` the index of the character it picked in
-	 *  `arcade.online.characters`, 0 or absent for none. */
+	/** A caught player's Respawn, or a pick in the lobby: `1 +` the index of the character it
+	 *  picked in `arcade.online.characters`, 0 or absent for none. */
 	respawn?: number;
 	/** What the device's screen shows about its own player (`shown.js` `shownOf`): two sizes in
 	 *  whole px and a `SHOWN_SHAPE`. All 0, or absent: nothing. Never read by the step. */
@@ -114,6 +114,24 @@ export function launchJoin(
 	launch: { name?: string | null; character?: string | null },
 	hasMenu: boolean,
 ): { join: LaunchJoin; choose: boolean };
+/** A person's pick of another character in the lobby, on its device: sent as inputs' `respawn`
+ *  until the room acknowledges one, and answered by the state that does. */
+export type LobbyPick = {
+	/** The person pressed the character `respawn` counts (`1 +` its index). */
+	press(respawn: number): void;
+	/** The `respawn` input `seq` carries: the pick while it waits for its answer, else 0. */
+	input(seq: number): number;
+	/** A state of a room that lets its people pick: the newest input it applied for the own
+	 *  player, and the character it has the player as (counted as `respawn` is). */
+	answer(ack: number, playing: number): void;
+	/** The room lets nobody pick any more: the pick is forgotten. */
+	drop(): void;
+	/** The room answered the last press with another character: no place was left. */
+	readonly refused: boolean;
+	/** What it holds, or `null` (the probe's). */
+	held(): { respawn: number; from: number; refused: boolean } | null;
+};
+export function createLobbyPick(): LobbyPick;
 export function characterBody(
 	id: string,
 	spec:

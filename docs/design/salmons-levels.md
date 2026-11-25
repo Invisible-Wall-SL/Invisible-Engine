@@ -148,6 +148,54 @@ rounds, **straight to the next round** (the lobby is only before the first).
   `scripts/playtest/salmons-levels-play.mjs` (two browsers: the lobby screen, then its countdown on
   both, then round 1 with both gone).
 
+### 4.1 A class picked in the lobby (built 2026-11-25)
+
+Owner (2026-11-25): "add some UI to the waiting room so that a player can change the played
+character". The lobby's first form (2026-11-17 to 2026-11-20) left the room and joined again as
+the new choice. This one changes the class **in place, through the room**: nobody leaves.
+
+- **The room** (`services/game-server` `roomSim.ts`, `engine-mechanics` `onlineRules.js`
+  `picking`): in a game with a lobby, until round 1 starts (the countdown included), a person's
+  input that carries `respawn` for a class other than its own changes its class by the rule a
+  caught person's Respawn already follows: a place of that class (by shares: one a person has not
+  taken; by count: under the class's `max`), the newest bot of that class leaves, a bot is let
+  back into the class left, a new body and a new start, `respawned`; or, with no place,
+  `respawnRefused` and nothing changes. A pick of its own class does nothing (no move, no spawn
+  turn), so a device may send its pick on several inputs. A refused pick does not spend the input:
+  the person moves on it. Once round 1 runs, `respawn` is read only for a caught person, as before.
+  Bots never pick. A game with no lobby, and a 3D room, are untouched.
+- **No config field.** Every game with `rules.lobby` has it. Nothing is added to the Game Config,
+  the layout or the flow; the note is drawn in the node the published layout already has.
+- **The room says so** (`schema.ts` `roomFields.picking`): the state carries one more field, true
+  while its people may pick, written only by a game with a lobby. A device offers the classes only
+  while the state says so, so on a game server older than the pick the lobby looks as it did, and
+  no button does nothing.
+- **A refusal is told once for each run of inputs that ask for the same class.** A device sends
+  what it asks on every input until it is answered, so the inputs after a refused one ask again
+  with no new press; an input that asks for nothing, or for another class, ends the run. This
+  replaced "once a catch" for a caught person too: a second refused Respawn is told again.
+- **The device** (`engine-mechanics` `createLobbyPick`, wired in `apps/lines` `online.ts`): a
+  press is sent as `respawn` on every input until the room acknowledges one that carried it
+  (`ack`). The room changes the class on the very input that asks, so the state that acknowledges
+  it says the answer: the class asked for, or another (no place left). The device reads the answer
+  off the state alone, whatever events arrive and in whatever order, shows a refusal until the
+  next press, and sends nothing after the answer. A pick still waiting when the room stops saying
+  `picking` (round 1 started) is dropped.
+- **On screen** (`engine-layout` `salmonsArt/screens.ts` `createLobbyNote`): under "You are NAME, a
+  CLASS", "Play as" and a row of Salmon, Fisherman, Bear, the one the ROOM has the device as lit. A
+  press asks at once; there is no second button. A refused pick shows the death screen's "No place
+  left for that one: pick another" under the row. The row is drawn smaller on a canvas narrower
+  than it. It stays through the countdown, which the flow shows over the same lobby screen.
+- **A press on a class is the screen's.** The pointer and the touch control never see it
+  (`online.ts` `listenPointer`, by the note's own hit test), so it steers nothing and is no tap,
+  jump, swipe or cast, also in the step round 1 starts.
+- **Events.** No new event: `respawned` and `respawnRefused`, whose Flow descriptions now name
+  the lobby. Salmons' flow has no node on either.
+- **Proof**: `pnpm check:room-lobby` (29 checks: the room's rule, the device's half played against
+  the room 0, 1, 4 and 9 steps away, a live Colyseus room with an SDK client) and the lobby pages
+  of `salmons-levels-play.mjs` (a class pressed alone, during the countdown, round 1 as picked, a
+  refusal on a 390 × 844 phone).
+
 ## 5. The river's shape and waterfalls, from the config (built 2026-11-24)
 
 Owner (2026-11-24): the waterfalls are "not getting as tall as I expect", and the river needs
