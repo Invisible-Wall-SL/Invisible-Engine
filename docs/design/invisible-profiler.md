@@ -205,6 +205,10 @@ Each step is one PR, usable on its own.
 4. **Studio default budgets:** phone 60 fps idle and ≥ 50 spinning (p95 ≤ 25 ms), desktop 60 / 60;
    shipped ≤ 25 MB; GPU ≤ 150 MB on phones. A project can override any of them.
 5. **Phones from an online service** — see "Cloud phones" below.
+6. **P7 parked (owner, 2026-11-25):** the studio has BrowserStack **Live** (manual, one user), not
+   Automate. Cloud phones are tested by hand through an ordinary capture session, so their
+   readings land in the Profiler like any phone's. The scripted plan below waits for an Automate
+   plan with mobile devices.
 
 ## Cloud phones — real devices from an online service (P7)
 

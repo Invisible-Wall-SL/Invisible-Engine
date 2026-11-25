@@ -71,6 +71,23 @@ the readout gets a **Send** button and the reading goes straight to the project'
 A game opened with `?perf=1` but without a capture link shows no **Send** button and sends nothing.
 Players never load the readout at all.
 
+### Capture on a cloud phone (BrowserStack Live)
+
+BrowserStack Live lends you a real phone in a browser tab, so you can measure phones nobody on
+the team owns. A cloud phone cannot scan a QR code, so you give it the link instead:
+
+- In **New capture**, type the phone as the **Device label** (for example "BS Live · Galaxy
+  S25"), click **Open capture** and click **Copy link** under **As shipped**.
+- In BrowserStack Live, pick the phone and its browser (Chrome on Android, Safari on iPhone).
+  When it has started, type or paste the link into the phone's address bar (the toolbar's
+  clipboard button sends your computer's clipboard to the phone).
+- Play as in steps 4–5 with the mouse, then tap **Send**. The reading arrives in **Readings**.
+- For another phone, click **New session** with a new label, so each phone's readings carry its
+  name.
+
+The phone is real, so its fps counts like any phone's. Keep the phone screen at its normal
+size in Live, and play each phase a few seconds (Devices needs 120 frames a phase).
+
 ### Paste a reading from a delivery
 
 7. A delivery runs on a partner's page, and nothing can be sent from there. Open it with `?perf=1`,
@@ -344,7 +361,8 @@ The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Dev
 budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug") and P6 ("Lab runs") are done.
 Planned in [the design](../design/invisible-profiler.md), not built yet:
 
-- **Cloud phones** from an online device service (P7).
+- **Scripted cloud phones** (P7), parked: they need a BrowserStack Automate plan. Cloud phones
+  are tested by hand today (see **Capture on a cloud phone** above).
 
 Today:
 

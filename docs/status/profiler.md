@@ -20,7 +20,8 @@ project's readings and builds give a ranked list of what to cut — severity, a 
 "unmeasured"), the owner, the evidence — on a **Findings** tab, and **Compare** puts any two
 readings side by side. Step **P5 "File as bug" built 2026-11-18**: each finding opens Bug Reports'
 own form filled in — a game or a pipeline bug, its area from the owner — once per finding, and the
-readings and builds it cites are kept while the bug exists. P7 is planned.
+readings and builds it cites are kept while the bug exists. **P7 parked 2026-11-25**: the owner
+tests cloud phones by hand on BrowserStack Live, through an ordinary capture session.
 
 ## Current state
 
@@ -349,10 +350,17 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
    its finding. Left open: a filed bug is a snapshot (its text is not updated, and it is not resolved
    when the finding drops out); a deleted bug leaves its evidence kept; there is still no "dismissed"
    state for a finding nobody will fix.
-9. **P7 — Cloud phones:** the lab script on an online real-device service, calibrated first.
+9. **P7 — Cloud phones (parked 2026-11-25).** The owner chose BrowserStack **Live** (manual, one
+   user) over Automate: phones are tested by hand through a capture session's **Copy link** (see
+   the guide, "Capture on a cloud phone"). The scripted run needs an Automate plan with mobile
+   devices and the `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY` Actions secrets; the lab
+   script already takes a Playwright-shaped page, so the adapter is the only missing piece.
 
 ## Recent changes
 
+- 2026-11-25 — **P7 parked**: the owner bought BrowserStack Live, not Automate; cloud phones are
+  captured by hand. The guide gains "Capture on a cloud phone"; the owner blocker is gone from
+  `docs/STATUS.md`.
 - 2026-11-18 — **P5 "File as bug" built**: `profilerFindings/bug.ts` (list, area, text),
   `profiler/findingBugs.ts` + `findingBugLink.ts` (draft, filing, link, Keep), `perf_finding_bugs`
   - migration 0047, `insertBug`'s `within` hook, the Bug column on Findings, the prefill on
