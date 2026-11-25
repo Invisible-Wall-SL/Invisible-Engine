@@ -655,23 +655,7 @@ for (const [project, base] of [
 }
 
 {
-	const { SALMONS_REGIONS, SALMONS_DRAWN_TILES } =
-		await import('../../../packages/engine-layout/src/lib/salmonsArt/regions.ts');
-	const { SALMONS_BUILT_IN_ZONE_ART, zoneArtDefault } = cardEdits;
-	const known = new Set<string>([...Object.values(SALMONS_REGIONS).flat(), ...SALMONS_DRAWN_TILES]);
-	const named = Object.values(SALMONS_BUILT_IN_ZONE_ART).flatMap((b) =>
-		b.pictures.map(([, region]) => region),
-	);
-	ok(
-		'9. every built-in default names a region Salmons draws',
-		named.every((r) => known.has(r)),
-		named.filter((r) => !known.has(r)).join(', '),
-	);
-	eq(
-		'9. the defaults cover exactly the families Salmons draws',
-		Object.keys(SALMONS_BUILT_IN_ZONE_ART).sort(),
-		[...gc.SALMONS_DRAWN_ZONE_FAMILIES].sort(),
-	);
+	const { zoneArtDefault } = cardEdits;
 	const props = `invisible_wall/salmons/manifests/${gc.salmonsProjectManifestName('salmons_props')}`;
 	eq(
 		'9. a Salmons rock shows its 9 built-in rocks from the project sheet',

@@ -8,10 +8,10 @@ import {
 	zoneFamilyOf,
 	type GameConfigDoc,
 	type ZoneArt,
-	type SalmonsProjectSheet,
 	type ZoneArtSource,
 } from 'game-config';
 
+import { SALMONS_BUILT_IN_ZONE_ART } from './zoneArtBuiltIn';
 import { countBy } from './zones';
 
 /**
@@ -141,39 +141,9 @@ export function clipThumbRef(clip: { assetKey: string; firstFrame: string } | un
 }
 
 /** What a family with no zone art draws today: a line for it, and its pictures as scoped refs. */
+export { SALMONS_BUILT_IN_ZONE_ART };
+
 export type ZoneArtDefault = { label: string; thumbs: string[] };
-
-type BuiltIn = { label: string; pictures: [SalmonsProjectSheet, string][] };
-const { props, terrain, waterfall_face, cliff } = SALMONS_PROJECT_SHEETS;
-
-/**
- * What Salmons' own drawing code (`engine-layout` `salmonsArt/river.ts`) draws for each family it
- * draws, by the built-in region names its project sheets keep. `check:zone-art` holds every name
- * to `SALMONS_REGIONS` and every family to `SALMONS_DRAWN_ZONE_FAMILIES`.
- */
-export const SALMONS_BUILT_IN_ZONE_ART: Readonly<Record<string, BuiltIn>> = {
-	'rock#': {
-		label: 'Built-in rocks, one of 9 per rock',
-		pictures: Array.from({ length: 9 }, (_, i): [SalmonsProjectSheet, string] => [
-			props,
-			`rock_${i}`,
-		]),
-	},
-	'whirlpool#': { label: 'Built-in whirlpool, 4 frames', pictures: [[props, 'whirlpool_0']] },
-	'waterfall#': {
-		label: 'Built-in lip, splash, face and cliff',
-		pictures: [
-			[props, 'waterfall_lip_0'],
-			[props, 'waterfall_splash_0'],
-			[waterfall_face, 'waterfall_face'],
-			[cliff, 'cliff'],
-		],
-	},
-	'sandbank#': { label: 'Built-in sand tiles', pictures: [[terrain, 'sand_c']] },
-	'bridge#': { label: 'Built-in placeholder bridge, drawn in code', pictures: [] },
-	source: { label: 'Built-in river water and forest', pictures: [] },
-	sea: { label: 'Built-in sea water', pictures: [] },
-};
 
 /**
  * What `family` draws with no entry: Salmons' built-in art for a Salmons generator (its pictures
@@ -196,7 +166,7 @@ export function zoneArtDefault(
 		}),
 	);
 	const thumbs = builtIn.pictures.flatMap(([sheet, region]) => {
-		const key = keyOf.get(sheet);
+		const key = keyOf.get(SALMONS_PROJECT_SHEETS[sheet]);
 		return key ? [`${key}::${region}`] : [];
 	});
 	return { label: builtIn.label, thumbs };

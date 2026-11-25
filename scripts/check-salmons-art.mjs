@@ -39,12 +39,14 @@ import {
 } from '../packages/engine-layout/src/lib/salmonsArt/regions.ts';
 import {
 	SALMONS_ART_GENERATORS,
+	SALMONS_DRAWN_ZONE_FAMILIES,
 	SALMONS_PROJECT_SHEETS,
 	salmonsProjectManifestName,
 	salmonsProjectSheetOf,
 	usesSalmonsArt,
 } from '../packages/game-config/src/salmonsProjectArt.ts';
 import { ONLINE_GENERATOR_IDS } from '../packages/game-config/src/family.ts';
+import { SALMONS_BUILT_IN_ZONE_ART } from '../apps/launcher-api/src/routes/(app)/config/zoneArtBuiltIn.ts';
 import { salmonsProjectArtPlan } from './salmons/project-art.mjs';
 import {
 	BLOOD,
@@ -1151,6 +1153,22 @@ check(
 		assert.match(
 			readFileSync(join(ROOT, 'packages/pixi-svelte/src/lib/elementFx/index.ts'), 'utf8'),
 			/export \{ VERTEX as FILTER_VERTEX, programLinks, type ElementFxFilter \} from '\.\/shaders';/,
+		);
+	},
+);
+
+check(
+	"/config's Zone art Default shows only regions the art draws, for the families it draws",
+	() => {
+		const known = new Set([...Object.values(SALMONS_REGIONS).flat(), ...SALMONS_DRAWN_TILES]);
+		for (const [family, { pictures }] of Object.entries(SALMONS_BUILT_IN_ZONE_ART))
+			for (const [sheet, region] of pictures) {
+				assert.ok(sheet in SALMONS_PROJECT_SHEETS, `${family}: no sheet ${sheet}`);
+				assert.ok(known.has(region), `${family}: ${region} is not drawn`);
+			}
+		assert.deepEqual(
+			Object.keys(SALMONS_BUILT_IN_ZONE_ART).sort(),
+			[...SALMONS_DRAWN_ZONE_FAMILIES].sort(),
 		);
 	},
 );
