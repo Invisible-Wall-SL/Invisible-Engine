@@ -21,6 +21,7 @@ import {
 	type RulesPlayer,
 	type StepContext,
 } from 'engine-mechanics';
+import type { SalmonsRiver } from 'engine-mechanics/src/salmons.js';
 import type { ArcadeBrain, ArcadeOnlineCharacter, OnlineGame } from 'game-config';
 
 /**
@@ -125,6 +126,10 @@ export type RoomSim = {
 	readonly game: OnlineGame;
 	/** The room's seed: its bots' brains and its generated field, so a room replays from it. */
 	readonly seed: number;
+	/** What its generator made from the seed, which {@link game}'s field is; `undefined` when the
+	 *  config names none. The room's state says its fingerprint (`engine-mechanics`
+	 *  `roomLevelState`). */
+	readonly made: SalmonsRiver | undefined;
 	readonly ctx: StepContext;
 	readonly players: ReadonlyMap<string, SimPlayer>;
 	readonly steps: number;
@@ -151,7 +156,7 @@ export type RoomSimOptions = {
 
 export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}): RoomSim {
 	const seed = options.seed ?? Math.floor(Math.random() * 0x7fffffff);
-	const { game } = generatedOnlineGame(authored, seed);
+	const { game, made } = generatedOnlineGame(authored, seed);
 	const { online, field } = game;
 	const bots = new Map<string, OnlineBot>();
 	let botsMade = 0;
@@ -417,6 +422,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 	return {
 		game,
 		seed,
+		made,
 		ctx,
 		players,
 		get steps() {

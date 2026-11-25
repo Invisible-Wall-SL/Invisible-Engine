@@ -518,6 +518,45 @@ export function levelOverlay(levels, seed) {
 	};
 }
 
+/** An overlay's entries in one form (a cell, then what is laid on it), its empty lists left out;
+ *  `undefined` for one that lays nothing. */
+function overlayRead(overlay) {
+	const cell = ([gx, gy]) => [gx, gy];
+	const add = (overlay?.add ?? []).map((a) => ({
+		cell: cell(a.cell),
+		kind: a.kind,
+		...(a.height === undefined ? {} : { height: a.height }),
+	}));
+	const remove = (overlay?.remove ?? []).map(cell);
+	const set = (overlay?.set ?? []).map((s) => ({ cell: cell(s.cell), height: s.height }));
+	if (!add.length && !remove.length && !set.length) return undefined;
+	return {
+		...(add.length ? { add } : {}),
+		...(remove.length ? { remove } : {}),
+		...(set.length ? { set } : {}),
+	};
+}
+
+/**
+ * A config's `levels` as the level of `seed` reads them, in ONE form that is itself a config's
+ * `levels`: the shape ({@link levelShape}) and, under `'*'`, the one overlay laid on that level
+ * ({@link levelOverlay}); no pinned seeds, and no part that says nothing. Read again it is itself
+ * and makes the same level, and two configs whose forms are equal as JSON make the same level of
+ * `seed`. It is what a room tells its devices and a device plays in place of its own config's
+ * (`onlineGenerators.js` `roomLevelGame`): `river`, `waterfalls`, `overlays`, each present only
+ * when the config says something of it.
+ */
+export function seedLevels(levels, seed) {
+	const shape = levelShape(levels);
+	const falls = shape?.waterfalls;
+	const overlay = overlayRead(levelOverlay(levels, seed));
+	return {
+		...(shape?.river ? { river: shape.river } : {}),
+		...(falls && Object.keys(falls).length ? { waterfalls: falls } : {}),
+		...(overlay ? { overlays: { '*': overlay } } : {}),
+	};
+}
+
 /** Rows of world above the river's first column (the source) and below its last (the sea). */
 const SOURCE_ROWS = 5;
 const SEA_ROWS = 6;

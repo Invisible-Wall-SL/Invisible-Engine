@@ -47,7 +47,7 @@ design.
 | `<id>@<version>/` | One release of runtime `<id>` (`lines`, `match3`, `arcade`, `card`): the whole `apps/lines` build. It is never changed after upload. `<version>` is the first 12 characters of the commit. A second release of the same commit gets a `-<time>` suffix. |
 | `<id>/current.json` | **The pointer.** It names the release every unpinned game on `<id>` serves. Writing it is the one step that makes a release live. |
 | `<id>/releases.json` | The release history, newest first. |
-| `<id>/release.json` | The status stamp the launcher reads (`building`, `released`, and the last failure); the engine pill shows `lines`'. It proves the upload, not that the release is being served. |
+| `<id>/release.json` | The status stamp the launcher reads (`building`, `released`, the last failure, and `checkedCommit`: the newest commit a run found builds these same bytes); the engine pill shows `lines`'. It proves the upload, not that the release is being served. |
 
 Per id, the newest 10 releases are kept, plus the current one, the previous one and any pinned release,
 whatever their age. So a rollback never needs a rebuild: it only moves the pointer.
@@ -80,7 +80,7 @@ secrets.
 
 | Surface | What it tells you |
 | --- | --- |
-| **Engine pill** in the launcher home page's header | `Engine deployed · <commit> · <age>`, plus `· up to date`, `· last release failed` or `· rolled back`. Also `Releasing engine…` while a release builds, and `Release pending · N ahead` when `main` has engine commits the live bundle lacks. Hover the pill for the full commit and the failure. |
+| **Engine pill** in the launcher home page's header | `Engine deployed · <commit> · <age>`, plus `· up to date`, `· last release failed` or `· rolled back`. Also `Releasing engine…` while a release builds, and `Release pending · N ahead` when `main` has engine commits (`apps/lines/`, `packages/`) the live `lines` bundle may lack. N counts only those commits, from the newest commit a release run proved builds the live bytes (`checkedCommit` on `release.json`, written when the run ends "unchanged"), so an arcade-only or launcher-only merge never shows as pending. Hover the pill for the full commit and the failure. |
 | `https://games.invisiblewall.org/healthz` | `runtimes` gives the release each runtime's pointer named at the server's last refresh, for example `{"lines": "<version>", "arcade": "<version>"}`. `pinned` lists the games serving their own release. `lastHydrate.succeeded: false` means its last refresh failed, so it still serves the release it had before. |
 | The **`X-Runtime-Release`** header on an online game's page | the release that answered, as `<id>@<version>`: the runtime the game is on, and its release. Only games on a shared runtime send it. Desktop builds do not. |
 | The `bundle.<hash>.js` named in that page | the exact build being served. It is unique per build. |

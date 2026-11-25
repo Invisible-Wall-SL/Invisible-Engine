@@ -1826,7 +1826,7 @@ export function bootSplashAssetBase(): string {
  * DEAD END and {@link markRuntimeStale} shows everyone the overlay; this flag then only adds the
  * technical reason to it.
  */
-const AUTHORING_PARAM = 'ie_authoring';
+export const AUTHORING_PARAM = 'ie_authoring';
 
 declare global {
 	/** Set on any boot that renders something OTHER than the project's live authoring —

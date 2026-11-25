@@ -410,6 +410,9 @@ one per folder, naming its rig.
   `locked`, `layer`; then `layers`, `sets`, `limbs`, `presets`, `mirror` and `picker.items` (a
   `bone`, `set` or `limb` button `at` a place in 0…1, with a `label`) as above. Every field of this
   section is declared and checked now, so the phases that fill them need no schema step.
+  `slotGroups` (name → the slots in it, at least one) holds the Slots list's own groups (made with
+  ＋ in the Rigger's Slots header): the one entry naming slots, so slot renames follow into it and a
+  deleted slot leaves its groups, a group left empty going. A template does not carry it.
 - **Strict on write, lenient on read.** A client that edits controls sends the whole sidecar
   (`controls`, under `controlsBaseEtag`, required unless forced); it is bound to the rig (its `rig`;
   the pair mark is the save's) and refused (`422 controls-invalid`, naming each problem) unless it

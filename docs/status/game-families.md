@@ -459,8 +459,10 @@ P11.2's two PRs. Not deployed.
   `createRoomSim` runs it on its seed (`sim.seed`: one seed for the bots' brains and the river, so
   a room replays from it); `arcadeRoom.ts` writes it into the room state's new `seed` (uint32) and
   logs it. Device: `joinOnlineRoom` (only when the config names a generator) waits up to 5 s for the
-  room's first state, makes the room's game from its seed with the same function, and refuses the
-  boot if no seed arrives; it then registers `withRoomField` with `editor-scenes`
+  room's first state, makes the room's game from its seed with the same function (since
+  2026-11-25 on the levels the room's state carries, held to its fingerprint:
+  [status/salmons](salmons.md)), and refuses the boot if no seed arrives; it then registers
+  `withRoomField` with `editor-scenes`
   (`setRoomDocChange`), so `loadEditorScenes` returns the doc with the generator's drawing
   (`engine-layout` `FIELD_DRAWINGS`, `salmonsRiverNode`, moved to
   `referenceLayouts/salmonsRiver.ts` and exported) in place of the authored node of the same id

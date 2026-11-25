@@ -443,7 +443,9 @@ nothing in it can be selected and moved by hand.
 
 The river's shape and the waterfalls apply to every level, not to the shown seed, and the stage
 redraws at each change. A config saved without **Winding river** keeps the river it has. Rooms play
-the new shape only after the config is published.
+the new shape only after the config is published. Until then a game opened from the launcher keeps
+playing the published levels, and a notice at the top of its screen names what differs (river,
+waterfalls, overlays).
 
 An entry the shown level has no place for (an addition on the bank, a removal where nothing was
 generated) is listed in amber as kept, not applied: picking another seed never deletes an overlay.

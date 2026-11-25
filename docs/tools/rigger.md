@@ -372,10 +372,26 @@ it sits behind. Hover its header for the same summary.
     alone. Do it again to show them all.
   - An eye on a selected row hides or shows the whole **Shift / Ctrl** selection.
   - **👁** in the section header shows every slot again. It works while the section is folded.
-  - On a template rig, a row of **group eyes** sits above the slots, one per group the template
-    names: each draw-order layer (a head with its face, a hand with its fingers), and the slots a
-    swap hides (the fingers a drawn **hand pose** replaces). Click one to hide or show the group,
-    Alt-click or right-click to show only it.
+  - **Groups** sit above the slots, one row each. A template rig brings its own: each draw-order
+    layer (a head with its face, a hand with its fingers), and the slots a swap hides (the fingers a
+    drawn **hand pose** replaces). Click a group's eye to hide or show the group, Alt-click or
+    right-click to show only it.
+  - **Make your own group:** select rows (**Shift**-click for a run, **Ctrl**-click to add one), then
+    **＋** in the section header and name it. Your groups have a dashed eye, **✎** renames one and
+    **🗑** deletes it (its slots stay). Saving the same name again replaces its slots. They are kept
+    with the rig (in `controls.json` beside the `.irig`), so everyone who opens the rig sees them,
+    and they follow the rig: a renamed slot is renamed in them, a deleted one leaves them, and a group
+    with no slot left goes. Making, renaming or deleting one is an undo step. The game never sees
+    them.
+  - **Each group's slider dims it on the stage while you work** (0–100 %), in every mode. A slot in
+    two dimmed groups gets both (50 % and 50 % draw it at 25 %). Like the eye, it is only your view:
+    kept per rig in this browser, never saved, and the `.irig` stays the same.
+  - **⤓ writes a group's dimming into the rig.** In **Setup** it multiplies each slot's setup alpha
+    by the slider (a slot at 50 % with the slider at 40 % ends at 20 %), so the stage looks the same;
+    clips that key the slot's colour keep their own keys. In **Animate** it keys each slot's opacity
+    at the playhead, at its opacity there times the slider (a slot the clip colours with separate
+    colour and alpha keys gets an alpha key, so its colour keys keep working). Either way the slider
+    goes back to 100 %, and it is one undo step. It is off at 100 %, in Preview and in Cinematic.
 - **Reorder in Setup by dragging the ⋮⋮ grip** of a row to its new place. A line shows where it
   will land, and the list scrolls when you hold it near its top or bottom edge. Select several rows
   first (**Shift**-click for a run, **Ctrl**-click to add or take out one) and they move together as
@@ -1395,6 +1411,13 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is
    the picture's left. A region named like a worn thing (`Hat`, `Sunglasses`, `gold_chain`,
    `watch_R`, `sword`) is suggested as a prop on the part it is worn on.
+   **⇄ Swap sides** (beside the sheet) is for a sheet whose names say the character's own left and
+   right (`UpperArmL` is the arm on the picture's right of a character facing you): every part
+   matched by name takes the other side's drawing — arms, hands, ears, eyes, lids, brows, cheeks —
+   its joints guessed again as that side's (a joint you dragged stays where you dragged it on its
+   drawing), each prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged
+   starts over on its bones. Parts you mapped by hand are asked about first. The setting is kept with
+   the rig's mapping, and this browser remembers it for the sheet.
 2. **The table.** Each part has a region list: change it, or pick **—** to leave the part out (it is
    left out of the rig, as any missing template part). A part marked `*` is one the template's
    controls and clips use: the rig is still made without it, and the report after **🦴 Create rig**
@@ -1411,7 +1434,11 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    **⟲** guesses them again. Two drawings that meet share a bone (the arm's shoulder is the
    torso's), so they meet in the rig. On a drawn head the face tracker looks for a face: when it
    finds one, the head's joints come from it and the rig skins the head over the face's bones, so
-   Blink, Gaze, the brows and the mouth shapes move the drawn face.
+   Blink, Gaze, the brows and the mouth shapes move the drawn face. A head drawn without its face
+   (the features drawn apart, each on its own bone) is skinned so a head turn and nod carry the
+   head's middle with the features while its outline stays: the face no longer slides over a still
+   head. Its turn is cut to what that skin has room for (about half the template's), and the lids and
+   brows, at the face's corners, keep about 80% of the head's move under them.
 4. **Props.** **＋** on an unmapped region's thumbnail wears it on the part picked. In the **Props**
    list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
    that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just

@@ -110,6 +110,8 @@ export interface RuntimeRelease {
 	version?: string;
 	promotedAt?: string;
 	via?: RuntimePointer['via'];
+	/** A later commit whose release run found it builds this release's exact bytes (skip-unchanged). */
+	checkedCommit?: string;
 	/** `stage`: the failed run never moved the pointer ('before-promote'), or moved it and the
 	 *  served check then failed ('unverified' — that commit IS in R2 as the live release). */
 	lastFailure?: {
@@ -140,6 +142,8 @@ export interface EngineDeployStatus {
 	commit?: string;
 	shortCommit?: string;
 	builtAt?: string;
+	/** The newest commit proven to build the live bytes — the base the C2 compare runs from. */
+	checkedCommit?: string;
 	/**
 	 * C2 (bundle-vs-source): set by the `(app)` layout load from `engineSource.ts#enginePending`
 	 * when a read token is configured. `pending === true` ⇒ engine `main` has un-released ENGINE
@@ -186,6 +190,7 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 				commit: release.commit,
 				shortCommit: release.shortCommit,
 				builtAt: release.builtAt,
+				...(release.checkedCommit ? { checkedCommit: release.checkedCommit } : {}),
 				...(release.via && release.via !== 'release' ? { via: release.via } : {}),
 				...(release.lastFailure ? { lastFailure: release.lastFailure } : {}),
 			};

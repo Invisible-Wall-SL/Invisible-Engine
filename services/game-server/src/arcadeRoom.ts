@@ -10,6 +10,7 @@ import {
 	nearbyHolds,
 	pastRegion,
 	roomLevelSeed,
+	roomLevelState,
 	sanitizeInput,
 	viewRegion,
 	type HeldView,
@@ -231,6 +232,13 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			if (online.nearby) this.state = new NearbyRoomState();
 			this.state.phase = 'waiting';
 			this.state.seed = seed;
+			// From the game the sim plays and what its own generator made, never from the config
+			// again: a device adopts these levels and is held to this fingerprint.
+			const level = roomLevelState(sim.game, seed, sim.made);
+			if (level) {
+				this.state.levels = level.levels;
+				this.state.levelHash = level.levelHash;
+			}
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);

@@ -632,6 +632,49 @@ waterfall; each stop is on water the page draws its salmon on; the tallest water
 tapping Space and swum over; no page error. Exit 1 when one fails. The shape's rules over many
 seeds are `pnpm check:salmons-course`'s, not this run's.
 
+## A page on other levels than its room (`salmons-room-levels-play.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-room-levels-play.mjs --runtime apps/lines/build --out <dir> \
+  [--chrome <exe>]
+```
+
+Owner, 2026-11-25: "changing the seed generates a new level, but does not update collisions"
+([status/salmons](../status/salmons.md)). On the same runtime build and a real game server on
+localhost. The room is given the PUBLISHED config (no `arcade.online.levels`: the original's
+river) and the page the LIVE one (`SALMONS_LEVELS`), as a launcher link boots between a **Save
+levels** in `/editor` and a Publish. Five pages, one after the other, 1280 × 720 at 2×, 29
+verdicts; `result.json` also keeps what each page's probe said (`online.level`) and what its room's
+state said.
+
+- **`authoring`** (`ie_authoring=1`, as every launcher link): the page adopted the room's levels
+  (`online.level.adopted`), names `river` and `waterfalls` as what differed, and made a level with
+  the room's fingerprint; it predicts on the room's zones (`online.zones` are the room sim's), drew
+  the room's rocks, whirlpools and waterfalls, and its own config's level of that seed is another
+  river. The notice is over the top of the game, small, clear of the middle, and still there four
+  seconds on (`authoring-notice.png`, the strip alone in `authoring-notice-detail.png`); a
+  pointer on its words reaches the game under it; its ✕ takes it away and the game goes on
+  (`authoring-dismissed.png`).
+- **`player`** (no `ie_authoring`, the same drift): the same adoption, and no notice.
+- **`equal`** (`ie_authoring=1`, the room's own config): nothing adopted, no notice.
+- **`reverse`** (`ie_authoring=1`, the published config in a room of the live one): the winding
+  river adopted, and the notice (`reverse-notice.png`).
+- **`refused`** (`ie_authoring=1`): the room is made while the generator in the game server's
+  process is another release's (one rock a pixel over). The page cannot make that level from the
+  room's own levels: it stops on the error screen with Reload and the reason, shows no notice, and
+  has left the room (`refused.png`).
+
+Look at `authoring-notice.png` as well as the verdicts: whether the strip is small and readable
+over the game is a picture. What is decided over many seeds and configs is `pnpm
+check:room-levels`, not this run.
+
+**By hand, once the change is live** (Owner steps in the status file): in the launcher with
+Salmons active, `/editor` → the river screen → **Generated level** → change **Waterfalls** →
+**Save levels**, and do not publish. Open the game from its launcher card: the notice names
+"waterfalls", and the river on screen is the one the banks and waterfalls stop you at. Publish in
+Game Maker and open it again once the old room has closed: no notice, and your waterfalls.
+
 ## The fisherman's hold and throw (`salmons-throw-play.mjs`)
 
 ```
