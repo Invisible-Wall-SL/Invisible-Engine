@@ -113,7 +113,13 @@
 				>
 			{/each}
 		</select>
-		{#if kind === 'sprite'}
+		{#if !kind && !index}
+			{@const current = zoneArtDefault(family, generator, pickSheets)}
+			<span class="default">{current.label}</span>
+			{#each current.thumbs as thumb (thumb)}
+				<span class="thumb" title="Used now"><CardArt value={thumb} size={40} /></span>
+			{/each}
+		{:else if kind === 'sprite'}
 			<RegionPicker
 				sheets={pickSheets}
 				value={source?.kind === 'sprite' ? source.region : ''}
