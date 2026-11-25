@@ -1,0 +1,6 @@
+# The fields of the Salmons config that the CI upload (salmons-project-upload.yml) takes from the
+# export, one dotted path a line. Everything else in the live config, the owner's character sheets
+# included, is left as it is. With no field listed here the upload replaces every document whole.
+arcade.online.slide
+arcade.online.levels.river
+arcade.online.levels.waterfalls

@@ -15,12 +15,15 @@ the Salmons documents are refused. The dry run writes a unified diff per changed
     python3 scripts/salmons/upload-project.py --diff-dir <dir> \
         --fields arcade.online.levels.river,arcade.online.levels.waterfalls [--apply]
 
-WITHOUT `--fields` EVERY DOCUMENT IS REPLACED WHOLE, the config included: what the owner authored
-in the tools since the last upload (a character's sheet and its link, a tuned number) is not in
-the export and is deleted. With `--fields` only the config is touched, and of it only the named
-fields (dotted paths, `merge_fields.py`): the live config keeps everything else as it is. A field
-the export does not have is taken out of the live config. There must be a live config to merge
-into.
+With fields only the config is touched, and of it only the named fields (dotted paths,
+`merge_fields.py`): the live config keeps everything else as it is. A field the export does not
+have is taken out of the live config. There must be a live config to merge into. A run without
+`--fields` takes its fields from `scripts/salmons/upload-fields.txt` (one a line, `#` comments),
+which is how the CI workflow names them: it passes no `--fields`.
+
+WITH NO FIELDS AT ALL (no `--fields` and that file empty or absent) EVERY DOCUMENT IS REPLACED
+WHOLE, the config included: what the owner authored in the tools since the last upload (a
+character's sheet and its link, a tuned number) is not in the export and is deleted.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ ALLOWED = re.compile(
     r'^(invisible_wall/salmons/(config/config\.json|editor/scenes\.json|editor/flow-v2\.json)'
     r'|editor/salmons/components/[a-z0-9_-]+\.json)$')
 BACKUP_ROOT = '_backups/salmons-project'
+FIELDS_FILE = Path(__file__).resolve().parent / 'upload-fields.txt'
 CONFIG_KEY = 'invisible_wall/salmons/config/config.json'
 
 
@@ -66,6 +70,14 @@ def export(out: Path) -> list[tuple[str, dict]]:
     return docs
 
 
+def file_fields() -> str:
+    """The fields `upload-fields.txt` names, comma separated; none when it is empty or absent."""
+    if not FIELDS_FILE.is_file():
+        return ''
+    lines = (line.split('#', 1)[0].strip() for line in FIELDS_FILE.read_text('utf-8').splitlines())
+    return ','.join(line for line in lines if line)
+
+
 def comparable(doc: dict) -> dict:
     return {k: v for k, v in doc.items() if k not in (docsave.SAVED_BY, 'rev')}
 
@@ -78,14 +90,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--apply', action='store_true', help='back up and write (default: dry run)')
     ap.add_argument('--diff-dir', required=True, help='where the per-key diffs are written')
-    ap.add_argument('--fields', default='',
+    ap.add_argument('--fields', default=None,
                     help='only these fields of the config (dotted paths, comma separated); '
-                         'every other document and field is left as it is')
+                         'every other document and field is left as it is '
+                         f'(default: the lines of {FIELDS_FILE.name})')
     args = ap.parse_args()
     try:
-        fields = parse_fields(args.fields)
+        fields = parse_fields(file_fields() if args.fields is None else args.fields)
     except ValueError as error:
-        print(f'--fields: {error}')
+        print(f'fields: {error}')
         return 2
     if not storage.configured():
         print('R2 is not configured: set R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET')
