@@ -1512,6 +1512,33 @@ which fits the rig the way a frame does (§4.6).
   `sheetSnapTargets`, bundled in `rigger-motion.js`) within 10 stage pixels. Both of the dialog's
   stages take a pen or a finger as the mouse (`PEN_DRAG`, #1888).
 
+### 13.1b 🗺 Edit mapping / 🔄 Update rig (2026-11-24)
+
+A rig made from a sheet changes in place, as a frame-made rig does (§12 F2j), so its clips and keys
+stay with it.
+
+- **🗺 Edit mapping** (the rig panel, beside ✂) opens the dialog on the rig's `sheet.json`, its sheet
+  fixed: an update keeps the art the bundle draws from. To map another sheet, make a new rig.
+- **🔄 Update rig**: `POST /api/rigger/from-sheet/update` builds the edited mapping as 🦴 Create rig
+  does and merges it into the open rig (`rigSheetUpdate.ts` `updateSheetRig`, through frame to rig's
+  `frameRigUpdate`). The rig keeps its bones (the author's too), clips, keys, constraints, controls,
+  3D data and its own slots. Writes nothing.
+- **As made** is today's build of the mapping the rig keeps, which the page sends as it holds it (an
+  update not saved yet included). An attachment hashing otherwise was edited by hand, and may be kept
+  while its part draws the region it drew. A kept mapping that no longer builds takes the rig's own
+  attachments as made.
+- **The `frame` clip** is the new build's, unless the author keyed it since. That is read by its
+  values, however the file spells their defaults (`sameKeys`); in that case theirs stays and the
+  report says so. A drawing re-arranged moves with it.
+- **Saving.** One undo step holds the rig and its mapping (the page's history keeps `sheet.json` as
+  it keeps `frame-source.json`). The rig is saved through `/api/rigger/save`, then the mapping
+  through `PUT /api/rigger/from-sheet`, conditional on the ETag the page read (GET answers it). The
+  mapping must be of the sheet the rig draws from.
+- **Gates:**
+  - `tools/rigger-spike/sheet-rig-update.mjs` (7 guards, 7 mutants): the author's bone, slot, clip and keys kept; a re-mapped part's art changed; a re-arranged part moved where a new rig draws it; the author's frame clip kept; props added and removed; a hand-edited mesh kept or replaced; finite.
+  - `sheet-rig-browser.mjs`: the page flow, one undo, the conditional save, 3 page mutants.
+  - `check:rigger-writes`: the routes.
+
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
 The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
