@@ -3592,6 +3592,9 @@ export interface TemplateRegion {
 	h: number;
 	origW?: number;
 	origH?: number;
+	/** A trimmed region's ink in its untrimmed image: from the left, and from the bottom. */
+	offX?: number;
+	offY?: number;
 }
 
 /**
