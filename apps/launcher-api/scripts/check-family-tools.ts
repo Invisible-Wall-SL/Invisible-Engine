@@ -16,12 +16,15 @@
  *     Symbols, Win Text and Card Library. A tool
  *     page's `?project=` decides the family before the page syncs it into the session, and the
  *     load reads it TRACKED (the event has no `untrack`), so a client-side hop to another
- *     project's `?project=` re-runs it. Onboarding keeps the role's whole manifest.
+ *     project's `?project=` re-runs it. Onboarding keeps the role's whole manifest. Invisible Model
+ *     Viewer is a 3D game's tool: an arcade project lists it only when its Game Config has a 3D
+ *     world (`server/view3d.ts` `cachedProjectIsView3d`).
  *  3. THE NOTICE. The REAL `(app)/+layout.svelte`, rendered on the server: a hidden tool's URL (and
  *     a path under it) shows the notice, naming the project, and not the page; a slot project, and
  *     any tool the family uses, render the page untouched. `/characters` is the notice for a slot
  *     or match-3 project and the page for an arcade one; `/cards` the notice for a slot, match-3 or
- *     arcade project.
+ *     arcade project. `/models` on an arcade project with no 3D world is the "is for 3D games"
+ *     notice, and the page on a 3D one.
  *  4. DIRECTOR'S GATE. The REAL `director/gate.ts` refuses an op on a tool the project's family
  *     does not use (`not_for_family`) and runs the same op for a slot project. No Director op
  *     authors characters, so the gate needs no row for them.
@@ -135,6 +138,7 @@ const PROJECTS = new Map<string, Project>(
 		project('custom', 'my_custom_kind'),
 		project('gems', 'match3'),
 		project('catcher', 'arcade'),
+		project('arena', 'arcade'),
 	].map((p) => [p.key, p]),
 );
 let sessionProject: string | null = null;
@@ -155,6 +159,10 @@ fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
 fake('lib/server/engineSource.ts', { enginePending: async () => null });
 fake('lib/server/toolInstalls.ts', { getInstallPaths: async () => ({}) });
+const VIEW3D = new Set(['arena']);
+fake('lib/server/view3d.ts', {
+	cachedProjectIsView3d: async (_client: string, key: string) => VIEW3D.has(key),
+});
 fake('lib/server/testServerManifest.ts', {
 	engineDeployStatus: async () => ({ status: 'unknown' }),
 });
@@ -239,9 +247,14 @@ for (const role of ROLES) {
 	}
 	const arcade = await loadFor(role, 'catcher');
 	check(
-		`2. ${role}, an arcade project: the manifest without Symbols, Win Text and Card Library`,
+		`2. ${role}, a 2D arcade project: the manifest without Symbols, Win Text, Card Library and Model Viewer`,
 		ids(arcade.tools),
-		all.filter((id) => id !== 'symbols' && id !== 'winText' && id !== 'cards'),
+		all.filter((id) => !['symbols', 'winText', 'cards', 'models'].includes(id)),
+	);
+	check(
+		`2. ${role}, a 3D arcade project: the manifest without Symbols, Win Text and Card Library`,
+		ids((await loadFor(role, 'arena')).tools),
+		all.filter((id) => !['symbols', 'winText', 'cards'].includes(id)),
 	);
 	check(
 		`2. ${role}, an arcade project: Invisible Characters when the role has it`,
@@ -297,10 +310,11 @@ try {
 	};
 	const PAGE = 'THE-TOOL-PAGE';
 	const children = createRawSnippet(() => ({ render: () => `<p>${PAGE}</p>` }));
-	const renderAt = (pathname: string, family: string) => {
+	const renderAt = (pathname: string, family: string, world3d = false) => {
 		const data = {
 			tools: manifestForRole('admin'),
 			family,
+			world3d,
 			familyProjectKey: 'catcher',
 			projects: [{ key: 'catcher', name: 'Catch the Salmon' }],
 		};
@@ -373,15 +387,7 @@ try {
 			check(`3. ${family} ${path}: not the tool`, body.includes(PAGE), false);
 		}
 	}
-	for (const path of [
-		'/',
-		'/config',
-		'/editor',
-		'/win-textual',
-		'/flow-v2',
-		'/characters',
-		'/models',
-	]) {
+	for (const path of ['/', '/config', '/editor', '/win-textual', '/flow-v2', '/characters']) {
 		const body = renderAt(path, 'arcade');
 		check(
 			`3. arcade ${path}: the page, no notice`,
@@ -389,6 +395,29 @@ try {
 			[true, false],
 		);
 	}
+	for (const path of ['/models', '/models/anything']) {
+		const body = renderAt(path, 'arcade');
+		check(
+			`3. 2D arcade ${path}: the 3D notice, naming the project, not the tool`,
+			[
+				body.includes('Invisible Model Viewer is for 3D games'),
+				body.includes('Catch the Salmon'),
+				body.includes(PAGE),
+			],
+			[true, true, false],
+		);
+		const page = renderAt(path, 'arcade', true);
+		check(
+			`3. 3D arcade ${path}: the page, no notice`,
+			[page.includes(PAGE), page.includes('is for 3D games'), page.includes('not used by')],
+			[true, false, false],
+		);
+	}
+	check(
+		'3. 2D arcade /modelsx: not the Model Viewer notice',
+		renderAt('/modelsx', 'arcade').includes(PAGE),
+		true,
+	);
 	check(
 		'3. a slot render is the page and nothing else',
 		renderAt('/win-text', 'slot')
