@@ -53,11 +53,12 @@ upload.
   - **Played** on the branch's arcade runtime (headless Chrome). `zone-art-play.mjs` (new, 5/5;
     [playtest/arcade-sample](../playtest/arcade-sample.md) item 10) plays a plain game: a sheet
     frame and a clip stamped on their zones, and nothing drawn without zone art. `arcade-play.mjs`
-    passes 14/14. `salmons-play.mjs` (no zone art) passes 100 of 101: its river is in the
-    original images, with as many `rock_` pieces as rocks and four `whirlpool_` frames per pool.
-    The one failure is "isometric: page A draws its salmon at its projected place". It cannot tell
-    the two places apart when the salmon is drawn at the camera's centre (projected (644, 347),
-    flat (640, 349), under its 60 px). That depends on the room's random seed, not on this change.
+    passes 14/14. `salmons-play.mjs` (no zone art) passes 101/101 on its second run: its river is
+    in the original images, with as many `rock_` pieces as rocks and four `whirlpool_` frames per
+    pool. The first run failed one verdict, "isometric: page A draws its salmon at its projected
+    place". That verdict cannot tell the two places apart when the salmon is drawn at the camera's
+    centre (projected (644, 347), flat (640, 349), under its 60 px), which depends on the room's
+    random seed, not on this change.
     Salmons' river with zone art set was not played in a browser. It finds a frame by the same
     scoped key (`<sheet>::<frame>`) the plain game's sprite was found by, and a clip's frames
     through `resolveClipFrames`, as `<Flipbook>` does.
