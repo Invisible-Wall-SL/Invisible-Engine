@@ -118,6 +118,7 @@ if (unchangedCheck) {
 	const unchanged = Boolean(live?.reproducible) && live.reproducible === unchangedCheck;
 	if (process.env.GITHUB_OUTPUT)
 		appendFileSync(process.env.GITHUB_OUTPUT, `unchanged=${unchanged}\n`);
+	if (unchanged && commit !== 'unknown') await stampChecked(pointer.version);
 	console.info(
 		unchanged
 			? `${runtimeId}: unchanged — the live release ${pointer.version} is these bytes already.`
@@ -325,6 +326,26 @@ function isAncestor(a, b) {
 }
 
 /** The launcher's stamp for the release `pointer` names (it is what is live). */
+// The live release is proven to be this commit's bytes, so the launcher's "Release pending" pill
+// compares `main` from here, not from the commit the release was built at. Only onto the stamp of
+// that same live release, and compare-and-swap: a building stamp another run wrote in between wins.
+// Advisory — a failed write leaves the pill pending, never the release red.
+async function stampChecked(liveVersion) {
+	try {
+		const stamp = await readJson(r2, keys.status(runtimeId));
+		if (stamp?.value?.status !== 'released' || stamp.value.version !== liveVersion) return;
+		await writeJson(
+			r2,
+			keys.status(runtimeId),
+			{ ...stamp.value, checkedCommit: commit, checkedAt: builtAt },
+			stamp.etag ? { ifMatch: stamp.etag } : {},
+		);
+		console.info(`Stamped ${keys.status(runtimeId)} → checkedCommit=${shortCommit}`);
+	} catch (e) {
+		console.warn(`Could not stamp checkedCommit on ${keys.status(runtimeId)}: ${e.message}`);
+	}
+}
+
 function releasedStamp(pointer) {
 	return {
 		runtimeId,

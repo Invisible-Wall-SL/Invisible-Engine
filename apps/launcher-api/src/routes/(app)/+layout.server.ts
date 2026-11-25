@@ -69,11 +69,11 @@ export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 	}
 
 	// C2 (bundle-vs-source "release pending"): if the bundle is deployed with a known commit, compare
-	// it against the engine repo's `main` HEAD. Best-effort + cached in `engineSource.ts`; a missing
+	// the newest commit proven to build it (`checkedCommit`, else its own) against `main` HEAD. Best-effort + cached in `engineSource.ts`; a missing
 	// token or any GitHub hiccup returns null → we merge nothing → the pill degrades to today's green.
 	if (engine.status === 'deployed' && engine.commit && engine.commit !== 'unknown') {
 		try {
-			const p = await enginePending(engine.commit);
+			const p = await enginePending(engine.checkedCommit ?? engine.commit);
 			if (p)
 				engine = { ...engine, pending: p.pending, aheadBy: p.aheadBy, mainCommit: p.mainCommit };
 		} catch {
