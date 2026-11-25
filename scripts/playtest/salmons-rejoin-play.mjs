@@ -12,19 +12,23 @@
 // zones, the room's fingerprint, its rocks in the art) with the old river destroyed; hold nothing
 // of the old game (no `gameWon` among its events, one instance spawned, a flow whose `phase` is
 // the room's); be golden (the winner's pass followed it); start round 1 when the countdown ends;
-// and swim on ArrowUp, predicted, the camera on it. After each switch the page's JS heap (after a collection),
-// its display objects (on the stage, and alive in the heap), its textures and its sockets alive
-// are read: reported, not judged. Sockets that grow by one a switch are old sessions still held.
+// and swim on ArrowUp, predicted, the camera on it. After each switch the page's JS heap (after a
+// collection), its display objects (on the stage, and alive in the heap), its textures and its
+// sockets alive are read: reported, not judged. Sockets that grow by one a switch are old
+// sessions still held.
 //
-// Page `fay` wins once and its join is then made to fail (the page's matchmaking request is
-// refused): it must stop on the error screen with a Reload, its reason recorded, on the same
-// document, the join kept for that Reload; loaded again, it joins at once as it was, with no
-// start menu.
+// Page `fay` plays four switches that fail, one after the other: a join the server refuses (the
+// page's matchmaking request is refused), a join that never answers (the win screen's button must
+// read "Joining…" meanwhile), something thrown in the swap itself, and art that does not load for
+// the new room. Each must end with the page loaded again and the person in a new room's lobby as
+// they were (Fay, a salmon; golden while the pass was not spent), with no start menu, the kept
+// join spent and the reason said on the console: never on a win screen with nothing to press. Its
+// launch names no character, so only a kept join spares it the start menu.
 //
 // Page `tim` runs on the real clock (no `ie_determinism`), so its times are a player's: from the
 // click on "Join New Game" to the first frame that shows the new room's lobby and to the first
-// whose stage holds the river's art, with the join's steps between. `--timing` plays only this page and takes any runtime, so the same numbers can be
-// read off a build that still reloads.
+// whose stage holds the river's art, with the join's steps between. `--timing` plays only this
+// page and takes any runtime, so the same numbers can be read off a build that still reloads.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-rejoin-play.mjs --runtime apps/lines/build --out <dir> \
@@ -32,6 +36,10 @@
 //
 // The runtime must play arcade: build it with
 // `PUBLIC_IE_FAMILIES=arcade pnpm --filter lines build`. Exit 1 when a verdict fails.
+// Every page boots with `runtime=1` (the snapshot is its game). `--baked` boots without it, as a
+// standalone build does, on a runtime with this game baked in (no timing page): make one with
+// `--write-bundle apps/lines/src/baked-editor-bundle.json`, build, copy the build out and put the
+// file back; such a bundle is written for one `--netcode` and is never committed.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -73,6 +81,8 @@ const { values: opt } = parseArgs({
 		chrome: { type: 'string' },
 		netcode: { type: 'string', default: 'engine' },
 		timing: { type: 'boolean', default: false },
+		baked: { type: 'boolean', default: false },
+		'write-bundle': { type: 'string' },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -110,12 +120,15 @@ const componentDefs = await resolveComponentClosure(
 	(id) => library[id],
 );
 
+const bundle = { doc, componentDefs, componentDefaults: {}, config, flowV2: SALMONS_SEED_DOC };
+if (opt['write-bundle']) {
+	writeFileSync(resolve(opt['write-bundle']), `${JSON.stringify(bundle, null, '\t')}\n`);
+	rmSync(work, { recursive: true, force: true });
+	process.exit(0);
+}
 const snapshot = join(work, 'snapshot');
 mkdirSync(join(snapshot, 'deploy'), { recursive: true });
-writeFileSync(
-	join(snapshot, 'runtime.json'),
-	JSON.stringify({ doc, componentDefs, componentDefaults: {}, config, flowV2: SALMONS_SEED_DOC }),
-);
+writeFileSync(join(snapshot, 'runtime.json'), JSON.stringify(bundle));
 const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
@@ -142,8 +155,10 @@ const rooms = createGameServer({
 });
 await rooms.listen(roomsPort);
 
-/** Each document counts itself, so a page that loaded again says so; `__ptRefuseJoins` refuses the
- *  page's matchmaking requests from then on. */
+/** Each document counts itself, so a page that loaded again says so. Until the document goes,
+ *  `__ptRefuseJoins` refuses the page's matchmaking requests, `__ptStallJoins` never answers them,
+ *  and `__ptFailArt` fails the art's load (its first step waits on a list of the project's sheets,
+ *  none here: an empty `Promise.all`). */
 const HOOK = `(() => {
 	const errors = (window.__AR_ERRORS__ = []);
 	addEventListener('error', (e) => errors.push(String(e.message)));
@@ -155,6 +170,7 @@ const HOOK = `(() => {
 		const url = typeof input === 'string' ? input : (input.url ?? String(input));
 		if (!url.includes('/matchmake/')) return fetch(input, init);
 		if (window.__ptRefuseJoins) return Promise.reject(new TypeError('Failed to fetch'));
+		if (window.__ptStallJoins) return new Promise(() => {});
 		net.push(['matchmake', Date.now()]);
 		return fetch(input, init).finally(() => net.push(['seat', Date.now()]));
 	};
@@ -184,6 +200,11 @@ const HOOK = `(() => {
 		};
 		requestAnimationFrame(frame);
 	}
+	const all = Promise.all.bind(Promise);
+	Promise.all = (list) =>
+		window.__ptFailArt && Array.isArray(list) && list.length === 0
+			? Promise.reject(new Error('pt: no art'))
+			: all(list);
 	const Socket = window.WebSocket;
 	window.WebSocket = class extends Socket {
 		constructor(...args) {
@@ -211,10 +232,8 @@ async function open(profile, extra = {}, carried = undefined) {
 		});
 	}
 	const params = new URLSearchParams({
-		runtime: '1',
+		...(opt.baked ? {} : { runtime: '1', k: 'rejoin-play', editorDocBase: snap.origin }),
 		project: KEY,
-		k: 'rejoin-play',
-		editorDocBase: snap.origin,
 		lang: 'en',
 		currency: 'USD',
 		device: 'desktop',
@@ -436,7 +455,8 @@ async function switchVerdicts(game, n) {
 	const shownAtOnce = await shownOn(game.page);
 	// The swap is made between two frames: the next one is the first the new room is drawn in.
 	await game.play([{ op: 'step', frames: 1 }]);
-	const artAtOnce = !!(await game.online()).art;
+	const firstFrame = await game.state();
+	const artAtOnce = !!firstFrame.arcade?.online?.art;
 	writeFileSync(join(out, `switch-${n}-at-once.png`), await game.page.screenshot());
 	const kept = await documentOf(game.page);
 	verdict(
@@ -464,6 +484,21 @@ async function switchVerdicts(game, n) {
 			joined.phase === 'waiting',
 		{ shown: shownAtOnce, phase: joined.phase, art: artAtOnce },
 	);
+	// The old room's camera stood on the source; the new room puts the salmon at the river's foot.
+	const firstCamera = firstFrame.arcade?.camera;
+	const firstOwn = firstFrame.arcade?.online?.drawn?.find(
+		(d) => d.id === firstFrame.arcade.online.me,
+	);
+	verdict(
+		`${tag}: its first frame is drawn from the new room's place: the camera is on the own salmon there`,
+		!!firstCamera &&
+			!!firstOwn &&
+			Math.hypot(
+				firstCamera.x + firstCamera.view.w / 2 - firstOwn.x,
+				firstCamera.y + firstCamera.view.h / 2 - firstOwn.y,
+			) < Math.max(firstCamera.view.w, firstCamera.view.h),
+		{ camera: firstCamera, own: firstOwn },
+	);
 	const drawn = await game.when((o) => !!o.art && o.screens?.lobby?.shown === true, 120);
 	writeFileSync(join(out, `switch-${n}-lobby.png`), await game.page.screenshot());
 	const note = drawn.screens?.lobby;
@@ -484,7 +519,6 @@ async function switchVerdicts(game, n) {
 	verdict(
 		`${tag}: the level made and drawn is the new room's (its zones, its fingerprint, its rocks in the art)`,
 		!!sim &&
-			drawn.fieldDrawn === true &&
 			isDeepStrictEqual(drawn.zones, zonesOf(sim.game)) &&
 			!isDeepStrictEqual(drawn.zones, before.zones) &&
 			/^[0-9a-f]{16}$/.test(room.state.levelHash ?? '') &&
@@ -574,6 +608,11 @@ async function switchVerdicts(game, n) {
 }
 
 const SHOWN = `(window.__IE_FLOW_V2__?.ordered() ?? []).map((c) => c.id)`;
+/** Whether the win screen's button says it is joining. */
+const SAYS_JOINING = `(() => {
+	const walk = (node) => node.text === 'Joining…' || (node.children ?? []).some(walk);
+	return !!globalThis.__PIXI_APP__ && walk(globalThis.__PIXI_APP__.stage);
+})()`;
 /** The win screen's button on the stage, canvas px, once it is drawn. */
 const WIN_BUTTON = `(() => {
 	const app = globalThis.__PIXI_APP__;
@@ -731,8 +770,9 @@ try {
 		verdict('page jo: no page error', joErrors.length === 0, joErrors);
 		await jo.page.close();
 
-		// A join that fails. The page's launch names no character, so only a kept join spares it the
-		// start menu: its first boot finds one seeded, its Reload the one the failed switch kept.
+		// Switches that fail. The page's launch names no character, so only a kept join spares it
+		// the start menu: its first boot finds one seeded, each later one the join a failed switch
+		// kept.
 		let fay = await ready(
 			await open(
 				'fay',
@@ -740,60 +780,97 @@ try {
 				{ name: 'Fay', character: 'salmon' },
 			),
 		);
-		const fayWin = await win(fay);
-		await fay.page.evaluate('window.__ptMark = "fay"; window.__ptRefuseJoins = true');
-		if (fayWin.screen?.button) await clickCanvas(fay.page, fayWin.screen.button);
-		let stopped;
-		for (let i = 0; i < 80 && !stopped; i++) {
-			await fay.play([{ op: 'step', frames: 6 }]).catch(() => {});
-			await wait(50);
-			stopped = await fay.page.evaluate('window.__IE_RUNTIME_STALE__?.reason');
+		const FAILURES = [
+			{
+				id: 'refused',
+				what: 'a join the server refuses',
+				arm: 'window.__ptRefuseJoins = true',
+				reason: 'the game server did not let it in',
+				golden: true,
+			},
+			{
+				id: 'stalled',
+				what: 'a join that never answers',
+				arm: 'window.__ptStallJoins = true',
+				reason: 'did not answer in time',
+				golden: true,
+				joining: true,
+			},
+			{
+				id: 'thrown',
+				what: 'something thrown in the swap',
+				arm: `window.__IE_FLOW_V2__.mount.hide = () => { throw new Error('pt: thrown in the swap'); }`,
+				reason: 'pt: thrown in the swap',
+			},
+			{
+				id: 'art',
+				what: 'art that does not load for the new room',
+				arm: 'window.__ptFailArt = true',
+				reason: 'art did not load',
+			},
+		];
+		for (const failure of FAILURES) {
+			const won = await win(fay);
+			const before = await documentOf(fay.page);
+			await fay.page.evaluate(
+				`window.__ptMark = ${JSON.stringify(failure.id)}; ${failure.arm}; true`,
+			);
+			if (won.screen?.button) await clickCanvas(fay.page, won.screen.button);
+			let joining = !failure.joining;
+			if (failure.joining) {
+				for (let i = 0; i < 20 && !joining; i++) {
+					await fay.play([{ op: 'step', frames: 2 }]);
+					joining = await fay.page.evaluate(SAYS_JOINING);
+				}
+				writeFileSync(join(out, 'joining.png'), await fay.page.screenshot());
+			}
+			let loaded = before;
+			for (let i = 0; i < 400 && loaded.docs === before.docs; i++) {
+				await fay.play([{ op: 'step', frames: 6 }]).catch(() => {});
+				await wait(30);
+				loaded = await documentOf(fay.page).catch(() => loaded);
+			}
+			const said = fay.page.consoleLines.filter((line) => line.includes('could not change rooms'));
+			fay = await ready(fay);
+			const lobby = await fay.when((o) => !!o.me && o.screens?.lobby?.shown === true, 240);
+			// The page's boot splash fades for a moment over the game it has loaded.
+			await fay.settle(1500);
+			writeFileSync(join(out, `failed-${failure.id}-end.png`), await fay.page.screenshot());
+			const room = lobby.me ? await roomWith(lobby.me) : undefined;
+			const player = room?.sim.players.get(lobby.me);
+			const marked = failure.golden
+				? await fay.when((o) => (o.marked ?? []).includes(o.me), 120)
+				: lobby;
+			verdict(
+				`${failure.what}: ${failure.joining ? 'the button reads “Joining…”, then ' : ''}the page loads again and the person is in a new room’s lobby as they were (Fay, a salmon${failure.golden ? ', golden' : ''}), with no start menu, the kept join spent and the reason said`,
+				joining &&
+					loaded.docs === before.docs + 1 &&
+					loaded.mark === null &&
+					said.some((line) => line.includes(failure.reason)) &&
+					player?.name === 'Fay' &&
+					player.character.id === 'salmon' &&
+					lobby.screens.lobby.you === 'You are Fay, a Salmon' &&
+					Object.keys(lobby.screens.lobby.buttons ?? {}).length === 3 &&
+					(!failure.golden || (marked.marked ?? []).includes(marked.me)) &&
+					(await fay.page.evaluate('!document.getElementById("sm-start-menu")')) &&
+					(await fay.page.evaluate(
+						`sessionStorage.getItem(${JSON.stringify(NEXT_JOIN_KEY)}) === null`,
+					)),
+				{
+					joining,
+					docs: [before.docs, loaded.docs],
+					said: said.slice(-2),
+					player: player && { name: player.name, character: player.character.id },
+					note: lobby.screens?.lobby,
+					marked: marked.marked,
+				},
+			);
 		}
-		const failed = JSON.parse(
-			await fay.page.evaluate(`JSON.stringify({
-				kept: JSON.parse(sessionStorage.getItem(${JSON.stringify(NEXT_JOIN_KEY)}) ?? 'null'),
-				reload: [...document.querySelectorAll('button')].some((b) => /reload/i.test(b.textContent)),
-			})`),
-		);
-		const fayKept = await documentOf(fay.page);
-		writeFileSync(join(out, 'join-failed.png'), await fay.page.screenshot());
-		verdict(
-			'a join that fails: the page stops on the error screen with a Reload, its reason recorded, on the same document',
-			typeof stopped === 'string' &&
-				stopped.includes('the game server did not let it in') &&
-				failed.reload &&
-				fayKept.mark === 'fay' &&
-				fayKept.docs === 1,
-			{ stopped, fayKept, reload: failed.reload },
-		);
-		verdict(
-			'…and the join is kept for that Reload: its name, its class and its pass',
-			failed.kept?.name === 'Fay' &&
-				failed.kept.character === 'salmon' &&
-				typeof failed.kept.pass === 'string' &&
-				failed.kept.server === roomsUrl &&
-				failed.kept.game === KEY,
-			{ kept: failed.kept && { ...failed.kept, pass: typeof failed.kept.pass } },
-		);
-		await fay.page.navigate(fay.url);
-		fay = await ready(fay);
-		const again = await fay.when((o) => (o.marked ?? []).includes(o.me), 240);
-		const againRoom = again.me ? await roomWith(again.me) : undefined;
-		const againPlayer = againRoom?.sim.players.get(again.me);
-		verdict(
-			'loaded again it joins at once as it was (Fay, a salmon, golden), with no start menu, and the kept join is spent',
-			againPlayer?.name === 'Fay' &&
-				againPlayer.character.id === 'salmon' &&
-				(again.marked ?? []).includes(again.me) &&
-				(await fay.page.evaluate('!document.getElementById("sm-start-menu")')) &&
-				(await fay.page.evaluate(
-					`sessionStorage.getItem(${JSON.stringify(NEXT_JOIN_KEY)}) === null`,
-				)),
-			{ name: againPlayer?.name, character: againPlayer?.character.id, marked: again.marked },
-		);
+		const fayErrors = await fay.page.evaluate('window.__AR_ERRORS__');
+		verdict('page fay: no page error in the room it ended in', fayErrors.length === 0, fayErrors);
 		await fay.page.close();
 	}
-	result.measures.switchMs = await timing(opt.timing ? 4 : 3);
+	if (!opt.baked) result.measures.switchMs = await timing(opt.timing ? 4 : 3);
 } finally {
 	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));

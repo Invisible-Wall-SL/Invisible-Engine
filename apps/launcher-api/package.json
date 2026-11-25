@@ -101,6 +101,7 @@
 		"check:flow-time-events": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-time-events.ts",
 		"check:arcade-camera": "tsx --tsconfig tsconfig.scripts.json scripts/check-arcade-camera.ts",
 		"check:arcade-rules": "tsx --tsconfig tsconfig.scripts.json scripts/check-arcade-rules.ts",
+		"check:room-flow": "tsx --tsconfig tsconfig.scripts.json scripts/check-room-flow.ts",
 		"check:arcade-characters": "tsx --tsconfig tsconfig.scripts.json scripts/check-arcade-characters.ts",
 		"check:arcade-platformer": "tsx --tsconfig tsconfig.scripts.json scripts/check-arcade-platformer.ts",
 		"check:layout-path": "tsx --tsconfig tsconfig.scripts.json scripts/check-layout-path.ts",

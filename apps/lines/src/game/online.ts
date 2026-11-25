@@ -55,7 +55,7 @@ import {
 	type SnapshotClock,
 	type TouchControl,
 } from 'engine-mechanics';
-import { docVariables, flattenGroups, flowGraphs, serverVariablesOf } from 'engine-flow-v2';
+import { serverVariablesOf } from 'engine-flow-v2';
 import {
 	CHARACTER_CLIP_EVENTS,
 	FIELD_DRAWINGS,
@@ -158,8 +158,10 @@ import {
 } from '../editor-scenes';
 import { typingInto } from './flowKeys';
 import { zoneStampsOf } from './zoneArt';
-import { getFlowV2 } from './flowV2InterpreterHolder';
+import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
+import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
+import { stateModes } from './stateModes.svelte';
 
 /**
  * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §6, §10; P10.14, P10.15) —
@@ -242,8 +244,9 @@ import { stateApp } from './stateApp';
  * The picture of the old room stands until the new one is in hand (joined, its level made); then,
  * in one task, everything held or drawn for the old one goes ({@link closeSession}) and the
  * mounted game shows the new one ({@link showRoom}): every screen taken down, the flow back at
- * its start, the new field drawn by the room's art in the layout node's place. A join that fails
- * ends on the error screen, whose Reload joins as that same player ({@link takeNextJoin}).
+ * its start, the new field drawn by the room's art in the layout node's place. Whatever stops
+ * that (a join that fails or never answers, a room that refuses the device, art that does not
+ * load, anything thrown) loads the page again to join as that same player ({@link failSwitch}).
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
  * loads it.
  */
@@ -475,6 +478,8 @@ type Session = {
 	unlisten: () => void;
 	/** Everything held or drawn for it is gone ({@link closeSession}). */
 	closed: boolean;
+	/** It took another room's place on a mounted game ({@link switchRoom}). */
+	switched: boolean;
 };
 
 /** What this page joins rooms of, read once at its boot: the config's own game, the server and the
@@ -756,15 +761,23 @@ async function enterRoom(
 		room?.leave().catch(() => {});
 		return `the game server did not let it in (${error instanceof Error ? error.message : String(error)})`;
 	}
+	const switched = replaced !== undefined;
+	// A switch that has already failed is loading the page again: what it joined late goes.
+	if (switched && reloading) {
+		room.leave(true).catch(() => {});
+		return undefined;
+	}
 	// A room that is gone for good (disposed, a kick, a reconnect that ran out) leaves nothing to
-	// play: say so on the same screen rather than freeze on the last state.
-	// A leave while the join still waits (for the seed) must not leave a session for a dead room.
-	let left = false;
+	// play: say so on the same screen rather than freeze on the last state. Until its session is
+	// made, a leave is the join's answer (its close code), and nothing of it is drawn yet: on a
+	// switch the old room's picture stands.
+	let left: number | undefined;
 	let made: Session | undefined;
 	room.onLeave((code: number) => {
-		left = true;
+		left = code;
+		if (!made) return predict?.dispose();
 		// A room the device left for another is closed where the other took its place.
-		if (made?.quit) return;
+		if (made.quit) return;
 		if (session) dropArt(session);
 		session = undefined;
 		clearMarks();
@@ -773,6 +786,7 @@ async function enterRoom(
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
 	const seed = generator ? await roomSeed(room) : undefined;
+	if (left !== undefined) return `the room closed as it was joined (code ${left})`;
 	if (generator && seed === undefined) {
 		room.leave().catch(() => {});
 		return 'the room did not say which field it plays';
@@ -868,31 +882,43 @@ async function enterRoom(
 		quit: false,
 		unlisten: () => {},
 		closed: false,
+		switched,
 	};
+	if (switched && reloading) {
+		room.leave(true).catch(() => {});
+		return undefined;
+	}
 	made = current;
-	if (left) return undefined;
 	// A key pressed before the room (the menu, a join) is not the first step's press.
 	keyLatch.clear();
 	if (replaced) {
 		closeSession(replaced);
-		// The layout is the one the page booted with: it holds the field's node, or it does not.
-		current.fieldDrawn = replaced.fieldDrawn;
+		// Measured on the layout the page booted with, as a boot's load measures it
+		// ({@link withRoomField}); a layout fetched at mount is not in hand here.
+		if (field && prepared) current.fieldDrawn = holdsNode(prepared, field.id);
+		dropNextJoin();
 	}
 	session = current;
 	if (level?.adopted && authoring) showLevelsNotice(level.differs);
 	const stains = onlineStainsOf(bakedGameConfig());
 	if (loadArt && field && played.made && seed !== undefined)
-		loadArt(played.made, seed, stains, roomZoneArt(played.game.zones, seed)).then(
-			(art) => {
-				if (session !== current || left) return art.destroy();
+		loadArt(played.made, seed, stains, roomZoneArt(played.game.zones, seed))
+			.then((art) => {
+				if (session !== current || left !== undefined) return art.destroy();
 				current.art = art;
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
 				for (const [id, mount] of current.screens.mounts) setFieldArt(id, mount);
-			},
-			(error: unknown) => console.warn('[online] the field art did not load', error),
-		);
+			})
+			.catch((error: unknown) => {
+				console.warn('[online] the field art did not load', error);
+				// A room joined in another's place has only its art to draw its field with, and no
+				// screen (lobby note, death screen, win button) without it: the person is not left
+				// there.
+				if (switched && session === current)
+					failSwitch(launch, join, `the new room’s art did not load (${error})`);
+			});
 	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
 	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
@@ -927,7 +953,7 @@ async function enterRoom(
 		room.onStateChange.remove(onState);
 		offEvents();
 	};
-	if (replaced) await showRoom(current);
+	if (switched) await showRoom(current, launch, join);
 	return undefined;
 }
 
@@ -943,66 +969,99 @@ const NO_GROUND: ArtMount = () => () => {};
  * again: nothing until this room's art is in ({@link NO_GROUND}), then its river. The world's size
  * is the session's ({@link useOnlineCamera}).
  *
- * THE FLOW is not built again, and its doc is not changed. Every screen it shows is taken down
- * (the win screen with them, and the base game, so the play field mounts afresh for this room),
- * its variables go back to their initial values and its timers stop, the room's own values are
- * written, and it is started where a boot's flow is when its start-up screen ends: that screen's
- * `complete:<id>` event (else `tapToStart`, else `load`), which shows the game and whatever the
- * room's phase asks for (Salmons' lobby). No loading screen is shown on the way.
+ * THE CAMERA. The room's state is read at once, so the own player has its place and the first
+ * frame is drawn from there, not from where the old room's camera stood.
+ *
+ * THE FLOW is not built again, and its doc is not changed: it is brought back to its start
+ * (`game/roomFlow.ts` `restartFlow`), which shows the game and whatever the room's phase asks for
+ * (Salmons' lobby) with no loading screen on the way. Its start-up chain may hold for a tap, so it
+ * is not waited for; if it fails, the switch has ({@link failSwitch}).
  */
-async function showRoom(current: Session) {
+async function showRoom(current: Session, launch: Launch, join: NextJoin) {
 	if (current.field) setFieldArt(current.field.id, NO_GROUND);
+	received(current, performance.now());
 	const flow = getFlowV2();
 	if (!flow) return;
-	for (const { id } of flow.ordered()) flow.mount.hide(id);
-	flushSync();
-	const doc = bakedFlowV2Doc();
-	if (flow.state && doc) {
-		for (const { id, initial } of docVariables(doc)) flow.state.write(id, initial);
-		for (const node of flowGraphs(doc).flatMap(({ graph }) => flattenGroups(graph).nodes))
-			if (node.kind === 'startTimer') flow.state.stopTimer(node.timer);
-	}
-	bindServerVariables(current, stateOf(current.room));
-	const ended = flow.containers.find(
-		({ id }) => flow.startupShown.includes(id) && flow.ownsEvent(`complete:${id}`),
-	);
-	await flow.dispatch(
-		ended ? `complete:${ended.id}` : flow.ownsEvent('tapToStart') ? 'tapToStart' : 'load',
-		{},
-	);
+	const { chain } = await restartFlow(flow, bakedFlowV2Doc(), {
+		unmount: flushSync,
+		resetModes: stateModes.reset,
+		roomValues: () => bindServerVariables(current, stateOf(current.room)),
+		complete: dispatchFlowV2Complete,
+	});
+	chain.catch((error: unknown) => failSwitch(launch, join, `its flow did not start (${error})`));
 }
+
+/** How long a leave for a new room may take to be in it (the join's answers and the room's first
+ *  state), ms: past it the switch has failed. */
+const SWITCH_MS = 12000;
 
 /**
  * Leave the room for a new one of the same game, as the player is now and with the winner's pass
  * the room gave it, on the same page. Nothing is heard, sent or moved for the old room from here
- * on, and its picture stands until the new one takes its place ({@link enterRoom}).
+ * on, and its picture stands until the new one takes its place ({@link enterRoom}); the win
+ * screen's button says it is joining meanwhile (`salmonsArt/winAnimation.ts`).
  *
  * The join is also written where a boot reads it ({@link takeNextJoin}) and taken back once the
- * device is in: a join that fails, or a room that refuses the device (a level it cannot make),
- * ends on the error screen saying why, and its Reload then joins as that same player. No reload is
- * made by itself: it would show the boot and loading screens only to fail the same way.
+ * device is in. Whatever stops the switch (a join the server refuses, one that has not put the
+ * device in a room within {@link SWITCH_MS}, a level it cannot make, anything thrown on the way)
+ * ends in {@link failSwitch}.
  */
 async function switchRoom(current: Session, launch: Launch) {
 	if (session !== current) return;
-	const me = stateOf(current.room).players?.get(current.room.sessionId);
-	const { join } = launchJoin(
-		{
-			...(me?.name ? { name: me.name } : {}),
-			...(me ? { character: me.character } : {}),
-			...(current.pass ? { pass: current.pass } : {}),
-		},
-		launch.own,
-		false,
-	);
+	let join: NextJoin = {};
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const me = stateOf(current.room).players?.get(current.room.sessionId);
+		join = launchJoin(
+			{
+				...(me?.name ? { name: me.name } : {}),
+				...(me ? { character: me.character } : {}),
+				...(current.pass ? { pass: current.pass } : {}),
+			},
+			launch.own,
+			false,
+		).join;
+		keepNextJoin(launch, join);
+		current.quit = true;
+		current.unlisten();
+		session = undefined;
+		current.room.leave(true).catch(() => {});
+		const refused = await Promise.race([
+			enterRoom(launch, join, current),
+			new Promise<string>((resolve) => {
+				timer = setTimeout(() => resolve('the new room did not answer in time'), SWITCH_MS);
+			}),
+		]);
+		if (refused !== undefined) failSwitch(launch, join, refused);
+	} catch (error) {
+		failSwitch(launch, join, error instanceof Error ? error.message : String(error));
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Whether a failed switch is already loading the page again. */
+let reloading = false;
+
+/**
+ * A leave for a new room did not get the person into one they can play: leave whatever room the
+ * page is in and load the page again, to join as that same player (the join is kept for that boot,
+ * {@link takeNextJoin}). It is what "Join New Game" did before it stayed on the page, and it works
+ * in every kind of boot: the error screen and its Reload show only on a live-authoring boot
+ * (`editor-scenes` `markRuntimeStale`), so elsewhere a failed switch would leave the win screen up
+ * with nothing to press.
+ */
+function failSwitch(launch: Launch, join: NextJoin, reason: string) {
+	if (reloading) return;
+	reloading = true;
+	console.error(`[online] could not change rooms (${reason}): loading the game again`);
+	if (session) {
+		session.quit = true;
+		session.unlisten();
+		session.room.leave(true).catch(() => {});
+	}
 	keepNextJoin(launch, join);
-	current.quit = true;
-	current.unlisten();
-	session = undefined;
-	current.room.leave(true).catch(() => {});
-	const refused = await enterRoom(launch, join, current);
-	closeSession(current);
-	if (refused !== undefined) return refuseOnlineBoot(refused, true);
-	if (session) dropNextJoin();
+	window.location.reload();
 }
 
 /**
@@ -1044,7 +1103,7 @@ type NextJoin = { name?: string; character?: string; pass?: string };
 /** The longest name a next join carries (the start menu's field). */
 const NEXT_NAME_LENGTH = 40;
 
-/** Keep the join a leave for a new room makes, for the boot that follows one that failed. */
+/** Keep the join a leave for a new room makes, for the boot a failed one loads. */
 function keepNextJoin({ url, game }: Launch, join: NextJoin) {
 	try {
 		sessionStorage.setItem(NEXT_JOIN_KEY, JSON.stringify({ server: url, game, ...join }));
@@ -1063,7 +1122,7 @@ function dropNextJoin() {
 }
 
 /**
- * The join a leave for a new room kept and did not get to make ({@link switchRoom}), taken: read
+ * The join a leave for a new room kept and did not get to make ({@link failSwitch}), taken: read
  * and cleared at every boot, and honoured only by a launch of the same game on the same server.
  */
 function takeNextJoin(server: string | null, game: string | null): NextJoin {
@@ -2666,10 +2725,10 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => ScreenSize
 	setWorldProjector(projector);
 	const zoom = projector ? sceneCameraZoom(scene) : undefined;
 	setWorldZoom(1);
-	// A room that made its own field plays a world of that size, whichever room the layout was
-	// loaded for.
+	// A room that took another's place on this page plays its own field's world, whichever room
+	// the layout was loaded for; the page's first room, the layout's, as loaded for it.
 	const world = sceneWorld(scene);
-	const field = session?.field && session.game.field;
+	const field = session?.switched && session.field ? session.game.field : undefined;
 	worldCamera = {
 		camera,
 		world: world && field ? { w: field.w, h: field.h } : world,

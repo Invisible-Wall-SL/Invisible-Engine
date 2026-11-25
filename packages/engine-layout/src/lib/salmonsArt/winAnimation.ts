@@ -16,8 +16,8 @@ import type { ArtMount } from '../arcadeArt.svelte';
  * the winner, pink for everyone else), the title, a loser's subtitle and the button that leaves for
  * a new river. On the winner's device the fish bobs and lays eggs that fall, bounce and pile up.
  * Drawn in screen px over the whole canvas, in place of the win screen's node
- * (`referenceLayouts/salmonsScreens.ts`); the button calls `onNext` at once, and the fish swims off
- * while the device does what it asked.
+ * (`referenceLayouts/salmonsScreens.ts`); the button calls `onNext` at once and reads "Joining…"
+ * from then on, and the fish swims off while the device does what it asked.
  */
 
 /** The original's pixel font; a device without it falls back to its monospace. */
@@ -38,6 +38,8 @@ export type PixelButton = {
 	height: number;
 	/** Show it chosen (a toggle's rim turns yellow). */
 	select: (on: boolean) => void;
+	/** Say something else on it (its size stays). */
+	relabel: (label: string) => void;
 	destroy: () => void;
 };
 
@@ -71,12 +73,19 @@ export function pixelButton(label: string, onTap: () => void, fontSize = 16): Pi
 		width,
 		height,
 		select: (on) => paint(on ? BUTTON.selected : BUTTON.stroke),
+		relabel: (next) => {
+			text.text = next;
+		},
 		destroy: () => view.destroy({ children: true }),
 	};
 }
 
 /** Who won the round, and whether it is this device's player. */
 export type WinShown = { winner: string; won: boolean };
+
+/** What the button that leaves for a new river says. */
+const labelOf = (shown: WinShown | undefined) =>
+	shown?.won ? 'Join New Game' : 'Start New Session';
 
 export type WinAnimation = {
 	mount: ArtMount;
@@ -88,6 +97,8 @@ export type WinAnimation = {
 		title: string;
 		eggs: number;
 		leaving: boolean;
+		/** What the button says now. */
+		label: string;
 		button: { x: number; y: number } | undefined;
 	};
 	destroy: () => void;
@@ -112,6 +123,8 @@ const EGG_COLOURS: readonly (readonly [number, number, number])[] = [
 	[0xffd6e0, 0xff80a0, 0xfff5f8],
 ];
 const EXIT = { pxPerSecond: 1200 };
+/** What the button says from its press until the device has done what it asked. */
+const JOINING = 'Joining…';
 
 type Egg = {
 	sprite: Sprite;
@@ -260,11 +273,14 @@ export function createWinAnimation(
 				});
 		subtitle?.anchor.set(0.5, 0);
 		subtitle?.position.set(w / 2, title.y + 14);
-		const button = pixelButton(won.won ? 'Join New Game' : 'Start New Session', () => {
+		const button = pixelButton(labelOf(won), () => {
 			if (exitAt !== undefined) return;
 			exitAt = clock;
+			button.relabel(JOINING);
 			onNext();
 		});
+		// Built again (the window changed) after the press: it is still joining.
+		if (exitAt !== undefined) button.relabel(JOINING);
 		button.view.position.set(portrait ? w / 2 : 40 + button.width / 2, h - 80 + button.height / 2);
 		const layer = new Container();
 		root.addChild(overlay, layer, big, title, ...(subtitle ? [subtitle] : []), button.view);
@@ -393,6 +409,7 @@ export function createWinAnimation(
 			title: built?.title.text ?? '',
 			eggs: eggs.length,
 			leaving: exitAt !== undefined,
+			label: built ? (exitAt !== undefined ? JOINING : labelOf(shown)) : '',
 			button: built && {
 				x: Math.round(built.button.view.toGlobal({ x: 0, y: 0 }).x),
 				y: Math.round(built.button.view.toGlobal({ x: 0, y: 0 }).y),

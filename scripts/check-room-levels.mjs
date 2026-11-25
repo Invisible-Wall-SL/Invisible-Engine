@@ -730,14 +730,14 @@ try {
 		assert.match(online, /const field = played\.made && draw\?\.\(played\.made\);/);
 		assert.match(online, /loadArt\(played\.made, seed, /);
 		assert.doesNotMatch(online, /generatedOnlineGame|ONLINE_GENERATORS|salmonsMapRiver|seedLevels/);
-		// A refusal leaves the room first and is the join's answer; a boot's join and a leave for
-		// a new room both stop on the error screen with it.
+		// A refusal leaves the room first and is the join's answer: a boot's join stops on the
+		// error screen with it, a leave for a new room loads the page again (`failSwitch`).
 		assert.match(
 			online,
 			/if \(level && 'refused' in level\) \{\s+room\.leave\(\)[^;]*;\s+return otherLevel\(level, authoring\);\s+\}/,
 		);
 		assert.match(online, /if \(refused !== undefined\) return refuseOnlineBoot\(refused\);/);
-		assert.match(online, /if \(refused !== undefined\) return refuseOnlineBoot\(refused, true\);/);
+		assert.match(online, /if \(refused !== undefined\) failSwitch\(launch, join, refused\);/);
 		// Only an authoring boot is told, and only when it adopted.
 		assert.match(online, /authoring: params\.get\(AUTHORING_PARAM\) === '1',/);
 		assert.match(

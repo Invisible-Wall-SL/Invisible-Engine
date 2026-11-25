@@ -402,10 +402,14 @@ run on the server.
   ends; the art comes under the new room's lobby. No loading screen, no frame of neither room.
   It is the arcade family's code alone: the mounted game keeps its layout and its flow handle
   (the other runtimes stay the same bytes), so the new field is drawn by the room's art in the
-  layout node's place and the flow is brought back to its start, not built again. The join is also kept where a boot reads it and taken
-  back once the device is in, so a join that fails ends on the error screen and its Reload joins
-  as that player. Nothing of this is the server's: a won room is locked, so the join lands in
-  another.
+  layout node's place and the flow is brought back to its start, not built again.
+  While it joins, the win screen says so. Whatever stops the switch (a refused join, no room
+  within 12 s, a level the device cannot make, art that does not load, anything thrown) loads
+  the page again, with the join kept where a boot reads it, so the person joins as that same
+  player: the error screen is not drawn in every kind of boot, a reload is always right. A
+  published flow keeps a start-up event that holds its whole start, since the restart runs that
+  event and not `load` (`apps/lines/src/game/roomFlow.ts`).
+  Nothing of this is the server's: a won room is locked, so the join lands in another.
 - **Leaving and rejoining:** the 60 s grace stays. A dropped player's body stays where it was until
   it rejoins or the grace runs out, as today. Joining a running round stays allowed.
 

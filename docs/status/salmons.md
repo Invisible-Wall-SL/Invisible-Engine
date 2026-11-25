@@ -53,21 +53,39 @@ upload.
     world's size is the session's own (`useOnlineCamera`), and the camera is made again for the
     new room, snapped to the own player. The level's geometry (what is predicted and collided)
     never came from the layout: it is the session's, made from the new room's seed and levels.
-    A game with a generator and no art cannot be swapped this way: its join is refused and it
-    ends on the error screen (no such game exists; Salmons' two generators have art).
+    A game with a generator and no art cannot be swapped this way: its switch fails and the
+    page is loaded again (no such game exists; Salmons' two generators have art).
   - **The flow is not changed and nothing is published.** The flow handle is the same one; it is
-    brought back to its start with what it already has. Every container it shows is hidden
-    through its own mount model (the win screen with them); its variables are written back to
-    their initial values and every timer its doc can start is stopped; the room's values
-    (`phase`, `secondsLeft`, `status`) are written; then it is given the event that ends its
-    start-up screen at a boot, `complete:<that screen's container>` (the first container its
-    start-up shows and whose completion it handles; else `tapToStart`, else `load`). In Salmons'
-    flow that hides the loading screen (not shown: nothing happens), shows the river and checks
-    the lobby, so the new room's lobby and countdown come up, or the bare river if that room
-    already runs. The loading screen is never shown. Room events that arrive during the swap
-    reach the flow as always; the check reads the state either way. A published flow has to keep
-    that event, which every Salmons flow made from the seed has. One thing is not undone: a
-    chain of the old game still waiting on a Delay would go on (Salmons' flow has none).
+    brought back to its start with what it already has (`apps/lines` `game/roomFlow.ts`
+    `restartFlow`, arcade code). In order: every container it shows is hidden through its own
+    mount model (the win screen with them). Hiding a container releases a chain that was held on
+    it (a win screen shown with `awaitComplete`), which then runs on: it is given its turns in
+    the same task and what it showed is hidden too, again for a chain that held on another screen
+    (up to 8 times). The game unmounts; the mode stack goes back
+    to the base game (`stateModes.reset`); the variables are written back to their initial values
+    and every timer the doc can start is stopped; the room's values (`phase`, `secondsLeft`,
+    `status`) are written. Then it gets the event that ends its start-up screen at a boot. A boot
+    completes the screen on top of what `load` showed, so that event is `complete:<container>`
+    for the topmost container the `load` and `tapToStart` chains show themselves whose completion
+    the flow handles (`startupCue`: a second `complete:` handler, for an intro a completion shows
+    later, is not it); with none, `tapToStart`; with neither, `load`, completed as a boot's tap
+    completes it (a splash `load` holds). In Salmons' flow that is `complete:loading`: it hides
+    the loading screen (not shown: nothing happens), shows the river and checks the lobby, so
+    the new room's lobby and countdown come up, or the bare river if that room already runs. The
+    loading screen is never shown.
+  - **What a published flow must keep:** one of those three (a top-level `complete:` handler
+    for a container its `load` or `tapToStart` chain shows itself, a `tapToStart` chain, or a
+    `load` chain that holds its start-up screen), with its whole start in that chain: with such
+    a handler `load` is not run again, so what `load` does besides showing the start-up screen (a
+    sound, a write, a timer) is not done for the new room. The restart is made in the base game:
+    a mode's own start-up handler is never the one run. Every Salmons flow made from the seed
+    has the first, and its `load` only shows the loading screen. **What cannot be undone**
+    without the interpreter (`engine-flow-v2` `runtime.ts`, shared code in every runtime, so not
+    changed here): a chain of the old game that is waiting on a Delay, a timer it awaits, an
+    awaited cue or a mode's entry goes on when that ends, and what it does then lands on the new
+    room (Salmons' flow has no such wait). `check:room-flow` (new, launcher) runs the restart on a flow that is not the seed:
+    a win screen that holds, a mode with its own start-up answer, a second completion above the
+    splash, a variable and a timer.
   - **What is let go.** At the press the device stops hearing the old room (its state and event
     listeners are taken off; its leave raises no "the room closed", because the session is marked
     as quit and its leave is ignored whatever its code). At the swap (`closeSession`): the
@@ -77,20 +95,36 @@ upload.
     world camera, the pointer's and the touch control's held fingers, a pending tap, the
     on-screen button, the key latch, and an author's levels notice. The respawn ask, the pass,
     the events and the signals are the session's own and go with it; nothing made for a room
-    keeps the room before it alive. The probe's `fieldArt` is the new art's once it loads.
-  - **When the join fails**, or the room refuses the device (a level it cannot make, no first
-    state): the existing error screen, with its reason recorded and a Reload. Not an automatic
-    reload: that would show the boot and loading screens only to fail the same way. The join
-    (name, class, pass) is written to session storage before the attempt and taken back once the
-    device is in, so the screen's Reload joins as that same player with no start menu
-    (`ie:rooms:next-join`, the storage the reload used to carry every time; it is now only this
-    fallback's). A player's screen says "This game could not load … please reload", the shared
-    words; the join's own reason shows to an authoring boot and is in `__IE_RUNTIME_STALE__`.
+    keeps the room before it alive. The new room's state is read at once, so the first frame is
+    drawn from its own player's place (the camera is made again when the play field remounts,
+    and snaps there). Until its session is made, a room's leave is only the join's answer: it
+    clears nothing of the picture that stands, and a boot's join says it once (it used to reach
+    the error screen twice). A movement key held through the swap is forgotten with
+    the latch: it steers again once pressed again.
+  - **While it joins** the win screen's button reads "Joining…" (from the press until the new
+    room shows).
+  - **When the switch fails, the page is loaded again** (`failSwitch`), which is what the button
+    did before: a join the server refuses, one that has not put the device in a room within
+    12 s (`SWITCH_MS`), a room that closes as it is joined or refuses the device (a level it
+    cannot make, no first state), anything thrown on the way (caught in `switchRoom`), a flow
+    whose start fails, and art that does not load for the new room (a room joined in another's
+    place has only its art to draw its field with, and no lobby note, death screen or win button
+    without it). `failSwitch` leaves the room the page is in first, and a join that answers after
+    the 12 s is left at once rather than shown over the reload. The join (name, class, pass) is written to session
+    storage (`ie:rooms:next-join`) before the attempt, taken back the moment the device is in,
+    and written again by a failure, so the boot that follows joins as that same player with no
+    start menu; a pass the failed join already spent is not golden again. Why a reload and not
+    the error screen: that screen is drawn only on a live-authoring boot (`?runtime=1`;
+    `editor-scenes` `markRuntimeStale`, shared code that must not move the other runtimes), so
+    on a standalone build a failed switch left the win screen up with nothing to press. A
+    reload is right in every kind of boot, and if the boot's own join fails too it ends as a
+    first launch's does. The reason is on the console (`[online] could not change rooms (…)`).
   - **Only Salmons' win screen asks for it** (`screenHost().rejoin`). A boot's join runs the same
     code in the same order as before (`joinOnlineRoom` now calls `enterRoom`); another online
     game, and the 3D room (`online3d.ts`), never call `switchRoom`. `check:runtime-bytes`: the
     `lines`, `match3` and `card` runtimes are the same bytes; `arcade` and `arcade3d` are
-    re-recorded (`arcade` 2,125,988 → 2,126,729 B gzip, `arcade3d` 2,634,735 → 2,635,398).
+    re-recorded (`arcade` 2,125,988 → 2,127,539 B gzip, `arcade3d` 2,634,735 → 2,636,362; the
+    review fixes are 810 and 964 B of that).
   - **Measured** (`scripts/playtest/salmons-rejoin-play.mjs`, a headless shell that draws the
     river in software at about 3 frames a second, so its seconds are long and its frames are what
     carries over; local game server):
@@ -120,27 +154,34 @@ upload.
     until the next press); the next ones add nothing that grows. A first version kept every
     old session alive through a closure (sockets alive 2, 3, 4, about 1.2 MB a switch): the
     script counts the sockets so that shows again.
-  - **Proof.** `salmons-rejoin-play.mjs` (new), 38 verdicts in each netcode: three games won and
-    left on one document (a mark on the window kept, one document loaded, the old room left and
-    another joined, another seed, the flow showing the river and the lobby and neither the win
-    nor the loading screen, the lobby's note, the new room's zones, fingerprint and rocks, one
-    river drawn, nothing of the old game held, round 1, golden, the swim predicted with the
-    camera on it); a join made to fail (the error screen, the join kept, its Reload joining as
-    the player was); and the timings above. `salmons-play.mjs` (102 verdicts in each netcode):
-    page W's verdict follows the same switch in a room without a lobby.
-    `salmons-levels-play.mjs` 54 in each. Gates: `check:room-lobby` 35 (the button, the join it
-    makes, no `location.reload` in `online.ts`), `check:room-sim` 43, `check:room-levels` 15,
-    `check:netcode` 28 (their pins of `online.ts` moved with the code), `check:online-rules` 40
-    (no trace moved), `check:salmons-art` 33, `check:salmons-levels` 18. Playbook:
+  - **Proof.** `salmons-rejoin-play.mjs` (new), 43 verdicts in each netcode, and 43 again with
+    `--baked` (a runtime with the game baked in, pages with no `runtime=1`, as a standalone build
+    boots): three games won and left on one document (a mark on the window kept, one document
+    loaded, the old room left and another joined, another seed, the flow showing the river and
+    the lobby and neither the win nor the loading screen, the first frame's camera on the own
+    salmon where the new room has it, the lobby's note, the new room's zones, fingerprint and
+    rocks, one river drawn, nothing of the old game held, round 1, golden, the swim predicted
+    with the camera on it); four switches that fail (a refused join, a join that never answers
+    with "Joining…" on the button meanwhile, a throw in the swap, art that does not load), each
+    ending with the page loaded again and the person in a new room's lobby as they were; and the
+    timings above. `salmons-play.mjs` (102 verdicts in each netcode): page W's verdict
+    follows the same switch in a room without a lobby. `salmons-levels-play.mjs` 54 in each. Gates: `check:room-flow` 2 (new), `check:room-lobby` 35 (the button, the join it
+    makes, the one place a failed switch loads the page again from, no error screen in
+    `switchRoom`, a late join left, the early leave), `check:room-sim` 43, `check:room-levels` 15, `check:netcode` 28 (their pins of
+    `online.ts` moved with the code), `check:online-rules` 40 (no trace moved),
+    `check:salmons-art` 33, `check:salmons-levels` 18. Playbook:
     [playtest/salmons](../playtest/salmons.md) "Another room on the same page".
   - **Not verified, and known limits.** A real phone or GPU (the times above are a software
     renderer's). The published flow itself (the playtests boot the seed's flow, which the
     project's is made from). A join into a river already running (read off the flow: its lobby
-    check shows nothing unless the room waits). If the new room's art fails to load after a
-    swap, its ground stays empty (at a boot the placeholder shows instead); the art's pages are
-    the page's by then, so only a fault in the art could do it. No frame was caught between the
-    lobby and the art: the art is in the first frame of the new room on the stepped page, and
-    two frames after the lobby on the real clock.
+    check shows nothing unless the room waits). `--baked` was played in the `engine` netcode
+    only (a baked bundle carries one). A published flow other than the seed's on a real switch
+    (`check:room-flow` runs the restart in Node on the package's interpreter). No frame was
+    caught between the lobby and the art: the art is in the first frame of the new room on the
+    stepped page, and two frames after the lobby on the real clock. A boot's own lost room
+    still has no screen on a standalone build (as before this change). One `salmons-play.mjs`
+    run (`engine`) failed page T's bear-colour sample once (a pixel of water under the bear's
+    place; page T never switches rooms) and passed 102 of 102 when run again.
 - **A class picked in the lobby (2026-11-25; owner: "I would like to add some UI to the waiting
   room so that a player can change the played character"; in review; branch
   `claude/upbeat-cray-fzmgxe`; runtime and game-server change; no config, layout or flow change;
@@ -2377,6 +2418,22 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   rewritten; the source pins of `check:room-lobby`, `check:netcode` and `check:room-levels`
   moved with the code. No game-server, config, layout or flow change; `normalizeGameConfigDoc`
   untouched. Detail, numbers and what was not verified in Current state.
+  - **After a code review, the same day.** The unhappy paths left the page frozen on the win
+    screen: a join that never answered had no timeout, a throw in the swap was an unhandled
+    rejection, the error screen a failed switch ended on is drawn only on a `?runtime=1` boot,
+    and art that failed for the new room left a room with no screens. Every failure of a switch
+    now goes through one place that keeps the join and loads the page again (`failSwitch`),
+    with a 12 s limit on getting into the new room, and the win screen's button reads
+    "Joining…" meanwhile. The flow's restart moved to `game/roomFlow.ts` and is right for a
+    flow other than the seed (a chain released by its screen's hide is outlived, the mode stack
+    is reset, the start-up event is picked as a boot picks it), held by the new launcher gate
+    `check:room-flow`. Smaller: the first frame of the new room is drawn from its own place;
+    the kept join is dropped the moment the device is in; a first boot's camera world is the
+    layout's again; a room lost while it is joined in another's place no longer clears the old
+    picture's marks, and a boot's join no longer reaches the error screen twice for one lost
+    room; a held movement key is still forgotten at the swap (pressed again, it steers).
+    `salmons-rejoin-play.mjs` 38 → 43 (four failing switches in place of one, the first frame's
+    camera), and `--baked` plays it on a boot with no `runtime=1`.
 - 2026-11-25 — **A class picked in the lobby** (owner: "add some UI to the waiting room so that a
   player can change the played character"; branch `claude/upbeat-cray-fzmgxe`; in review). Under
   the lobby's note, Salmon / Fisherman / Bear: a press changes the class in place, through the

@@ -707,25 +707,27 @@ Game Maker and open it again once the old room has closed: no notice, and your w
 ```
 node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/salmons-rejoin-play.mjs --runtime apps/lines/build --out <dir> \
-  [--chrome <exe>] [--netcode engine|colyseus] [--timing]
+  [--chrome <exe>] [--netcode engine|colyseus] [--timing] [--baked]
 ```
 
 Owner, 2026-11-25: "when I finish a game and click join new room, the game restarts from the
 loading screen, I would expect to be in a room already" ([status/salmons](../status/salmons.md)).
 On the same runtime build and a real game server on localhost: the exported game (`salmonsMap`,
-random seeds) with a lobby one person starts (a countdown of 5 s) and no bots. 38 verdicts; play
-both netcodes.
+random seeds) with a lobby one person starts (a countdown of 5 s) and no bots. 43 verdicts; play
+both netcodes, and `jo` and `fay` once more with `--baked` (below).
 
 - **`jo`** (a salmon) plays three games on ONE document. In each the room stands its salmon in
   the source (the server runs in the script's process; Space is tapped, since only a free salmon
   wins), the win screen says "You Won!" and the room sends a pass. "Join New Game" is clicked, and
-  then, 11 verdicts a switch:
+  then, 12 verdicts a switch:
   - the page did not load again: a mark set on its window before the click is still there, and
     the tab has still loaded one document (each document counts itself in session storage);
   - it has left its room and is in another (the server's own record of both sessions), of
     another seed;
   - at once the flow shows `basegame` and `salmonsLobby` and neither `salmonsWon` nor `loading`,
     and the room's phase is `waiting` (`switch-N-at-once.png`);
+  - that first frame's camera is on the own salmon where the NEW room has it (the river's foot),
+    not where the old room's camera stood (the source);
   - the lobby's note reads "You are Jo, a Salmon" in a river of one, and the win animation is
     not drawn (`switch-N-lobby.png`);
   - the level made and drawn is the NEW room's: the probe's zones are the room sim's and are not
@@ -744,11 +746,21 @@ both netcodes.
   display objects (on the stage, and alive in the heap), its GPU textures and its sockets alive:
   read them across the three, they are reported and not judged. Sockets alive that grow by one a
   switch mean each old session is still held by something.
-- **`fay`** wins once and its join is made to fail (the page's matchmaking request is refused):
-  it stops on the error screen with a Reload, the reason recorded (`__IE_RUNTIME_STALE__`), on
-  the same document; `ie:rooms:next-join` holds its name, class and pass (`join-failed.png`).
-  Loaded again, with a launch that names no character, it joins at once as Fay, a golden salmon,
-  with no start menu, and the kept join is spent.
+- **`fay`** plays four switches that fail, one after the other on one page whose launch names
+  no character (so only a kept join spares it the start menu): a join the server refuses (the
+  page's matchmaking request is refused), a join that never answers (the win screen's button
+  must read "Joining…" meanwhile: `joining.png`; the switch gives up after 12 s of the page's
+  clock), something thrown in the swap (the flow's own hide), and art that does not load for
+  the new room. Each must end with the page loaded again (one more document) and the person in
+  a new room's lobby as they were ("You are Fay, a Salmon", its three classes to press; golden
+  while the pass was not spent), no start menu, the kept join spent, and the reason on the
+  console (`failed-<which>-end.png`). No page error in the room it ends in.
+- **`--baked`** plays `jo` and `fay` (not `tim`) on pages with no `runtime=1`, as a standalone
+  build boots: the failures above must end the same way where the error screen is never drawn.
+  It needs a runtime with this game baked in, one netcode's:
+  `--write-bundle apps/lines/src/baked-editor-bundle.json --netcode engine`, build with
+  `PUBLIC_IE_FAMILIES=arcade`, copy `apps/lines/build` out, `git checkout` the bundle file (never
+  commit it), and pass the copy as `--runtime`.
 - **`tim`** runs on the real clock (no `ie_determinism`), three switches: `measures.switchMs`
   has, for each, the ms from the click to the first frame that shows the new room's lobby and to
   the first frame whose stage holds the river's art, how many frames that was, the frame time,
