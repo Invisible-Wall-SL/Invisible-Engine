@@ -77,7 +77,7 @@ const sandbox = (mutate = []) =>
 	viewSandbox({
 		entry: ENTRY,
 		globals: { rawDoc: null, selSlot: null, selBone: null, skeletonData: null },
-		stubs: ['rebuildFromRawDoc', 'markDirty'],
+		stubs: ['rebuildFromRawDoc', 'markDirty', 'revealSlotRow'],
 		mutate,
 		label: 'rig-duplicate-slot',
 	});

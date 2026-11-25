@@ -96,6 +96,16 @@ const refuses = (what: string, doc: unknown, why: RegExp) => {
 	);
 };
 refuses('no object', [], /^controls\.json must be an object$/);
+refuses(
+	'an empty slot group',
+	edited(good, ['slotGroups', 'face'], []),
+	/slotGroups\.face must list at least 1/,
+);
+refuses(
+	'a slot twice in a group',
+	edited(good, ['slotGroups', 'face'], ['head', 'head']),
+	/slotGroups\.face lists a name twice/,
+);
 refuses('a missing rig', edited(good, ['rig']), /controls\.json\.rig is missing/);
 refuses(
 	'an unknown field',
@@ -317,6 +327,26 @@ misfits(
 	/^bones\.tail names bone "tail", which is not in the rig$/,
 );
 misfits(
+	'a slot group member the rig lacks',
+	edited(good, ['slotGroups', 'arm', 1], 'tail'),
+	/^slotGroups\.arm\[1\] names slot "tail", which is not in the rig$/,
+);
+{
+	const slotFit = fitControls(edited(good, ['slotGroups', 'face', 0], 'hat'), irig);
+	check(
+		'irig: fitting drops a slot group left with no slot, keeping the others whole',
+		sameJson(slotFit.doc.slotGroups, { arm: ['upper_arm', 'lower_arm', 'hand'] }) &&
+			slotFit.dropped.length === 1,
+		JSON.stringify(slotFit),
+	);
+	const one = fitControls(edited(good, ['slotGroups', 'arm', 0], 'tail'), irig).doc.slotGroups;
+	check(
+		'irig: fitting drops a missing slot from its group alone',
+		sameJson(one?.arm, ['lower_arm', 'hand']),
+		JSON.stringify(one),
+	);
+}
+misfits(
 	'a set member the rig lacks',
 	edited(good, ['sets', 'hands', 1], 'hand_r'),
 	/sets\.hands\[1\] names bone "hand_r"/,
@@ -517,6 +547,26 @@ check(
 	'rename: a constraint replaced in place by one with another target is no rename',
 	map(renamesBetween(irig, aimSwapped)).ik === undefined,
 );
+{
+	const slotRenamed = structuredClone(irig) as { slots: Json[] } & Json;
+	slotRenamed.slots[3] = { ...slotRenamed.slots[3], name: 'hand_l_art' };
+	check(
+		'rename: a slot renamed in place follows into its groups',
+		sameJson(map(renamesBetween(irig, slotRenamed)), { slot: { hand: 'hand_l_art' } }) &&
+			sameJson(renameControls(good, renamesBetween(irig, slotRenamed)).slotGroups?.arm, [
+				'upper_arm',
+				'lower_arm',
+				'hand_l_art',
+			]),
+		JSON.stringify(map(renamesBetween(irig, slotRenamed))),
+	);
+	const reboned = structuredClone(slotRenamed);
+	reboned.slots[3] = { ...reboned.slots[3], bone: 'head' };
+	check(
+		'rename: a slot that also moved to another bone is no rename',
+		map(renamesBetween(irig, reboned)).slot === undefined,
+	);
+}
 check('rename: an unchanged rig renames nothing', sameJson(map(renamesBetween(irig, irig)), {}));
 const stale = edited(good, ['bones', 'hand_ctrl_l'], { shape: 'cross' });
 check(

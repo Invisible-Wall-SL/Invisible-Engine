@@ -2,12 +2,12 @@
  * A rig's control layer, `controls.json` (docs/design/rig-controls.md §5.7): what makes a bone a
  * control — its role, shape, colour, size, display, channel locks and limits — plus hidden and
  * locked bones, layers, selection sets, limbs (FK / IK and their spaces), the constraint presets,
- * mirror pairs and the picker's layout. Pure (no R2, no DOM), so the save path and the Rigger page
+ * mirror pairs, the picker's layout and the Slots list's own slot groups. Pure (no R2, no DOM), so the save path and the Rigger page
  * run the same code. No game, export or runtime reads it: the control BONES and constraints are in
  * the irig, and deleting the sidecar loses the shapes, never a pose.
  *
  * Strict on write (`controlsDocProblems`, `controlsIrigProblems`), lenient on read (`fitControls`
- * drops what names a bone or constraint the irig no longer has, with a notice). A rename in the
+ * drops what names a bone, constraint or slot the irig no longer has, with a notice). A rename in the
  * irig follows into it (`renamesBetween` + `renameControls`).
  */
 
@@ -147,6 +147,8 @@ export interface ControlsDoc {
 	/** The mirror line (a bone; the root's x = 0 when absent) and overrides of the name rule. */
 	mirror?: { line?: string; pairs?: Record<string, string> };
 	picker?: { items?: ControlPickerItem[] };
+	/** The Slots list's groups an author made: name → slots (each group's eye and view opacity). */
+	slotGroups?: Record<string, string[]>;
 }
 
 type Json = Record<string, unknown>;
@@ -288,6 +290,7 @@ const SIDECAR = obj(
 		picker: obj({
 			items: list(obj({ bone: name, set: name, limb: name, at: unitXy, label: text }, ['at'])),
 		}),
+		slotGroups: map(names(1)),
 	},
 	['controls', 'rig'],
 );
@@ -346,7 +349,7 @@ export function controlsDocProblems(value: unknown): string[] {
 
 // ── Against the irig: every name it uses, rewritten or dropped ──────────────────────────────────
 
-export type RefKind = 'bone' | ConstraintKind;
+export type RefKind = 'bone' | 'slot' | ConstraintKind;
 const KINDS: ConstraintKind[] = ['ik', 'transform', 'path', 'physics'];
 
 /** What a name maps to: itself, another name (a rename), or null (the irig no longer has it). */
@@ -360,13 +363,13 @@ interface DroppedRef {
 }
 
 const describe = (d: DroppedRef) =>
-	`${d.at} names ${d.kind === 'bone' ? 'bone' : `${d.kind} constraint`} "${d.name}", which is not in the rig`;
+	`${d.at} names ${d.kind === 'bone' || d.kind === 'slot' ? d.kind : `${d.kind} constraint`} "${d.name}", which is not in the rig`;
 
 /**
  * `doc` with every bone and constraint name passed through `to`. An entry naming one that maps to
  * null goes, as little as possible with it: a control, a set member, a preset, a mirror pair, a
- * picker button, a limb's control, pole or space — a whole limb only when its IK or an FK bone
- * goes. Every name that mapped to null is listed, even in an entry already going.
+ * picker button, a limb's control, pole or space, a slot group's member — a whole limb only when
+ * its IK or an FK bone goes, a slot group when no member is left. Every name that mapped to null is listed, even in an entry already going.
  */
 function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: DroppedRef[] } {
 	const dropped: DroppedRef[] = [];
@@ -469,12 +472,25 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 		}
 		next.picker = { ...doc.picker, items };
 	}
+	if (doc.slotGroups) {
+		const groups: Record<string, string[]> = {};
+		for (const [g, members] of Object.entries(doc.slotGroups)) {
+			const kept = unique(
+				members.flatMap((m, i) => {
+					const n = ref('slot', m, `slotGroups.${g}[${i}]`);
+					return n === null ? [] : [n];
+				}),
+			);
+			if (kept.length) groups[g] = kept;
+		}
+		next.slotGroups = groups;
+	}
 	return { doc: next, dropped };
 }
 
 const unique = (xs: string[]): string[] => [...new Set(xs)];
 
-/** The bone and constraint names an irig has, by kind. */
+/** The bone, slot and constraint names an irig has, by kind. */
 function namesOf(irig: Json): Record<RefKind, Set<string>> {
 	const of = (v: unknown, field = 'name') =>
 		new Set(
@@ -484,6 +500,7 @@ function namesOf(irig: Json): Record<RefKind, Set<string>> {
 		);
 	return {
 		bone: of(irig.bones),
+		slot: of(irig.slots),
 		ik: of(irig.ik),
 		transform: of(irig.transform),
 		path: of(irig.path),
@@ -518,15 +535,16 @@ export function renameControls(doc: ControlsDoc, renames: RigRenames): ControlsD
 
 /**
  * The renames between two versions of an irig, as the Rigger makes them: a rename keeps the bone
- * (or constraint) where it is in its list and changes nothing else about what it hangs from or acts
- * on. Names both versions have are anchors; between two anchors, a run of names that went and a run
- * as long that came are paired in order, each pair only when its parent (a bone) or the bones it
- * acts on and its target (a constraint), renamed alike, are the same. Anything else — a delete, an
+ * (or slot, or constraint) where it is in its list and changes nothing else about what it hangs from
+ * or acts on. Names both versions have are anchors; between two anchors, a run of names that went
+ * and a run as long that came are paired in order, each pair only when its parent (a bone), its bone
+ * (a slot) or the bones it acts on and its target (a constraint), renamed alike, are the same. Anything else — a delete, an
  * add, a rename that also moved a bone — is no rename, and what named the old name is dropped.
  */
 export function renamesBetween(before: Json, after: Json): RigRenames {
 	const out: RigRenames = {
 		bone: new Map(),
+		slot: new Map(),
 		ik: new Map(),
 		transform: new Map(),
 		path: new Map(),
@@ -546,6 +564,13 @@ export function renamesBetween(before: Json, after: Json): RigRenames {
 		list(after.bones),
 		out.bone,
 		(a, b) => bone(parents[0].get(a)?.parent) === parents[1].get(b)?.parent,
+	);
+	const slotBones = [byName(before.slots), byName(after.slots)];
+	pairInPlace(
+		list(before.slots),
+		list(after.slots),
+		out.slot,
+		(a, b) => bone(slotBones[0].get(a)?.bone) === slotBones[1].get(b)?.bone,
 	);
 	for (const kind of KINDS) {
 		const [was, now] = [byName(before[kind]), byName(after[kind])];
