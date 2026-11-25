@@ -16,9 +16,12 @@
 // can change the played character"): until round 1 starts, the countdown included, a person changes
 // the class it plays IN PLACE, through the room, by the Respawn's rule (a place, the bot that gives
 // it, the bot let back into the class left, or a refusal); nobody leaves and joins again. The room's
-// half is `roomSim.ts`; the device's (`engine-mechanics` `createLobbyPick`, what `online.ts` sends
+// half is `roomSim.ts`; the device's (`engine-mechanics` `createRespawnAsk`, what `online.ts` sends
 // and reads by) is played here against the room with a delay each way; a real Colyseus room and
 // SDK client carry both over the wire; the drawn half is the playtest's.
+// ONE ANSWER A PRESS (review, 2026-11-25): the room answers a run of inputs asking the same once
+// and does not test the place again within it, the device makes every press a run of its own, and
+// a caught person's Respawn reads its answer off the state as the lobby's pick does.
 //
 //   pnpm check:room-lobby
 
@@ -33,7 +36,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
 import {
 	clampInput,
-	createLobbyPick,
+	createRespawnAsk,
 	launchJoin,
 } from '../packages/engine-mechanics/src/online.js';
 import { flowSignalsOf } from '../packages/engine-mechanics/src/onlineFlow.js';
@@ -317,28 +320,43 @@ check('a new room’s lobby has no form: its note shows the room, who waits and 
 	assert.match(screens, /\n\trejoin: \(\) => void;\n/);
 	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
 	assert.match(online, /\n\t\trejoin: \(\) => \{\n/);
-	// A class pressed in the lobby stays in the room: it is the device's pick, sent as inputs.
+	// A class pressed in the lobby stays in the room: it is what the device asks, sent as inputs,
+	// as a caught player's Respawn is; every input's `respawn` is that ask's and nothing else's.
 	assert.match(
 		online,
-		/\n\t\tpick: \(character\) => \{\n\t\t\tconst respawn = respawnOf\(current, character\);\n\t\t\tif \(respawn\) current\.pick\.press\(respawn\);\n\t\t\},\n/,
+		/const ask = \(character: string\) => \{\n\t\tconst respawn = respawnOf\(current, character\);\n\t\tif \(respawn\) current\.ask\.press\(respawn\);\n\t\};\n\treturn \{\n\t\trespawn: ask,\n\t\tpick: ask,\n/,
 	);
-	assert.match(
-		online,
-		/raw\.respawn = current\.respawn \|\| current\.pick\.input\(current\.seq\);/,
-	);
+	assert.match(online, /raw\.respawn = current\.ask\.input\(current\.seq\);/);
+	assert.equal(online.match(/\.respawn = /g).length, 1, 'written in that one place');
 	// The note while the room waits, and only then; its classes only while the room SAYS its people
-	// may pick (a server older than the pick never does), when the pick reads its answer.
+	// may pick (a server older than the pick never does), when the pick reads its answer. A caught
+	// player's Respawn reads its own off the same state while the room takes one (it plays nothing
+	// while it is out), and neither waits for the room's event.
 	assert.match(online, /const picking = !!me && waiting && state\.picking === true;/);
 	assert.match(
 		online,
-		/if \(picking\) current\.pick\.answer\(me\.ack, respawnOf\(current, me\.character\)\);\n\telse current\.pick\.drop\(\);/,
+		/if \(me && out\) \{\n\t\tif \(state\.phase === 'running' && current\.game\.online\.rules\.respawn === 'manual'\)\n\t\t\task\.answer\(me\.ack, 0\);\n\t\} else if \(picking\) ask\.answer\(me\.ack, respawnOf\(current, me\.character\)\);\n\telse ask\.drop\(\);/,
 	);
+	assert.match(online, /if \(out && ask\.refused && !refused\) screens\.refused\(\);/);
+	assert.doesNotMatch(online, /event\.type === 'respawnRefused'/);
 	assert.match(online, /screens\.lobby\(\s*me && waiting\s*\? \{/);
-	// A press on one of those buttons is the screen's: it never reaches the pointer or the touch
-	// control, so it steers nothing and taps nothing.
+	// A press on one of those buttons is the screen's: its `down` is kept from the pointer and the
+	// touch control, so it begins no press there, steers nothing and taps nothing. What takes a
+	// press is what Pixi gives it to: the note asks Pixi's own hit test, not a box of its own.
 	assert.match(
 		online,
 		/if \(type === 'down' && onScreenButton\(toGlobal\(e\.clientX, e\.clientY\)\)\) return;\n\t\tconst control =/,
+	);
+	assert.match(
+		note,
+		/const target = part\.app\(\)\?\.renderer\.events\.rootBoundary\.hitTest\(x, y\);\n\t\t\treturn !!target && row\.has\(target\);/,
+	);
+	assert.doesNotMatch(screens, /toLocal\(/);
+	// A player that became another class is spawned again as that class's component, the frame
+	// its class changes (a lobby pick never hides it, so nothing else would).
+	assert.match(
+		online,
+		/if \(was === undefined \|\| was === player\.character\) return;\n\t\tconst instance = current\.drawn\.get\(id\);\n\t\tif \(instance\) \{\n\t\t\tlive\.despawn\(instance\);\n\t\t\tcurrent\.drawn\.delete\(id\);\n\t\t\}/,
 	);
 	// The one place that asks a name or leaves for another choice: the start menu, before the join.
 	const start = art('startMenu.ts');
@@ -591,12 +609,38 @@ check('a full class refuses and says so, press after press; the person plays on 
 	assert.equal(told(ask('bear', 4), 'respawnRefused', 'b'), 1, 'and the first once more');
 	assert.equal(b.character.id, 'salmon');
 	assert.deepEqual(census(botsOf(sim)), { salmon: 5, bear: 0, fisherman: 0 }, 'no bot moved');
-	// A place opens (a fisherman leaves; a bot takes it): the same ask is now let in.
+	// A place opens (a fisherman leaves; a bot takes it): a new ask for it is let in.
 	sim.leave('e');
 	const opened = ask('fisherman', 2);
 	assert.equal(b.character.id, 'fisherman');
 	assert.equal(told(opened, 'respawned', 'b'), 1, 'once: the second input asks for its own class');
 	assert.equal(told(opened, 'respawnRefused', 'b'), 0);
+});
+
+check('one answer a press: a place that opens during a refused run is the next press’s', () => {
+	const sim = sharesRoom(LOBBY);
+	sim.join('a', { character: 'bear' });
+	const b = sim.join('b', { character: 'salmon' });
+	run(sim, 3);
+	const ask = (respawn, n) => {
+		const events = [];
+		for (let i = 0; i < n; i++) events.push(...stepWith(sim, { b: { moveX: 60, respawn } }));
+		return events;
+	};
+	assert.equal(told(ask(PICK.bear, 2), 'respawnRefused', 'b'), 1);
+	// The bears' person leaves while b's device still sends the ask it was refused: those inputs
+	// are that same ask. The device already shows "No place left", so it is not let in behind it.
+	sim.leave('a');
+	assert.equal(census(botsOf(sim)).bear, 1, 'a bot holds the bears’ place now');
+	const late = ask(PICK.bear, 6);
+	assert.equal(b.character.id, 'salmon', 'the refused ask stays refused');
+	assert.equal(told(late, 'respawned', 'b') + told(late, 'respawnRefused', 'b'), 0, 'and silent');
+	// The ask ends with an input that asks for nothing; the next press is tested afresh.
+	ask(0, 1);
+	const next = ask(PICK.bear, 2);
+	assert.equal(b.character.id, 'bear');
+	assert.equal(told(next, 'respawned', 'b'), 1);
+	assert.equal(census(botsOf(sim)).bear, 0, 'the bot gave the place to the person');
 });
 
 check('a caught person’s refused Respawn is told again on its next press too', () => {
@@ -615,8 +659,19 @@ check('a caught person’s refused Respawn is told again on its next press too',
 	assert.equal(told(press(PICK.bear), 'respawnRefused', 'b'), 1);
 	assert.equal(told(press(PICK.bear), 'respawnRefused', 'b'), 1, 'a second Respawn as a bear');
 	assert.equal(b.status, STATUS.out, 'still out');
-	assert.equal(told(press(PICK.fisherman), 'respawned', 'b'), 1);
-	assert.equal(b.character.id, 'fisherman');
+	// One answer a press here too: the bears' place opens while the refused Respawn is still
+	// asked, and it stays refused (each input spent, as a caught player's is); the next press,
+	// after an input that asks for nothing, is let in.
+	assert.equal(told(stepWith(sim, { b: { respawn: PICK.bear } }), 'respawnRefused', 'b'), 1);
+	sim.leave('a');
+	const late = [];
+	for (let i = 0; i < 6; i++) late.push(...stepWith(sim, { b: { respawn: PICK.bear } }));
+	assert.equal(b.status, STATUS.out, 'the refused Respawn stays refused');
+	assert.equal(told(late, 'respawned', 'b') + told(late, 'respawnRefused', 'b'), 0);
+	stepWith(sim, { b: {} });
+	assert.equal(told(press(PICK.bear), 'respawned', 'b'), 1, 'a new press, after it ended');
+	assert.equal(b.character.id, 'bear');
+	assert.equal(b.status, STATUS.free);
 });
 
 check('a pick during the countdown works, and round 1 starts with the person as that class', () => {
@@ -663,13 +718,14 @@ check(
 );
 
 /**
- * A device in `sim` as `online.ts` plays the lobby, `lag` steps from the room each way: every
- * step it sends one input carrying what its pick says (`createLobbyPick`), which the room applies
- * `lag` steps later, and it reads the room's state as it was `lag` steps ago: its own player's
- * `ack` and class, and whether the room lets its people pick.
+ * A device in `sim` as `online.ts` asks, `lag` steps from the room each way: every step it sends
+ * one input carrying what its ask says (`createRespawnAsk`), which the room applies `lag` steps
+ * later, and it reads the room's state as it was `lag` steps ago, as `drawScreens` does: its own
+ * player's `ack` and class, whether it is out (it plays nothing then, and a Respawn is answered
+ * while a round runs), and whether the room lets its people pick.
  */
 const deviceIn = (sim, id, lag) => {
-	const pick = createLobbyPick();
+	const ask = createRespawnAsk();
 	const sent = [];
 	const states = [];
 	const events = [];
@@ -677,7 +733,7 @@ const deviceIn = (sim, id, lag) => {
 	let carried = 0;
 	const step = () => {
 		seq += 1;
-		const respawn = pick.input(seq);
+		const respawn = ask.input(seq);
 		if (respawn) carried += 1;
 		sent.push({ at: sim.steps + lag, input: clampInput({ seq, respawn }, sim.game.field) });
 		const now = sim.steps;
@@ -689,27 +745,68 @@ const deviceIn = (sim, id, lag) => {
 			at: sim.steps + lag,
 			ack: me.ack,
 			playing: PICK[me.character.id],
+			out: me.status === STATUS.out,
+			running: sim.rules.phase === 'running',
 			picking: sim.rules.picking,
 		});
 		while (states.length && states[0].at <= sim.steps) {
 			const state = states.shift();
-			if (state.picking) pick.answer(state.ack, state.playing);
-			else pick.drop();
+			if (state.out) {
+				if (state.running) ask.answer(state.ack, 0);
+			} else if (state.picking) ask.answer(state.ack, state.playing);
+			else ask.drop();
 		}
 	};
 	return {
-		pick,
+		ask,
 		events,
-		press: (character) => pick.press(PICK[character]),
+		press: (character) => ask.press(PICK[character]),
 		steps: (n) => {
 			for (let i = 0; i < n; i++) step();
 		},
-		/** Inputs that carried a pick so far. */
+		/** Step until the ask is answered (refused, or gone), at most a round trip and a few more. */
+		answered: () => {
+			for (let i = 0; i < 3 * lag + 8 && ask.held() && !ask.refused; i++) step();
+		},
+		/** Inputs that carried an ask so far. */
 		get carried() {
 			return carried;
 		},
 	};
 };
+
+check(
+	'an ask on the device: a press after inputs asking the same first sends one asking nothing',
+	() => {
+		const ask = createRespawnAsk();
+		assert.equal(ask.input(1), 0, 'nothing pressed');
+		ask.press(PICK.bear);
+		assert.deepEqual(
+			[ask.input(2), ask.input(3)],
+			[PICK.bear, PICK.bear],
+			'a first press: at once',
+		);
+		assert.deepEqual(ask.held(), { respawn: PICK.bear, from: 2, refused: false });
+		ask.answer(1, 0);
+		assert.equal(ask.refused, false, 'no input that carried it is acknowledged yet');
+		ask.answer(2, 0);
+		assert.equal(ask.refused, true, 'acknowledged, and the room has it as something else');
+		// Pressed again before any input asked for nothing: the room would hear one run.
+		ask.press(PICK.bear);
+		assert.deepEqual([ask.input(4), ask.input(5)], [0, PICK.bear], 'a gap, then the ask');
+		assert.equal(ask.held().from, 5, 'acknowledged only from the input that carried it');
+		ask.answer(4, 0);
+		assert.equal(ask.refused, false, 'the gap’s acknowledgement answers nothing');
+		// Another character needs no gap (the room hears another ask), nor does one after a rest.
+		ask.press(PICK.fisherman);
+		assert.equal(ask.input(6), PICK.fisherman);
+		ask.answer(6, PICK.fisherman);
+		assert.equal(ask.held(), null, 'the character asked for: done');
+		assert.equal(ask.input(7), 0);
+		ask.press(PICK.fisherman);
+		assert.equal(ask.input(8), PICK.fisherman);
+	},
+);
 
 for (const lag of [0, 1, 4, 9])
 	check(
@@ -727,8 +824,8 @@ for (const lag of [0, 1, 4, 9])
 			device.press('fisherman');
 			device.steps(3 * lag + 6);
 			assert.equal(p.character.id, 'fisherman');
-			assert.equal(device.pick.held(), null, 'answered: the class asked for');
-			assert.equal(device.pick.refused, false);
+			assert.equal(device.ask.held(), null, 'answered: the class asked for');
+			assert.equal(device.ask.refused, false);
 			assert.ok(device.carried >= 1 && device.carried <= most, `${device.carried} inputs`);
 			assert.equal(
 				told(device.events, 'respawned', 'p'),
@@ -737,7 +834,8 @@ for (const lag of [0, 1, 4, 9])
 			);
 
 			// The bears' one place is a person's: refused, twice in a row, then a third time with no
-			// step between the answer and the press (the room hears one run: the device still answers).
+			// step between the answer and the press. The device makes that press a run of its own
+			// too (one input that asks for nothing first), so the room answers all three.
 			for (const [n, gap] of [
 				[1, 6],
 				[2, 0],
@@ -745,18 +843,36 @@ for (const lag of [0, 1, 4, 9])
 			]) {
 				const before = device.carried;
 				device.press('bear');
-				assert.equal(device.pick.refused, false, `press ${n}: the last answer is cleared`);
-				let waited = 0;
-				while (!device.pick.refused && waited++ < 3 * lag + 6) device.steps(1);
-				assert.equal(device.pick.refused, true, `press ${n}: answered, no place left`);
+				assert.equal(device.ask.refused, false, `press ${n}: the last answer is cleared`);
+				device.answered();
+				assert.equal(device.ask.refused, true, `press ${n}: answered, no place left`);
 				assert.equal(p.character.id, 'fisherman');
 				const rode = device.carried - before;
 				assert.ok(rode >= 1 && rode <= most, `press ${n}: ${rode} inputs`);
 				device.steps(gap);
 				assert.equal(device.carried - before, rode, `press ${n}: nothing sent after the answer`);
 			}
-			const refusals = told(device.events, 'respawnRefused', 'p');
-			assert.ok(refusals >= 2 && refusals <= 3, `the room said so ${refusals} times`);
+			device.steps(lag + 2);
+			assert.equal(told(device.events, 'respawnRefused', 'p'), 3, 'the room answered each press');
+
+			// The bears' person leaves the step the room refuses a fourth press: the place is open
+			// while that ask is still arriving, and it is not let in behind the refusal the device
+			// shows. The press after it is.
+			device.press('bear');
+			while (told(device.events, 'respawnRefused', 'p') < 4) device.steps(1);
+			sim.leave('a');
+			device.steps(3 * lag + 8);
+			assert.equal(device.ask.refused, true, 'shown as refused');
+			assert.equal(p.character.id, 'fisherman', 'and the room agrees, with the place open');
+			assert.equal(told(device.events, 'respawned', 'p'), 1, 'only the first press’s');
+			device.press('bear');
+			device.answered();
+			assert.equal(p.character.id, 'bear', 'the next press gets the place');
+			assert.equal(device.ask.held(), null);
+			device.press('fisherman');
+			device.answered();
+			assert.equal(p.character.id, 'fisherman');
+			sim.join('a', { character: 'bear' });
 
 			// A change of mind before the answer: the last press is the one answered.
 			device.press('bear');
@@ -764,10 +880,66 @@ for (const lag of [0, 1, 4, 9])
 			device.press('salmon');
 			device.steps(3 * lag + 6);
 			assert.equal(p.character.id, 'salmon');
-			assert.equal(device.pick.held(), null);
+			assert.equal(device.ask.held(), null);
 			const settled = device.carried;
 			device.steps(60);
 			assert.equal(device.carried, settled, 'and the device asks nothing more');
+		},
+	);
+
+for (const lag of [0, 1, 4, 9])
+	check(
+		`a caught person’s device ${lag} steps away: each Respawn is answered, none asked for ever`,
+		() => {
+			const sim = sharesRoom(undefined);
+			sim.join('a', { character: 'bear' });
+			const p = sim.join('p', { character: 'salmon' });
+			const device = deviceIn(sim, 'p', lag);
+			device.steps(lag + 3);
+			assert.equal(sim.rules.phase, 'running');
+			Object.assign(p, { status: STATUS.out, until: Infinity });
+			device.steps(lag + 2);
+			const most = 2 * lag + 2;
+			// The bears' one place is a person's. Respawn as a bear, then again the moment the
+			// refusal shows, with no step between (a double press), then once more.
+			for (const [n, gap] of [
+				[1, 0],
+				[2, 0],
+				[3, 5],
+			]) {
+				const before = device.carried;
+				device.press('bear');
+				assert.equal(device.ask.refused, false, `Respawn ${n}: the last answer is cleared`);
+				device.answered();
+				assert.equal(device.ask.refused, true, `Respawn ${n}: answered, no place left`);
+				assert.equal(p.status, STATUS.out);
+				const rode = device.carried - before;
+				assert.ok(rode >= 1 && rode <= most, `Respawn ${n}: ${rode} inputs`);
+				device.steps(gap);
+				assert.equal(device.carried - before, rode, `Respawn ${n}: nothing sent after`);
+			}
+			device.steps(lag + 2);
+			assert.equal(told(device.events, 'respawnRefused', 'p'), 3, 'the room answered each');
+			// The place opens: nothing is asked, so nothing happens, until the next press.
+			sim.leave('a');
+			device.steps(2 * lag + 6);
+			assert.equal(p.status, STATUS.out, 'no press, no Respawn');
+			device.press('bear');
+			device.answered();
+			device.steps(lag + 1);
+			assert.equal(p.status, STATUS.free, 'back');
+			assert.equal(p.character.id, 'bear');
+			assert.equal(device.ask.held(), null, 'and what it asked is forgotten');
+			const settled = device.carried;
+			device.steps(40);
+			assert.equal(device.carried, settled, 'nothing more is asked');
+			// Its own class always has its place: Respawn as it is.
+			Object.assign(p, { status: STATUS.out, until: Infinity });
+			device.steps(lag + 2);
+			device.press('bear');
+			device.steps(3 * lag + 8);
+			assert.equal(p.status, STATUS.free);
+			assert.equal(told(device.events, 'respawned', 'p'), 2);
 		},
 	);
 
@@ -782,12 +954,12 @@ check('a pick still waiting when round 1 starts is dropped, and never sent again
 	assert.equal(sim.rules.picking, true);
 	device.press('bear');
 	device.steps(1);
-	assert.notEqual(device.pick.held(), null, 'on its way');
+	assert.notEqual(device.ask.held(), null, 'on its way');
 	device.steps(4 * lag);
 	assert.equal(sim.rules.phase, 'running');
 	assert.equal(p.character.id, 'salmon', 'the room did not read it');
-	assert.equal(device.pick.held(), null, 'dropped');
-	assert.equal(device.pick.refused, false, 'and not shown as refused');
+	assert.equal(device.ask.held(), null, 'dropped');
+	assert.equal(device.ask.refused, false, 'and not shown as refused');
 	const sentBy = device.carried;
 	device.steps(60);
 	assert.equal(device.carried, sentBy);
@@ -797,7 +969,7 @@ check('a pick still waiting when round 1 starts is dropped, and never sent again
 	);
 	// A room that never says its people may pick (a server older than the pick): the device's note
 	// has no classes, and a pick, were one made, is dropped before it rides an input.
-	const older = createLobbyPick();
+	const older = createRespawnAsk();
 	older.press(PICK.bear);
 	older.drop();
 	assert.equal(older.input(1), 0);
@@ -876,7 +1048,7 @@ try {
 			assert.equal(a.room.state.phase, 'waiting');
 			assert.equal(a.room.state.picking, true, 'the state says so');
 			assert.equal(a.me().character, 'salmon');
-			const pick = createLobbyPick();
+			const pick = createRespawnAsk();
 			pick.press(PICK.fisherman);
 			const carried = await play(a, pick, () => pick.held() === null);
 			assert.equal(a.me().character, 'fisherman', 'the state shows the class asked for');
@@ -901,10 +1073,11 @@ try {
 			await until('the room’s refusal', () =>
 				a.events.slice(asked).some((e) => e.type === 'respawnRefused' && e.id === a.room.sessionId),
 			);
-			// Every input that asked is applied before the places open again: one still on its way
-			// would be let in.
-			await until('its inputs applied', () => sim.players.get(a.room.sessionId).ack === a.seq);
+			// The places open again at once: an input of that refused ask still on its way is not
+			// let in behind the refusal.
 			for (let i = 0; i < bears; i++) sim.leave(`held${i}`);
+			await until('its inputs applied', () => sim.players.get(a.room.sessionId).ack === a.seq);
+			assert.equal(sim.players.get(a.room.sessionId).character.id, 'fisherman');
 
 			// A second person starts the countdown; round 1 ends the picking, for both.
 			const b = await joinRoom('lobby', 'salmon');
@@ -927,7 +1100,7 @@ try {
 			const a = await joinRoom('plain', 'salmon');
 			assert.equal(a.room.state.phase, 'running');
 			assert.equal(a.room.state.picking, undefined, 'the field is not sent at all');
-			const pick = createLobbyPick();
+			const pick = createRespawnAsk();
 			const handle = a.room.input();
 			const { sim } = matchMaker.getLocalRoomById(a.room.roomId);
 			for (let seq = 1; seq <= 10; seq++) {

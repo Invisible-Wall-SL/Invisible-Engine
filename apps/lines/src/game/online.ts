@@ -20,10 +20,10 @@ import {
 	type AbilityPredictor,
 	type OnlineFlowSignal,
 	createInterpolator,
-	createLobbyPick,
 	createPointerTracker,
 	createPredictor,
 	createPressLatch,
+	createRespawnAsk,
 	createRng,
 	createSnapshotClock,
 	createTouchControl,
@@ -43,10 +43,10 @@ import {
 	type HookLine,
 	type HookLines,
 	type Interpolator,
-	type LobbyPick,
 	type OnlineEvent,
 	type PointerTracker,
 	type Predictor,
+	type RespawnAsk,
 	type RoomLevelRefusal,
 	type RoomLevelReport,
 	type Shown,
@@ -225,8 +225,8 @@ import { stateApp } from './stateApp';
  * chooses, so it is never put in play as a class it did not pick. A launch that carries its
  * character joins at once. After the join a person changes class only in place, through the room:
  * a caught player picks its next on the death screen, and one waiting in a new room's lobby on the
- * lobby's note, while the room says it may ({@link RoomState.picking}; `engine-mechanics`
- * `createLobbyPick`).
+ * lobby's note, while the room says it may ({@link RoomState.picking}). Either is asked with the
+ * inputs' `respawn` and answered by the room's state (`engine-mechanics` `createRespawnAsk`).
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`;
@@ -422,13 +422,10 @@ type Session = {
 	lineCasts: Map<string, number>;
 	/** The screens the art draws in code, once it is loaded. */
 	screens: ReturnType<SalmonsArt['screens']> | undefined;
-	/** What the own caught player asked to respawn as: 1 + its index in the config's online
-	 *  characters, 0 for nothing; sent with each input while it is out. */
-	respawn: number;
-	/** The class the own player picked in the lobby: sent as inputs' `respawn` until the room
-	 *  acknowledges one, and answered by the state that does (`engine-mechanics`
-	 *  `createLobbyPick`). */
-	pick: LobbyPick;
+	/** What the own player asks the room to play as (a caught player's Respawn, a pick in the
+	 *  lobby): sent as inputs' `respawn` until the room acknowledges one, and answered by the
+	 *  state that does (`engine-mechanics` `createRespawnAsk`). */
+	ask: RespawnAsk;
 	/** The winner's pass the room gave this device (`winnerPass`), for its next join. */
 	pass: string | undefined;
 	/** The own player's character its predictor and abilities were made for. */
@@ -784,8 +781,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		casts: new Map(),
 		lineCasts: new Map(),
 		screens: undefined,
-		respawn: 0,
-		pick: createLobbyPick(),
+		ask: createRespawnAsk(),
 		pass: undefined,
 		character: undefined,
 		lookCharacters: new Map(),
@@ -1584,11 +1580,18 @@ function draw(current: Session, dtMs: number) {
 	for (const id of current.lifts.keys()) if (!players.has(id)) current.lifts.delete(id);
 	for (const id of current.lookCharacters.keys())
 		if (!players.has(id)) current.lookCharacters.delete(id);
-	// A player respawned as another character: its looks are made afresh for it.
+	// A player became another character (a respawn, a pick in the lobby): its instance is its old
+	// character's component, so it goes, and the pass below spawns the new one's this frame; its
+	// looks are made afresh with it.
 	players.forEach((player, id) => {
 		const was = current.lookCharacters.get(id);
 		current.lookCharacters.set(id, player.character);
 		if (was === undefined || was === player.character) return;
+		const instance = current.drawn.get(id);
+		if (instance) {
+			live.despawn(instance);
+			current.drawn.delete(id);
+		}
 		current.looks.delete(id);
 		current.codeLooks.get(id)?.destroy();
 		current.codeLooks.delete(id);
@@ -2310,10 +2313,9 @@ const nameIn = (current: Session, id: string, carried?: string) =>
 
 /**
  * What the room's events show on Salmons' screens and looks: the own player caught (the death
- * screen, "by" its catcher), its Respawn refused (the screen stays, saying so; a pick the lobby
- * refused is read off the state instead: {@link drawScreens}), the own player's catch (its "you
- * catch NAME!" over it), the game won (the win animation) and the winner's pass (kept for the next
- * join).
+ * screen, "by" its catcher), the own player's catch (its "you catch NAME!" over it), the game won
+ * (the win animation) and the winner's pass (kept for the next join). A refused Respawn, or pick,
+ * is not read off its event: the state says it ({@link drawScreens}).
  */
 function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 	const me = current.room.sessionId;
@@ -2331,9 +2333,6 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 			if (event.target === me)
 				current.art?.float(me, `${nameIn(current, event.by)} has you!`, current.clipClock);
 			if (event.by === me) current.art?.float(me, 'tap to throw it!', current.clipClock);
-		} else if (event.type === 'respawnRefused' && event.id === me && current.respawn) {
-			current.respawn = 0;
-			current.screens?.refused();
 		} else if (event.type === 'gameWon') {
 			current.screens?.caught(undefined);
 			current.screens?.won({ winner: event.winnerName || DEFAULT_NAME, won: event.winner === me });
@@ -2346,20 +2345,30 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
  * player is out, and the lobby's note (the room, who the device plays in it) while the room waits
  * for its players. While the room lets its people pick (`picking`: a lobby, until round 1 starts;
  * a server older than the pick never says so, and the note has no classes there) the note offers
- * the classes, and the pick the person pressed reads its answer off this state; once the room
- * lets nobody pick, a pick still waiting is dropped.
+ * the classes.
+ *
+ * What the person asked (a Respawn, a class of the note) reads its answer off this state, the one
+ * that acknowledges an input that carried it: a caught player still out was refused (it plays
+ * nothing: the death screen says so), as was a waiting one the room has as another class than it
+ * picked (the note says so). The room takes a Respawn only in a running round of a game whose
+ * respawn is manual, so only then is one answered; a player that is back, and a room that lets
+ * nobody pick, drop what was asked.
  */
 function drawScreens(current: Session) {
 	const state = stateOf(current.room);
 	const me = state.players?.get(current.room.sessionId);
 	const out = me?.status === STATUS.out;
-	if (!out) current.respawn = 0;
 	const waiting = state.phase === 'waiting';
 	const picking = !!me && waiting && state.picking === true;
-	if (picking) current.pick.answer(me.ack, respawnOf(current, me.character));
-	else current.pick.drop();
-	const { screens } = current;
+	const { ask, screens } = current;
+	const refused = ask.refused;
+	if (me && out) {
+		if (state.phase === 'running' && current.game.online.rules.respawn === 'manual')
+			ask.answer(me.ack, 0);
+	} else if (picking) ask.answer(me.ack, respawnOf(current, me.character));
+	else ask.drop();
 	if (!screens) return;
+	if (out && ask.refused && !refused) screens.refused();
 	if (!out) screens.caught(undefined);
 	screens.lobby(
 		me && waiting
@@ -2368,7 +2377,7 @@ function drawScreens(current: Session) {
 					name: me.name ?? '',
 					character: me.character,
 					picking,
-					refused: current.pick.refused,
+					refused: picking && ask.refused,
 				}
 			: undefined,
 	);
@@ -2380,23 +2389,21 @@ const respawnOf = (current: Session, character: string) =>
 	current.game.online.characters.findIndex((c) => c.id === character) + 1;
 
 /**
- * What Salmons' screens' buttons do: Respawn sends, with each input while the own player is out,
- * `respawn` = 1 + the index of the asked character in the config's `arcade.online.characters`;
- * a class of the lobby's note sends the same until the room answers it (`createLobbyPick`), and
- * the player stays in its room; leaving for a new room (the win animation's button) leaves this
- * one and loads the game again, its next join (`NEXT_JOIN_KEY`) as the player is now, and the
- * winner's with the pass the room gave it.
+ * What Salmons' screens' buttons do: Respawn, and a class of the lobby's note, ask the room for
+ * a character with the inputs' `respawn` (1 + its index in the config's
+ * `arcade.online.characters`) until the room answers (`createRespawnAsk`), and the player stays
+ * in its room; leaving for a new room (the win animation's button) leaves this one and loads the
+ * game again, its next join (`NEXT_JOIN_KEY`) as the player is now, and the winner's with the
+ * pass the room gave it.
  */
 function screenHost(current: Session, server: string, game: string): SalmonsScreenHost {
+	const ask = (character: string) => {
+		const respawn = respawnOf(current, character);
+		if (respawn) current.ask.press(respawn);
+	};
 	return {
-		respawn: (character) => {
-			const respawn = respawnOf(current, character);
-			if (respawn) current.respawn = respawn;
-		},
-		pick: (character) => {
-			const respawn = respawnOf(current, character);
-			if (respawn) current.pick.press(respawn);
-		},
+		respawn: ask,
+		pick: ask,
 		rejoin: () => {
 			const me = stateOf(current.room).players?.get(current.room.sessionId);
 			const next: NextJoin & { server: string; game: string } = {
@@ -2574,7 +2581,7 @@ export function tickOnline(dtMs: number) {
 			current,
 			keyInput(current.seq, Math.max(0, Math.floor(current.viewStep)), keysOf(current)),
 		);
-		raw.respawn = current.respawn || current.pick.input(current.seq);
+		raw.respawn = current.ask.input(current.seq);
 		aimKeyCast(current, raw);
 		// Every input says it, zeros included, so a resize or a lost camera reaches the room at once.
 		Object.assign(raw, worldCamera?.shown ?? NOTHING_SHOWN);
@@ -2729,7 +2736,7 @@ export function onlineProbe() {
 							}),
 						),
 						screens: current.screens?.drawn() ?? null,
-						pick: current.pick.held(),
+						ask: current.ask.held(),
 						buttons: current.buttons,
 						art: current.art
 							? {

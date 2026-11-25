@@ -19,8 +19,8 @@
 // that carried its character and for one that came through the start menu alike.
 // A class picked in the lobby (owner, 2026-11-25): under that note, a row of Salmon, Fisherman and
 // Bear, the one the ROOM has the page as lit. A page presses Fisherman and is a fisherman in the
-// same room, at once; another presses Bear during the countdown; round 1 starts with each as what
-// it picked. A click on a class is not a tap on the river. On a 390 × 844 phone the row fits, and a
+// same room, at once, spawned as the fisherman's component; another presses Bear during the
+// countdown; round 1 starts with each as what it picked, and spawned as that. A click on a class is not a tap on the river. On a 390 × 844 phone the row fits, and a
 // tap on a class with no place left (Bear, the other page's) shows "No place left", again on the
 // next tap, until a class with a place is tapped.
 // Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
@@ -909,6 +909,7 @@ try {
 	);
 	const l1Me = (await onlineOf(l1)).me;
 	const l1Room = await inRoom(l1Me);
+	const spawnedAsJoined = (await onlineOf(l1)).spawned;
 	const classes = alone.note?.buttons;
 	if (!classes) verdict('the lobby drew its classes, so they could be pressed', false);
 	else {
@@ -922,10 +923,10 @@ try {
 			beside !== 0 &&
 				onOwn === 0 &&
 				same.screens?.lobby?.you === 'You are Lia, a Salmon' &&
-				same.pick === null &&
+				same.ask === null &&
 				toldOf(same, 'respawned') === 0 &&
 				(await inRoom(l1Me))?.character === 'salmon',
-			{ beside, onOwn, pick: same.pick, note: same.screens?.lobby },
+			{ beside, onOwn, ask: same.ask, note: same.screens?.lobby },
 		);
 		await clickCanvas(l1, classes.fisherman);
 		const picked = await lobbyWhen(l1, (lobby) => lobby.note?.choice === 'fisherman');
@@ -943,18 +944,26 @@ try {
 				asPicked.art?.looks?.[l1Me]?.kind === 'circle',
 			{ note: picked.note, room: l1Now, look: asPicked.art?.looks?.[l1Me] },
 		);
+		// What the page spawned for its player is its class's component: a class changed in place
+		// never hides the player, so its salmon instance has to go by the change alone.
+		verdict(
+			'…and the instance it is spawned as is the fisherman’s component now, where it joined as the salmon’s',
+			JSON.stringify(spawnedAsJoined) === '["salmonsSalmon"]' &&
+				JSON.stringify(asPicked.spawned) === '["salmonsFisherman"]',
+			{ joined: spawnedAsJoined, picked: asPicked.spawned },
+		);
 		verdict(
 			'…in place: the same room, still waiting, the same player (no leave, no join), one `respawned`, and the page asks nothing more',
 			l1Now?.roomId === l1Room?.roomId &&
 				l1Now.phase === 'waiting' &&
 				l1Now.players === 1 &&
 				asPicked.me === l1Me &&
-				asPicked.pick === null &&
+				asPicked.ask === null &&
 				toldOf(asPicked, 'respawned') === 1 &&
 				toldOf(asPicked, 'left') === 0 &&
 				toldOf(asPicked, 'joined') <= 1 &&
 				noForm(picked),
-			{ before: l1Room, now: l1Now, pick: asPicked.pick, events: asPicked.events },
+			{ before: l1Room, now: l1Now, ask: asPicked.ask, events: asPicked.events },
 		);
 	}
 	const l2 = await boot('l2', { rooms_name: 'Leo', rooms_game: LOBBY_GAME });
@@ -1028,6 +1037,14 @@ try {
 			roundLooks[1]?.kind === 'sprite' &&
 			roundLooks[1].region === 'bear',
 		{ inRound, looks: roundLooks },
+	);
+	const roundSpawned = [(await onlineOf(l1)).spawned ?? [], (await onlineOf(l2)).spawned ?? []];
+	verdict(
+		'…each spawned as its class’s component: the fisherman’s and the bear’s, and no salmon’s on either stage',
+		roundSpawned[0].includes('salmonsFisherman') &&
+			roundSpawned[1].includes('salmonsBear') &&
+			roundSpawned.every((ids) => !ids.includes('salmonsSalmon')),
+		{ spawned: roundSpawned },
 	);
 
 	// The start menu before the join: the lobby's room is running now, Lia and Leo in it. A page
@@ -1226,10 +1243,10 @@ try {
 				refused.note.you === 'You are Ugo, a Salmon' &&
 				refused.note.choice === 'salmon' &&
 				(await inRoom(u2Me))?.character === 'salmon' &&
-				afterRefusal.pick?.refused === true &&
+				afterRefusal.ask?.refused === true &&
 				toldOf(afterRefusal, 'respawnRefused') === 1 &&
 				toldOf(afterRefusal, 'respawned') === 0,
-			{ note: refused.note, pick: afterRefusal.pick, events: afterRefusal.events },
+			{ note: refused.note, ask: afterRefusal.ask, events: afterRefusal.events },
 		);
 		await tapCanvas(u2, phoneClasses.bear);
 		for (let i = 0; i < 40 && toldOf(await onlineOf(u2), 'respawnRefused') < 2; i++)
@@ -1239,9 +1256,9 @@ try {
 			'…and says so again when Bear is tapped again: each press is answered',
 			toldOf(again, 'respawnRefused') === 2 &&
 				again.screens?.lobby?.refused === true &&
-				again.pick?.refused === true &&
+				again.ask?.refused === true &&
 				(await inRoom(u2Me))?.character === 'salmon',
-			{ note: again.screens?.lobby, pick: again.pick, events: again.events },
+			{ note: again.screens?.lobby, ask: again.ask, events: again.events },
 		);
 		await tapCanvas(u2, phoneClasses.fisherman);
 		const moved = await lobbyWhen(u2, (lobby) => lobby.note?.choice === 'fisherman');
@@ -1252,10 +1269,12 @@ try {
 			'…until a class with a place is tapped: Fisherman, the line goes, and nothing more is asked',
 			moved.note?.you === 'You are Ugo, a Fisherman' &&
 				moved.note.refused === false &&
-				afterMove.pick === null &&
+				afterMove.ask === null &&
+				(afterMove.spawned ?? []).includes('salmonsFisherman') &&
+				!afterMove.spawned.includes('salmonsSalmon') &&
 				(await inRoom(u2Me))?.character === 'fisherman' &&
 				(await inRoom(u2Me))?.phase === 'waiting',
-			{ note: moved.note, pick: afterMove.pick },
+			{ note: moved.note, ask: afterMove.ask, spawned: afterMove.spawned },
 		);
 	}
 	const pickErrors = [];

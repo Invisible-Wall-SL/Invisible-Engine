@@ -88,10 +88,13 @@ import type { ArcadeBrain, ArcadeOnlineCharacter, OnlineGame } from 'game-config
  * it as on any other. Once round 1 runs a pick is read only as a caught person's Respawn. A bot
  * never picks.
  *
- * A REFUSAL IS TOLD ONCE FOR EACH RUN of a person's inputs that ask for the same character: a
- * device sends what it asks on every input until it hears the answer, so the inputs after a
- * refused one ask again with no new press. An input that asks for nothing, or for another
- * character, ends the run, and the next refusal is told again.
+ * ONE ANSWER FOR EACH RUN of a person's inputs that ask for the same character: a device sends
+ * what it asks on every input until it hears the answer, so the inputs after a refused one ask
+ * again with no new press. They are part of the ask already answered: the place is not tested
+ * again and the refusal not told again, even if a place has opened since (the device already
+ * shows the refusal, and must not be let in behind it). An input that asks for nothing, or for
+ * another character, ends the run: the next ask is tested and answered afresh. A device makes
+ * every press a run of its own (`engine-mechanics` `createRespawnAsk`).
  */
 
 /** Inputs a step leaves waiting (a cushion against jitter), and the most it applies at once. */
@@ -125,7 +128,7 @@ export type SimPlayer = RulesPlayer & {
 	/** Where it (re)spawns, unless its character spawns at random (`randomSpawn`). */
 	home: { x: number; y: number };
 	/** The `respawn` its last input asked and the room refused (0: none): the same asked again by
-	 *  the next input is not told again. */
+	 *  the next input is the same ask, already answered. */
 	refused: number;
 };
 
@@ -299,7 +302,8 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 
 	/** A person back at its start as `character`, which its input's `respawn` (`pick`) named: a
 	 *  caught person's Respawn, or a pick in the lobby. False when the character has no place left:
-	 *  the person stays as it was and is told, once for each run of inputs asking the same. */
+	 *  the person stays as it was and is told, and the inputs that go on asking the same are
+	 *  refused with it. */
 	const respawnAs = (
 		player: SimPlayer,
 		character: ArcadeOnlineCharacter,
@@ -307,8 +311,8 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		stamp: number,
 	): boolean => {
 		const refuse = () => {
-			if (player.refused !== pick) rules.refused(player);
 			player.refused = pick;
+			rules.refused(player);
 			return false;
 		};
 		if (places && character.id !== player.character.id) {
@@ -335,18 +339,20 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 	/**
 	 * What a person's input asks with its `respawn` (`pick`; 0: nothing): a caught person's Respawn
 	 * as `online.characters[pick - 1]` (none such: as it was), or, while a lobby waits, that
-	 * character to play in place of its own. True when the input was spent on it: the person
-	 * stands for this input, and moves from the next.
+	 * character to play in place of its own. An input that asks what the last one asked and was
+	 * refused is that same ask: nothing is tested or told again. True when the input was spent on
+	 * it: the person stands for this input, and moves from the next.
 	 */
 	const picked = (player: SimPlayer, pick: number, stamp: number): boolean => {
-		if (player.refused !== pick) player.refused = 0;
+		const again = pick !== 0 && player.refused === pick;
+		if (!again) player.refused = 0;
 		if (!pick) return false;
 		const character = online.characters[pick - 1];
 		if (rules.awaitsRespawn(player)) {
-			respawnAs(player, character ?? player.character, pick, stamp);
+			if (!again) respawnAs(player, character ?? player.character, pick, stamp);
 			return true;
 		}
-		if (!rules.picking || !character || character.id === player.character.id) return false;
+		if (again || !rules.picking || !character || character.id === player.character.id) return false;
 		return respawnAs(player, character, pick, stamp);
 	};
 

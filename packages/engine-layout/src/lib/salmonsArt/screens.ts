@@ -61,7 +61,7 @@ export type SalmonsScreens = {
 	/** The room refused the Respawn (the class picked is full): the death screen says so. */
 	refused: () => void;
 	lobby: (shown: LobbyShown | undefined) => void;
-	/** Whether a press at a point of the canvas lands on a button a screen offers over the game
+	/** Whether a press at a point of the canvas is given to a button a screen offers over the game
 	 *  in play (the lobby's classes): that press is the screen's, not the game's. */
 	takes: (x: number, y: number) => boolean;
 	/** What each draws now (the probe's). */
@@ -134,12 +134,8 @@ function choiceRow(
 		width: total,
 		height: Math.max(0, ...buttons.map((b) => b.button.height)),
 		select: (id: string) => buttons.forEach((b) => b.button.select(b.id === id)),
-		/** Whether a point of the canvas is on one of the buttons. */
-		holds: (x: number, y: number) =>
-			buttons.some(({ button }) => {
-				const at = button.view.toLocal({ x, y });
-				return Math.abs(at.x) <= button.width / 2 && Math.abs(at.y) <= button.height / 2;
-			}),
+		/** Whether a view is one of the buttons. */
+		has: (target: Container) => buttons.some(({ button }) => button.view === target),
 		/** Each button's centre on the canvas (the probe's). */
 		centres: () => Object.fromEntries(buttons.map((b) => [b.id, centreOf(b.button.view)])),
 		destroy: () => view.destroy({ children: true }),
@@ -435,7 +431,13 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 			shown = next;
 			write();
 		},
-		takes: (x: number, y: number) => shown?.picking === true && onScreen(root) && row.holds(x, y),
+		/** Whether Pixi gives a press at this point of the canvas to one of the classes. Its own hit
+		 *  test answers (a button's rim and round corners, the row hidden or under another screen),
+		 *  so what takes the press here is what gets its tap there. */
+		takes: (x: number, y: number) => {
+			const target = part.app()?.renderer.events.rootBoundary.hitTest(x, y);
+			return !!target && row.has(target);
+		},
 		drawn: () => ({
 			shown: shown !== undefined,
 			river: shown ? river.text : '',
