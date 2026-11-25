@@ -1061,7 +1061,7 @@ await check(
 			assert.ok(at >= 0, `online.ts has no ${name}`);
 			return source.slice(at, source.indexOf('\n}\n', at));
 		};
-		const joining = body('joinOnlineRoom');
+		const joining = body('enterRoom');
 		assert.ok(/onMessage\(ONLINE_EVENT[\s\S]*flowSignalsOf\([\s\S]*raise\(/.test(joining));
 		assert.ok(body('raise').includes('getFlowV2()?.dispatch(signal.name, signal.payload)'));
 		assert.ok(body('received').includes('bindServerVariables(current, state)'));

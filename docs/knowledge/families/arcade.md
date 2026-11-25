@@ -99,12 +99,12 @@ A seed and the same keys replay the same game.
   `START_MENU`) shows it to a launch carrying no character and joins with its answer (`launchJoin`):
   in no room meanwhile. A carried join or `?rooms_character=` joins at once (`check:room-lobby`).
 - **After the join a class changes only in place, through the room**, by an input's `respawn`: a caught person's Respawn, or a pick while a lobby waits and the state says `picking` (an older server never does: no buttons). The device reads either answer off the state that acknowledges the ask (`createRespawnAsk`), not off events; the room answers a run of inputs asking the same once and does not test it again, so a device makes every press a run of its own. A class change despawns the instance (a pick never hides the player). A press Pixi gives to a screen's button over a game in play must not begin a press at the pointer (`screens.takes`).
+- **A device changes rooms without loading the page (`online.ts` `switchRoom`; only Salmons' win screen asks), in arcade code alone: `Game.svelte` keeps its layout and flow handle, so the other runtimes' bytes do not move.** Join first; the old picture stands until the new level is made; then ONE task lets the old session go (`closeSession`), hides every flow container (the play field remounts), resets the flow's variables and timers and gives it the event that ends a boot's start-up screen (`complete:<id>`, else `tapToStart`). The new field is drawn only by the room's art in the layout node's place. A new per-session thing must be let go in `closeSession`; nothing made in `enterRoom` may capture the replaced session; a published flow must keep that event. `salmons-rejoin-play.mjs`.
 - **Isometric is drawing only (P11.4).** No place moves; `IsoWorld` projects top-level layers and
   tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`);
   `arcade.online.keys: 'screen'` turns keys by `screenToWorldDirection` (`keysOf`).
 - **Sparse config.** Every arcade field is optional and defaults are dropped
-  (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`;
-  `check:game-config-family`).
+  (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; `check:game-config-family`).
 - **Rule 8.** A character's look and `shootAt` shots ship even when no scene places them; painted
   tileset regions ship through the art export (`apps/launcher-api/src/lib/server/runtimeBundle.ts`,
   `editorArtExport.ts`; `check:art-scope` cases 8 and 9).

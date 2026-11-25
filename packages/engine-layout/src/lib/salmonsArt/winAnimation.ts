@@ -16,7 +16,8 @@ import type { ArtMount } from '../arcadeArt.svelte';
  * the winner, pink for everyone else), the title, a loser's subtitle and the button that leaves for
  * a new river. On the winner's device the fish bobs and lays eggs that fall, bounce and pile up.
  * Drawn in screen px over the whole canvas, in place of the win screen's node
- * (`referenceLayouts/salmonsScreens.ts`); the button calls `onNext` once the fish swam off.
+ * (`referenceLayouts/salmonsScreens.ts`); the button calls `onNext` at once, and the fish swims off
+ * while the device does what it asked.
  */
 
 /** The original's pixel font; a device without it falls back to its monospace. */
@@ -110,7 +111,7 @@ const EGG_COLOURS: readonly (readonly [number, number, number])[] = [
 	[0xffb3c6, 0xff6090, 0xfff0f5],
 	[0xffd6e0, 0xff80a0, 0xfff5f8],
 ];
-const EXIT = { pxPerSecond: 1200, ms: 800 };
+const EXIT = { pxPerSecond: 1200 };
 
 type Egg = {
 	sprite: Sprite;
@@ -206,7 +207,6 @@ export function createWinAnimation(
 	let eggTextures: Texture[] = [];
 	let lastEggAt = -Infinity;
 	let exitAt: number | undefined;
-	let left = false;
 
 	const clear = () => {
 		for (const egg of eggs) egg.sprite.destroy();
@@ -261,7 +261,9 @@ export function createWinAnimation(
 		subtitle?.anchor.set(0.5, 0);
 		subtitle?.position.set(w / 2, title.y + 14);
 		const button = pixelButton(won.won ? 'Join New Game' : 'Start New Session', () => {
-			exitAt ??= clock;
+			if (exitAt !== undefined) return;
+			exitAt = clock;
+			onNext();
 		});
 		button.view.position.set(portrait ? w / 2 : 40 + button.width / 2, h - 80 + button.height / 2);
 		const layer = new Container();
@@ -349,10 +351,6 @@ export function createWinAnimation(
 		const dt = dtMs / 1000;
 		if (exitAt !== undefined) {
 			b.fish.x += EXIT.pxPerSecond * dt;
-			if (!left && clock - exitAt >= EXIT.ms) {
-				left = true;
-				onNext();
-			}
 		} else if (shown.won) {
 			b.bob += Math.sin((clock / 1000) * 8) * 0.5 * (dtMs / (1000 / 60));
 			b.fish.y = b.bob;
@@ -389,7 +387,6 @@ export function createWinAnimation(
 			since = clock;
 			lastEggAt = -Infinity;
 			exitAt = undefined;
-			left = false;
 		},
 		drawn: () => ({
 			shown: built !== undefined,

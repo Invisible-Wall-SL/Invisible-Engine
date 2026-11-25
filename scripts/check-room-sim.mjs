@@ -690,7 +690,7 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	// and for a layout fetched at mount, leaving the room as it refuses.
 	assert.match(
 		online,
-		/if \(field && prepared && !holdsNode\(prepared, field\.id\)\) \{\s+room\.leave\(\)[^;]*;\s+return refuseOnlineBoot\(missingFieldNode\(field\.id\)\);/,
+		/if \(field && prepared && !holdsNode\(prepared, field\.id\)\) \{\s+room\.leave\(\)[^;]*;\s+return missingFieldNode\(field\.id\);/,
 	);
 	assert.match(
 		online,

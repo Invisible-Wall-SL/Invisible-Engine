@@ -319,7 +319,16 @@ check('a new room’s lobby has no form: its note shows the room, who waits and 
 	assert.doesNotMatch(screens, /createElement\(|Join River|localStorage/);
 	assert.match(screens, /\n\trejoin: \(\) => void;\n/);
 	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
-	assert.match(online, /\n\t\trejoin: \(\) => \{\n/);
+	assert.match(online, /\n\t\trejoin: \(\) => void switchRoom\(current, launch\),\n/);
+	// That leave joins as the player is in the room it leaves (its name, its class, the winner's
+	// pass), on the same page: nothing here loads the page again. The join is kept for the boot
+	// after one that failed, and taken back once the device is in.
+	assert.match(
+		online,
+		/const \{ join \} = launchJoin\(\s+\{\s+\.\.\.\(me\?\.name \? \{ name: me\.name \} : \{\}\),\s+\.\.\.\(me \? \{ character: me\.character \} : \{\}\),\s+\.\.\.\(current\.pass \? \{ pass: current\.pass \} : \{\}\),\s+\},\s+launch\.own,\s+false,\s+\);\s+keepNextJoin\(launch, join\);/,
+	);
+	assert.match(online, /if \(session\) dropNextJoin\(\);/);
+	assert.doesNotMatch(online, /location\.reload/);
 	// A class pressed in the lobby stays in the room: it is what the device asks, sent as inputs,
 	// as a caught player's Respawn is; every input's `respawn` is that ask's and nothing else's.
 	assert.match(

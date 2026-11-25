@@ -19,6 +19,128 @@ upload.
 
 ## Current state
 
+- **Join New Game stays on the page (2026-11-25; owner: "when I finish a game and click join new
+  room, the game restarts from the loading screen, I would expect to be in a room already"; in
+  review; runtime change only: no game-server, config, layout or flow change; live with the arcade
+  runtime release of its merge, nothing to deploy, upload or publish).**
+  - **What a person sees.** On the win screen, "Join New Game" (a loser's "Start New Session"):
+    the fish swims off and the next thing on screen is the new river's lobby, with who the person
+    plays and the countdown. No boot screen, no loading screen, no tap to start, and the page is
+    not loaded again. A winner is golden in the new river as before. Joined into a river already
+    running (none waits), the river shows at once with no lobby.
+  - **In the room first.** The press asks the join at once (the fish no longer has to swim off
+    first: `salmonsArt/winAnimation.ts`). The device leaves the won room with consent and joins a
+    new one as its player is now: name, class, the winner's pass (`online.ts` `switchRoom`,
+    `engine-mechanics` `launchJoin`). The seed and the levels are the new room's, so the level is
+    made after the join, by the same decision a boot makes (`roomLevelGame`), and its art is
+    asked for then. The won room's picture stands meanwhile, frozen under the win screen:
+    nothing is heard, sent or stepped for it.
+  - **One task swaps the rooms, and only arcade code does it** (`online.ts` `enterRoom`,
+    `closeSession`, `showRoom`). `Game.svelte`, `editor-scenes.ts` and the flow interpreter are
+    not touched: they are in every runtime, and the slot, match-3 and card runtimes had to stay
+    the same bytes. So the mounted game keeps the layout it loaded for the first room, and the
+    swap is made around it. Once the new room is joined and its level made, with no frame
+    between: everything held or drawn for the old room is let go (below); every screen the flow
+    shows is taken down, the base game too, so the play field (the camera, the spawn layer, the
+    pointer) mounts afresh for the new room and nothing mounted reads what the old one left; and
+    the flow is started again (next point).
+  - **The new field in the mounted layout.** The layout's `river` node is the first room's
+    field, and the game cannot be handed another layout. A generated field is drawn by the
+    room's art in that node's place (as it has been since the art exists: the node is only what
+    shows until the art is in), so after a swap the node is never drawn again: nothing is drawn
+    in its place until the new room's art is in (its textures are the page's, kept from the
+    first room, so that is the frame of the swap or the next ones), then the new river. The
+    world's size is the session's own (`useOnlineCamera`), and the camera is made again for the
+    new room, snapped to the own player. The level's geometry (what is predicted and collided)
+    never came from the layout: it is the session's, made from the new room's seed and levels.
+    A game with a generator and no art cannot be swapped this way: its join is refused and it
+    ends on the error screen (no such game exists; Salmons' two generators have art).
+  - **The flow is not changed and nothing is published.** The flow handle is the same one; it is
+    brought back to its start with what it already has. Every container it shows is hidden
+    through its own mount model (the win screen with them); its variables are written back to
+    their initial values and every timer its doc can start is stopped; the room's values
+    (`phase`, `secondsLeft`, `status`) are written; then it is given the event that ends its
+    start-up screen at a boot, `complete:<that screen's container>` (the first container its
+    start-up shows and whose completion it handles; else `tapToStart`, else `load`). In Salmons'
+    flow that hides the loading screen (not shown: nothing happens), shows the river and checks
+    the lobby, so the new room's lobby and countdown come up, or the bare river if that room
+    already runs. The loading screen is never shown. Room events that arrive during the swap
+    reach the flow as always; the check reads the state either way. A published flow has to keep
+    that event, which every Salmons flow made from the seed has. One thing is not undone: a
+    chain of the old game still waiting on a Delay would go on (Salmons' flow has none).
+  - **What is let go.** At the press the device stops hearing the old room (its state and event
+    listeners are taken off; its leave raises no "the room closed", because the session is marked
+    as quit and its leave is ignored whatever its code). At the swap (`closeSession`): the
+    predictor and the SDK's predict object, every player's spawned instance, the clip looks, code
+    looks, rig and turn looks, the lines, marks, clips, lifts, the art with its river, stains,
+    floats and wading, the screens (the win animation's ticker stopped, its eggs destroyed), the
+    world camera, the pointer's and the touch control's held fingers, a pending tap, the
+    on-screen button, the key latch, and an author's levels notice. The respawn ask, the pass,
+    the events and the signals are the session's own and go with it; nothing made for a room
+    keeps the room before it alive. The probe's `fieldArt` is the new art's once it loads.
+  - **When the join fails**, or the room refuses the device (a level it cannot make, no first
+    state): the existing error screen, with its reason recorded and a Reload. Not an automatic
+    reload: that would show the boot and loading screens only to fail the same way. The join
+    (name, class, pass) is written to session storage before the attempt and taken back once the
+    device is in, so the screen's Reload joins as that same player with no start menu
+    (`ie:rooms:next-join`, the storage the reload used to carry every time; it is now only this
+    fallback's). A player's screen says "This game could not load … please reload", the shared
+    words; the join's own reason shows to an authoring boot and is in `__IE_RUNTIME_STALE__`.
+  - **Only Salmons' win screen asks for it** (`screenHost().rejoin`). A boot's join runs the same
+    code in the same order as before (`joinOnlineRoom` now calls `enterRoom`); another online
+    game, and the 3D room (`online3d.ts`), never call `switchRoom`. `check:runtime-bytes`: the
+    `lines`, `match3` and `card` runtimes are the same bytes; `arcade` and `arcade3d` are
+    re-recorded (`arcade` 2,125,988 → 2,126,729 B gzip, `arcade3d` 2,634,735 → 2,635,398).
+  - **Measured** (`scripts/playtest/salmons-rejoin-play.mjs`, a headless shell that draws the
+    river in software at about 3 frames a second, so its seconds are long and its frames are what
+    carries over; local game server):
+
+    | From the click to    | this change                   | the reload (the tree before)                                       |
+    | -------------------- | ----------------------------- | ------------------------------------------------------------------ |
+    | documents loaded     | 0                             | 1                                                                  |
+    | the join asked       | 0.6 to 0.7 s (2 frames)       | 5.5 to 6.2 s (the fish swam off first, then the page loaded)       |
+    | the lobby on screen  | 2.2 to 3.5 s (7 to 10 frames) | 8.5 to 9.5 s, after 2.3 to 3.1 s of loading screen and a key press |
+    | the river in its art | 2.5 to 3.9 s (9 to 12 frames) | 8.9 to 9.9 s                                                       |
+
+    The waits here are frames of about 0.28 s: the click reaches the button in 2, the join's
+    three answers (a seat, the socket, the first state) take 4 to 7 between them, the swap is
+    the next task and the lobby the frame after, the art 2 frames later (`engine` netcode; the
+    `colyseus` run, with other work on the machine, took 10 to 12 and 12 to 14 frames). At 60 frames a second
+    that is about a fifth of a second plus the network. Making the level is not the cost: 26 to
+    37 ms in Node for a river of about 1300 zones. The reload's cost on a real device is the
+    0.8 s the fish swam for, a page boot, the loading screen and a tap.
+
+  - **Three switches on one page** (the same script, after a collection each time; `engine`
+    netcode). Before the first switch: 74.4 MB of JS heap, 39,676 display objects alive in the
+    heap (39,650 of them on the stage), 42 GPU textures (92.5 MB as RGBA), 1 socket. After
+    switches 1, 2 and 3: heap 77.9, 79.2 and 79.2 MB; display objects alive 39,602, 39,999 and
+    39,827; textures 55, 56 and 56 (108.2, 110.2 and 110.2 MB); sockets alive 2, 2 and 2. The
+    first switch adds what a second room needs once (the sheet pages the first level did not
+    draw, pooled text textures, the closed socket of the room just left, still referenced
+    until the next press); the next ones add nothing that grows. A first version kept every
+    old session alive through a closure (sockets alive 2, 3, 4, about 1.2 MB a switch): the
+    script counts the sockets so that shows again.
+  - **Proof.** `salmons-rejoin-play.mjs` (new), 38 verdicts in each netcode: three games won and
+    left on one document (a mark on the window kept, one document loaded, the old room left and
+    another joined, another seed, the flow showing the river and the lobby and neither the win
+    nor the loading screen, the lobby's note, the new room's zones, fingerprint and rocks, one
+    river drawn, nothing of the old game held, round 1, golden, the swim predicted with the
+    camera on it); a join made to fail (the error screen, the join kept, its Reload joining as
+    the player was); and the timings above. `salmons-play.mjs` (102 verdicts in each netcode):
+    page W's verdict follows the same switch in a room without a lobby.
+    `salmons-levels-play.mjs` 54 in each. Gates: `check:room-lobby` 35 (the button, the join it
+    makes, no `location.reload` in `online.ts`), `check:room-sim` 43, `check:room-levels` 15,
+    `check:netcode` 28 (their pins of `online.ts` moved with the code), `check:online-rules` 40
+    (no trace moved), `check:salmons-art` 33, `check:salmons-levels` 18. Playbook:
+    [playtest/salmons](../playtest/salmons.md) "Another room on the same page".
+  - **Not verified, and known limits.** A real phone or GPU (the times above are a software
+    renderer's). The published flow itself (the playtests boot the seed's flow, which the
+    project's is made from). A join into a river already running (read off the flow: its lobby
+    check shows nothing unless the room waits). If the new room's art fails to load after a
+    swap, its ground stays empty (at a boot the placeholder shows instead); the art's pages are
+    the page's by then, so only a fault in the art could do it. No frame was caught between the
+    lobby and the art: the art is in the first frame of the new room on the stepped page, and
+    two frames after the lobby on the real clock.
 - **A class picked in the lobby (2026-11-25; owner: "I would like to add some UI to the waiting
   room so that a player can change the played character"; in review; branch
   `claude/upbeat-cray-fzmgxe`; runtime and game-server change; no config, layout or flow change;
@@ -1153,9 +1275,10 @@ upload.
     character rebuilds the own predictor, abilities and looks;
   - the **win animation** on `gameWon` (overlay, the big golden or pink fish, "You Won!" /
     "NAME won!!!", eggs on the winner's device, "Join New Game" / "Start New Session"): the button
-    leaves the locked room and reloads, the next join (name, character, and the winner's
-    `winnerPass` `pass`) carried in session storage (`online.ts` `takeNextJoin`), so the winner
-    comes in golden;
+    leaves the locked room for a new one as the player is (name, character, and the winner's
+    `winnerPass` `pass`), so the winner comes in golden. On the same page since 2026-11-25 (the
+    bullet "Join New Game stays on the page", above); until then it loaded the page again, that
+    join carried in session storage (`online.ts` `takeNextJoin`);
   - the **start menu** in the lobby (name, Salmon / Catcher, Fisherman / Bear, Join River, the
     live river list named by the original's `riverNameFor`, its splash; before the join since
     2026-11-19 and no longer in the lobby since 2026-11-20: the bullets above and below), the
@@ -1176,7 +1299,8 @@ upload.
   - the line: a holder whose `lineActive` is 0 (any other game's `hook`) still gets the old
     holder → hooked line;
   - the next join in session storage (`ie:rooms:next-join`) carries the server and the game, is
-    cleared at every boot and is honoured only by a launch of both;
+    cleared at every boot and is honoured only by a launch of both (since 2026-11-25 it is kept
+    only while a leave for a new room is under way, for the Reload after one that failed);
   - a new salmon faces −1 (upstream once WS-C mirrors the world; downstream until then).
   - Flow events `gameWon`, `respawned`, `respawnRefused` (`onlineFlow.js`, the arcade vocabulary).
 - **The start menu comes before the join (2026-11-19; in review; branch
@@ -2240,6 +2364,19 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-25 — **Join New Game stays on the page** (owner: "I would expect to be in a room
+  already"; in review). The win screen's button no longer loads the page again: the device joins
+  the new room first, and one task swaps the old room for it in the mounted game, the flow
+  brought back to its start, with the art coming under the new room's lobby. Arcade code only:
+  `online.ts` (`joinOnlineRoom` split into the launch and `enterRoom`; `switchRoom`,
+  `closeSession`, `showRoom`, `keepNextJoin` / `dropNextJoin`; a session's `quit`, `closed`,
+  `unlisten`; the camera's world from the session) and `salmonsArt/winAnimation.ts` (the button
+  asks at once). `Game.svelte`, `editor-scenes.ts` and the flow interpreter are untouched, so
+  the slot, match-3 and card runtimes are the same bytes. New playtest `salmons-rejoin-play.mjs` (38 verdicts a netcode, with the
+  timings and what the page holds after each switch); `salmons-play.mjs` page W's verdict
+  rewritten; the source pins of `check:room-lobby`, `check:netcode` and `check:room-levels`
+  moved with the code. No game-server, config, layout or flow change; `normalizeGameConfigDoc`
+  untouched. Detail, numbers and what was not verified in Current state.
 - 2026-11-25 — **A class picked in the lobby** (owner: "add some UI to the waiting room so that a
   player can change the played character"; branch `claude/upbeat-cray-fzmgxe`; in review). Under
   the lobby's note, Salmon / Fisherman / Bear: a press changes the class in place, through the

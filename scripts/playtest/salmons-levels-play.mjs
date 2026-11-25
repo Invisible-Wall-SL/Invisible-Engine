@@ -13,7 +13,8 @@
 // The start menu before the join (owner bug, 2026-11-19): once a room's lobby is over, a page that
 // opens the game with no character carried gets the menu and is in no room while it is up; picking
 // Fisherman (another page: Bear) and Join River puts it in that running room as that; a reload asks
-// again; a join carried from the last page plays at once, with no menu.
+// again; a join kept for the page (a leave for a new room that did not get in) plays at once,
+// with no menu.
 // The lobby has no form (owner, 2026-11-20): while a new room waits, its lobby shows the room's
 // river with the people in it and who the page plays, and no name field or Join River, for a page
 // that carried its character and for one that came through the start menu alike.
@@ -441,8 +442,9 @@ const resizeTo = (page, { w, h, mobile = false }) =>
 /**
  * Open a page on the game. `device` gives it a window of its own (`{ w, h, mobile }`: a phone has
  * a phone's user agent and touch). A `null` in `extra` takes a launch parameter away
- * (`rooms_character`: the published link carries none); `next` is a join the last page carried
- * (`online.ts` `takeNextJoin`: session storage, scoped to this server and game), seeded once.
+ * (`rooms_character`: the published link carries none); `next` is a join kept for the page, as
+ * after a leave for a new room that did not get in (`online.ts` `takeNextJoin`: session storage,
+ * scoped to this server and game), seeded once.
  */
 async function open(profile, extra = {}, next = undefined, device = undefined) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, profile));
@@ -1162,14 +1164,15 @@ try {
 			!!again && again.name === 'Finn' && joined === 4 && afterReload[0]?.[1] === joined,
 			{ again: again?.name, joined, afterReload },
 		);
-		// A join the last page carried (the win screen's "Join New Game"): no menu, at once.
+		// A join kept for the page (a "Join New Game" that did not get in, loaded again): no menu,
+		// at once.
 		const m3 = await open('m3', published, { name: 'Cara', character: 'bear' });
 		menuPages.push(m3.page);
 		const c2 = await ready(m3);
 		await c2.settle(500);
 		const carried = await inRoom((await c2.state()).arcade?.online?.me);
 		verdict(
-			'a launch whose last page carried its join plays at once as that, with no menu',
+			'a launch that finds its join kept plays at once as that, with no menu',
 			carried?.character === 'bear' && carried.name === 'Cara' && (await menuOf(c2.page)) === null,
 			{ carried },
 		);
