@@ -878,16 +878,18 @@ function roomSeed(room: Room): Promise<number | undefined> {
 /**
  * Why a device leaves a room whose level it cannot make (`roomLevelGame`'s refusal): its picture
  * would not be the room's collisions. It made another level from the room's own levels (the
- * runtime's generator is not the game server's: the two are released apart), so a reload is what
- * helps; or the room sent no levels (too long), and on an authoring boot the likely difference is
- * the editor's unpublished ones.
+ * runtime's generator is not the game server's: the two are released apart, and either may be the
+ * older), so a reload or a short wait is what helps; or it had none of the room's levels to read
+ * (too long to send, or another generator's), and on an authoring boot the likely difference is
+ * the editor's unpublished ones. The two fingerprints end the reason, for the log.
  */
-const otherLevel = ({ refused }: RoomLevelRefusal, authoring: boolean) =>
-	refused === 'levels' && authoring
-		? 'the room plays other level settings than the ones saved in the editor, too long for ' +
-			'it to send: publish in Game Maker to play yours'
+const otherLevel = ({ refused, levelHash, roomLevelHash }: RoomLevelRefusal, authoring: boolean) =>
+	(refused === 'levels' && authoring
+		? 'the room plays other level settings than the ones saved in the editor, and could not ' +
+			"send its own (too long, or another generator's): publish in Game Maker to play yours"
 		: 'the room plays a level this game cannot make from its seed (the game and the game ' +
-			'server are of different versions): reload to get the newest game';
+			'server are of different versions): reload, or try again in a few minutes') +
+	` [level ${levelHash}, the room's ${roomLevelHash}]`;
 
 const LEVELS_NOTICE_ID = 'ie-room-levels-notice';
 
@@ -904,41 +906,39 @@ const levelsNotice = (differs: readonly string[]) =>
  * Tell an AUTHOR (an `ie_authoring=1` boot, every launcher link) that the game plays the room's
  * levels, not the ones the editor last saved: without it a Save levels that changed nothing on
  * screen reads as a broken editor. A player is told nothing: the level a player sees is simply
- * the room's. A small strip over the top of the game that takes no click but its own ✕ and stays
- * until that is pressed.
+ * the room's. A small strip over the top of the game that stays until its ✕ is pressed; only the
+ * ✕ takes a pointer, so a touch on the strip still reaches the play field under it.
  */
 function showLevelsNotice(differs: readonly string[]) {
-	const show = () => {
-		if (document.getElementById(LEVELS_NOTICE_ID)) return;
-		const notice = document.createElement('div');
-		notice.id = LEVELS_NOTICE_ID;
-		notice.setAttribute('role', 'status');
-		notice.setAttribute(
-			'style',
-			'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483646;' +
-				'display:flex;align-items:flex-start;gap:10px;box-sizing:border-box;' +
-				'width:max-content;max-width:min(560px,calc(100vw - 20px));padding:8px 8px 8px 12px;' +
-				'border-radius:8px;border-left:4px solid #f5b83d;background:#1c1b1ff2;color:#fff;' +
-				'font:500 13px/1.4 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.45)',
-		);
-		const text = document.createElement('span');
-		text.textContent = levelsNotice(differs);
-		const close = document.createElement('button');
-		close.type = 'button';
-		close.textContent = '✕';
-		close.title = 'Dismiss';
-		close.setAttribute('aria-label', 'Dismiss');
-		close.setAttribute(
-			'style',
-			'flex:none;border:0;border-radius:4px;padding:2px 6px;background:transparent;' +
-				'color:#fff;opacity:.8;font:600 14px/1.4 system-ui,sans-serif;cursor:pointer',
-		);
-		close.onclick = () => notice.remove();
-		notice.append(text, close);
-		document.body.appendChild(notice);
-	};
-	if (document.body) show();
-	else window.addEventListener('DOMContentLoaded', show, { once: true });
+	if (document.getElementById(LEVELS_NOTICE_ID)) return;
+	const notice = document.createElement('div');
+	notice.id = LEVELS_NOTICE_ID;
+	notice.setAttribute('role', 'status');
+	notice.setAttribute(
+		'style',
+		'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483646;' +
+			'display:flex;align-items:flex-start;gap:10px;box-sizing:border-box;' +
+			'width:max-content;max-width:min(560px,calc(100vw - 20px));padding:8px 8px 8px 12px;' +
+			'border-radius:8px;border-left:4px solid #f5b83d;background:#1c1b1ff2;color:#fff;' +
+			'font:500 13px/1.4 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.45);' +
+			'pointer-events:none',
+	);
+	const text = document.createElement('span');
+	text.textContent = levelsNotice(differs);
+	const close = document.createElement('button');
+	close.type = 'button';
+	close.textContent = '✕';
+	close.title = 'Dismiss';
+	close.setAttribute('aria-label', 'Dismiss');
+	close.setAttribute(
+		'style',
+		'flex:none;border:0;border-radius:4px;padding:2px 6px;background:transparent;' +
+			'color:#fff;opacity:.8;font:600 14px/1.4 system-ui,sans-serif;cursor:pointer;' +
+			'pointer-events:auto',
+	);
+	close.onclick = () => notice.remove();
+	notice.append(text, close);
+	document.body.appendChild(notice);
 }
 
 /** Whether a screen of `doc` has a top-level node `id`, where a generated field is drawn. */

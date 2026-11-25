@@ -126,8 +126,9 @@ const roomFields = {
 	levels: t.string(),
 	/** A fingerprint of the level the room made (`engine-mechanics` `levelHash`): a device whose
 	 *  own level has another leaves the room. Both are written once, when the room is made, and
-	 *  never for a game with no generator (no default: unset, they are not sent at all). The last
-	 *  two fields, so a runtime older than them reads every other as before. */
+	 *  never for a game with no generator (no default: unset, they are not sent at all). A runtime
+	 *  older than them reads every other field as before: a device has no state class of its own
+	 *  and decodes by the schema the server sends at the handshake. */
 	levelHash: t.string(),
 };
 

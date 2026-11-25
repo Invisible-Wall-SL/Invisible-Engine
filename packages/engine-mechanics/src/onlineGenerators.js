@@ -90,7 +90,8 @@ export function generatedOnlineGame(game, seed) {
 }
 
 /** The most characters of levels a room's state carries. A longer one (about 1,600 removed cells
- *  or 400 added pieces of overlay) is not sent: its devices are held to the fingerprint alone. */
+ *  or 400 added pieces of overlay) is not sent: its devices are held to the fingerprint alone. A
+ *  device reads no more than this either, whatever a room sends. */
 export const ROOM_LEVELS_MAX = 16384;
 
 /**
@@ -105,8 +106,9 @@ export function roomLevels(game, seed) {
 /** A fingerprint hashes every number as a whole count of this many to the unit. */
 const HASH_UNITS = 1000;
 
-/** `value` as the text a fingerprint hashes: an object's keys in name order, the `undefined` ones
- *  left out, every number as whole {@link HASH_UNITS}ths. */
+/** `value` as the text a fingerprint hashes: an object's keys in name order (quoted, so no two
+ *  plain values share a text), the `undefined` ones left out, every number as whole
+ *  {@link HASH_UNITS}ths. */
 function hashText(value) {
 	if (typeof value === 'number') return String(Math.round(value * HASH_UNITS));
 	if (typeof value === 'string') return JSON.stringify(value);
@@ -115,7 +117,7 @@ function hashText(value) {
 	return `{${Object.keys(value)
 		.filter((key) => value[key] !== undefined)
 		.sort()
-		.map((key) => `${key}:${hashText(value[key])}`)
+		.map((key) => `${JSON.stringify(key)}:${hashText(value[key])}`)
 		.join(',')}}`;
 }
 
@@ -148,7 +150,8 @@ function hashOf(text) {
  * Salmons level reaches its geometry through `Math.round`, `floor` or `ceil`, as whole px
  * (`check:room-levels` holds it), so such a bit moves the fingerprint only where it moves a cell
  * of the level, and then the two levels do differ. A number that is not whole is hashed to the
- * thousandth, so a later generator's last bit cannot refuse a level that is the same.
+ * thousandth, so a later generator's last bit moves the fingerprint only at a rounding edge; a
+ * generator whose geometry is not whole should round it itself.
  */
 export function levelHash(game, made) {
 	const generator = generatorOf(game);
@@ -170,9 +173,11 @@ export function roomLevelState(game, seed, made) {
 }
 
 /** The levels a room said, read again by the device's generator (so both sides' are in its one
- *  form); `undefined` when it said none, or nothing that reads as levels. */
+ *  form); `undefined` when it said none, more than {@link ROOM_LEVELS_MAX}, nothing that reads as
+ *  levels, or the device's generator reads none. */
 function saidLevels(generator, said, seed) {
 	if (!generator.levels || typeof said !== 'string' || !said) return undefined;
+	if (said.length > ROOM_LEVELS_MAX) return undefined;
 	try {
 		const levels = JSON.parse(said);
 		return levels && typeof levels === 'object' ? generator.levels(levels, seed) : undefined;
@@ -197,7 +202,8 @@ const partsThatDiffer = (a, b) =>
  *  - The room said a fingerprint ⇒ the level the device made must have it, or the answer is
  *    `{ refused }` and the device must leave: `'generator'` when it made the level from the room's
  *    own levels (its generator is not the room's: the runtime and the game server are of different
- *    releases), `'levels'` when the room sent no levels to make it from.
+ *    releases), `'levels'` when it had none of the room's to make it from (not sent, too long, or
+ *    not its generator's to read) and its own config's level is another.
  *  - The room said neither (a game server older than the two fields) ⇒ its own config's level,
  *    unchecked, as before them.
  *  - `game` names no generator ⇒ `game` as it is: nothing read, made or checked.

@@ -5,15 +5,15 @@
 // two were different rivers of one seed: the picture was not the collisions, and nothing said so.
 //
 // The room's state now says the levels its generator read and a fingerprint of the level it made;
-// the device plays the room's levels and leaves a room whose level it cannot make (`engine-mechanics`
-// `roomLevelState`, `roomLevelGame`). THIS GATE FAILS IF A DEVICE AND ITS ROOM CAN MAKE DIFFERENT
-// LEVELS WITHOUT THE DEVICE NOTICING: over pairs of configs and seeds, after the device's decision
-// its level is the room sim's own (field, zones, zone rules, spawns) with the parts that differed
-// named, or the decision is a refusal. Never different and not refused.
+// the device plays the room's levels and leaves a room whose level it cannot make
+// (`engine-mechanics` `roomLevelState`, `roomLevelGame`). THIS GATE FAILS IF A DEVICE AND ITS ROOM
+// CAN MAKE DIFFERENT LEVELS WITHOUT THE DEVICE NOTICING: over pairs of configs and seeds, after the
+// device's decision its level is the room sim's own (field, zones, zone rules, spawns) with the
+// parts that differed named, or the decision is a refusal. Never different and not refused.
 //
 // The room's side is the game server's own code: its config reader (`configSource.ts`), its room
-// (`createRoomSim`) and, in the live half, a real Colyseus room with a real SDK client. The device's
-// side is the decision `apps/lines` `online.ts` wires, on a game resolved the way it resolves one;
+// (`createRoomSim`) and, in the live half, a real Colyseus room with a real SDK client. The
+// device's side is the decision `apps/lines` `online.ts` wires, on a game resolved its way;
 // the source pins at the end hold `online.ts` and `arcadeRoom.ts` to it.
 //
 //   pnpm check:room-levels
@@ -47,6 +47,7 @@ import {
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	onlineTestSizeRange,
 	shapedOnlineGame,
 	withOnlineSlide,
 } from '../packages/game-config/index.ts';
@@ -148,7 +149,7 @@ const assertSame = (a, b, what) =>
 	assert.ok(isDeepStrictEqual(a, b), `${what}: not the same (${whereNot(a, b)})`);
 
 const dir = mkdtempSync(join(tmpdir(), 'room-levels-'));
-/** A huge overlay, more than a room's state carries: a waterfall, and removals all down the river. */
+/** A huge overlay, more than a room's state carries: a waterfall, and removals down the river. */
 const LONG = {
 	overlays: {
 		'*': {
@@ -379,6 +380,53 @@ try {
 			const odd = roomLevelGame(deviceGame(SERVED.long), seed, { ...said, levels });
 			assert.ok(!('refused' in odd) && !odd.adopted, `levels ${levels}`);
 		}
+		// The limit is the device's too: more than it, whoever sent it, is not read (were these
+		// other levels read, the device would adopt them and no longer make the room's level).
+		const flood = JSON.stringify(roomLevels(sim.game, seed));
+		const live = await roomOf('live', seed);
+		const flooded = roomLevelGame(deviceGame(SERVED.live), seed, { ...live.said, levels: flood });
+		assert.ok(!('refused' in flooded), 'levels past the limit are not read');
+		assert.deepEqual([flooded.adopted, flooded.levelHash], [false, live.said.levelHash]);
+	});
+
+	await check(
+		'another generator on one side: refused, whichever side, and never played',
+		async () => {
+			const seed = 7;
+			const map = await roomOf('live', seed);
+			const band = await roomOf('band', seed);
+			assert.notEqual(map.said.levelHash, band.said.levelHash);
+			// A device of the band river in a room of the map: it cannot read the room's levels.
+			// A device of the map in a room of the band river: the room sent none.
+			for (const [device, room] of [
+				[deviceGame(SERVED.band), map],
+				[deviceGame(SERVED.live), band],
+				[deviceGame(SERVED.published), band],
+			]) {
+				const decided = roomLevelGame(device, seed, room.said);
+				assert.equal(decided.refused, 'levels');
+				assert.ok(!('game' in decided), 'a refusal hands over no game to play');
+				assert.deepEqual([decided.adopted, decided.differs], [false, []]);
+				assert.notEqual(decided.levelHash, room.said.levelHash);
+			}
+		},
+	);
+
+	await check('a test room (its own size): the device adopts its levels all the same', async () => {
+		const { min, max } = onlineTestSizeRange(deviceGame(SERVED.live).online);
+		assert.ok(min < max, `a test room holds ${min} to ${max}`);
+		for (const size of [min, Math.floor((min + max) / 2)])
+			for (const seed of SEEDS.slice(0, 2)) {
+				const sim = createRoomSim(await loadGame('live', size), { seed });
+				const said = roomLevelState(sim.game, seed, sim.made);
+				const decided = roomLevelGame(deviceGame(SERVED.published), seed, said);
+				const what = `a test room of ${size}, seed ${seed}`;
+				assert.ok(!('refused' in decided), `${what}: refused`);
+				assert.deepEqual(decided.differs, ['river', 'waterfalls'], what);
+				assert.equal(decided.levelHash, said.levelHash, what);
+				assertSame(levelOf(decided.game), levelOf(sim.game), what);
+				assertSame(decided.made, sim.made, `${what}: what it draws`);
+			}
 	});
 
 	await check('a generator that reads no levels says its fingerprint and no levels', async () => {
@@ -612,6 +660,19 @@ try {
 					'an older device with the room’s config',
 				);
 				await room.leave();
+				// And the reverse, so levels that say something cross the wire: the live config's room,
+				// a device of the published one.
+				const winding = await joinRoom('live');
+				const there = matchMaker.getLocalRoomById(winding.roomId).sim;
+				assert.equal(
+					winding.state.levels,
+					JSON.stringify({ river: SALMONS_LEVELS.river, waterfalls: SALMONS_LEVELS.waterfalls }),
+				);
+				const back = roomLevelGame(deviceGame(SERVED.published), winding.state.seed, winding.state);
+				assert.deepEqual([back.adopted, back.differs], [true, ['river', 'waterfalls']]);
+				assert.equal(back.levelHash, winding.state.levelHash);
+				assertSame(levelOf(back.game), levelOf(there.game), 'the winding river, over the wire');
+				await winding.leave();
 			},
 		);
 
@@ -664,6 +725,10 @@ try {
 			/const level = seed === undefined \? undefined : roomLevelGame\(resolved, seed, stateOf\(room\)\);/,
 		);
 		assert.match(online, /const played = level \?\? \{ game: resolved, made: undefined \};/);
+		// What it predicts on, draws and loads its art from is that decision's, not its own config's.
+		assert.match(online, /const current: Session = \{\s+room,\s+game: played\.game,/);
+		assert.match(online, /const field = played\.made && draw\?\.\(played\.made\);/);
+		assert.match(online, /loadArt\(played\.made, seed, /);
 		assert.doesNotMatch(online, /generatedOnlineGame|ONLINE_GENERATORS|salmonsMapRiver|seedLevels/);
 		// A refusal leaves the room first, then stops on the error screen.
 		assert.match(

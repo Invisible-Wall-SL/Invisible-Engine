@@ -50,7 +50,7 @@ upload.
       no pinned seeds, no empty part. It is itself a config's `levels`, read again it is itself
       and makes the same level. `salmonsRiver` reads no levels and says none. Longer than 16,384
       characters (`ROOM_LEVELS_MAX`: about 1,600 removed cells or 400 added pieces) it is not
-      sent.
+      sent, and a device reads no more than that either.
     - **The fingerprint** (`onlineGenerators.js` `levelHash`): 16 hex digits over the generator's
       geometry (field, zones, zone rules, spawns) and nothing else in the config, so a config
       that differs outside its levels does not trip it. Whole-number arithmetic only
@@ -66,10 +66,14 @@ upload.
       play yours in new rooms." A player's boot shows nothing and needs no reload. A refusal
       leaves the room and stops on the error screen (`refuseOnlineBoot`, with Reload); its
       reason, shown to an authoring boot and logged: "the room plays a level this game cannot
-      make from its seed (the game and the game server are of different versions): reload to
-      get the newest game", or, when the room sent no levels and the boot is an authoring one,
-      "the room plays other level settings than the ones saved in the editor, too long for it
-      to send: publish in Game Maker to play yours".
+      make from its seed (the game and the game server are of different versions): reload, or
+      try again in a few minutes", or, when the device had none of the room's levels to read
+      and the boot is an authoring one, "the room plays other level settings than the ones
+      saved in the editor, and could not send its own (too long, or another generator's):
+      publish in Game Maker to play yours". Both end with the two fingerprints, the device's
+      and the room's. A refusal is reported with every other stopped boot (one group in the
+      error tracker); the reason's words tell it apart. Only the ✕ of the strip takes a
+      pointer: a touch on its words reaches the play field under it.
     - **The probe** (`online.level`): `adopted`, `differs`, `levelHash`, `roomLevelHash`.
   - **What the state carries for Salmons.** As published today (no `levels`): `levels` `{}` and
     the 16 digits, 22 bytes more in the first state a device is sent. Once the winding river is
@@ -92,16 +96,19 @@ upload.
     `online.ts` joins; the gate's live half decodes them that way). Equal levels: nothing
     adopted, no notice.
   - **Proof.**
-    - `pnpm check:room-levels` (13; new, run by Checks' `check-all` like its siblings). The room
+    - `pnpm check:room-levels` (15; new, run by Checks' `check-all` like its siblings). The room
       side is the game server's own code (`createConfigSource`, `createRoomSim`, and a live
       Colyseus room with an SDK client). Over 7 configs as the room's and as the device's and 4
       seeds, 196 decisions: 154 would have played another level than their room, all 154
       adopted the room's levels, each device's field, zones, zone rules and spawns are the room
       sim's own with the right parts named, none refused. The real pair both ways. A room made
       by a generator one pixel off is refused; levels too long to send leave the fingerprint to
-      decide; an older server and a game with no generator are untouched; the levels are in one
-      form; two rooms of one seed have one fingerprint exactly when they play one level; source
-      pins hold `arcadeRoom.ts` and `online.ts` to the decision.
+      decide, and a device reads none past the limit; another generator on one side is refused,
+      whichever side names it; a test room's levels are adopted as any room's; an older server
+      and a game with no generator are untouched; the levels are in one form; two rooms of one
+      seed have one fingerprint exactly when they play one level; levels that say something
+      cross a live room's wire; source pins hold `arcadeRoom.ts` and `online.ts` to the
+      decision, and the session, the drawing and the art to the decision's game.
     - **The gate bites.** Each of four breaks fails it and was put back: the decision generating
       from the device's own config ("refused (generator)"); that and no refusal, the bug as it
       was ("the device plays another level than its room, and was not refused: zones,
@@ -119,11 +126,20 @@ upload.
       the baseline), the game server's `tsc`. `check:runtime-bytes`: `lines`, `match3` and
       `card` byte for byte; `arcade` +1,444 B and `arcade3d` +1,491 B gzip, re-recorded.
   - **Known limits.**
+    - **A refusal is a hard stop, where a level that differed used to play wrongly in silence.**
+      From now on a change to a generator or its geometry (`salmonsMap.js`, `salmons.js`) must
+      be out on both sides, the runtime and the game server, before a device can join a room.
+      In the minutes between the two releases, and after a rollback of one side across such a
+      change, every join is refused with the reason above. A reload helps only when the device
+      is the older side.
     - A room keeps the levels it opened with. After a Publish, a launcher link that lands in a
       room opened before it still plays that room's levels and still shows the notice, until
       the room closes (and the game server reads a new publish within about 90 s).
     - A room whose config names no generator says nothing, so a device whose own config names
-      one, or the reverse, is not caught: the generator's id is not part of its levels.
+      one, or the reverse, is not caught: the generator's id is not part of its levels. Two
+      different generators, one on each side, are refused.
+    - Levels too long to send: a device whose own levels differ is refused, not adopted, and
+      after a Publish it stays refused for as long as it is matched into a room opened before.
     - No JavaScriptCore run: that the fingerprint is the same in Safari is the argument above
       and the gate's whole-px check, not a browser run.
     - A room creation and a join each pay one more pass over the level (about 5 to 8 ms here).
@@ -1891,7 +1907,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   level, but does not update collisions"; branch `claude/zealous-darwin-t8xiyc`; in review). The
   room's state says the levels its generator read and a fingerprint of its level; the device
   makes its level from them, an authoring boot is told what differs, and a level it cannot make
-  is refused (`check:room-levels` 13, `salmons-room-levels-play.mjs` 29). Detail and proof in
+  is refused (`check:room-levels` 15, `salmons-room-levels-play.mjs` 29). Detail and proof in
   Current state; the merge's deploy closes running rooms: Owner steps.
 
 - 2026-11-24 — **The exported config drops its level** (owner decision; branch

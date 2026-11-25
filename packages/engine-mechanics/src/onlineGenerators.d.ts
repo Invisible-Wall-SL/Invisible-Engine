@@ -74,7 +74,7 @@ export type RoomLevelReport = {
 };
 
 /** The device cannot make the room's level: from the room's own levels (`generator`), or from its
- *  own config's because the room sent none (`levels`). */
+ *  own config's because it had none of the room's to read (`levels`). */
 export type RoomLevelRefusal = RoomLevelReport & { refused: 'generator' | 'levels' };
 
 export function roomLevelGame<G extends GeneratedGame>(

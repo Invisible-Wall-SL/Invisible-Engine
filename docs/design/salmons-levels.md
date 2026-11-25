@@ -105,8 +105,9 @@ level is about 730 zones (P10.16's river: 71); a room step with 80 players takes
     a player's boot shows nothing. A device whose level still has another fingerprint (its
     generator is another release than the game server's) leaves the room and stops on the error
     screen, which says to reload.
-  - **Edges.** Levels longer than 16,384 characters are not sent, and the fingerprint alone then
-    decides. A room of a game server older than the two fields says neither, and the device plays
+  - **Edges.** Levels longer than 16,384 characters are not sent or read, and the fingerprint
+    alone then decides. A refusal is a hard stop: a later change to a generator must be out on
+    both the runtime and the game server before a device can join. A room of a game server older than the two fields says neither, and the device plays
     its own config's level as before; a runtime older than them ignores them. A game with no
     generator reads, makes and checks nothing.
   - **Still open.** A room whose config names no generator says nothing, so a device whose own

@@ -4,11 +4,12 @@
 // river) and the page the LIVE one (`SALMONS_LEVELS`: the winding river, the tall waterfalls), as a
 // launcher link booted between a Save levels in `/editor` and a Publish.
 //
-// Four pages, one after the other:
+// Five pages, one after the other:
 //  - `authoring` (`ie_authoring=1`, live config, published room): the page adopted the room's
 //    levels, names river and waterfalls as what differed, made a level with the room's fingerprint,
 //    predicts on the room's zones and drew the room's rocks, whirlpools and waterfalls; the notice
-//    is on screen over the game, small, and stays; its ✕ takes it away and the game goes on.
+//    is on screen over the game, small, and stays; a pointer on its words reaches the game under
+//    it; its ✕ takes it away and the game goes on.
 //  - `player` (no `ie_authoring`, the same drift): the same adoption, and no notice.
 //  - `equal` (`ie_authoring=1`, the room's own config): nothing adopted, no notice.
 //  - `reverse` (`ie_authoring=1`, published config, a room of the live one): the winding river
@@ -23,7 +24,8 @@
 //     scripts/playtest/salmons-room-levels-play.mjs --runtime apps/lines/build --out <dir> \
 //     [--chrome <exe>]
 //
-// The runtime must play arcade: build it with `PUBLIC_IE_FAMILIES=arcade pnpm --filter lines build`.
+// The runtime must play arcade: build it with
+// `PUBLIC_IE_FAMILIES=arcade pnpm --filter lines build`.
 // Exit 1 when a verdict fails. What is decided, over many seeds and configs, is `pnpm
 // check:room-levels`'s, not this run's.
 
@@ -184,8 +186,9 @@ const HOOK = `(() => {
 const WINDOW = { w: 1280, h: 720 };
 const NOTICE_ID = 'ie-room-levels-notice';
 
-/** The notice as the page shows it, or `null`: its text, its box, its ✕, and whether it is what a
- *  click on it would reach (on top) while the middle of the game is not under it. */
+/** The notice as the page shows it, or `null`: its text, its box, its ✕, whether a click on the
+ *  ✕ reaches the ✕ (on top), whether one on its words reaches what is under it (`passes`), and
+ *  whether the middle of the game is clear of it. */
 const noticeOf = (page) =>
 	page.evaluate(`(() => {
 		const notice = document.getElementById(${JSON.stringify(NOTICE_ID)});
@@ -202,7 +205,8 @@ const noticeOf = (page) =>
 				x: closeBox.x + closeBox.width / 2,
 				y: closeBox.y + closeBox.height / 2,
 			},
-			onTop: notice.contains(at(box.x + 24, box.y + box.height / 2)),
+			onTop: at(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2) === close,
+			passes: !notice.contains(at(box.x + 24, box.y + box.height / 2)),
 			overTheMiddle: notice.contains(at(innerWidth / 2, innerHeight / 2)),
 			shown: getComputedStyle(notice).visibility !== 'hidden' && box.width > 0 && box.height > 0,
 		};
@@ -217,7 +221,8 @@ const roomWith = async (id) => {
 	return undefined;
 };
 
-/** Open a page of `config` on a room of the game `roomGame`: the launcher's link when `authoring`. */
+/** Open a page of `config` on a room of the game `roomGame`: the launcher's link when
+ *  `authoring`. */
 async function open(name, { config, roomGame, authoring }) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, name));
 	await page.page('Page.addScriptToEvaluateOnNewDocument', { source: HOOK });
@@ -335,7 +340,8 @@ const NOTICE =
 	'This room plays the level settings published when it opened, not the ones saved in the ' +
 	'editor (different: river and waterfalls). Publish in Game Maker to play yours in new rooms.';
 
-/** The notice is up over the game: its words, on top, small, clear of the middle of the screen. */
+/** The notice is up over the game: its words, its ✕ on top, a pointer on its words let through,
+ *  small, clear of the middle of the screen. */
 const noticeVerdict = (name, notice) =>
 	verdict(
 		`${name}: the notice is on screen, names river and waterfalls, and does not cover the game`,
@@ -343,6 +349,7 @@ const noticeVerdict = (name, notice) =>
 			notice.shown &&
 			notice.text === NOTICE &&
 			notice.onTop &&
+			notice.passes &&
 			!notice.overTheMiddle &&
 			notice.close.label === 'Dismiss' &&
 			notice.box.x >= 0 &&
@@ -485,17 +492,23 @@ try {
 		}
 		const REASON =
 			'this online game could not join a room: the room plays a level this game cannot make ' +
-			'from its seed (the game and the game server are of different versions): reload to get ' +
-			'the newest game';
+			'from its seed (the game and the game server are of different versions): reload, or ' +
+			'try again in a few minutes';
+		// The reason ends with the two fingerprints, the page's and the room's, which differ.
+		const stale = String(screen?.stale ?? '');
+		const hashes = /^ \[level ([0-9a-f]{16}), the room's ([0-9a-f]{16})\]$/.exec(
+			stale.startsWith(REASON) ? stale.slice(REASON.length) : '',
+		);
 		verdict(
 			`${name}: the page stops on the error screen, with Reload and the reason`,
 			!!screen &&
 				screen.covers &&
 				screen.reload &&
 				!screen.playing &&
-				screen.stale === REASON &&
+				!!hashes &&
+				hashes[1] !== hashes[2] &&
 				screen.text.includes('please reload') &&
-				screen.text.includes(`Reason: ${REASON}`),
+				screen.text.includes(`Reason: ${stale}`),
 			screen,
 		);
 		verdict(`${name}: no notice`, !!page && (await noticeOf(page)) === null);

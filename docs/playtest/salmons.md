@@ -634,8 +634,9 @@ state said.
   the room's fingerprint; it predicts on the room's zones (`online.zones` are the room sim's), drew
   the room's rocks, whirlpools and waterfalls, and its own config's level of that seed is another
   river. The notice is over the top of the game, small, clear of the middle, and still there four
-  seconds on (`authoring-notice.png`, the strip alone in `authoring-notice-detail.png`); its ✕
-  takes it away and the game goes on (`authoring-dismissed.png`).
+  seconds on (`authoring-notice.png`, the strip alone in `authoring-notice-detail.png`); a
+  pointer on its words reaches the game under it; its ✕ takes it away and the game goes on
+  (`authoring-dismissed.png`).
 - **`player`** (no `ie_authoring`, the same drift): the same adoption, and no notice.
 - **`equal`** (`ie_authoring=1`, the room's own config): nothing adopted, no notice.
 - **`reverse`** (`ie_authoring=1`, the published config in a room of the live one): the winding
