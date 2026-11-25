@@ -69,7 +69,8 @@ source:  { kind: 'sprite', region: '<manifest key>::<frame>' }
 
 1. **Built (this change):** sheet frames and Flipbook clips, `stamp`, variants, scale; the
    `/config` Zone art card with thumbnails; the export and reachability; the runtime draw for a
-   plain arcade game and in Salmons' river. Proof: `pnpm --filter launcher-api check:zone-art`.
+   plain arcade game and in Salmons' river. Proof: `pnpm --filter launcher-api check:zone-art`,
+   and `scripts/playtest/zone-art-play.mjs`, which plays a plain game in a browser.
 2. **Next: a rig source** (`{ kind: 'rig', rig, animation }`), drawn as the character sheet's rig
    look is (`engine-layout/sheet-rig`), with its bundle in `characterArt`-style boot names. Also a
    flipbook `randomStart` (a frame per zone by the seed; `<Flipbook>` has no start frame yet) and a

@@ -61,6 +61,13 @@ vx / vy, tags), in spawn order. `?flowlog=1` traces every spawn, despawn and arc
    reach the same bodies.
 9. **No RGS.** The page requests nothing but the runtime bundle and the snapshot.
 
+10. **Zone art** (`scripts/playtest/zone-art-play.mjs`, same arguments; [zone-art](../design/zone-art.md)).
+    It plays the same sample with three zones and `arcade.zoneArt` in its config: a magenta sheet
+    frame on the two `reef#` zones and a two-frame green clip on `pond`, all from a stub sheet
+    exported as a publish exports one. With zone art, both pictures sit on their zones under the
+    salmon and the clip plays both frames. Without it, neither colour is on screen. Both rounds
+    play, and there is no page error.
+
 ## Known limits
 
 - The art is placeholder; swapping in the Salmons art (S0) is an owner follow-up.

@@ -50,9 +50,20 @@ upload.
     heading), `check:art-scope`, `check:flipbook-characters` (254), `check:room-levels` (15),
     `check:room-sim` (43), `check:arcade-rules` (79), svelte-check at baseline for `apps/lines`,
     `apps/launcher-api` and `packages/engine-layout`.
+  - **Played** on the branch's arcade runtime (headless Chrome). `zone-art-play.mjs` (new, 5/5;
+    [playtest/arcade-sample](../playtest/arcade-sample.md) item 10) plays a plain game: a sheet
+    frame and a clip stamped on their zones, and nothing drawn without zone art. `arcade-play.mjs`
+    passes 14/14. `salmons-play.mjs` (no zone art) passes 100 of 101: its river is in the
+    original images, with as many `rock_` pieces as rocks and four `whirlpool_` frames per pool.
+    The one failure is "isometric: page A draws its salmon at its projected place". It cannot tell
+    the two places apart when the salmon is drawn at the camera's centre (projected (644, 347),
+    flat (640, 349), under its 60 px). That depends on the room's random seed, not on this change.
+    Salmons' river with zone art set was not played in a browser. It finds a frame by the same
+    scoped key (`<sheet>::<frame>`) the plain game's sprite was found by, and a clip's frames
+    through `resolveClipFrames`, as `<Flipbook>` does.
   - **Not done (next phases):** a rig source, `fill` / `edge` placements (sandbank ground, the sea,
     a waterfall's lip), a clip's random start frame, a `z`, and the zone map drawing the chosen
-    art. Not played in a browser on this branch.
+    art.
   - **Owner steps:** none to keep Salmons as it is. To use it: pick art in `/config` → Zone art,
     save, and publish. It reaches rooms with the runtime release of the merge.
 - **A device plays its room's levels: the picture is the collisions (2026-11-25; owner: "changing
