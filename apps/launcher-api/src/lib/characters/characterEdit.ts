@@ -127,7 +127,8 @@ export const findCharacter = (doc: GameConfigDoc, id: string): ArcadeCharacter |
 
 function list(doc: GameConfigDoc): ArcadeCharacter[] {
 	doc.arcade ??= {};
-	return (doc.arcade.characters ??= []);
+	doc.arcade.characters ??= [];
+	return doc.arcade.characters;
 }
 
 function prune(doc: GameConfigDoc): void {
@@ -522,7 +523,8 @@ export function setParam(
 		const n = Number(value);
 		next = typeof value === 'string' && value.trim() !== '' && Number.isFinite(n) ? n : undefined;
 	} else next = typeof value === 'string' && value.trim() ? value.trim() : undefined;
-	const params = (state.params ??= {});
+	state.params ??= {};
+	const params = state.params;
 	if (next === undefined || next === param.fallback) delete params[key];
 	else params[key] = next;
 	if (!Object.keys(params).length) delete state.params;
@@ -706,7 +708,8 @@ export function setAnimInput(
 	const character = findCharacter(doc, id);
 	const key = input.trim();
 	if (!character || !key) return;
-	const inputs = (character.animInputs ??= {});
+	character.animInputs ??= {};
+	const inputs = character.animInputs;
 	if (source) inputs[key] = source;
 	else delete inputs[key];
 	if (!Object.keys(inputs).length) delete character.animInputs;
@@ -760,7 +763,8 @@ export function addAbility(doc: GameConfigDoc, id: string): number | undefined {
 	const used = new Set(abilitiesOf(doc, id).map(({ ability }) => ability.button));
 	const button = ABILITY_BUTTONS.find((b) => !used.has(b)) ?? 'ability1';
 	doc.arcade ??= {};
-	const list = (doc.arcade.abilities ??= []);
+	doc.arcade.abilities ??= [];
+	const list = doc.arcade.abilities;
 	list.push({ character: id, button, reach: DEFAULT_ABILITY_REACH, targets, effect: 'stun' });
 	return list.length - 1;
 }
@@ -840,14 +844,24 @@ export function setAbilityTarget(
 	return true;
 }
 
-/** The zones of the field and the force each has (`arcade.forces`), if any. */
-export const zoneForcesOf = (
+/** The zones that push (`arcade.forces`), and those in `adding` (picked to be given a force, which
+ *  is stored once it pushes), in the field's order: a field of a thousand zones lists only its
+ *  forces. */
+export function zoneForcesOf(
 	doc: GameConfigDoc,
-): { zone: string; force: ArcadeZoneForce | undefined }[] =>
-	(doc.arcade?.zones ?? []).map((z) => ({
-		zone: z.id,
-		force: doc.arcade?.forces?.find((f) => f.zone === z.id),
-	}));
+	adding: readonly string[] = [],
+): { zone: string; force: ArcadeZoneForce | undefined }[] {
+	const forces = new Map((doc.arcade?.forces ?? []).map((f) => [f.zone, f]));
+	return (doc.arcade?.zones ?? []).flatMap((z) =>
+		forces.has(z.id) || adding.includes(z.id) ? [{ zone: z.id, force: forces.get(z.id) }] : [],
+	);
+}
+
+/** The zones a force can be put on: every zone of the field that has none. */
+export const zonesWithoutForce = (doc: GameConfigDoc): string[] => {
+	const forced = new Set((doc.arcade?.forces ?? []).map((f) => f.zone));
+	return (doc.arcade?.zones ?? []).map((z) => z.id).filter((id) => !forced.has(id));
+};
 
 /** Set one axis of a zone's force, px/s; both 0 (or blank) deletes the force. */
 export function setZoneForce(
@@ -860,14 +874,13 @@ export function setZoneForce(
 	const n = Number(text.trim() || 0);
 	const value = Number.isFinite(n) ? n : 0;
 	doc.arcade ??= {};
-	const forces = (doc.arcade.forces ??= []);
-	let rule = forces.find((f) => f.zone === zone);
-	if (!rule) {
-		rule = { zone, force: { x: 0, y: 0 } };
-		forces.push(rule);
-	}
+	doc.arcade.forces ??= [];
+	const forces = doc.arcade.forces;
+	let index = forces.findIndex((f) => f.zone === zone);
+	if (index < 0) index = forces.push({ zone, force: { x: 0, y: 0 } }) - 1;
+	const rule = forces[index];
 	rule.force = { ...rule.force, [axis]: value };
-	if (!rule.force.x && !rule.force.y) forces.splice(forces.indexOf(rule), 1);
+	if (!rule.force.x && !rule.force.y) forces.splice(index, 1);
 	prune(doc);
 }
 

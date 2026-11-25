@@ -190,9 +190,25 @@ has no family control at all. Three more families exist
   - **Collisions** — a comma list of tag pairs, `player + hazard, player + pickup`. Two bodies
     carrying a pair's tags raise Flow's `collide` when they start touching. Bodies whose tags no
     pair names never collide. A pair naming a tag no body carries warns.
-  - **Zones** — **Add zone** adds a 200 × 200 square at the field's corner; set its **Zone** id,
-    **x** / **y** (its top-left corner) and **Width** / **Height**, in design pixels. A body
-    moving in or out raises Flow's `enterZone` / `leaveZone`. A zone wholly off the field warns.
+  - **Zones** — rectangles of the field, in design pixels. A body moving in or out raises Flow's
+    `enterZone` / `leaveZone`. A zone wholly off the field warns.
+    - **The zone map** draws the field (or, with no field, the zones' extent) with every zone
+      coloured by what its rules make it: **The goal**, **Solid**, **Solid from one side**,
+      **Pushes (a current)**, **A kind the rules module acts on** or **No rule** (an online
+      game's zone rules; an offline game's zone forces). The legend under it counts each; hover a
+      zone for its id. **−** / **Fit** / **+**, or Ctrl (⌘) and the wheel over the map, zoom
+      about the pointer; scroll to move around a zoomed map.
+    - **Click a zone** to select it: it gets handles; drag it to move it, or a handle to resize it
+      (stored in whole pixels). **Drag on the empty field** to draw a new zone (`zone<N>`, a
+      number no zone has); hold **Shift** to draw over other zones. Under the map, the selected
+      zone's **Zone** id, **x**, **y**, **w**, **h** (type a value; a blank or taken id, or a size
+      that is not above 0, is put back), a bin that deletes it, and its rules on one line. While
+      someone else holds the project, the map only shows: a click names the zone.
+    - **The table** under the map lists every zone: **Zone** id, **x** / **y** (its top-left
+      corner) and **Width** / **Height**. Past 50 zones it shows 50 at a time, with a **Filter
+      zones** box (by id) and **Show 50 more** / **Show all N**; a zone just added is shown
+      wherever it falls (the filter is cleared for it), and the filter goes when the list is back
+      to 50. **Add zone** adds a 200 × 200 square at the field's corner.
   - **Characters** — how many characters the config has, and **Edit in Invisible Characters**,
     which opens `/characters`: a character (its look, movement, controls and brain) is edited
     there, not here. Its problems still show under this section (a repeated id, two characters
@@ -329,9 +345,18 @@ has no family control at all. Three more families exist
     first one joined, whichever is first; then a **Countdown (s)** (10) runs and round 1 starts.
     Bots never count. Unticked, the first player to join starts the round. Rounds after the first
     follow on after the pause as before.
-  - **Zone rules** — a zone (from the Arcade section) that **pushes** players (px/s, x and y: a
-    current) or is the round's **Goal**, for the listed characters (empty for every one). A rule
-    must push or be the goal: an edit that would leave it doing neither is not taken.
+  - **Zone rules** — a zone (from the Arcade section) that **pushes** players (**Push x** / **Push
+    y**, px/s: a current), is **Solid** (**every side**, or only a player coming **from below**,
+    **from above**, **from left** or **from right**: a waterfall stops a salmon from below), has a
+    **Kind** a rules module acts on (`sandbank`, `waterfall`, `bridge`; the column shows once the
+    game has a **Rules module**), or is the round's **Goal**, for the listed **Characters** (empty
+    for every one). A rule must do one of those. A rule's **Zone** is typed, with every zone id
+    offered as you type, and must be one the Arcade section has. An edit that is not taken (a
+    rule left doing nothing, a blank zone, a zone the field does not have) puts the control back,
+    and a line under the table says which; the next edit taken clears it. Past 50 rules the table
+    shows 50 at a time, with **Filter zone rules** (by zone, what it does or a character) and
+    **Show 50 more** / **Show all N**, as the Zones table does. **Add zone rule** takes a zone id
+    the same way and adds it as the goal.
   - **Abilities** — a **Character**'s **Button** (`ability1` / `ability2`) that **catches** or
     **stuns** players of its **Targets** (a comma list) within its **Reach** (px), holding them for
     **Holds ms** (3000), adding **Score** to the user per hit, usable again after **Cooldown ms**
@@ -357,11 +382,10 @@ has no family control at all. Three more families exist
     drawn) to 1 (solid); a mark is drawn on top of the water. **Trail opacity** (0.3) is how solid
     the trail is where it starts (Salmons: the blood a salmon carries off after swimming through
     a pool); it fades from there. Drawing only: the server does not read them.
-  - A generated game's zone rules (Salmons') may also make a zone **solid** (a rock; a waterfall,
-    solid from below only) or give it a **kind** a rules module acts on (`sandbank`,
-    `waterfall`). The **Solid / kind** column shows them read-only; an edit keeps them (so a
-    solid or kind rule may drop its push and goal), and a generated game's room replaces every
-    zone rule with its generator's anyway.
+  - **A generated game's zone rules** (Salmons') are not edited here: each room's generator makes
+    them with the zones (see **A field per room**). The section says so and counts what the level
+    on the zone map has, grouped by what they do (`solid × 852`, `kind sandbank × 318`, …), with a
+    link to the Scene Editor.
 - **Bots** (an online game only) — bots fill a room's empty places while anyone is in it, and a
   joining player takes a bot's place. Each bot **Plays** an online character with a **Brain** (a
   character from Invisible Characters). **Fill room to** (20), **A bot can win** (off) and **Bot
@@ -384,9 +408,22 @@ has no family control at all. Three more families exist
     **Most** and fills the room to its size. A class no bot has a share for cannot be played
     (every place belongs to a share class); the section warns.
 - **A field per room:** an online config may name a field generator in raw JSON
-  (`arcade.online.generator`, e.g. `"salmonsRiver"`). Each room then plays a field of its own made
-  from a seed it picks, replacing the field's size, zones, zone rules and spawns; what these
-  sections show is the authored field, which `/editor` draws. An unknown generator is refused.
+  (`arcade.online.generator`, e.g. `"salmonsMap"`). Each room then plays a field of its own made
+  from a seed it picks, replacing the field's size, zones, zone rules and spawns. An unknown
+  generator is refused. For such a game:
+  - **Zones** and **Zone rules** have no tables and no add buttons. Each says, in one line, that
+    the generator makes them per room, and how many the shown level has (hover **Made per room**
+    for more), with **Levels in the Scene Editor**: pinned seeds and level overlays are edited
+    there, in the Generated level card. The chips under the Zones line group the level's zones by
+    id with the numbers taken out (`sandbank# × 318`, `band#Water × 113`, …).
+  - **The zone map** shows the level a room with that **Seed** plays: the room's own generator,
+    with the project's level overlays. It opens on the first pinned seed (else seed 1); type
+    another, or the ⟳ button for a random one. It only shows: click a zone for its id, place,
+    size and rules. Changing the seed changes nothing in the config.
+  - **A stored snapshot.** A config can also hold the zones and zone rules of one level (Salmons'
+    uploaded config does until it is exported again without them). No room plays them. The
+    section says how many are stored, and the chevron beside it (**Show the snapshot**) opens them
+    read-only, 50 at a time with a filter; nothing of them is drawn until it is opened.
 - **Card game** — the duel's rules
   ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
   default:

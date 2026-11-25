@@ -74,7 +74,8 @@
 		const found = authoredOf(id);
 		if (found) return found;
 		const board = builtinOf(id)?.board ?? modes.find((m) => m.id === id)?.board ?? 'reels';
-		(doc.modes ??= []).push({ id, board });
+		doc.modes ??= [];
+		doc.modes.push({ id, board });
 		return doc.modes[doc.modes.length - 1];
 	}
 
@@ -127,7 +128,8 @@
 	function addMode() {
 		const id = newId.trim();
 		if (!id || newIdProblem) return;
-		(doc.modes ??= []).push({ id, board: 'reels' });
+		doc.modes ??= [];
+		doc.modes.push({ id, board: 'reels' });
 		newId = '';
 	}
 

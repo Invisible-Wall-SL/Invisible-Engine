@@ -1,5 +1,7 @@
 <script lang="ts">
 	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { resolve } from '$app/paths';
 
 	import {
@@ -10,6 +12,7 @@
 		DEFAULT_MATCH3_MIN_RUN,
 		resolveFamily,
 		resolveOutcome,
+		type ArcadeZone,
 		type ConfigFamily,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -45,6 +48,7 @@
 		setScoreTable,
 		setStrip,
 		setZoneField,
+		setZoneRect,
 		stripText,
 	} from './familyDoc';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -53,6 +57,21 @@
 	import { setPlayedOnline } from './onlineDoc';
 	import { sheetLinksRemovedNote, sheetsRemovedNote } from './pageDoc';
 	import OnlineSection from './OnlineSection.svelte';
+	import PagedRows from './PagedRows.svelte';
+	import SnapshotRows from './SnapshotRows.svelte';
+	import ZoneMap from './ZoneMap.svelte';
+	import { MAX_SEED } from '$lib/editor/generatedLevelCore';
+	import {
+		generatedZones,
+		previewSeedOf,
+		randomSeed,
+		seedOf,
+		zoneGenerator,
+		zoneGroups,
+		zoneMapArea,
+		zoneRulesOf,
+		type Rect,
+	} from './zones';
 
 	/**
 	 * THE GAME FAMILY of `/config` (`docs/design/game-families.md` §2.1, §6.2): the family and
@@ -136,6 +155,27 @@
 	}
 	let newBody = $state('');
 	let newGoal = $state<'score' | 'collect'>('score');
+	const zones = $derived(doc.arcade?.zones ?? []);
+	/** A field generator makes each room's zones (`./zones`): the map previews the level a seed
+	 *  makes, and what the config stores is a snapshot no room plays. */
+	const generator = $derived(zoneGenerator(doc));
+	let pickedSeed = $state<number>();
+	const level = $derived(
+		generator ? generatedZones(doc, generator, pickedSeed ?? previewSeedOf(doc)) : undefined,
+	);
+	function pickSeed(input: HTMLInputElement) {
+		const seed = seedOf(input.value);
+		if (seed === undefined) input.value = String(level?.seed ?? '');
+		else pickedSeed = seed;
+	}
+	const editorHref = $derived(withProject(resolve('/editor'), projectKey));
+	const zoneEdit = {
+		rect: (index: number, rect: Rect) => setZoneRect(doc, index, rect),
+		add: (rect: Rect) => addZone(doc, rect),
+		remove: (index: number) => removeZone(doc, index),
+		field: (index: number, field: keyof ArcadeZone, value: string) =>
+			setZoneField(doc, index, field, value),
+	};
 	/** The play field is stored both sides or neither, so a side's change reads both boxes. */
 	let fieldW = $state<HTMLInputElement>();
 	let fieldH = $state<HTMLInputElement>();
@@ -347,235 +387,324 @@
 				<em>Enter zone</em> and <em>Leave zone</em>.
 			</p>
 		{/snippet}
-		<fieldset class="panel" disabled={readOnly}>
-			<div class="row">
-				<label
-					>Field width<input
-						type="number"
-						min="1"
-						bind:this={fieldW}
-						value={doc.arcade?.field?.w ?? ''}
-						placeholder="screen"
-						onchange={typeField}
-					/></label
-				>
-				<label
-					>Field height<input
-						type="number"
-						min="1"
-						bind:this={fieldH}
-						value={doc.arcade?.field?.h ?? ''}
-						placeholder="screen"
-						onchange={typeField}
-					/></label
-				>
-				<label
-					>Steps per second<input
-						type="number"
-						min={ARCADE_FIXED_HZ_RANGE.min}
-						max={ARCADE_FIXED_HZ_RANGE.max}
-						value={doc.arcade?.fixedHz ?? DEFAULT_ARCADE_FIXED_HZ}
-						oninput={(e) => setFixedHz(doc, e.currentTarget.value)}
-					/></label
-				>
-			</div>
-			<span class="legend">Bodies <em>by component id</em></span>
-			{#if bodies.length}
-				<table class="tbl">
-					<thead>
-						<tr>
-							<th>Component</th>
-							<th>Shape</th>
-							<th>Size</th>
-							<th>Tags</th>
-							<th>Edges</th>
-							<th>Solid</th>
-							<th title="A hopping character in the air passes over it">Ground</th>
-							<th title="Stops a falling character from above only">One-way</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each bodies as [id, body] (id)}
+		<div class="panel">
+			<fieldset class="group" disabled={readOnly}>
+				<div class="row">
+					<label
+						>Field width<input
+							type="number"
+							min="1"
+							bind:this={fieldW}
+							value={doc.arcade?.field?.w ?? ''}
+							placeholder="screen"
+							onchange={typeField}
+						/></label
+					>
+					<label
+						>Field height<input
+							type="number"
+							min="1"
+							bind:this={fieldH}
+							value={doc.arcade?.field?.h ?? ''}
+							placeholder="screen"
+							onchange={typeField}
+						/></label
+					>
+					<label
+						>Steps per second<input
+							type="number"
+							min={ARCADE_FIXED_HZ_RANGE.min}
+							max={ARCADE_FIXED_HZ_RANGE.max}
+							value={doc.arcade?.fixedHz ?? DEFAULT_ARCADE_FIXED_HZ}
+							oninput={(e) => setFixedHz(doc, e.currentTarget.value)}
+						/></label
+					>
+				</div>
+				<span class="legend">Bodies <em>by component id</em></span>
+				{#if bodies.length}
+					<table class="tbl">
+						<thead>
 							<tr>
-								<td><span class="chip">{id}</span></td>
-								<td
-									><select
-										value={body.shape}
-										onchange={(e) =>
-											setBodyShape(doc, id, e.currentTarget.value === 'circle' ? 'circle' : 'box')}
-									>
-										<option value="box">box</option>
-										<option value="circle">circle</option>
-									</select></td
-								>
-								<td>
-									{#if body.shape === 'box'}
-										<input
-											type="number"
-											min="1"
-											value={body.w}
-											title="width"
-											oninput={(e) => setBodySize(doc, id, 'w', e.currentTarget.value)}
-										/>
-										×
-										<input
-											type="number"
-											min="1"
-											value={body.h}
-											title="height"
-											oninput={(e) => setBodySize(doc, id, 'h', e.currentTarget.value)}
-										/>
-									{:else}
-										r
-										<input
-											type="number"
-											min="1"
-											value={body.r}
-											title="radius"
-											oninput={(e) => setBodySize(doc, id, 'r', e.currentTarget.value)}
-										/>
-									{/if}
-								</td>
-								<td
-									><input
-										class="wide"
-										value={(body.tags ?? []).join(', ')}
-										placeholder="enemy, pickup"
-										onchange={(e) => setBodyTags(doc, id, e.currentTarget.value)}
-									/></td
-								>
-								<td
-									><select
-										value={body.edges ?? 'clamp'}
-										onchange={(e) => {
-											const edges = ARCADE_BODY_EDGES.find((v) => v === e.currentTarget.value);
-											if (edges) setBodyEdges(doc, id, edges);
-										}}
-									>
-										{#each ARCADE_BODY_EDGES as edges (edges)}
-											<option value={edges}>{edges}</option>
-										{/each}
-									</select></td
-								>
-								<td
-									><input
-										type="checkbox"
-										checked={body.solid === true}
-										onchange={(e) => setBodySolid(doc, id, e.currentTarget.checked)}
-									/></td
-								>
-								<td
-									><input
-										type="checkbox"
-										checked={body.ground === true}
-										onchange={(e) => setBodyGround(doc, id, e.currentTarget.checked)}
-									/></td
-								>
-								<td
-									><input
-										type="checkbox"
-										checked={body.oneWay === true}
-										disabled={body.solid === true}
-										title={body.solid ? 'A solid body blocks from every side' : undefined}
-										onchange={(e) => setBodyOneWay(doc, id, e.currentTarget.checked)}
-									/></td
-								>
-								<td
-									><button class="del" title="Remove" onclick={() => removeBody(doc, id)}>×</button
-									></td
-								>
+								<th>Component</th>
+								<th>Shape</th>
+								<th>Size</th>
+								<th>Tags</th>
+								<th>Edges</th>
+								<th>Solid</th>
+								<th title="A hopping character in the air passes over it">Ground</th>
+								<th title="Stops a falling character from above only">One-way</th>
+								<th></th>
 							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-			<div class="row tight">
-				<input class="wide" placeholder="component id" bind:value={newBody} />
-				<button
-					class="small"
-					disabled={!newBody.trim()}
-					onclick={() => {
-						addBody(doc, newBody);
-						newBody = '';
-					}}>Add body</button
-				>
-			</div>
-			<label class="pairs"
-				>Collisions <em>tag + tag, comma separated</em><input
-					class="wide"
-					value={pairsText(doc)}
-					placeholder="player + hazard, player + pickup"
-					onchange={(e) => setPairs(doc, e.currentTarget.value)}
-				/></label
-			>
-			<span class="legend">Zones <em>top-left corner and size, design px</em></span>
-			{#if doc.arcade?.zones?.length}
-				<table class="tbl">
-					<thead>
-						<tr>
-							<th>Zone</th>
-							<th>x</th>
-							<th>y</th>
-							<th>Width</th>
-							<th>Height</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each doc.arcade.zones as zone, i (i)}
-							<tr>
-								<td
-									><input
-										value={zone.id}
-										onchange={(e) => setZoneField(doc, i, 'id', e.currentTarget.value)}
-									/></td
-								>
-								{#each ['x', 'y', 'w', 'h'] as const as field (field)}
+						</thead>
+						<tbody>
+							{#each bodies as [id, body] (id)}
+								<tr>
+									<td><span class="chip">{id}</span></td>
+									<td
+										><select
+											value={body.shape}
+											onchange={(e) =>
+												setBodyShape(
+													doc,
+													id,
+													e.currentTarget.value === 'circle' ? 'circle' : 'box',
+												)}
+										>
+											<option value="box">box</option>
+											<option value="circle">circle</option>
+										</select></td
+									>
+									<td>
+										{#if body.shape === 'box'}
+											<input
+												type="number"
+												min="1"
+												value={body.w}
+												title="width"
+												oninput={(e) => setBodySize(doc, id, 'w', e.currentTarget.value)}
+											/>
+											×
+											<input
+												type="number"
+												min="1"
+												value={body.h}
+												title="height"
+												oninput={(e) => setBodySize(doc, id, 'h', e.currentTarget.value)}
+											/>
+										{:else}
+											r
+											<input
+												type="number"
+												min="1"
+												value={body.r}
+												title="radius"
+												oninput={(e) => setBodySize(doc, id, 'r', e.currentTarget.value)}
+											/>
+										{/if}
+									</td>
 									<td
 										><input
-											type="number"
-											value={zone[field]}
-											onchange={(e) => setZoneField(doc, i, field, e.currentTarget.value)}
+											class="wide"
+											value={(body.tags ?? []).join(', ')}
+											placeholder="enemy, pickup"
+											onchange={(e) => setBodyTags(doc, id, e.currentTarget.value)}
 										/></td
 									>
-								{/each}
-								<td
-									><button class="del" title="Remove" onclick={() => removeZone(doc, i)}>×</button
-									></td
-								>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+									<td
+										><select
+											value={body.edges ?? 'clamp'}
+											onchange={(e) => {
+												const edges = ARCADE_BODY_EDGES.find((v) => v === e.currentTarget.value);
+												if (edges) setBodyEdges(doc, id, edges);
+											}}
+										>
+											{#each ARCADE_BODY_EDGES as edges (edges)}
+												<option value={edges}>{edges}</option>
+											{/each}
+										</select></td
+									>
+									<td
+										><input
+											type="checkbox"
+											checked={body.solid === true}
+											onchange={(e) => setBodySolid(doc, id, e.currentTarget.checked)}
+										/></td
+									>
+									<td
+										><input
+											type="checkbox"
+											checked={body.ground === true}
+											onchange={(e) => setBodyGround(doc, id, e.currentTarget.checked)}
+										/></td
+									>
+									<td
+										><input
+											type="checkbox"
+											checked={body.oneWay === true}
+											disabled={body.solid === true}
+											title={body.solid ? 'A solid body blocks from every side' : undefined}
+											onchange={(e) => setBodyOneWay(doc, id, e.currentTarget.checked)}
+										/></td
+									>
+									<td
+										><button class="del" title="Remove" onclick={() => removeBody(doc, id)}
+											>×</button
+										></td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+				<div class="row tight">
+					<input class="wide" placeholder="component id" bind:value={newBody} />
+					<button
+						class="small"
+						disabled={!newBody.trim()}
+						onclick={() => {
+							addBody(doc, newBody);
+							newBody = '';
+						}}>Add body</button
+					>
+				</div>
+				<label class="pairs"
+					>Collisions <em>tag + tag, comma separated</em><input
+						class="wide"
+						value={pairsText(doc)}
+						placeholder="player + hazard, player + pickup"
+						onchange={(e) => setPairs(doc, e.currentTarget.value)}
+					/></label
+				>
+			</fieldset>
+			{#if level}
+				<span class="legend"
+					>Zones<InfoTip label="Made per room"
+						>A field generator makes each room's field, zones and zone rules from the room's seed,
+						so no room plays zones stored in the config. The map shows the level a seed makes, with
+						the project's level overlays, exactly as a room makes it. Pin seeds and add or remove
+						pieces in the Scene Editor's Generated level card.</InfoTip
+					></span
+				>
+				<p class="status">
+					Each room's <code>{generator}</code> makes its zones from its seed: seed {level.seed} makes
+					{level.zones.length.toLocaleString('en')}.
+					<!-- `editorHref` resolves the route; the rule cannot see through the project scope. -->
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<a href={editorHref}>Levels in the Scene Editor</a>
+				</p>
+				<div class="chips">
+					{#each zoneGroups(level.zones) as group (group.label)}
+						<span class="chip" title="Zone ids that differ only in their numbers"
+							>{group.label} × {group.count}</span
+						>
+					{/each}
+				</div>
+				<ZoneMap
+					area={zoneMapArea(level.field, level.zones)}
+					field={level.field}
+					zones={level.zones}
+					rules={level.rules}
+				>
+					{#snippet toolbar()}
+						<label class="inline"
+							>Seed<input
+								type="number"
+								min="0"
+								max={MAX_SEED}
+								value={level.seed}
+								onchange={(e) => pickSeed(e.currentTarget)}
+							/></label
+						>
+						<IconButton
+							icon="reroll"
+							label="A new random level"
+							onclick={() => (pickedSeed = randomSeed())}
+						/>
+					{/snippet}
+				</ZoneMap>
+				{#if zones.length}
+					<SnapshotRows
+						items={zones}
+						noun="zones"
+						columns={['Zone', 'x', 'y', 'Width', 'Height']}
+						cells={(z) => [z.id, String(z.x), String(z.y), String(z.w), String(z.h)]}
+					/>
+				{/if}
+			{:else}
+				<span class="legend">Zones <em>top-left corner and size, design px</em></span>
+				<ZoneMap
+					area={zoneMapArea(doc.arcade?.field, zones)}
+					field={doc.arcade?.field}
+					{zones}
+					rules={zoneRulesOf(doc)}
+					edit={readOnly ? undefined : zoneEdit}
+				/>
+				<PagedRows items={zones} noun="zones" text={(z) => z.id}>
+					{#snippet rows(page)}
+						<fieldset class="group" disabled={readOnly}>
+							<table class="tbl">
+								<thead>
+									<tr>
+										<th>Zone</th>
+										<th>x</th>
+										<th>y</th>
+										<th>Width</th>
+										<th>Height</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each page as { item: zone, index: i } (i)}
+										<tr>
+											<td
+												><input
+													value={zone.id}
+													onchange={(e) => setZoneField(doc, i, 'id', e.currentTarget.value)}
+												/></td
+											>
+											{#each ['x', 'y', 'w', 'h'] as const as field (field)}
+												<td
+													><input
+														type="number"
+														value={zone[field]}
+														onchange={(e) => setZoneField(doc, i, field, e.currentTarget.value)}
+													/></td
+												>
+											{/each}
+											<td
+												><button class="del" title="Remove" onclick={() => removeZone(doc, i)}
+													>×</button
+												></td
+											>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</fieldset>
+					{/snippet}
+				</PagedRows>
+				<fieldset class="group" disabled={readOnly}>
+					<div class="row tight">
+						<button class="small" onclick={() => addZone(doc)}>Add zone</button>
+					</div>
+				</fieldset>
 			{/if}
-			<div class="row tight">
-				<button class="small" onclick={() => addZone(doc)}>Add zone</button>
-			</div>
-			<span class="legend">Characters <em>what moves by itself, played or run by a brain</em></span>
-			<p class="characters">
-				{characterCount === 0
-					? 'No characters yet.'
-					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
-				<!-- The route is resolved; the rule cannot see through the project scope. -->
-				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-				<a href={withProject(resolve('/characters'), projectKey)}>Edit in Invisible Characters</a>
-			</p>
-			<span class="legend">Online <em>rooms on the Invisible Game Server</em></span>
-			<label class="inline"
-				><input
-					type="checkbox"
-					checked={doc.arcade?.online !== undefined}
-					onchange={(e) => void togglePlayedOnline(e.currentTarget)}
-				/>Played online</label
-			>
-		</fieldset>
+			<fieldset class="group" disabled={readOnly}>
+				<span class="legend"
+					>Characters <em>what moves by itself, played or run by a brain</em></span
+				>
+				<p class="characters">
+					{characterCount === 0
+						? 'No characters yet.'
+						: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
+					<!-- The route is resolved; the rule cannot see through the project scope. -->
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<a href={withProject(resolve('/characters'), projectKey)}>Edit in Invisible Characters</a>
+				</p>
+				<span class="legend">Online <em>rooms on the Invisible Game Server</em></span>
+				<label class="inline"
+					><input
+						type="checkbox"
+						checked={doc.arcade?.online !== undefined}
+						onchange={(e) => void togglePlayedOnline(e.currentTarget)}
+					/>Played online</label
+				>
+			</fieldset>
+		</div>
 		{#each issuesFor('arcade').filter((i) => !i.path.startsWith('arcade.online')) as issue (issue.path + issue.message)}
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 		{/each}
 	</SectionCard>
 	{#if doc.arcade?.online}
-		<OnlineSection bind:doc online={doc.arcade.online} {issuesFor} {readOnly} {projectKey} />
+		<OnlineSection
+			bind:doc
+			online={doc.arcade.online}
+			{issuesFor}
+			{readOnly}
+			{projectKey}
+			{level}
+			{editorHref}
+		/>
 	{/if}
 {/if}
 
@@ -662,6 +791,27 @@
 		border-radius: 10px;
 		padding: 12px;
 		background: #0e0e14;
+	}
+	fieldset.group {
+		min-width: 0;
+		margin: 0;
+		border: 0;
+		padding: 0;
+	}
+	.status {
+		margin: 0 0 6px;
+		font-size: 12px;
+		color: #b9b9c4;
+	}
+	.status a {
+		margin-left: 8px;
+		color: #7ee0c0;
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 6px;
+		margin: 0 0 8px;
 	}
 	.legend {
 		display: block;

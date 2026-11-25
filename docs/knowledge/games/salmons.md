@@ -52,9 +52,9 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   Not the line's reach: a fisherman casts as far as he sees (owner, 2026-11-19; `SIGHT`, status).
 - **Levels are the original game's, by seed** (`salmonsMap`): never write a new generator or edit
   the port's arithmetic except against the recorded original (`check:salmons-levels`). A config
-  with no shape plays exactly that; the export ships one, `SALMONS_LEVELS` (winding river,
-  waterfalls 5–10 cells), changed only through `levels.river` / `levels.waterfalls`
-  (`check:salmons-course`). Additions go in `levels.overlays`, never the scene's river node.
+  with no shape plays exactly that; the export ships `SALMONS_LEVELS` (winding river, waterfalls
+  5–10 cells), changed only via `levels.river` / `.waterfalls` (`check:salmons-course`); additions
+  in `levels.overlays`, never the river node. The config has no zones (`check:salmons-export`).
 - **The salmon's leap is the original's** (`salmonsRules` `salmonJump` + `salmonsArt/leap.ts`, since
   2026-11-17): its heights and pose are the old game's numbers, pinned by `check:salmons-jump`.
   Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel. Its

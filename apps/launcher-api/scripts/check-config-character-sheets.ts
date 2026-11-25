@@ -406,7 +406,13 @@ const SHEETED_STATE = {
 		],
 		addZoneRule: [(d) => onlineDoc.addZoneRule(d, 'pool')],
 		removeZoneRule: [(d) => onlineDoc.removeZoneRule(d, 0)],
-		setZoneRuleField: [(d) => onlineDoc.setZoneRuleField(d, 0, 'characters', 'bear, salmon')],
+		setZoneRuleField: [
+			(d) => {
+				onlineDoc.setZoneRuleField(d, 0, 'characters', 'bear, salmon');
+				onlineDoc.setZoneRuleField(d, 0, 'solid', 'below');
+				onlineDoc.setZoneRuleField(d, 0, 'kind', 'waterfall');
+			},
+		],
 		addAbility: [(d) => onlineDoc.addAbility(d)],
 		removeAbility: [(d) => onlineDoc.removeAbility(d, 0)],
 		setAbilityField: [(d) => onlineDoc.setAbilityField(d, 0, 'reach', '140')],
@@ -496,6 +502,7 @@ const SHEETED_STATE = {
 		addZone: [(d) => familyDoc.addZone(d)],
 		removeZone: [(d) => familyDoc.removeZone(d, 0)],
 		setZoneField: [(d) => familyDoc.setZoneField(d, 0, 'id', 'lake')],
+		setZoneRect: [(d) => familyDoc.setZoneRect(d, 0, { x: 5, y: 6, w: 70, h: 80 })],
 		setCardRule: [(d) => familyDoc.setCardRule(d, 'handLimit', '7')],
 		setCardResource: [(d) => familyDoc.setCardResource(d, 'max', '9')],
 		setCardFirst: [(d) => familyDoc.setCardFirst(d, 'player')],

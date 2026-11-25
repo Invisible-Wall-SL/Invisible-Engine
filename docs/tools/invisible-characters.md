@@ -736,11 +736,16 @@ abilities. The same code runs an online room's abilities, so a trace gives the s
 
 ### Zone forces
 
-The whole game's zones (Game Config → Zones), each with a **Push x** / **Push y** in px/s: a body
-in the zone has it added to its velocity while it moves (a river's current, wind), and taken off
-again. With no character ticked under **Only** it pushes every body, characters or not; ticked, only
-those characters. 0 / 0 removes the force. An online game plays its rules' currents instead (the
-validator warns).
+The whole game's zones that push (Game Config → Zones), each with a **Push x** / **Push y** in
+px/s: a body in the zone has it added to its velocity while it moves (a river's current, wind), and
+taken off again. With no character ticked under **Only** it pushes every body, characters or not;
+ticked, only those characters. 0 / 0 removes the force. An online game plays its rules' currents
+instead (the validator warns).
+
+Only zones with a force are listed ("No zone pushes." when none does), so a field of a thousand
+zones lists nothing it does not use. To give a zone a force, type or pick its id in the box under
+the list (it offers the zones with none) and **Add a force**: the zone is listed with empty pushes,
+and its force is stored once you type one.
 
 ### Issues
 

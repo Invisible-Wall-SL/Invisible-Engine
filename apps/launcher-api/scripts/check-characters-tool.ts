@@ -79,6 +79,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock } from 'node:test';
+import { liveState } from './lib/liveState.ts';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isHttpError } from '@sveltejs/kit';
 import { compileModule } from 'svelte/compiler';
@@ -1113,6 +1114,29 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	);
 	mirrored('zone force off', doc, (d) => edit.setZoneForce(d, 'river', 'x', '0'));
 	check('6. a force of 0 is not stored', !doc.arcade?.forces);
+	doc.arcade!.zones.push(
+		{ id: 'lake', x: 0, y: 0, w: 10, h: 10 },
+		{ id: 'pond', x: 0, y: 0, w: 10, h: 10 },
+	);
+	edit.setZoneForce(doc, 'pond', 'y', '30');
+	same(
+		'6. Zone forces lists the zones that push and the ones picked to, in the field’s order; the picker offers the rest',
+		[
+			edit.zoneForcesOf(doc).map((f) => f.zone),
+			edit.zoneForcesOf(doc, ['lake', 'gone']).map((f) => [f.zone, !!f.force]),
+			edit.zonesWithoutForce(doc),
+		],
+		[
+			['pond'],
+			[
+				['lake', false],
+				['pond', true],
+			],
+			['river', 'lake'],
+		],
+	);
+	edit.setZoneForce(doc, 'pond', 'y', '0');
+	doc.arcade!.zones.splice(1, 2);
 	const page = readFileSync(
 		new URL('../src/routes/(app)/characters/+page.svelte', import.meta.url),
 		'utf8',
@@ -1120,6 +1144,39 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	check(
 		'6. the page has the Abilities and Zone forces sections',
 		page.includes('<h2>Abilities</h2>') && page.includes('<h2>Zone forces</h2>'),
+	);
+}
+
+// The page edits a `$state` proxy, not a plain doc: the first character, ability and zone force,
+// a state's first param and a character's first anim input are each added where there was none.
+{
+	const { live, saved } = await liveState();
+	const doc = live(base());
+	doc.arcade!.zones = [{ id: 'river', x: 0, y: 0, w: 100, h: 100 }];
+	edit.addCharacter(doc, 'goblin');
+	edit.addCharacter(doc, 'hero');
+	const ability = edit.addAbility(doc, 'goblin');
+	edit.setZoneForce(doc, 'river', 'x', '-80');
+	edit.addState(doc, 'goblin', 'chase');
+	edit.setParam(doc, 'goblin', 'chase', 'speed', '220');
+	edit.setAnimInput(doc, 'goblin', 'speed', 'speed');
+	const kept = saved(doc).arcade;
+	same(
+		'6. on a live doc, the first character, ability, zone force, param and anim input are kept',
+		[
+			kept?.characters?.map((c) => c.id),
+			[ability, kept?.abilities?.length],
+			kept?.forces,
+			kept?.characters?.[0].brain?.states[0].params,
+			kept?.characters?.[0].animInputs,
+		],
+		[
+			['goblin', 'hero'],
+			[0, 1],
+			[{ zone: 'river', force: { x: -80, y: 0 } }],
+			{ speed: 220 },
+			{ speed: 'speed' },
+		],
 	);
 }
 
@@ -3798,6 +3855,28 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				'9. no sheet: rendering writes nothing into the doc',
 				text(plain) === plainBefore &&
 					!/"(view|source|draw|actions|sheet)":/.test(text(plain.arcade?.characters)),
+			);
+			const zoneForces = (body: string) =>
+				body.slice(body.indexOf('>Zone forces</h2>'), body.indexOf('>Anim inputs</h2>'));
+			const crowded = copy(plain);
+			crowded.arcade!.zones = Array.from({ length: 1300 }, (_, n) => ({
+				id: `zone${n}`,
+				x: n,
+				y: 0,
+				w: 1,
+				h: 1,
+			}));
+			const crowdedForces = zoneForces(renderPage(crowded));
+			same(
+				'9. Zone forces on a field of 1,300 zones and no force: no row, one picker of its zones',
+				[
+					crowded.arcade?.forces,
+					crowdedForces.includes('Push x'),
+					crowdedForces.includes('No zone pushes.'),
+					crowdedForces.split('<datalist').length - 1,
+					crowdedForces.split('<option').length - 1,
+				],
+				[undefined, false, true, 1, 1300],
 			);
 			for (const heading of [
 				'Character',

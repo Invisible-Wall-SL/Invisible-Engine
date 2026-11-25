@@ -10,12 +10,18 @@
  *     no family at all (the full slot table is pinned by `check:symbols-kind-gating`).
  *  2. THE PICKER MIRRORS THE NORMALIZER. Every `/config` family setter (`familyDoc.ts`, and the
  *     online room / rules / bots setters in `onlineDoc.ts`) leaves the doc exactly as a save would
- *     store it, so the page never looks dirty for a value a save drops.
+ *     store it, so the page never looks dirty for a value a save drops. A zone drawn or dragged on
+ *     the zone map is stored in whole px; a zone rule's Solid and Kind are set as stored, and an
+ *     edit that would leave a rule doing nothing (no push, goal, wall or kind) is refused.
  *  3. THE PAGE SHOWS EACH FAMILY §6.2's SECTIONS. `/config` is rendered on the server for a slot, a
  *     match-3 game decided each way and an arcade game: a non-slot family shows exactly its
  *     sections, and a slot project shows no family picker and no section outside the slot's. Only
  *     an arcade page shows the Characters line (its count and the link to Invisible Characters),
  *     and only an online arcade page its Online room, Mouse and touch, Online rules and Bots sections.
+ *     Salmons (a generated game), with its stored snapshot of one level and without, renders cheap:
+ *     its zones and zone rules are a line, counts and the zone map of the level a room plays, no
+ *     table and no zone picker, the snapshot behind a closed fold. A hand-built game of 120 zones
+ *     and rules shows 50 rows of each with a filter, one list of zone ids and an editable map.
  *  4. THE FAMILY GATE. Publish and the bake refuse a non-slot config, never a slot one.
  *  5. CHARACTER SHEETS ARE CARRIED, NOT NORMALIZED (`docs/design/character-pipeline.md` §9, step
  *     C2a; `game-config` `characterSheet.ts`). A stored config with no sheet comes back byte for
@@ -48,6 +54,12 @@
  *     names a scheme that exists, a deleted scheme un-assigns its classes and the last one takes
  *     the block. A class renamed keeps its scheme and one removed loses it. Raw JSON's Apply keeps
  *     the pasted schemes, and `/config` renders the editor in the Mouse and touch card.
+ *  8. THE ZONES VIEW (`config/zones.ts`). Paging keeps each row's index; zones group by their ids
+ *     and rules by what they do; a zone's map colour is its strongest rule; the map's area, a
+ *     drawn rect and whole px; only a generator a room runs is one, and its preview is exactly the
+ *     field, zones and rules `generatedOnlineGame` gives a room of that seed, overlays included.
+ *  9. THE SETTERS ON A LIVE DOC. The page edits a `$state` proxy: the first zone, body, zone
+ *     rule, ability, round, bot and goal added to an empty list are kept (`scripts/lib/liveState.ts`).
  */
 
 import { createServer } from 'vite';
@@ -102,6 +114,14 @@ import * as onlineDoc from '../src/routes/(app)/config/onlineDoc.ts';
 import * as touchDoc from '../src/routes/(app)/config/touchDoc.ts';
 import * as touchText from '../src/lib/touch/touchSchemeText.ts';
 import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
+import * as zonesView from '../src/routes/(app)/config/zones.ts';
+import { liveState } from './lib/liveState.ts';
+import { generatedOnlineGame } from 'engine-mechanics';
+import { SALMONS_LOBBY, salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_MAP_SEED,
+	salmonsMapRiver,
+} from '../../../packages/engine-mechanics/src/salmonsMap.js';
 
 let fails = 0;
 let passes = 0;
@@ -453,6 +473,27 @@ step('a body and a zone to play on', (d) => {
 	})!.arcade!.characters;
 });
 step(
+	'a zone drawn on the map, then moved and resized by its handles, is stored in whole px',
+	(d) => {
+		same(
+			'2. a drawn zone answers its index',
+			familyDoc.addZone(d, { x: 10.4, y: 20.6, w: 99.5, h: 0.2 }),
+			1,
+		);
+		familyDoc.setZoneRect(d, 1, { x: -5.5, y: 3.49, w: 40.2, h: 30.7 });
+		familyDoc.setZoneRect(d, 1, { x: Number.NaN, y: 0, w: 1, h: 1 });
+		familyDoc.setZoneRect(d, 9, { x: 0, y: 0, w: 1, h: 1 });
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.zones?.[1]) ===
+		JSON.stringify({ id: 'zone2', x: -5, y: 3, w: 40, h: 31 }),
+);
+step(
+	'…and removed',
+	(d) => familyDoc.removeZone(d, 1),
+	(d) => d.arcade?.zones?.length === 1,
+);
+step(
 	'a room size, and the default one',
 	(d) => {
 		onlineDoc.setRoomInt(d, 'maxPlayers', '100');
@@ -590,6 +631,93 @@ step(
 		onlineDoc.removeZoneRule(d, 1);
 	},
 	(d) => d.arcade?.online?.rules?.zones?.length === 1,
+);
+const zoneRule = () => doc.arcade?.online?.rules?.zones?.[0];
+const ruleEdits = (
+	d: GameConfigDoc,
+	edits: [Parameters<typeof onlineDoc.setZoneRuleField>[2], string | boolean][],
+) => edits.map(([field, value]) => onlineDoc.setZoneRuleField(d, 0, field, value) === null);
+step(
+	'the page makes a zone rule solid from below with a kind, then drops its push',
+	(d) =>
+		same(
+			'2. each of those edits is taken',
+			ruleEdits(d, [
+				['solid', 'below'],
+				['kind', ' waterfall '],
+				['forceY', '0'],
+			]),
+			[true, true, true],
+		),
+	() =>
+		JSON.stringify(canonical(zoneRule())) ===
+		JSON.stringify(
+			canonical({ zone: 'zone1', solid: 'below', kind: 'waterfall', characters: ['character1'] }),
+		),
+);
+step(
+	'a rule left doing nothing is refused, by an empty Solid or one no room knows',
+	(d) =>
+		same(
+			'2. the kind goes, then neither Solid edit is taken; unticking a goal it does not have is',
+			ruleEdits(d, [
+				['kind', ''],
+				['solid', ''],
+				['solid', 'sideways'],
+				['goal', false],
+			]),
+			[true, false, false, true],
+		),
+	() => zoneRule()?.solid === 'below' && !('kind' in zoneRule()!),
+);
+step(
+	'solid on every side, the goal, then a push again: each is stored as a save stores it',
+	(d) =>
+		same(
+			'2. every edit is taken',
+			ruleEdits(d, [
+				['solid', 'every'],
+				['goal', true],
+				['solid', ''],
+				['forceY', '-80'],
+				['goal', false],
+				['zone', ' '],
+			]),
+			[true, true, true, true, true, false],
+		),
+	() =>
+		JSON.stringify(canonical(zoneRule())) ===
+		JSON.stringify(
+			canonical({ zone: 'zone1', force: { x: 0, y: -80 }, characters: ['character1'] }),
+		),
+);
+same(
+	'2. each refusal says its own reason; Add zone rule refuses a zone the field does not have',
+	[
+		onlineDoc.setZoneRuleField(doc, 0, 'zone', ' '),
+		onlineDoc.setZoneRuleField(doc, 0, 'zone', 'nowhere'),
+		onlineDoc.setZoneRuleField(doc, 0, 'forceY', '0'),
+		onlineDoc.addZoneRule(doc, 'nowhere'),
+		[doc.arcade?.online?.rules?.zones?.length, zoneRule()?.zone],
+	],
+	[
+		'A zone rule needs a zone: the change was not taken.',
+		'The Arcade section has no zone "nowhere": the change was not taken.',
+		'A zone rule must push, be the goal, be solid or have a kind: the change was not taken.',
+		'The Arcade section has no zone "nowhere": the change was not taken.',
+		[1, 'zone1'],
+	],
+);
+same(
+	'2. the Solid select reads back what it stores, for every choice',
+	zonesView.SOLID_CHOICES.map(([value]) => zonesView.solidChoice(zonesView.solidFromChoice(value))),
+	zonesView.SOLID_CHOICES.map(([value]) => value),
+);
+check(
+	'2. a rule acts by a push, the goal, a wall or a kind, and by nothing else',
+	[{ force: { x: 1, y: 0 } }, { goal: true }, { solid: 'left' as const }, { kind: 'bridge' }].every(
+		zonesView.zoneRuleActs,
+	) && !zonesView.zoneRuleActs({ characters: ['salmon'] }),
 );
 step(
 	'an ability and its numbers',
@@ -886,6 +1014,17 @@ same(
 doc = structuredClone(SLOT);
 familyDoc.setOutcome(doc, 'rules');
 check('2. a slot takes no outcome', doc.outcome === undefined);
+
+// Salmons as `scripts/salmons/export.mjs` stores it: with the snapshot of one level's zones and zone
+// rules `salmonsConfig` makes (today's R2 config), and with neither (a re-exported one).
+const salmonsAuthored = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED), { lobby: SALMONS_LOBBY });
+const salmonsStored = withTouchSchemes(
+	normalizeGameConfigDoc(salmonsAuthored)!,
+	salmonsAuthored,
+) as GameConfigDoc;
+const salmonsBare = structuredClone(salmonsStored);
+delete salmonsBare.arcade!.zones;
+delete salmonsBare.arcade!.online!.rules!.zones;
 
 // ── 3. the page shows each family §6.2's sections ───────────────────────────────────────────────
 const HEADINGS: Record<string, ConfigSection> = {
@@ -1270,9 +1409,9 @@ try {
 	const withUnknown = structuredClone(salmonsLike);
 	withUnknown.arcade!.online!.generator = 'lake';
 	check(
-		'3. arcade: a known generator is noted by the four values it replaces',
+		'3. arcade: a known generator is noted by the three spawns it replaces (its zones have their own line)',
 		generatedNotices(salmonsLike) === 0 &&
-			generatedNotices(withGenerator) === 4 &&
+			generatedNotices(withGenerator) === 3 &&
 			generatedNotices(withUnknown) === 0,
 		String(generatedNotices(withGenerator)),
 	);
@@ -1414,6 +1553,90 @@ try {
 	check(
 		'3. the section table names every section once',
 		new Set(Object.values(HEADINGS)).size === CONFIG_SECTIONS.length,
+	);
+
+	// A generated game (owner, 2026-11-24: Salmons' "Zones" and "Zone rules" were two huge lists
+	// that loaded super slow). Each of 1,293 rule rows held a <select> of all 1,307 zone ids:
+	// 1.69 M <option>s, 98 MB of HTML and 5.3 s to render on the server. Now its zones and rules
+	// are a line, counts and the zone map of the level a room plays; a stored snapshot sits behind
+	// a closed fold. 400 KB: the map is ~1.3 k rects of ~110 bytes (≈150 KB) and the rest of the
+	// page ≈65 KB (measured 215 KB), with room to grow, while a picker of every id per row is
+	// hundreds of times over it.
+	const preview = zonesView.generatedZones(
+		salmonsStored,
+		'salmonsMap',
+		zonesView.previewSeedOf(salmonsStored),
+	);
+	const tally = (body: string, part: string | RegExp) =>
+		typeof part === 'string' ? body.split(part).length - 1 : (body.match(part) ?? []).length;
+	for (const [label, config] of [
+		['with its snapshot', salmonsStored],
+		['with none', salmonsBare],
+	] as const) {
+		const { body } = renderPage(config);
+		const stored = (config.arcade?.zones?.length ?? 0) > 0;
+		same(
+			`3. Salmons ${label}: cheap, its zones and rules a line and the map of a room's level, no table`,
+			[
+				body.length < 400_000,
+				tally(body, '<option') < 300,
+				tally(body, '<datalist'),
+				tally(body, '<th>Zone</th>'),
+				tally(body, 'data-i='),
+				/makes its zones from its seed: seed 1 makes\s+1,307\./.test(body),
+				/makes its zone rules from its seed: seed 1\s+makes 1,306\./.test(body),
+				tally(body, 'aria-label="Show the snapshot"'),
+				tally(body, 'href="/editor?project=p"'),
+				/>(Add zone|Add zone rule)</.test(body) || body.includes('Add a zone in the Arcade'),
+				/class="chip[^"]*"[^>]*>sandbank# × 318</.test(body),
+			],
+			[true, true, 0, 0, preview.zones.length, true, true, stored ? 2 : 0, 2, false, true],
+		);
+	}
+
+	// A hand-built game keeps its tables, paged, with one list of zone ids for every rule's picker.
+	const crowded = structuredClone(salmonsLike);
+	crowded.arcade!.zones = Array.from({ length: 120 }, (_, i) => ({
+		id: `pool${i}`,
+		x: i * 10,
+		y: 0,
+		w: 10,
+		h: 10,
+	}));
+	crowded.arcade!.online!.rules!.zones = crowded.arcade!.zones.map((z, i) =>
+		i % 2 ? { zone: z.id, solid: true } : { zone: z.id, force: { x: 0, y: 50 } },
+	);
+	const shownCrowded = renderPage(crowded).body;
+	crowded.arcade!.online!.rules!.module = 'sandbanks';
+	const withModule = renderPage(crowded).body;
+	same(
+		'3. a hand-built game of 120 zones and rules: 50 rows of each, a filter and Show all, one id list, an editable map',
+		[
+			tally(shownCrowded, /<tr>\s*<td[^>]*><input[^>]*value="pool/g),
+			tally(shownCrowded, /<input[^>]*list="zones-/g),
+			tally(shownCrowded, '<datalist'),
+			tally(shownCrowded, '<option') < 120 + 50 * 6 + 200,
+			tally(shownCrowded, '>Show all 120<'),
+			tally(shownCrowded, /placeholder="Filter zone(s| rules)"/g),
+			tally(shownCrowded, 'data-i='),
+			/<svg[^>]*\bdrawable\b/.test(shownCrowded),
+			tally(shownCrowded, /<option value="every"[^>]*selected/g),
+			[shownCrowded.includes('>Kind</th>'), withModule.includes('>Kind</th>')],
+			/>Add zone</.test(shownCrowded) && />Add zone rule</.test(shownCrowded),
+		],
+		[100, 51, 1, true, 2, 2, 120, true, 25, [false, true], true],
+	);
+	const shownSmall = renderPage(salmonsLike).body;
+	check(
+		'3. a hand-built game of one zone and one rule: no filter, no paging, no snapshot',
+		!shownSmall.includes('placeholder="Filter') &&
+			!shownSmall.includes('Show all') &&
+			!shownSmall.includes('Show the snapshot') &&
+			/<input[^>]*list="zones-[^"]*"[^>]*value="source"/.test(shownSmall),
+	);
+	check(
+		'3. source text: no zone picker renders a <select> of every zone id',
+		!onlineSection.includes('options(zones'),
 	);
 } finally {
 	await server.close();
@@ -3295,6 +3518,220 @@ check(
 		'7. Raw JSON’s Apply keeps the pasted schemes, and a text with none has none',
 		[touchIn(pageDoc.applyPasted(posted)), touchIn(pageDoc.applyPasted(game()))],
 		[CANONICAL, undefined],
+	);
+}
+
+// ── 8. the zones view (`config/zones.ts`) ───────────────────────────────────────────────────────
+{
+	const z = zonesView;
+	const items = Array.from({ length: 120 }, (_, i) => `zone${i}`);
+	const first = z.pageRows(items, '', (s) => s, z.PAGE_SIZE);
+	const found = z.pageRows(items, ' ZONE1 ', (s) => s, 5);
+	same(
+		'8. paging: the first page, and a filter keeps each row’s index in the list',
+		[first.rows.length, first.matched, first.total, first.rows[49].index, found.matched],
+		[50, 120, 120, 49, 31],
+	);
+	same(
+		'8. …the filtered page',
+		found.rows.map((r) => r.index),
+		[1, 10, 11, 12, 13],
+	);
+	same(
+		'8. a row just added past the page is shown in its place, and counts as shown',
+		z
+			.pageRows(items, '', (s) => s, z.PAGE_SIZE, 119)
+			.rows.map((r) => r.index)
+			.slice(-2),
+		[49, 119],
+	);
+	same(
+		'8. zones are grouped by their ids with the numbers taken out, most first',
+		z.zoneGroups([{ id: 'rock1' }, { id: 'rock22' }, { id: 'band3Water' }, { id: 'source' }]),
+		[
+			{ label: 'rock#', count: 2 },
+			{ label: 'band#Water', count: 1 },
+			{ label: 'source', count: 1 },
+		],
+	);
+	same(
+		'8. zone rules are grouped by what they do',
+		z.ruleGroups([
+			{ zone: 'a', force: { x: 0, y: 1 } },
+			{ zone: 'b', solid: true },
+			{ zone: 'c', solid: 'below', kind: 'waterfall' },
+			{ zone: 'd', force: { x: 1, y: 0 }, characters: ['salmon'] },
+			{ zone: 'e', goal: true },
+		]),
+		[
+			{ label: 'push', count: 2 },
+			{ label: 'goal', count: 1 },
+			{ label: 'solid', count: 1 },
+			{ label: 'solid from below + kind waterfall', count: 1 },
+		],
+	);
+	const stored = salmonsStored.arcade!.online!.rules!.zones!;
+	check(
+		'8. Salmons’ stored rules: every one in a group, one goal',
+		z.ruleGroups(stored).reduce((n, g) => n + g.count, 0) === stored.length &&
+			z.ruleGroups(stored).find((g) => g.label === 'goal')?.count === 1,
+	);
+	const zone = 'a';
+	same(
+		'8. a zone is what its strongest rule makes it',
+		[
+			z.zoneRole(undefined),
+			z.zoneRole([{ zone, force: { x: 0, y: 1 } }]),
+			z.zoneRole([
+				{ zone, force: { x: 0, y: 1 } },
+				{ zone, kind: 'sandbank' },
+			]),
+			z.zoneRole([{ zone, solid: 'below', kind: 'waterfall' }]),
+			z.zoneRole([
+				{ zone, solid: true },
+				{ zone, goal: true },
+			]),
+			z.zoneRole([{ zone, pull: { strength: 1, radius: 2 } }]),
+		],
+		['none', 'push', 'kind', 'oneWay', 'goal', 'push'],
+	);
+	same(
+		'8. a rule on one line',
+		[
+			z.ruleText({ zone, force: { x: 0, y: 72 }, characters: ['salmon'] }),
+			z.ruleText({ zone, solid: 'below', kind: 'waterfall' }),
+			z.ruleText({ zone }),
+		],
+		['push 0, 72 px/s (salmon)', 'solid from below + kind waterfall', 'nothing'],
+	);
+	const offline = normalizeGameConfigDoc({
+		family: 'arcade',
+		outcome: 'rules',
+		arcade: {
+			zones: [{ id: 'river', x: 0, y: 0, w: 10, h: 10 }],
+			forces: [{ zone: 'river', force: { x: 5, y: 0 } }],
+		},
+	})!;
+	same(
+		'8. the rules on the zones: an online game’s zone rules, an offline one’s forces',
+		[z.zoneRulesOf(offline), z.zoneRulesOf(salmonsBare)],
+		[[{ zone: 'river', force: { x: 5, y: 0 } }], []],
+	);
+	same(
+		'8. the map’s area: the field, grown to hold every zone; else the zones’ bounds from the corner',
+		[
+			z.zoneMapArea({ w: 100, h: 50 }, []),
+			z.zoneMapArea({ w: 100, h: 50 }, [{ x: -20, y: 10, w: 10, h: 100 }]),
+			z.zoneMapArea(undefined, [{ x: 30, y: 40, w: 10, h: 10 }]),
+			z.zoneMapArea(undefined, []),
+		],
+		[
+			{ x: 0, y: 0, w: 100, h: 50 },
+			{ x: -20, y: 0, w: 120, h: 110 },
+			{ x: 0, y: 0, w: 40, h: 50 },
+			z.MAP_FALLBACK_AREA,
+		],
+	);
+	same(
+		'8. a drawn rect, either way round, and any rect in whole px of at least 1',
+		[
+			z.drawnRect({ x: 10.6, y: 5 }, { x: 2.2, y: 0.4 }),
+			z.wholeRect({ x: 0.4, y: 0.4, w: 0.2, h: 0.2 }),
+		],
+		[
+			{ x: 2, y: 0, w: 9, h: 5 },
+			{ x: 0, y: 0, w: 1, h: 1 },
+		],
+	);
+	const lake = structuredClone(salmonsStored);
+	lake.arcade!.online!.generator = 'lake';
+	same(
+		'8. only a generator a room runs is one',
+		[z.zoneGenerator(salmonsStored), z.zoneGenerator(lake), z.zoneGenerator(offline)],
+		['salmonsMap', undefined, undefined],
+	);
+	const game = onlineGameOf(salmonsStored);
+	const room =
+		game && !('refused' in game)
+			? (generatedOnlineGame(game as never, 7).game as unknown as {
+					field: unknown;
+					zones: unknown;
+					online: { rules: { zones: unknown } };
+				})
+			: undefined;
+	const level = z.generatedZones(salmonsStored, 'salmonsMap', 7);
+	same(
+		'8. the preview is the field, zones and rules a room seeded 7 plays',
+		[level.field, level.zones, level.rules],
+		[room?.field, room?.zones, room?.online.rules.zones],
+	);
+	const overlaid = structuredClone(salmonsBare);
+	overlaid.arcade!.online!.levels = {
+		seeds: [7, 9],
+		overlays: { '*': { add: [{ cell: [50, 0], kind: 'rock' }] } },
+	};
+	const rocks = (l: zonesView.GeneratedZones) =>
+		l.zones.filter((q) => q.id.startsWith('rock')).length;
+	same(
+		'8. it opens on the first pinned seed (else seed 1), with the level overlays',
+		[
+			z.previewSeedOf(overlaid),
+			z.previewSeedOf(salmonsBare),
+			rocks(z.generatedZones(overlaid, 'salmonsMap', 7)) - rocks(level),
+		],
+		[7, z.PREVIEW_SEED, 1],
+	);
+	same(
+		'8. a seed is a whole number a room’s state holds',
+		['12', '0', '4294967295', '4294967296', '-1', '1.5', '', 'x'].map(z.seedOf),
+		[12, 0, 4294967295, undefined, undefined, undefined, undefined, undefined],
+	);
+}
+
+// ── 9. the setters on a page's live doc ─────────────────────────────────────────────────────────
+// The page edits a `$state` proxy, not the plain objects above: a setter that pushes into the
+// array a `??=` just made writes past the proxy, and the first entry of an empty list is lost.
+{
+	const { live, saved } = await liveState();
+	const fresh = (arcade: Record<string, unknown>) =>
+		live(normalizeGameConfigDoc({ family: 'arcade', outcome: 'rules', arcade })!);
+	const field = fresh({ field: { w: 100, h: 100 } });
+	const first = familyDoc.addZone(field, { x: 1.4, y: 2.6, w: 10, h: 10 });
+	const second = familyDoc.addZone(field);
+	familyDoc.addBody(field, 'player');
+	const online = fresh({
+		zones: [{ id: 'goal', x: 0, y: 0, w: 5, h: 5 }],
+		characters: [{ id: 'brain', component: 'bear' }],
+		online: {
+			characters: [
+				{ id: 'salmon', body: 'fish', speed: 100 },
+				{ id: 'bear', body: 'bear', speed: 100 },
+			],
+		},
+	});
+	onlineDoc.addZoneRule(online, 'goal');
+	const solid = onlineDoc.setZoneRuleField(online, 0, 'solid', 'every') === null;
+	onlineDoc.addAbility(online);
+	onlineDoc.setRoundField(online, 'seconds', '90');
+	onlineDoc.addBot(online, 'bear', 'brain');
+	const match3 = live(structuredClone(SLOT));
+	familyDoc.setFamily(match3, 'match3');
+	familyDoc.setOutcome(match3, 'rules');
+	familyDoc.addGoal(match3, 'score', 'A');
+	const kept = saved(online).arcade?.online;
+	same(
+		'9. on a live doc, the first zone, body, zone rule, ability, round, bot and goal are kept',
+		[
+			[first, second, field.arcade?.zones?.length],
+			saved(field).arcade?.zones?.map((z) => z.id),
+			Object.keys(saved(field).arcade?.bodies ?? {}),
+			[solid, kept?.rules?.zones?.map((r) => [r.zone, r.goal, r.solid])],
+			kept?.rules?.abilities?.length,
+			kept?.rules?.round?.seconds,
+			kept?.bots?.characters.map((b) => b.character),
+			saved(match3).match3?.goals?.length,
+		],
+		[[0, 1, 2], ['zone1', 'zone2'], ['player'], [true, [['goal', true, true]]], 1, 90, ['bear'], 1],
 	);
 }
 
