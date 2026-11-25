@@ -6,6 +6,7 @@
  *    into its `perf_reports` summary; a non-report, an unknown version or an empty reading is refused.
  * 2. The capture token verifies only as minted: one project, 24 hours, its own audience.
  * 3. Capture links SET the probe's parameters on the game's launch URL (never append a duplicate).
+ *    A BrowserStack Live link starts the picked phone on a capture link that round-trips intact.
  * 4. Retention: the purge deletes an old unkept reading — file and row — and leaves a kept one, a
  *    young one, and a claimed one whose file would not delete (retried on the next run). Keep cannot
  *    land on a claimed row, and a Keep that wins the race is never purged. Presigned uploads never
@@ -54,6 +55,13 @@ import {
 	withinLabTolerance,
 	type LabReadingLike,
 } from '../src/lib/profilerLab.ts';
+import {
+	BROWSERSTACK_LIVE_DASHBOARD,
+	browserStackLiveUrl,
+	CLOUD_PHONES,
+	cloudPhoneLabel,
+	cloudPhoneOfLabel,
+} from '../src/lib/profilerCloudPhones.ts';
 import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
 import {
 	purgeExpired,
@@ -238,6 +246,26 @@ test('3. capture links set the probe on the published URL, once each', () => {
 	assert.deepEqual(new URL(links[1].url).searchParams.getAll('particles'), ['off']);
 	assert.equal(new URL(links[2].url).searchParams.get('fx'), '0');
 	assert.equal(new URL(links[3].url).searchParams.get('aa'), '0');
+});
+
+test('3. a BrowserStack Live link starts the picked phone on the capture link, intact', () => {
+	const game = 'https://games.invisiblewall.org/borut/?runtime=1&project=borut&k=a%2Bb&lang=en#x';
+	const [plain] = captureLinks(game, 'v1.eyJ0eXAiOiJwZXJmIn0.sig_-');
+	const phone = CLOUD_PHONES.find((p) => p.id === 's25');
+	assert.ok(phone);
+	const live = browserStackLiveUrl(phone, plain.url);
+	assert.ok(live.startsWith(`${BROWSERSTACK_LIVE_DASHBOARD}#`));
+	const params = new URLSearchParams(live.slice(live.indexOf('#') + 1));
+	assert.equal(params.get('url'), plain.url, 'the capture link round-trips');
+	assert.deepEqual(
+		[params.get('os'), params.get('os_version'), params.get('device'), params.get('start')],
+		['android', '15.0', 'Samsung Galaxy S25', 'true'],
+	);
+	assert.equal(live.split('#').length, 2, "the link's own # is encoded");
+	assert.equal(cloudPhoneOfLabel(cloudPhoneLabel(phone)), phone, 'the label names its phone');
+	assert.equal(cloudPhoneOfLabel('Galaxy A14'), null);
+	assert.equal(new Set(CLOUD_PHONES.map((p) => cloudPhoneLabel(p))).size, CLOUD_PHONES.length);
+	for (const p of CLOUD_PHONES) assert.ok(cloudPhoneLabel(p).length <= 80, 'fits a device label');
 });
 
 interface Row {
