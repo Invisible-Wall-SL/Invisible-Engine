@@ -1440,14 +1440,23 @@ attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/
 - **Two drawings that meet share a bone there.** The arm's shoulder is the torso's, the forearm's
   elbow the upper arm's; the neck sits on the **torso's collar** (a fourth torso joint: the template's
   neck height is the fit's when the torso draws the collar elsewhere). So the parts meet in the rig.
-- **Skinned as a frame is.** `skinBends` and `framePose` (F2f), `frameFace` (F2i) are reused as they
-  are: every body part a mesh skinned across its joints, the head over the face's bones when the
-  page's face tracker (🎥 Motion's, on the head's drawing) finds a face. A hand pose or a drawing by
-  angle in a slot bends as its slot's main drawing does; a drawing lying down gets its grid's lines
-  along its length.
+- **Drawn apart, so rigid across its joints** (revised 2026-11-24 after the owner's first real
+  sheet). A sheet's parts are separate drawings that meet where the artist overlapped them, not one
+  picture cut apart, so `skinBends` runs with `apart`: each drawing is rigid on its own bone across
+  every joint to another drawing and keeps its drawn proportions in any pose (cut-out). Skinned
+  across those joints as a frame is (the first design), a pose away from the drawn one dragged each
+  drawing by its neighbours' bones: from the arranged pose to rest, 305 of an upper arm's 806
+  triangles folded or stretched past 1.5×, and the head's lower half stayed with the neck. A drawing
+  still bends inside itself where it spans joints: the torso at its waist and shoulder lines, the head
+  over the face's bones when the page's face tracker (🎥 Motion's, on the head's drawing) finds a face
+  (`framePose` F2f and `frameFace` F2i as before). A drawing by angle in a slot bends as its slot's
+  main drawing does; a drawing lying down gets its grid's lines along its length.
 - **Props** are a region worn on a mapped part, at a point of that part's drawing: a bone of their
   own there (`RigFitProp.at`), drawn over the part (over the arm's last slot on an arm), turned and
-  scaled with it.
+  scaled with it. Where the artist's Photoshop layers order a prop against its part (Export Layers
+  names, `psdBehind`: only two layers of one group compare), one drawn behind it there is drawn just
+  behind it, and a part's props keep the layers' order among themselves. Mapped parts always keep the
+  template's order.
 - **Names** are read as words (`rigSheetMap.ts` `canonicalWords`: camelCase, digits, separators,
   a few Spanish words, `arm 1` / `arm 2` as the segments), each region given to the part it fits best,
   one each; an exact name wins. A region named like a worn thing is suggested as a prop.

@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { IRIG_VERSION } from 'engine-rig';
 import { CONTROLS_SIDECAR, CONTROLS_VERSION } from '../rigControls';
+import { refuseOnThrow } from './refuseOnThrow';
 import { pairMark } from './riggerIrigWrite';
 import { r2Slug, sharedRigKey } from './projectPaths';
 import { getObjectText } from './r2';
@@ -114,7 +115,8 @@ export function requestSheet(raw: unknown): SheetMapping | undefined {
  * or a template made in the Rigger at its current version), fitted to the character when `fit` is
  * given, else `resolveRigSkeletonBody(rigId)`. A template and a saved rig together are refused (400):
  * both are a whole skeleton; so is a fit without a template, or one that does not fit it. With a
- * `sheet` mapping the fit and each part's art are the mapping's (`sheetRig`), never a request's.
+ * `sheet` mapping the fit and each part's art are the mapping's (`sheetRig`), never a request's. A
+ * rig that would not load, or a build that throws over this art, is a 422 saying why.
  */
 export async function resolveNewRigBody(
 	rigId: string,
@@ -130,25 +132,28 @@ export async function resolveNewRigBody(
 	if (fit && sheet) throw error(400, "a sheet's rig is fitted from its mapping: send no fit");
 	const t = await rigTemplateForNewRig(templateId);
 	if (!t) throw error(404, `no rig template "${templateId}"`);
-	let art: Record<string, TemplateArt> | undefined;
-	let made: NewRigBody['sheet'] = null;
-	if (sheet) {
-		const fitted = sheetRig(t, regions, sheet);
-		if (!fitted.ok)
-			throw error(400, `The sheet does not fit the "${t.label}" template: ${fitted.problem}.`);
-		({ fit, art } = fitted.value);
-		made = {
-			mapping: { ...sheet, template: { id: t.id, version: t.version } },
-			scale: fitted.value.scale,
-			face: fitted.value.face,
-		};
-	}
-	const misfit = fit ? templateFitProblem(t, fit) : null;
-	if (misfit) throw error(400, `The fit does not fit the "${t.label}" template: ${misfit}.`);
-	const rig = templateRig(t, regions, fit, art);
-	const problem = irigDocProblem(rig.skeleton);
-	if (problem) throw error(500, `The "${t.label}" template would not load (${problem}).`);
-	return { skeleton: rig.skeleton, template: rig, sheet: made };
+	return refuseOnThrow(`The "${t.label}" template could not be made over this art`, () => {
+		let art: Record<string, TemplateArt> | undefined;
+		let made: NewRigBody['sheet'] = null;
+		if (sheet) {
+			const fitted = sheetRig(t, regions, sheet);
+			if (!fitted.ok)
+				throw error(400, `The sheet does not fit the "${t.label}" template: ${fitted.problem}.`);
+			({ fit, art } = fitted.value);
+			made = {
+				mapping: { ...sheet, template: { id: t.id, version: t.version } },
+				scale: fitted.value.scale,
+				face: fitted.value.face,
+			};
+		}
+		const misfit = fit ? templateFitProblem(t, fit) : null;
+		if (misfit) throw error(400, `The fit does not fit the "${t.label}" template: ${misfit}.`);
+		const rig = templateRig(t, regions, fit, art);
+		const problem = irigDocProblem(rig.skeleton);
+		if (problem)
+			throw error(422, `The "${t.label}" rig would not load (${problem}), so none was created.`);
+		return { skeleton: rig.skeleton, template: rig, sheet: made };
+	});
 }
 
 /**

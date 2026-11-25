@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
 import { jsonObjectOrNull } from '$lib/server/http';
+import { refuseOnThrow } from '$lib/server/refuseOnThrow';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, getObjectText, getObjectTextWithEtag, headObject } from '$lib/server/r2';
 import {
@@ -129,12 +130,14 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		sources[part] = { job: other, cut: them, track: JSON.parse(theirTrack) as TrackFrame };
 		frames[part] = them.clip?.frame ?? null;
 	}
-	const planned = framePartsRequest(
-		template,
-		cut,
-		JSON.parse(trackText) as TrackFrame,
-		propPivots(labels.data, labels.width, cut),
-		sources,
+	const planned = refuseOnThrow('The rig cannot be fitted to this cut', () =>
+		framePartsRequest(
+			template,
+			cut,
+			JSON.parse(trackText) as TrackFrame,
+			propPivots(labels.data, labels.width, cut),
+			sources,
+		),
 	);
 	if (!planned.ok) throw error(422, `The rig cannot be fitted to this cut: ${planned.problem}.`);
 

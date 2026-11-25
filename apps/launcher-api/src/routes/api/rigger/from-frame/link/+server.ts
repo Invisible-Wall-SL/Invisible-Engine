@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
+import { refuseOnThrow } from '$lib/server/refuseOnThrow';
 import {
 	ConflictError,
 	getObjectText,
@@ -138,7 +139,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const irig = await getObjectTextWithEtag(target.key);
 	if (!irig) throw error(404, `There is no rig "${target.stem}".`);
 	const regions = (await loadRegionSet(found.art)).regions;
-	const built = templateRig(found.template, regions, found.fit).skeleton;
+	const built = refuseOnThrow(
+		'The rig cannot be built again from its cut',
+		() => templateRig(found.template, regions, found.fit).skeleton,
+	);
 	const doc = {
 		...frameSourceOf({
 			rig: target.stem,
