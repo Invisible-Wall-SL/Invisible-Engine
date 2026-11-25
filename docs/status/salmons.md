@@ -145,6 +145,108 @@ upload.
     - A room creation and a join each pay one more pass over the level (about 5 to 8 ms here).
     - The notice and the refusals are English only, as the stale-data banner is.
 
+- **The bear wades (2026-11-25; owner: "the bear can enter the water tiles, but right now it looks
+  like it is walking on water. I would like to create an FX where it looks like half of the bear
+  body is underwater, so it takes a 'water overlay' colour", then "a curved line would be nice, so
+  it follows the round shape of the bear body"; in review; branch
+  `claude/dazzling-dijkstra-66rrze`; the arcade runtime only: no game-server, config or project
+  change, nothing to upload; live with the next arcade runtime release).**
+  - **What a player sees.** A bear whose place is on open water that has a tint (the river, the
+    rapids, the source; not a bank, a sandbank, a rock or the sea, which has none) is drawn with
+    its lower half under that cell's tint, in the very colour the swimming salmon is drawn in
+    (`leap.ts` `underTint` at `TINT_ALPHA` 0.75), below a waterline: the front arc of the ellipse
+    a round body cuts in the water, lowest in the middle and rising to both sides, with a thin
+    lighter rim along it and a slow bob. Stepping in, the line rises from under the look to its
+    level in 250 ms, eased; stepping out it falls. The salmon (its own under-water drawing) and
+    the fisherman (over water only on a bridge's deck) are untouched.
+  - **Whatever draws the bear.** The wading is the player's, not its look's
+    (`engine-layout` `salmonsArt/wade.ts`). `online.ts` `drawCodeLooks` hands every mount it
+    publishes (a code look's, a sheet's rig's, a sheet's clip turned by `view.turn`) to the art's
+    `wade`, which gives back the look's own mount for a character that does not wade and, for a
+    bear, a mount of the player's own that mounts the look and puts one filter pass on the
+    container `<MountedArt>` draws it into. That mount is the same from frame to frame (one a
+    player and a look), so `<SpawnLayer>`'s `{#key}` never mounts the look again; a sheet that
+    turns to another rig takes the wading over where it stands, with no stepping in again. On land
+    the container has no filter and no `filterArea`, and a bear that never wades makes no filter.
+    The filter goes with the player: when it is no longer drawn, when it respawns as another
+    character, when the room goes. `<SpawnLayer>` is not touched.
+  - **The pass** (`salmonsArt/wadeFilter.ts`; WebGL, in GLSL both WebGL 1 and 2 take, on the
+    vertex stage and the driver check of the Element FX passes, which `pixi-svelte/elementFx` now
+    exports as `FILTER_VERTEX` and `programLinks`). Below the line a premultiplied pixel is
+    `(1 − a) · c + a · T`, alpha kept, its uniform filled from `underTint`'s own matrix; above it
+    the pixel is as it was; the edge is smoothed over one pixel of the screen. The line is placed
+    as the pass is drawn: Pixi says where on the screen it put the pass's frame
+    (`calculateSpriteMatrix`) and the container's world transform says where the character's
+    place is there and how large it is drawn, so it holds under the camera's zoom, the device's
+    resolution, a look partly off the screen and a mirrored parent. The pass is drawn at the
+    screen's resolution and with its smoothing (Pixi's defaults for a filter are 1 and none),
+    so a look's edges are the same in the water as on land. The driver is asked for the program
+    as the river mounts, so the first bear to step in costs no compile, and a GPU that refuses
+    it is known before the pass is ever on a look, which is then drawn as on land.
+  - **Its numbers, and why** (`wade.ts` `WADE`, one frozen object; tuned by looking, on the bear
+    sprite and on an upright stand-in rig, at the game's zoom and close up):
+
+    | Constant | Value | Why |
+    | --- | --- | --- |
+    | `depth` | 1.1 | The line's ends stand a little over the look's middle, so that with the dip about half the body is under (at 1 the middle of the belly was nearly dry). |
+    | `reach` | 0.5 | The arc's half-width is half the width the look is drawn at: its ends, where the arc meets the level line at a corner, are at the picture's sides. At 0.42 the corners showed inside the bear sprite. |
+    | `sag` | 0.4 | Of the half-width. 0.5 is the true arc of a circle on the 2 : 1 isometric ground; 0.3 read as nearly straight at the game's zoom, 0.5 as a bowl. |
+    | `sagMax` | 0.35 | Of how high the line stands: the bear sprite is seen from above, 92 wide and 50 tall, and an uncapped dip left a thin crescent of it under. An upright look (the stand-in: 75 wide, 108 tall) is never capped. |
+    | `rim` | 3 px each side, 0.35 white | A soft band over the bear's own pixels only: about 2 px of the screen at the game's zoom. Wider or whiter read as a stripe. |
+    | `bob` | 1.2 px, 2.4 s | Enough to see the surface is alive; a walking bear hides it. |
+    | `easeMs` | 250 | The owner's "about". At the bear's 216 px/s that is about a cell. |
+    | `margin` | 0.25 (8 px least) | The room the pass is given round the look's box, as the Element FX runtime gives a rig. |
+
+  - **Found on the way: Pixi skips a filter on a rig.** Pixi sizes a filter with a fast measure
+    (`getFastGlobalBounds`) that leaves out anything not drawn or not measured, and
+    `engine-rig`'s `RigView` is measured through a part that is not drawn (its slot meshes are
+    not measured). A container that holds only a rig measures 0 × 0, and Pixi then skips the
+    pass and draws the rig unfiltered, with no error. The first cut of the wading therefore drew
+    on the bear sprite and not at all on a rig, which is what the owner's live bear is. The
+    wading gives the container a `filterArea` (the look's own box each frame, from
+    `getLocalBounds`, which does see a rig) and Pixi uses that. **A smooth turn's cross-fade
+    has the same fault and is not fixed here** (Open items; only a sheet that sets **Blend
+    (ms)** fades, and since #1902 the bear's sets none): measured on the stand-in rig, all 17
+    `AlphaFilter` passes of a blended turn were skipped, so the two pictures are drawn at full
+    strength, the old one showing behind the new until the blend ends.
+  - **Limits.** A clip published as a clip (no rig, no smooth turn) is drawn by `<SpawnLayer>`'s
+    own `<Flipbook>` and has no mount: a bear drawn that way does not wade (Open items; no bear
+    clip exists today). The numbers were tuned on a stand-in, not on the owner's `R_Bear`, which
+    is not in the repository. A rig whose bounds are a bounding-box attachment smaller than its
+    art would be cut to that box and the margin while it wades (the Element FX passes have the
+    same limit). The tint is the cell's under the bear's place, taken at once when it changes,
+    as the salmon's is; the ground's tint squares are a cell wide, so a bear across two tints
+    matches one. For the 250 ms it steps out, its legs are still under the tint on the bank.
+    Without `highp` floats in a fragment shader Pixi lowers the pass to `mediump`, and the line
+    may then sit a pixel off. A rig's slot that blends (add, screen) blends inside the pass
+    while the bear wades, not with the river behind it. No phone was tried.
+  - **Proof.** `pnpm check:salmons-art` 33 (22 before; the 11 new ones: the numbers; the arc; a
+    body's line at a depth; the ease; who wades where on the original's level; land, water and
+    land again on one look; the places and characters that do not; one mount a player and a
+    look; what is let go, and a GPU that refuses the pass; the pass's colour and its place on
+    the screen; the runtime's wiring). 30 hand mutations of `wade.ts`, `wadeFilter.ts`,
+    `water.ts` and the wiring failed it at the first cut; a review then found four of the
+    fragment's own that did not (the arc made a V, the rim dropped, the tint over the line, a
+    wide edge), so the gate now pins each of the fragment's sums, holds them to `waterlineAt`,
+    and maps the pass's frame with Pixi's own `calculateSpriteMatrix`: those four, the pass's
+    smoothing and the sprite it is mapped to fail it too. In a browser, on throwaway pages built from the game's
+    own modules (Chromium at device scales 1, 2 and 3, camera zooms 1/3 to 1.5): under the line
+    the pass's pixels are the same bytes as Pixi's `ColorMatrixFilter` with `underTint`'s
+    matrix, for opaque and for half see-through pixels; above it the same bytes as no filter;
+    the drawn line is within 0.7 device px of `waterlineAt`. Played
+    ([playtest/salmons](../playtest/salmons.md) check 19d and `--rig`): `salmons-play.mjs` 101
+    verdicts (94 and 7: pages WB and WF, the bear walking into the original's water on its own
+    keys) and `--rig` 19 (15 and 4: page W, a bear a rig draws), each on both netcodes, none
+    failed. Looked at, at device scale 2: main's bear and the new one at the same places in the
+    game, the bear stepping in, a phone-sized page, and the stand-in rig still, stepping in and
+    out, mid smooth turn and partly off the screen. Unmoved: `check:room-bots` 56,
+    `check:online-rules` 40, `check:character-turn` 113, `check:salmons-jump` 37;
+    `check:svelte` at its baseline for `engine-layout`, `apps/lines` and `pixi-svelte`.
+    `check:runtime-bytes`, on `main` with #1902 merged in: `lines`, `match3` and `card` are the
+    same bytes; `arcade` +1,982 B gzip (2,119,778 → 2,121,760: the Salmons chunk +1,863, the
+    bundle +118) and `arcade3d` +1,979 B (it is the arcade build with the 3D view, so it carries
+    `online.ts` and the same chunk), both re-recorded.
+
 - **The config no longer carries a level (2026-11-24; owner: "drop the snapshot from the
   Salmons config"; in review; branch `claude/affectionate-bell-mwyn5r`; the export only, no
   runtime or game-server change; not uploaded and not published: Owner steps)**.
@@ -1480,6 +1582,30 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 
 ## Open items / next (S0)
 
+### Open after the wading (2026-11-25)
+
+- **A bear drawn by a plain published clip does not wade.** `<SpawnLayer>` draws that clip
+  itself and it has no mount; `<SpawnLayer>` is in every runtime's bundle and was not to be
+  changed. The way from `online.ts` is to draw a wading character's clip through
+  `engine-layout/sheet-clip` at no lean, as a smooth turn's is, which changes how every bear
+  clip is drawn on land too (or, switched at the water's edge, starts the clip again there). Not
+  taken: no bear clip exists. Take it with the first bear clips, or give `<SpawnLayer>` a way to
+  put a filter on a clip.
+- **A smooth turn's cross-fade does not fade on a rig** (found 2026-11-25; `sheetRigLook.ts`
+  `opacity`; since #1895). Its `AlphaFilter` is on a `RigView`, which Pixi measures 0 × 0 for a
+  filter, so the pass is skipped and both pictures are drawn at full strength. Since #1902 only
+  a sheet that sets **Blend (ms)** fades, and the bear's sets none, so no live character shows
+  it today. The fix is the wading's: a `filterArea` on the fading view. Not done here: it
+  changes how a blended turn looks, which is its own look to judge
+  (`scripts/playtest/character-turn-strip.mjs`). `check:character-turn` holds only that the
+  filter is set, not that it is drawn.
+- **Owner: look at the live bear.** The waterline's numbers were judged on the bear sprite and a
+  stand-in rig. If `R_Bear`'s body is much narrower than its box the curve will read flatter
+  than here; `WADE.reach` and `WADE.sag` are the two to move.
+- **A fisherman on a bridge is drawn at the water's level**, behind the deck: his code look does
+  not take the room's height (`z`). Seen while standing one there; as before this change
+  ([playtest/salmons](../playtest/salmons.md), Known gaps).
+
 ### Open after the room of 100 by shares (2026-11-21)
 
 - **Owner decision: how hard a big room is.** The river is the same length at every size, so
@@ -1907,6 +2033,27 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   makes its level from them, an authoring boot is told what differs, and a level it cannot make
   is refused (`check:room-levels` 15, `salmons-room-levels-play.mjs` 29). Detail and proof in
   Current state; the merge's deploy closes running rooms: Owner steps.
+
+- 2026-11-25 — **The bear wades** (owner request; branch `claude/dazzling-dijkstra-66rrze`; in
+  review; what it is, its numbers and its proof in Current state). New in
+  `engine-layout` `salmonsArt/`: `wade.ts` (who wades, the waterline, the eased depth, one mount
+  a player and a look), `wadeFilter.ts` (the pass), `water.ts` (`waterUnder`, `TINT_ALPHA` and
+  the tints, moved out of `river.ts` unchanged so the gate asks the river the question the
+  runtime asks). The kit gains `wade`, `wadersDrawn` and the probe's `wading`; `online.ts`
+  `drawCodeLooks` wraps the two mounts it publishes and lets go of players no longer drawn;
+  `pixi-svelte/elementFx` exports `FILTER_VERTEX` and `programLinks`. `check:salmons-art` 22 →
+  33; `salmons-play.mjs` gains pages WB and WF on the original's level (94 → 101 verdicts) and,
+  under `--rig`, page W, a bear a rig draws (15 → 19). Two things found on the way: Pixi skips
+  a filter on a rig (the wading sets a `filterArea`; a blended turn's fade is still skipped,
+  Open items), and Pixi compiles a filter's fragment for WebGL 1 where there is no WebGL 2, so
+  the first cut's `fwidth` did not compile in the playtest's browser and the bear was drawn dry
+  (the driver check caught it; the pass now uses nothing WebGL 1 lacks). After a code review,
+  the same day: the pass takes the screen's smoothing, its program is asked for as the river
+  mounts, the gate pins the fragment's own sums (four mutations of them had passed it), page
+  WB's under-water pixels are compared with the same water before the bear stood in it (the
+  riverbed's sand had passed for fur), and the sprite guide says a bear of plain clips does not
+  wade. Merged with `main` after #1902: `lines`, `match3` and `card` the same bytes, the two
+  arcade manifests re-recorded, the playtests replayed (101 and 19, both netcodes).
 
 - 2026-11-24 — **The exported config drops its level** (owner decision; branch
   `claude/affectionate-bell-mwyn5r`): no `arcade.zones` and no `arcade.online.rules.zones`,

@@ -57,6 +57,15 @@
 // last frame is the one magenta frame of the run: on K the salmon put out stays drawn on it, with
 // no other clip, for seconds, and once Q leaves it is drawn no more.
 //
+// The bear wades (2026-11-25, `engine-layout` `salmonsArt/wade.ts`): pages WB (a bear) and WF (a
+// fisherman) share a room of the original's level (`salmonsMap`, one seed pinned, no bots), whose
+// water a bear walks into. The room stands the bear on a bank, WB's keys walk it into the water,
+// and the room stands it in open water, then on the bank again, and the fisherman on a bridge's
+// deck: the probe (`online.art.wading`) and the screenshots say the bear on the bank is drawn as
+// ever with no filter, steps in over about 250 ms, stands with its fur above a waterline and the
+// same fur under the water's tint below it, and steps out; the fisherman over the water is no
+// wader.
+//
 // `--turn` plays the smooth turn (`view.turn`, character pipeline §13) in two rooms: page T's
 // salmon is of a class whose sheet is frame clips in eight facings with the option on (five made,
 // the three western ones their twins mirrored), page U's bear of a class whose sheet is still
@@ -71,8 +80,10 @@
 // Exit 1 when a verdict fails.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { deflateSync } from 'node:zlib';
 
@@ -80,6 +91,10 @@ import { PNG } from 'pngjs';
 
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_MAP_SEED,
+	salmonsMapRiver,
+} from '../../packages/engine-mechanics/src/salmonsMap.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { CLIP_FACINGS, clipMirrorOf } from '../../packages/engine-layout/src/lib/characterClips.ts';
 import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
@@ -107,6 +122,12 @@ import { serveSnapshot, startTestServer, testServerTree } from '../current-games
 import { headlessShell } from './headless-shell.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
+// The game server's own matchmaker (it runs in this process): the wading's room is reached by it.
+const { matchMaker } = await import(
+	pathToFileURL(
+		createRequire(join(ROOT, 'services/game-server/package.json')).resolve('@colyseus/core'),
+	).href
+);
 const { values: opt } = parseArgs({
 	options: {
 		runtime: { type: 'string', default: join(ROOT, 'apps/lines/build') },
@@ -267,6 +288,21 @@ const BLOOD_AT = { x: BLOOD_BAND.left + 30, y: BLOOD_BAND.y + BLOOD_BAND.h / 2 }
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
 	writeFileSync(join(configs, 'salmons-blood.json'), JSON.stringify(normalizeGameConfigDoc(game)));
 }
+// The bear wades: the original's level, whose water a bear walks into (the band river's stops
+// it), pinned to one seed so that the room's river is the one made here, with no bots.
+const WADE_GAME = 'salmons-wade';
+const wadeRiver = salmonsMapRiver(SALMONS_MAP_SEED);
+/** `salmonsConfig` of the original's level as a wading's room plays it; `edit` changes it first. */
+const wadeGame = (edit = () => {}) => {
+	const game = salmonsConfig(wadeRiver);
+	delete game.arcade.online.bots;
+	game.arcade.online.netcode = opt.netcode;
+	game.arcade.online.levels = { seeds: [SALMONS_MAP_SEED] };
+	edit(game);
+	return game;
+};
+const wadeConfig = normalizeGameConfigDoc(wadeGame());
+writeFileSync(join(configs, `${WADE_GAME}.json`), JSON.stringify(wadeConfig));
 
 const HOOK = `(() => {
 	const wire = (window.__AR_WIRE__ = []);
@@ -320,6 +356,25 @@ const snapNoRiver = await serveSnapshot({
 	bundleFile: noRiver,
 	name: 'Salmons',
 	snapshotId: 'salmons-noriver',
+	assetBase: `${server.origin}/${KEY}/`,
+});
+// The wading's pages boot the original's level: the same layout, whose river the room's replaces.
+const withWade = join(work, 'runtime-wade.json');
+writeFileSync(
+	withWade,
+	JSON.stringify({
+		doc,
+		componentDefs,
+		componentDefaults: {},
+		config: wadeConfig,
+		flowV2: SALMONS_SEED_DOC,
+	}),
+);
+const snapWade = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withWade,
+	name: 'Salmons',
+	snapshotId: 'salmons-wade',
 	assetBase: `${server.origin}/${KEY}/`,
 });
 // S0: the same game with three stub clips of the salmon (no bear or fisherman clips), exported as
@@ -679,6 +734,27 @@ const snapRig = await serveSnapshot({
 	name: 'Salmons',
 	snapshotId: 'salmons-rig',
 });
+// `--rig`, the bear wades whatever draws it: the same rig on the BEAR's class (the owner's bear
+// is a rig), in the wading's room (the original's level, `wadeGame`).
+const RIG_WADE_GAME = 'salmons-rig-wade';
+const withRigWade = join(work, 'runtime-rig-wade.json');
+{
+	const raw = wadeGame((game) => sheetOn(game, 'bear', TOOL_RIG.salmon.character));
+	writeFileSync(
+		withRigWade,
+		JSON.stringify({ ...JSON.parse(readFileSync(withRig, 'utf8')), config: raw }),
+	);
+	writeFileSync(
+		join(configs, `${RIG_WADE_GAME}.json`),
+		JSON.stringify(normalizeGameConfigDoc(raw)),
+	);
+}
+const snapRigWade = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withRigWade,
+	name: 'Salmons',
+	snapshotId: 'salmons-rig-wade',
+});
 // `--turn`: a salmon in open water (the river's lowest band but one: no rock, pool, sandbank or
 // waterfall), its class naming a sheet of frame clips in eight facings that turns smoothly
 // (`view.turn`), and a bear beside it whose sheet (the tool's still images) does not. The clips
@@ -985,7 +1061,7 @@ function png(w, h, paint) {
 }
 /** The salmon's pink through `SpawnLayer`'s gold ramp. */
 const isGold = ([r, g, b]) => r > 190 && g > 150 && g < 225 && b < 110;
-/** The river's water tints (`engine-layout` `salmonsArt/river.ts`: water, rapids, source) and how
+/** The river's water tints (`engine-layout` `salmonsArt/water.ts`: water, rapids, source) and how
  *  strongly they cover what swims under them. */
 const WATER_TINTS = [0x0ea5e9, 0x38bdf8, 0x7dd3fc];
 const TINT_ALPHA = 0.75;
@@ -1159,6 +1235,119 @@ const riverOf = async (page, doc) => {
 	return { seed: online.seed, drawn: online.fieldDrawn, zones: online.zones, made };
 };
 const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
+
+// The bear wades (`engine-layout` `salmonsArt/wade.ts`): what its pages are asked and shown.
+/** The room of game `key` on the game server (it runs in this process). */
+const roomOf = async (key) =>
+	matchMaker.getLocalRoomById(
+		(await matchMaker.query({})).find((room) => room.metadata?.game === key)?.roomId,
+	);
+/** How a page says player `id` wades (`online.art.wading`); `undefined` for one that does not. */
+const wadingOf = async (game, id) => (await drawnOf(game)).art?.wading?.[id];
+/**
+ * Where a wading's players are stood on the original's level ({@link wadeRiver}): in calm water
+ * below its last waterfall (nothing there is drawn raised), three cells in from its left bank,
+ * with no rock, sandbank, whirlpool or bridge within three cells of the way there; on that bank,
+ * a cell and a half from the water; and on the middle of a bridge's deck.
+ */
+const WADE_AT = (() => {
+	const cell = wadeRiver.grid.cell;
+	const pad = 3 * cell;
+	const lastFall = Math.max(...wadeRiver.waterfalls.map((fall) => fall.y + fall.h));
+	const blocked = [
+		...wadeRiver.rocks,
+		...wadeRiver.sandbanks,
+		...wadeRiver.whirlpools.map((w) => ({ x: w.x - w.r, y: w.y - w.r, w: 2 * w.r, h: 2 * w.r })),
+		...wadeRiver.bridges,
+	];
+	const band = wadeRiver.bands.find((b) => {
+		if (b.y < lastFall + 6 * cell || b.current > 100 || b.right - b.left < 8 * cell) return false;
+		const y = b.y + cell / 2;
+		return !blocked.some(
+			(r) =>
+				r.x - pad < b.left + 5 * cell &&
+				r.x + r.w + pad > b.left - 3 * cell &&
+				r.y - pad < y &&
+				r.y + r.h + pad > y,
+		);
+	});
+	const y = band.y + cell / 2;
+	const [deck] = wadeRiver.bridges;
+	return {
+		bank: { x: band.left - 1.5 * cell, y },
+		water: { x: band.left + 3 * cell, y },
+		bridge: { x: deck.x + deck.w / 2, y: deck.y + deck.h / 2 },
+	};
+})();
+/** Have `room` stand player `id` at `place`; true once `game`'s page draws it there. */
+const standAt = async (room, game, id, place) => {
+	const body = room?.sim.players.get(id)?.body;
+	if (!body || !place) return false;
+	Object.assign(body, place);
+	for (let i = 0; i < 60; i++) {
+		await settle(game, 100);
+		const at = (await drawnOf(game)).drawn?.find((d) => d.id === id);
+		if (at && Math.hypot(at.x - place.x, at.y - place.y) < 2) return true;
+	}
+	return false;
+};
+/**
+ * How deep `game`'s page says player `id` wades, read two frames of the page's own clock at a
+ * time, from the first change until it is `end` (1 in, 0 out).
+ */
+const depthsTo = async (game, id, end) => {
+	const depths = [];
+	for (let i = 0; i < 150 && depths.at(-1) !== end; i++) {
+		await game.play([{ op: 'step', frames: 2 }]);
+		await wait(15);
+		const now = await wadingOf(game, id);
+		if (now && (now.depth !== 1 - end || depths.length)) depths.push(now.depth);
+	}
+	return depths;
+};
+/** Stand player `id` somewhere at once, for {@link depthsTo} to follow. */
+const moveTo = (room, id, place) => Object.assign(room?.sim.players.get(id)?.body ?? {}, place);
+/** Whether depths read two frames apart are an eased step to `end` over about 250 ms (seven or
+ *  eight readings): one way only, through at least three depths between out and in. */
+const steppedOver = (depths, end) =>
+	depths.at(-1) === end &&
+	depths.every((depth, i) => i === 0 || (end ? depth >= depths[i - 1] : depth <= depths[i - 1])) &&
+	new Set(depths.filter((depth) => depth > 0 && depth < 1)).size >= 3 &&
+	depths.length >= 6 &&
+	depths.length <= 11;
+/** Whether a page's wading of a player is a look half under: all the way in, through its filter,
+ *  under one of the water's tints, its line's ends over the look's `middle` and its lowest point
+ *  under it. */
+const halfUnder = (wading, middle) =>
+	wading?.depth === 1 &&
+	wading.filtered === true &&
+	WATER_TINTS.includes(wading.tint) &&
+	!!wading.line &&
+	typeof middle === 'number' &&
+	wading.line.sag > 0 &&
+	-wading.line.level > middle &&
+	-(wading.line.level + wading.line.sag) < middle;
+/** The 5 × 5 px of a screenshot round a point `lift` px above the world place `at`. */
+const patchAt = (shot, cam, at, lift) => {
+	if (!cam || !at) return [];
+	const centre = isoScreen(shot, cam, at, lift);
+	const seen = [];
+	for (let dx = -2; dx <= 2; dx++)
+		for (let dy = -2; dy <= 2; dy++) {
+			const rgb = rgbAt(shot, { x: centre.x + dx, y: centre.y + dy });
+			if (rgb) seen.push(rgb);
+		}
+	return seen;
+};
+/** The same round a point `lift` px above where player `id` stands. */
+const lookAt = (shot, arcade, id, lift) =>
+	patchAt(
+		shot,
+		arcade?.camera,
+		arcade?.online?.drawn.find((d) => d.id === id),
+		lift,
+	);
+const mostly = (seen, test) => seen.length > 0 && seen.filter(test).length * 2 > seen.length;
 
 play: try {
 	if (opt.turn) {
@@ -2119,6 +2308,81 @@ play: try {
 		const errorsB = await b.page.evaluate('window.__AR_ERRORS__');
 		verdict('page B: no page error', errorsB.length === 0, errorsB);
 		await b.page.close();
+
+		// The bear wades whatever draws it (`salmonsArt/wade.ts`): page W's bear is drawn by the
+		// rig, in a room whose river its page draws. Pixi measures no size for a rig when it
+		// places a filter and would skip the pass, so this is the look the wading must be seen on.
+		const w = await ready(
+			await boot('w', {
+				rooms_name: 'Wade',
+				rooms_character: 'bear',
+				rooms_game: RIG_WADE_GAME,
+				editorDocBase: snapRigWade.origin,
+			}),
+		);
+		await settle(w, 600);
+		const { me: wader } = await drawnOf(w);
+		for (let i = 0; i < 80 && !(await wadingOf(w, wader)); i++) await settle(w, 250);
+		const rigRoom = await roomOf(RIG_WADE_GAME);
+		// The rig's box is 32 × 64, drawn 90 wide: 180 tall, its middle 90 up. One height under
+		// the line's lowest point (and its rim and bob), one over its ends.
+		const RIG_LIFT = { low: 40, high: 130 };
+		const rigSeen = async (file) => {
+			const shot = await shotOf(w, file);
+			const arcadeW = (await w.state()).arcade;
+			return {
+				low: lookAt(shot, arcadeW, wader, RIG_LIFT.low),
+				high: lookAt(shot, arcadeW, wader, RIG_LIFT.high),
+			};
+		};
+		const isRig = (rgb) => near(rgb, RIG_RGB);
+		const rigOnBank = await standAt(rigRoom, w, wader, WADE_AT.bank);
+		await settle(w, 1200);
+		const rigDry = await wadingOf(w, wader);
+		const rigDrawn = (await drawnOf(w)).rigs?.[wader];
+		const drySeen = await rigSeen('rig-bear-on-the-bank.png');
+		verdict(
+			'page W: its bear’s class names the rig, so the rig draws it; on the bank it is not wading: no filter, its own colour from top to bottom',
+			rigOnBank &&
+				rigDrawn?.rig === RIG &&
+				rigDrawn.mounted === true &&
+				(await drawnOf(w)).clips?.[wader] === undefined &&
+				rigDry?.depth === 0 &&
+				rigDry.filtered === false &&
+				mostly(drySeen.low, isRig) &&
+				mostly(drySeen.high, isRig),
+			{ rigOnBank, rigDrawn, rigDry, low: drySeen.low[12], high: drySeen.high[12] },
+		);
+		moveTo(rigRoom, wader, WADE_AT.water);
+		const rigRising = await depthsTo(w, wader, 1);
+		const rigInWater = await standAt(rigRoom, w, wader, WADE_AT.water);
+		await settle(w, 1200);
+		const rigWet = await wadingOf(w, wader);
+		const wetSeen = await rigSeen('rig-bear-wades.png');
+		const rigMiddle = ((await drawnOf(w)).rigs?.[wader]?.height ?? 0) / 2;
+		verdict(
+			'…stood in open water the rig steps in and stands half under the water’s tint: its colour above the waterline, the same colour through the tint below it',
+			rigInWater &&
+				steppedOver(rigRising, 1) &&
+				halfUnder(rigWet, rigMiddle) &&
+				(await drawnOf(w)).rigs?.[wader]?.mounted === true &&
+				mostly(wetSeen.high, isRig) &&
+				!mostly(wetSeen.low, isRig) &&
+				mostly(wetSeen.low, (rgb) => throughWater(rgb).some(isRig)),
+			{ rigInWater, rigRising, rigWet, rigMiddle, low: wetSeen.low[12], high: wetSeen.high[12] },
+		);
+		moveTo(rigRoom, wader, WADE_AT.bank);
+		const rigFalling = await depthsTo(w, wader, 0);
+		await settle(w, 300);
+		const rigAshore = await wadingOf(w, wader);
+		verdict(
+			'…back on the bank it steps out, and the rig has no filter again',
+			steppedOver(rigFalling, 0) && rigAshore?.depth === 0 && rigAshore.filtered === false,
+			{ rigFalling, rigAshore },
+		);
+		const errorsW = await w.page.evaluate('window.__AR_ERRORS__');
+		verdict('page W: no page error', errorsW.length === 0, errorsW);
+		await w.page.close();
 		break play;
 	}
 	if (opt.hold) {
@@ -3159,6 +3423,141 @@ play: try {
 	await k.page.close();
 	await q.page.close();
 
+	// The bear wades (owner, 2026-11-25; `engine-layout` `salmonsArt/wade.ts`), on the original's
+	// level: the band river's water stops a bear, this one's lets it in (check:room-bots). The
+	// level is pinned, so the room plays, and the pages draw, the river made here (`wadeRiver`).
+	const wadePage = (profile, name, character) =>
+		boot(profile, {
+			rooms_name: name,
+			rooms_character: character,
+			rooms_game: WADE_GAME,
+			editorDocBase: snapWade.origin,
+		});
+	const wb = await ready(await wadePage('wb', 'Wade', 'bear'));
+	const wf = await ready(await wadePage('wf', 'Finn', 'fisherman'));
+	await settle(wb, 600);
+	await settle(wf, 400);
+	const { me: meWb } = await drawnOf(wb);
+	const { me: meWf } = await drawnOf(wf);
+	// The wading comes with the bear's code look, once the art has loaded (in real time).
+	for (let i = 0; i < 80 && !(await wadingOf(wb, meWb)); i++) await settle(wb, 250);
+	const wadeRoom = await roomOf(WADE_GAME);
+	// The bear sprite's fur: brown, red over green over blue.
+	const isFur = ([r, g, b]) => r > g && g > b && r - b > 30;
+	const furUnder = (seen) => throughWater(seen).some(isFur);
+	const meanOf = (seen) =>
+		[0, 1, 2].map((c) => seen.reduce((sum, rgb) => sum + rgb[c], 0) / seen.length);
+	/** Whether a patch is darker than another in every channel, by more than the water's shimmer. */
+	const darker = (seen, than) =>
+		seen.length > 0 && than.length > 0 && meanOf(seen).every((c, i) => c < meanOf(than)[i] - 6);
+	// Two heights up the bear's middle, clear of the line whichever way the sprite is turned: one
+	// under the line's lowest point (and its rim and bob), one over its ends.
+	const WADE_LIFT = { low: 10, high: 36 };
+
+	const onBank = await standAt(wadeRoom, wb, meWb, WADE_AT.bank);
+	await settle(wb, 1200);
+	const dry = await wadingOf(wb, meWb);
+	const dryShot = await shotOf(wb, '14c-bear-on-the-bank.png');
+	const dryArcade = (await wb.state()).arcade;
+	const drySeen = {
+		low: lookAt(dryShot, dryArcade, meWb, WADE_LIFT.low),
+		high: lookAt(dryShot, dryArcade, meWb, WADE_LIFT.high),
+	};
+	verdict(
+		'page WB: on the bank its bear is not wading: no filter on its look, its fur drawn as it is',
+		onBank &&
+			dry?.depth === 0 &&
+			dry.filtered === false &&
+			dry.line === null &&
+			mostly(drySeen.low, isFur) &&
+			mostly(drySeen.high, isFur),
+		{ onBank, at: WADE_AT.bank, dry, low: drySeen.low[12], high: drySeen.high[12] },
+	);
+
+	// Its own keys walk it in: the screen's Left is across the river and up it (world +x, −y).
+	await wb.key('ArrowLeft', 'down');
+	const rising = await depthsTo(wb, meWb, 1);
+	await wb.key('ArrowLeft', 'up');
+	const walkedTo = (await drawnOf(wb)).drawn?.find((d) => d.id === meWb);
+	verdict(
+		'…its keys walk it into the water, and it steps in: the waterline rises over about 250 ms, never falling back',
+		steppedOver(rising, 1) && !!walkedTo && walkedTo.x > WADE_AT.bank.x + 48,
+		{ rising, from: WADE_AT.bank, walkedTo },
+	);
+	const inWater = await standAt(wadeRoom, wb, meWb, WADE_AT.water);
+	await settle(wb, 1200);
+	const wet = await wadingOf(wb, meWb);
+	const wetShot = await shotOf(wb, '14d-bear-wades.png');
+	const wetArcade = (await wb.state()).arcade;
+	const wetSeen = {
+		low: lookAt(wetShot, wetArcade, meWb, WADE_LIFT.low),
+		high: lookAt(wetShot, wetArcade, meWb, WADE_LIFT.high),
+	};
+	const lookWb = wetArcade?.online?.art?.looks?.[meWb];
+	// The water it now stands in, as the bank's picture showed it bare. The riverbed's sand is a
+	// brown too and un-mixes to itself, so the bear's lower half is told from a hole in it by the
+	// place: fur under the tint is darker than that water was.
+	const bareSeen = patchAt(
+		dryShot,
+		dryArcade?.camera,
+		wetArcade?.online?.drawn.find((d) => d.id === meWb),
+		WADE_LIFT.low,
+	);
+	verdict(
+		'…and stands half under the water’s tint: its fur above the waterline, the same fur through the tint below it',
+		inWater &&
+			halfUnder(wet, lookWb?.middle) &&
+			mostly(wetSeen.high, isFur) &&
+			!mostly(wetSeen.low, isFur) &&
+			mostly(wetSeen.low, furUnder) &&
+			darker(wetSeen.low, bareSeen),
+		{
+			inWater,
+			wet,
+			middle: lookWb?.middle,
+			low: wetSeen.low.length ? meanOf(wetSeen.low) : null,
+			high: wetSeen.high[12],
+			bare: bareSeen.length ? meanOf(bareSeen) : null,
+		},
+	);
+	// The fisherman on a bridge's deck is over open water and is no wader: his own page, which
+	// draws him by his code look, says so of him.
+	const onBridge = await standAt(wadeRoom, wf, meWf, WADE_AT.bridge);
+	await settle(wf, 1200);
+	await shotOf(wf, '14e-fisherman-on-a-bridge.png');
+	const onlineWf = await drawnOf(wf);
+	verdict(
+		'…page WF’s fisherman, stood on a bridge’s deck over open water, is no wader: the art holds no wading for him',
+		onBridge &&
+			onlineWf.art?.looks?.[meWf]?.kind === 'circle' &&
+			!!onlineWf.art.wading &&
+			!(meWf in onlineWf.art.wading),
+		{
+			onBridge,
+			at: WADE_AT.bridge,
+			look: onlineWf.art?.looks?.[meWf],
+			wading: onlineWf.art?.wading,
+		},
+	);
+	moveTo(wadeRoom, meWb, WADE_AT.bank);
+	const falling = await depthsTo(wb, meWb, 0);
+	await settle(wb, 300);
+	const ashore = await wadingOf(wb, meWb);
+	verdict(
+		'…back on the bank it steps out: the line falls, and its look has no filter again',
+		steppedOver(falling, 0) && ashore?.depth === 0 && ashore.filtered === false,
+		{ falling, ashore },
+	);
+	for (const [name, game] of [
+		['WB', wb],
+		['WF', wf],
+	]) {
+		const errors = await game.page.evaluate('window.__AR_ERRORS__');
+		verdict(`page ${name}: no page error`, errors.length === 0, errors);
+	}
+	await wb.page.close();
+	await wf.page.close();
+
 	// S0: page S's salmon plays the stub clips the snapshot registers (`characterClips`), and page
 	// T's bear, which has none, keeps its placeholder. S is the room's only salmon, so golden: no
 	// `salmon_golden_*` clip, so the pink one drawn gold.
@@ -3530,6 +3929,8 @@ play: try {
 	if (!roomsClosed) await rooms.close();
 	await snap.close();
 	await snapNoRiver.close();
+	await snapWade.close();
+	await snapRigWade.close();
 	await snapClips.close();
 	await snapClipsAuthored.close();
 	await snapCatcher.close();

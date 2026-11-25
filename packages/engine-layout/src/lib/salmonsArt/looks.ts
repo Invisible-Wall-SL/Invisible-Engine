@@ -29,6 +29,7 @@ import type { SalmonsTextures } from './load';
  *   into a fisherman's hands it is drawn there, out of the water, its tail flapping, and thrown it
  *   tumbles through the air as high as the room says ({@link CARRIED});
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
+ *   in the water it wades, as whatever else draws a bear does (`wade.ts`: not this look's);
  * - the fisherman: the old client's tan circle, his line from his hand.
  * The text that rises over a catcher is not a look's: `floats.ts` draws it over any player.
  */
@@ -160,7 +161,7 @@ const PULSE_MS = 180;
  *  rate, the frames at the screen's. */
 const LIFT_FOLLOW = 30;
 
-/** The water a body at a world place swims in, and the tint drawn over it (`river.ts`
+/** The water a body at a world place swims in, and the tint drawn over it (`water.ts`
  *  `waterUnder`); `undefined` off the water. */
 export type WaterAt = (x: number, y: number) => { tint: number | undefined } | undefined;
 

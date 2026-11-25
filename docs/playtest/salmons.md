@@ -102,9 +102,9 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 ```
 
 `--sheet` plays one room whose salmon class names a character sheet of frame clips (7
-verdicts), and `--rig` one whose salmon's sheet names a rig and whose bear's is still images (15
-verdicts; character pipeline C2a, C6a, C6b). Both boot sheets made with Invisible Characters'
-own edits: [`--sheet`](#a-character-sheet-made-in-the-tool---sheet),
+verdicts), and `--rig` one whose salmon's sheet names a rig and whose bear's is still images, then
+a bear the rig draws, wading (19 verdicts; character pipeline C2a, C6a, C6b). Both boot sheets made
+with Invisible Characters' own edits: [`--sheet`](#a-character-sheet-made-in-the-tool---sheet),
 [`--rig`](#a-rig-and-still-images-chosen-in-the-tool---rig). `--hold` plays one whose salmon's catch holds its last
 frame ([below](#a-held-catch---hold)).
 `--turn` plays a sheet that turns smoothly, as clips and as a rig
@@ -330,6 +330,27 @@ shares). `--rooms`, `--seconds`, `--span` and `--salmon` are in its header. Resu
     at its place on the mirrored screen, under rocks, lips and bridges, since 2026-11-18).
     The red salmon and its trail are pinned by `check:salmons-art`, not here: these pages draw a
     river of the room's seed while the room plays the authored one.
+19d. The bear wades (2026-11-25; `engine-layout` `salmonsArt/wade.ts`): pages WB (a bear) and WF
+    (a fisherman) join `salmons-wade`, the original's level pinned to one seed (the band river's
+    water stops a bear; this one's lets it in), from a snapshot whose config names it, so the
+    room plays and the pages draw the river made in Node. The probe's `online.art.wading` (room
+    id → `{ depth, tint, line, filtered }`, `filtered` read off the look's own container) says
+    how each wading character is drawn. The room stands WB's bear on a bank a cell and a half
+    from the water: depth 0, no filter, and its fur at two heights up its middle
+    (`14c-bear-on-the-bank.png`). WB's Left key walks it in (the screen's Left is across the
+    river and up it): the depth, read every two frames, rises one way through at least three
+    values to 1 in six to eleven readings (about 250 ms). Stood three cells into calm water:
+    depth 1, through the filter, under one of the water's tints, its waterline's ends over the
+    look's middle and its lowest point under it; in `14d-bear-wades.png` the fur is fur above
+    the line, and below it not fur as seen but fur once the tint is taken back out
+    (`(seen − 0.75 · T) / 0.25`), and darker in every channel than the same water was in the
+    bank's picture, before the bear stood in it (the riverbed's sand un-mixes to a brown too, so
+    the colour alone would not tell the bear's lower half from a hole in it).
+    The room stands WF's fisherman on the middle of a bridge's
+    deck, over open water: his own page draws him by his code look and has no wading for him
+    (`14e-fisherman-on-a-bridge.png`). Back on the bank the bear's depth falls the same way to 0
+    and its look has no filter. No page error on either. On a runtime from before the wading
+    the probe has no `wading` and the first verdict fails.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
     snapshot that registers three stub clips (S's with the room's own config, no generator, so it
     predicts the river the room plays; S swims down only to above the whirlpool below the sand) (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
@@ -381,7 +402,7 @@ banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its ro
 so it is golden and check 6 takes its colour as pink or gold. A salmon swimming in open water is
 drawn under the water's tint (2026-11-18): check 6 reads its colour back through each of the
 river's tints, and the golden checks (16, 19) take a swimming salmon's look as the golden texture
-(the probe's `underwater`), since only a quarter of its gold shows. 94 verdicts.
+(the probe's `underwater`), since only a quarter of its gold shows. 101 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
 and the pages of the authored-river rooms (E, F, G, H, K, P, Q, S, T, V, X, Y) draw a river of the
@@ -392,8 +413,9 @@ Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstr
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,
 `08-over-the-waterfall.png`, `08b-touch-over-the-waterfall.png`, `09-grounded.png`, `10-golden-salmon.png`,
 `11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`,
-`14b-bloodstain.png`, `15-salmon-clip.png`, `16-bear-code-look.png`, `17-line-from-a-clip.png`,
-`18-catch-text-over-a-clip.png`, `19-bear-clip-not-loaded.png`.
+`14b-bloodstain.png`, `14c-bear-on-the-bank.png`, `14d-bear-wades.png`,
+`14e-fisherman-on-a-bridge.png`, `15-salmon-clip.png`, `16-bear-code-look.png`,
+`17-line-from-a-clip.png`, `18-catch-text-over-a-clip.png`, `19-bear-clip-not-loaded.png`.
 
 ## A character sheet made in the tool (`--sheet`)
 
@@ -437,10 +459,21 @@ bear's bot is drawn as one image, with a walk that stands in from it and a swipe
 image of its own. `pnpm --filter launcher-api check:characters-tool` §16 makes both with the
 tool and fails when the file differs (`-- --record-tool-rig` re-records it).
 
-Fifteen verdicts, read from the probe (`arcade.online.rigs`, and `rig:<rig>/<animation>` lines
+Nineteen verdicts, read from the probe (`arcade.online.rigs`, and `rig:<rig>/<animation>` lines
 in `clipLog`): the salmon's rig mounted at the sheet's size, its swim mirrored swimming
 north-west, its hop once on a jump, the golden salmon in its `marked` skin, and the bear as
 still images (one frame on its place, another for a second on its swipe).
+
+The last four are the wading on a rig (2026-11-25): page W's bear is of a class whose sheet
+names the same rig (the owner's live bear is a rig), in `salmons-rig-wade`, the original's level
+pinned as in check 19d. The room stands it on the bank (the rig mounted, no clip, depth 0, no
+filter, the rig's colour at 40 and 130 px up its 180: `rig-bear-on-the-bank.png`), then in the
+water (the depth rises as in 19d; depth 1 through the filter, the line's ends over the rig's
+middle and its lowest point under it; the rig's colour at 130 px and, at 40 px, that colour once
+the tint is taken back out: `rig-bear-wades.png`), then on the bank again (no filter). This is
+the look the wading can silently miss: Pixi measures no size for a rig when it places a filter
+and skips the pass, so the wading hands it the look's box. On a runtime whose wading does not,
+the second of the four fails on its `filtered` and its pixels.
 
 ## A held catch (`--hold`)
 
@@ -726,8 +759,22 @@ both netcodes; throwaway probes, not a script here (`docs/status/salmons.md`, 20
   the live game with the re-upload of `flow-v2.json` (Owner steps). Gated by `check:salmons-art`
   ("a press draws no circle").
 
+### The bear's wading (2026-11-25)
+
+`pnpm check:salmons-art` (33) holds what a browser cannot read exactly: the waterline's arc and
+the line of a body at a depth, the 250 ms ease, who wades where on the original's level (a bear on
+open water; not on a bank, a sandbank, a rock or the sea; not a fisherman on a bridge's deck, nor
+a salmon), that a look on land has no filter and one in the water has one whose colour uniform is
+`underTint`'s own matrix, one mount a player and a look, what is let go and when, a GPU that
+refuses the pass, and the pass's place on the screen at four zooms and resolutions.
+
 ## Known gaps
 
+- The wading (2026-11-25): no verdict plays a bear drawn by a plain published clip (it does not
+  wade: [status/salmons](../status/salmons.md), Open items), nor a bear that turns between two
+  rigs in the water (held by `pnpm check:salmons-art`), nor a phone. The waterline's shape is
+  read off the probe and two pixels, not measured: the gate pins the pass's own sums and holds
+  them to `waterlineAt`.
 - `salmons-touch-play.mjs` is Chromium's touch emulation: no real phone has played the schemes.
   It plays Salmons' two schemes only; the other presets (a target, a second finger, the
   on-screen button, the virtual stick) are held by `pnpm check:arcade-touch`, not in a browser.

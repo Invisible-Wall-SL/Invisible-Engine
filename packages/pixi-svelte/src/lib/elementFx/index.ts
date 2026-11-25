@@ -17,4 +17,4 @@ export {
 	stageFxRefusal,
 } from './stage';
 export { graphFilter } from './custom';
-export type { ElementFxFilter } from './shaders';
+export { VERTEX as FILTER_VERTEX, programLinks, type ElementFxFilter } from './shaders';

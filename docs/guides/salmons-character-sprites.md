@@ -78,6 +78,11 @@ made, and for each missing one the clip the game would draw in its place.
 | `walk` | moving | on | `bear_walk_n` `bear_walk_ne` `bear_walk_e` `bear_walk_se` `bear_walk_s` |
 | `swipe` | once, on its swipe | off | `bear_swipe_n` `bear_swipe_ne` `bear_swipe_e` `bear_swipe_se` `bear_swipe_s` |
 
+A bear made of these plain clips does **not wade** yet: in the water it is drawn whole, as on land.
+The bear wades (its lower half under the water's tint) when a character sheet draws it with a rig
+or with **Smooth turn** on, and when it has no art at all
+([status/salmons](../status/salmons.md), "Open after the wading").
+
 **Fisherman** (20 clips):
 
 | State | Plays | Loop | Clips |

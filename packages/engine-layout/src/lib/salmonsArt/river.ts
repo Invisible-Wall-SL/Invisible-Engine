@@ -19,6 +19,7 @@ import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
+import { TINT_ALPHA, tintOf, wetAt, type Wet } from './water';
 
 /**
  * SALMONS' RIVER IN ITS ORIGINAL ART: the river a room's seed made (`engine-mechanics`
@@ -47,11 +48,6 @@ import { CELL, K } from './scale';
  */
 
 const FOREST_FLOOR = 0x28591e;
-const WATER_TINT = 0x0ea5e9;
-const RAPIDS_TINT = 0x38bdf8;
-const SOURCE_TINT = 0x7dd3fc;
-/** How strongly the water's tint covers the riverbed and what swims under it. */
-export const TINT_ALPHA = 0.75;
 const RIVERBED = [
 	0xb89968, 0xc4a576, 0xa88858, 0xd0b487, 0xb09060, 0xc8a878, 0xa07050, 0xb88f5d, 0xc59f70,
 ];
@@ -109,7 +105,6 @@ const Z = {
 };
 const DEPTH_PER_OLD_PX = CELL / 16;
 
-type Wet = 'water' | 'rapids' | 'source' | 'sea';
 type Box = { x0: number; y0: number; x1: number; y1: number };
 type Culled = { view: Container; box: Box };
 
@@ -228,43 +223,6 @@ function displacementTexture(): Texture {
 	const texture = Texture.from(canvas);
 	texture.source.style.addressMode = 'repeat';
 	return texture;
-}
-
-const tintOf = (wet: Wet) =>
-	wet === 'rapids' ? RAPIDS_TINT : wet === 'source' ? SOURCE_TINT : WATER_TINT;
-
-/**
- * The water a body at world (x, y) swims in, as the art draws it: on open water (its cell's water,
- * not the sea, a sandbank or a rock), with the tint drawn over that cell (none for the sea, which
- * has none); `undefined` off the water.
- */
-export function waterUnder(
-	river: SalmonsRiverDrawing,
-	x: number,
-	y: number,
-): { tint: number | undefined } | undefined {
-	const wet = wetAt(
-		river,
-		(Math.floor(x / CELL) + 0.5) * CELL,
-		(Math.floor(y / CELL) + 0.5) * CELL,
-	);
-	if (!wet) return undefined;
-	const inside = (b: { x: number; y: number; w: number; h: number }) =>
-		x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
-	if ((river.sandbanks ?? []).some(inside) || (river.rocks ?? []).some(inside)) return undefined;
-	return { tint: wet === 'sea' ? undefined : tintOf(wet) };
-}
-
-/** What the river holds at a world point: its kind of water, or `undefined` for a bank. */
-function wetAt(river: SalmonsRiverDrawing, x: number, y: number): Wet | undefined {
-	if (y >= river.sea.y) return 'sea';
-	const { source } = river;
-	if (y >= source.y && y < source.y + source.h) {
-		return x >= source.x && x < source.x + source.w ? 'source' : undefined;
-	}
-	const band = river.bands.find((b) => y >= b.y && y < b.y + b.h);
-	if (!band || x < band.left || x >= band.right) return undefined;
-	return band.current > 100 ? 'rapids' : 'water';
 }
 
 /** A river drawn: its teardown, the pieces drawn with a Salmons texture by region, and whether
