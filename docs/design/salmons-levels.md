@@ -1,8 +1,9 @@
 # Salmons levels — the original generator, by seed, with an authored overlay
 
 > Status: **planned 2026-11-16; built 2026-11-17 (in review)** after the owner gave the original
-> source and chose §3 b option 3; **§5 built 2026-11-24 (in review)**. State:
-> [status/salmons](../status/salmons.md). Agent: `arcade-games`.
+> source and chose §3 b option 3; **§5 built 2026-11-24 (in review)**; **§3's device and room on
+> one level built 2026-11-25 (in review)**. State: [status/salmons](../status/salmons.md). Agent:
+> `arcade-games`.
 
 **Owner report (2026-11-16):** the original game generated each level from an algorithm; the
 Scene Editor shows something else, only one level, and the original function seems gone. The
@@ -83,10 +84,36 @@ level is about 730 zones (P10.16's river: 71); a room step with 80 players takes
 - Salmons pins no seed: every room is random, as the owner asked; the pinned list stays an option
   for other games.
 
-- A device makes its level from the config baked in its bundle; the server from the published one.
-  After a republish that changes `levels`, a device on the old bundle can draw a level the server
-  does not play until it reloads (the same drift as any config field, but levels are meant to change
-  often). A levels hash in the room state, refused or reloaded on a mismatch, would close it.
+- **A device and its room on one level: closed 2026-11-25** (in review; owner: "changing the seed
+  generates a new level, but does not update collisions").
+  - **What was open.** A device made its level from the config it booted with, the game server
+    from the published one, and nothing compared the two. This list named one case: after a
+    republish that changes `levels`, a device on the old bundle draws a level the server does not
+    play until it reloads. It did not name the common one. Every launcher link is an authoring
+    boot (`ie_authoring=1`), which boots the project's LIVE config, not the published one. So
+    from a **Save levels** in `/editor` until the next Publish, the launcher's game drew the saved
+    `levels` while its room collided against the published ones: one seed, two rivers, about 397
+    of 400 columns of water apart.
+  - **How it is closed** (the owner's decision: the device adopts the room's levels, so the picture
+    is always the collisions). A room's state carries, beside its seed, the levels its generator
+    read for that seed (`levels`: the JSON of `salmonsMap.js` `seedLevels`, which is the shape and
+    the one overlay laid on that seed's level, with no pinned seeds) and a fingerprint of the
+    level it made (`levelHash`: of the generator's geometry, the field, zones, zone rules and
+    spawns, and of nothing else in the config). The device makes its level from the ROOM's levels
+    (`onlineGenerators.js` `roomLevelGame`, the one decision `online.ts` wires). When its own
+    differ, an authoring boot shows a notice naming what differs (river, waterfalls, overlays) and
+    a player's boot shows nothing. A device whose level still has another fingerprint (its
+    generator is another release than the game server's) leaves the room and stops on the error
+    screen, which says to reload.
+  - **Edges.** Levels longer than 16,384 characters are not sent or read, and the fingerprint
+    alone then decides. A refusal is a hard stop: a later change to a generator must be out on
+    both the runtime and the game server before a device can join. A room of a game server older than the two fields says neither, and the device plays
+    its own config's level as before; a runtime older than them ignores them. A game with no
+    generator reads, makes and checks nothing.
+  - **Still open.** A room whose config names no generator says nothing, so a device whose own
+    config names one (or the reverse) is not caught: that is the generator's id drifting, not its
+    levels, the same drift as any other config field.
+  - Proof and what is live: [status/salmons](../status/salmons.md); `pnpm check:room-levels`.
 - Bridges: generated, not drawn (no bridge art is built) and not in the rules (a bear blocked, a
   fisherman on the deck).
 - Waterfall `height`: closed 2026-11-17 (the original's climb and the raised river;
@@ -176,8 +203,9 @@ take the shape). With neither, a level is the original's to the byte.
   ([guide](../tools/invisible-editor.md#generated-level-an-online-arcade-field-made-from-a-seed)).
 
 **Shipping (rule 8).** The shape is part of the Game Config, as the overlays are (§2 e): no new
-asset class. A published game changes only after a re-export and a publish. A device on an old
-bundle drifts from the server as §3 describes for any change to `levels`.
+asset class. A published game changes only after a re-export and a publish. A device whose config
+has other `levels` than its room (an old bundle, a launcher link before the publish) plays the
+room's (§3, closed 2026-11-25).
 
 **Proof.** `pnpm check:salmons-course` (21 checks over 48 seeds): a config from before keeps its
 river to the byte (hashes recorded from main `36b42be`); one run of water a column; a reach at

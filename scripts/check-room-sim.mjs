@@ -674,10 +674,15 @@ await check('the runtime: the SDK is reached only through the online branch, and
 		/return online \? listenOnline\(pixi\.canvas, toGlobal\) : useArcadeInput\(pixi\.canvas, toGlobal\);/,
 	);
 	// A field per room (P11.2 (e)): only a game that names a generator waits for the room's seed,
-	// makes the room's field with the server's own function and has the loaded doc draw it; every
-	// other game's doc loads as it always did.
+	// makes the room's field through the shared decision (the room's levels, never its own config's
+	// where they differ: `check:room-levels`) and has the loaded doc draw it; every other game's doc
+	// loads as it always did.
 	assert.match(online, /const seed = generator \? await roomSeed\(room\) : undefined;/);
-	assert.match(online, /: generatedOnlineGame\(resolved, seed\);/);
+	assert.match(
+		online,
+		/const level = seed === undefined \? undefined : roomLevelGame\(resolved, seed, stateOf\(room\)\);/,
+	);
+	assert.doesNotMatch(online, /generatedOnlineGame\(/);
 	assert.match(online, /if \(current\.field\) setRoomDocChange\(withRoomField\);/);
 	assert.match(online, /const field = current\?\.field;\s+if \(!current \|\| !field\) return doc;/);
 	// A layout with no node to draw the field in stops the game rather than draw the authored one:
