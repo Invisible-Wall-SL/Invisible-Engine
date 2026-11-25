@@ -17,7 +17,7 @@ import {
 	type SalmonsScreens,
 } from './screens';
 import { createWading, type WadeDrawn, type WadeFrame } from './wade';
-import { wadeSurface } from './wadeFilter';
+import { wadeSurface, warmWade } from './wadeFilter';
 import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';
 
@@ -126,6 +126,7 @@ export async function loadSalmonsArt(
 		river: (into, app) => {
 			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
 			const stains = blood.mount(into, app);
+			warmWade(app);
 			// The swimming salmon, and the trail and the stains on the water over it: over the tinted
 			// ground, under the bridges' reflections and every upright piece of the river.
 			art.aboveWater();

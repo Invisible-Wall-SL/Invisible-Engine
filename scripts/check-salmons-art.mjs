@@ -78,7 +78,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PIXI_CJS = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve(
 	'pixi.js',
 );
-const { Container, Matrix, Rectangle, RendererType, Texture } = await import(
+const { Container, FilterSystem, Matrix, Rectangle, RendererType, Texture } = await import(
 	pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href
 );
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
@@ -541,7 +541,8 @@ registerHooks({
 				}
 			: next(specifier, context),
 });
-const { wadeSurface } = await import('../packages/engine-layout/src/lib/salmonsArt/wadeFilter.ts');
+const { wadeSurface, warmWade } =
+	await import('../packages/engine-layout/src/lib/salmonsArt/wadeFilter.ts');
 
 check('wading: its tunables', () => {
 	assert.deepEqual(WADE, {
@@ -643,11 +644,9 @@ const WADE_PLACES = (() => {
 		const x = (b.left + b.right) / 2;
 		return b.current <= 100 && b.right - b.left > 6 * CELL && clear(x, b.y + b.h / 2);
 	});
-	const rapids = wadeRiver.bands.find((b) => b.current > 100);
 	return {
 		water: { x: (band.left + band.right) / 2, y: band.y + band.h / 2 },
 		bank: { x: band.left - CELL, y: band.y + band.h / 2 },
-		rapids: rapids && { x: (rapids.left + rapids.right) / 2, y: rapids.y + rapids.h / 2 },
 		sandbank: centreOf(wadeRiver.sandbanks[0]),
 		rock: centreOf(wadeRiver.rocks[0]),
 		bridge: centreOf(wadeRiver.bridges[0]),
@@ -668,7 +667,13 @@ check('wading: only the bear, and only on open water that has a tint', () => {
 	assert.deepEqual(at(WADE_PLACES.water), { tint: 0x0ea5e9 });
 	assert.equal(wadingTint('bear', at(WADE_PLACES.water)), 0x0ea5e9, 'a bear in the river wades');
 	assert.equal(wadingTint('bear', at(WADE_PLACES.source)), 0x7dd3fc, 'in the source too');
-	if (WADE_PLACES.rapids) assert.equal(wadingTint('bear', at(WADE_PLACES.rapids)), 0x38bdf8);
+	// The original's level has no rapids: the same river, running fast.
+	const fast = { ...wadeRiver, bands: wadeRiver.bands.map((b) => ({ ...b, current: 101 })) };
+	assert.equal(
+		wadingTint('bear', waterUnder(fast, WADE_PLACES.water.x, WADE_PLACES.water.y)),
+		0x38bdf8,
+		'in the rapids too',
+	);
 	for (const dry of ['bank', 'sandbank', 'rock']) {
 		assert.equal(at(WADE_PLACES[dry]), undefined, `${dry}: no water`);
 		assert.equal(wadingTint('bear', at(WADE_PLACES[dry])), undefined, `a bear on a ${dry}`);
@@ -962,6 +967,13 @@ check(
 			console.warn = warn;
 		}
 		assert.equal(wadeSurface({ renderer: { type: RendererType.WEBGPU } }), undefined, 'WebGL only');
+		// The driver is asked for the program as the river mounts, whatever the renderer is.
+		warmWade({ renderer: { type: RendererType.WEBGPU } });
+		warmWade(wadeApp(false));
+		assert.match(
+			readFileSync(join(ART, 'index.ts'), 'utf8'),
+			/river: \(into, app\) => \{[\s\S]*?\n\t\t\twarmWade\(app\);\n/,
+		);
 	},
 );
 
@@ -980,6 +992,38 @@ check(
 			'alpha kept',
 		);
 		assert.doesNotMatch(source, /fwidth|dFdx|dFdy/, 'nothing WebGL 1 lacks');
+		// The line it draws: its fragment's own sums, each pinned, and the same sums done here meet
+		// `waterlineAt` at every x.
+		for (const [sum, why] of [
+			[/vec2 at = \(uFeet \* vec3\(vTextureCoord, 1\.0\)\)\.xy;/, 'px about the place'],
+			[/float across = min\(abs\(at\.x\) \/ uLine\.z, 1\.0\);/, 'level beyond its ends'],
+			[
+				/float below = at\.y - \(uLine\.x \+ uLine\.y \* sqrt\(1\.0 - across \* across\)\);/,
+				'the arc of an ellipse',
+			],
+			[/float edge = 0\.5 \* uLine\.w;/, 'smoothed over one pixel of the screen'],
+			[
+				/vec3 rgb = mix\(color\.rgb, under, smoothstep\(-edge, edge, below\)\);/,
+				'the tint under the line, not over it',
+			],
+			[
+				/float rim = uRim\.y \* \(1\.0 - smoothstep\(0\.0, uRim\.x, abs\(below\)\)\);/,
+				'the rim along it',
+			],
+		])
+			assert.match(source, sum, why);
+		assert.equal(filter.antialias, 'inherit', 'as smooth as the look is drawn without it');
+		const { uRim } = uniformsOf(filter);
+		assert.equal(uRim[0], WADE.rim.width);
+		assert.ok(Math.abs(uRim[1] - WADE.rim.alpha) < 1e-6);
+		const drawnLine = { level: -59, sag: 15, reach: 37.5 };
+		surface.draw(new Container(), drawnLine, underTint(0x0ea5e9, TINT_ALPHA));
+		const [level, sag, reach] = uniformsOf(filter).uLine;
+		for (const x of [-80, -37.5, -20, 0, 9.25, 37.5, 60]) {
+			const across = Math.min(Math.abs(x) / reach, 1);
+			const below = waterlineAt(drawnLine, x) - (level + sag * Math.sqrt(1 - across * across));
+			assert.ok(Math.abs(below) < 1e-9, `the pass's line is waterlineAt's at x ${x}`);
+		}
 		// Asked for `highp` (a place is hundreds of px, read to a fraction of one); Pixi lowers it on
 		// a GPU that has none, as it has here, where there is no GPU.
 		assert.match(
@@ -1034,7 +1078,12 @@ check(
 			const input = { source: { resolution } };
 			filter.apply(
 				{
-					calculateSpriteMatrix: (matrix) => matrix.set(frame.w, 0, 0, frame.h, frame.x, frame.y),
+					// Pixi's own mapping of the pass's frame, over a frame put where Pixi would put it.
+					_activeFilterData: {
+						inputTexture: { _source: { width: frame.w, height: frame.h } },
+						bounds: { minX: frame.x, minY: frame.y },
+					},
+					calculateSpriteMatrix: FilterSystem.prototype.calculateSpriteMatrix,
 					applyFilter: (...args) => applied.push(args),
 				},
 				input,

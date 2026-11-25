@@ -1327,11 +1327,10 @@ const halfUnder = (wading, middle) =>
 	wading.line.sag > 0 &&
 	-wading.line.level > middle &&
 	-(wading.line.level + wading.line.sag) < middle;
-/** The 5 × 5 px of a screenshot round a point `lift` px above where player `id` stands. */
-const lookAt = (shot, arcade, id, lift) => {
-	const at = arcade?.online?.drawn.find((d) => d.id === id);
-	if (!arcade?.camera || !at) return [];
-	const centre = isoScreen(shot, arcade.camera, at, lift);
+/** The 5 × 5 px of a screenshot round a point `lift` px above the world place `at`. */
+const patchAt = (shot, cam, at, lift) => {
+	if (!cam || !at) return [];
+	const centre = isoScreen(shot, cam, at, lift);
 	const seen = [];
 	for (let dx = -2; dx <= 2; dx++)
 		for (let dy = -2; dy <= 2; dy++) {
@@ -1340,6 +1339,14 @@ const lookAt = (shot, arcade, id, lift) => {
 		}
 	return seen;
 };
+/** The same round a point `lift` px above where player `id` stands. */
+const lookAt = (shot, arcade, id, lift) =>
+	patchAt(
+		shot,
+		arcade?.camera,
+		arcade?.online?.drawn.find((d) => d.id === id),
+		lift,
+	);
 const mostly = (seen, test) => seen.length > 0 && seen.filter(test).length * 2 > seen.length;
 
 play: try {
@@ -3437,6 +3444,12 @@ play: try {
 	const wadeRoom = await roomOf(WADE_GAME);
 	// The bear sprite's fur: brown, red over green over blue.
 	const isFur = ([r, g, b]) => r > g && g > b && r - b > 30;
+	const furUnder = (seen) => throughWater(seen).some(isFur);
+	const meanOf = (seen) =>
+		[0, 1, 2].map((c) => seen.reduce((sum, rgb) => sum + rgb[c], 0) / seen.length);
+	/** Whether a patch is darker than another in every channel, by more than the water's shimmer. */
+	const darker = (seen, than) =>
+		seen.length > 0 && than.length > 0 && meanOf(seen).every((c, i) => c < meanOf(than)[i] - 6);
 	// Two heights up the bear's middle, clear of the line whichever way the sprite is turned: one
 	// under the line's lowest point (and its rim and bob), one over its ends.
 	const WADE_LIFT = { low: 10, high: 36 };
@@ -3481,14 +3494,31 @@ play: try {
 		high: lookAt(wetShot, wetArcade, meWb, WADE_LIFT.high),
 	};
 	const lookWb = wetArcade?.online?.art?.looks?.[meWb];
+	// The water it now stands in, as the bank's picture showed it bare. The riverbed's sand is a
+	// brown too and un-mixes to itself, so the bear's lower half is told from a hole in it by the
+	// place: fur under the tint is darker than that water was.
+	const bareSeen = patchAt(
+		dryShot,
+		dryArcade?.camera,
+		wetArcade?.online?.drawn.find((d) => d.id === meWb),
+		WADE_LIFT.low,
+	);
 	verdict(
 		'…and stands half under the water’s tint: its fur above the waterline, the same fur through the tint below it',
 		inWater &&
 			halfUnder(wet, lookWb?.middle) &&
 			mostly(wetSeen.high, isFur) &&
 			!mostly(wetSeen.low, isFur) &&
-			mostly(wetSeen.low, (rgb) => throughWater(rgb).some(isFur)),
-		{ inWater, wet, middle: lookWb?.middle, low: wetSeen.low[12], high: wetSeen.high[12] },
+			mostly(wetSeen.low, furUnder) &&
+			darker(wetSeen.low, bareSeen),
+		{
+			inWater,
+			wet,
+			middle: lookWb?.middle,
+			low: wetSeen.low.length ? meanOf(wetSeen.low) : null,
+			high: wetSeen.high[12],
+			bare: bareSeen.length ? meanOf(bareSeen) : null,
+		},
 	);
 	// The fisherman on a bridge's deck is over open water and is no wader: his own page, which
 	// draws him by his code look, says so of him.
@@ -3497,7 +3527,7 @@ play: try {
 	await shotOf(wf, '14e-fisherman-on-a-bridge.png');
 	const onlineWf = await drawnOf(wf);
 	verdict(
-		'…page WF’s fisherman, stood on a bridge’s deck over open water, does not wade: no filter on his look',
+		'…page WF’s fisherman, stood on a bridge’s deck over open water, is no wader: the art holds no wading for him',
 		onBridge &&
 			onlineWf.art?.looks?.[meWf]?.kind === 'circle' &&
 			!!onlineWf.art.wading &&

@@ -343,7 +343,10 @@ shares). `--rooms`, `--seconds`, `--span` and `--salmon` are in its header. Resu
     depth 1, through the filter, under one of the water's tints, its waterline's ends over the
     look's middle and its lowest point under it; in `14d-bear-wades.png` the fur is fur above
     the line, and below it not fur as seen but fur once the tint is taken back out
-    (`(seen − 0.75 · T) / 0.25`). The room stands WF's fisherman on the middle of a bridge's
+    (`(seen − 0.75 · T) / 0.25`), and darker in every channel than the same water was in the
+    bank's picture, before the bear stood in it (the riverbed's sand un-mixes to a brown too, so
+    the colour alone would not tell the bear's lower half from a hole in it).
+    The room stands WF's fisherman on the middle of a bridge's
     deck, over open water: his own page draws him by his code look and has no wading for him
     (`14e-fisherman-on-a-bridge.png`). Back on the bank the bear's depth falls the same way to 0
     and its look has no filter. No page error on either. On a runtime from before the wading
@@ -727,7 +730,8 @@ refuses the pass, and the pass's place on the screen at four zooms and resolutio
 - The wading (2026-11-25): no verdict plays a bear drawn by a plain published clip (it does not
   wade: [status/salmons](../status/salmons.md), Open items), nor a bear that turns between two
   rigs in the water (held by `pnpm check:salmons-art`), nor a phone. The waterline's shape is
-  read off the probe and two pixels, not measured: it is held to `waterlineAt` by the gate.
+  read off the probe and two pixels, not measured: the gate pins the pass's own sums and holds
+  them to `waterlineAt`.
 - `salmons-touch-play.mjs` is Chromium's touch emulation: no real phone has played the schemes.
   It plays Salmons' two schemes only; the other presets (a target, a second finger, the
   on-screen button, the virtual stick) are held by `pnpm check:arcade-touch`, not in a browser.

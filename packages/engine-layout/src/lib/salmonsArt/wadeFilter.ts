@@ -87,8 +87,9 @@ class WadeFilter extends Filter {
 					},
 				},
 			},
-			// At the screen's own resolution, as the look is drawn without the pass.
+			// At the screen's own resolution and smoothing, as the look is drawn without the pass.
 			resolution: 'inherit',
+			antialias: 'inherit',
 		});
 		this.wade = (this.resources.wadeUniforms as { uniforms: WadeUniforms }).uniforms;
 	}
@@ -117,6 +118,11 @@ const isWebGL = (renderer: Renderer): renderer is WebGLRenderer =>
 	renderer.type === RendererType.WEBGL;
 
 let refused = false;
+
+/** Ask the driver for the pass's program as the river mounts, not as the first bear steps in. */
+export function warmWade(app: Application): void {
+	if (isWebGL(app.renderer)) programLinks(app.renderer, program());
+}
 
 /**
  * The filter that draws one wader's water, or none on a renderer that is not WebGL or whose GPU
