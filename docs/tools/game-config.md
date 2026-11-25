@@ -153,18 +153,18 @@ has no family control at all. Three more families exist
 - **Only the family's sections are shown.** The rest are not rendered at all, and nothing they
   hold is checked, so a hidden section never blocks Save:
 
-  | Section                                                                                                          | Slot | Match-3, RGS                  | Match-3, rules                       | Arcade | Card |
-  | ---------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------- | ------------------------------------ | ------ | ---- |
-  | Return to player, Bet modes, Big win tiers                                                                       | ✓    | ✓                             | —                                    | —      | —    |
-  | Grid                                                                                                             | ✓    | ✓ (the board: columns × rows) | ✓ (the board)                        | —      | —    |
-  | Symbols                                                                                                          | ✓    | ✓ (gems, with pays)           | ✓ (gems, no pays, no import buttons) | —      | —    |
-  | How wins are decided                                                                                             | ✓    | ✓ (a read-only Match-3 line)  | —                                    | —      | —    |
-  | Sounds                                                                                                           | ✓    | ✓                             | ✓                                    | —      | —    |
-  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —      | —    |
-  | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —      | —    |
-  | Arcade                                                                                                           | —    | —                             | —                                    | ✓      | —    |
-  | Online room, Mouse and touch, Online rules, Bots                                                                                  | —    | —                             | —                                    | ✓ (an online game only) | —    |
-  | Card game                                                                                                        | —    | —                             | —                                    | —      | ✓    |
+  | Section                                                                                                          | Slot | Match-3, RGS                  | Match-3, rules                       | Arcade                  | Card |
+  | ---------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------- | ------------------------------------ | ----------------------- | ---- |
+  | Return to player, Bet modes, Big win tiers                                                                       | ✓    | ✓                             | —                                    | —                       | —    |
+  | Grid                                                                                                             | ✓    | ✓ (the board: columns × rows) | ✓ (the board)                        | —                       | —    |
+  | Symbols                                                                                                          | ✓    | ✓ (gems, with pays)           | ✓ (gems, no pays, no import buttons) | —                       | —    |
+  | How wins are decided                                                                                             | ✓    | ✓ (a read-only Match-3 line)  | —                                    | —                       | —    |
+  | Sounds                                                                                                           | ✓    | ✓                             | ✓                                    | —                       | —    |
+  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —                       | —    |
+  | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —                       | —    |
+  | Arcade                                                                                                           | —    | —                             | —                                    | ✓                       | —    |
+  | Online room, Mouse and touch, Online rules, Bots                                                                 | —    | —                             | —                                    | ✓ (an online game only) | —    |
+  | Card game                                                                                                        | —    | —                             | —                                    | —                       | ✓    |
 
 - **Match-3** — the board's rules. The board itself is the **Grid**: its reels are the columns,
   and every column must be the same height (a stepped match-3 board is refused).
@@ -428,13 +428,15 @@ has no family control at all. Three more families exist
   ([zone-art.md](../design/zone-art.md)). The card shows for an arcade config with zones, its own
   or a generator's (the level on the zone map). Hover its title for what it does. One row per
   family: the zone ids with their numbers as `#` (`rock# × 41`), as the Zones chips group them.
-  - **Drawn with:** **Not drawn** (the family draws as it does today), **Sheet frame** (the Scene
+  - **Drawn with:** **Default** (the family draws as it does today; the row shows what that is, e.g.
+    Salmons' 9 built-in rocks as thumbnails from the project's `salmons_props` sheet, or "Nothing
+    drawn" for a family no built-in art draws), **Sheet frame** (the Scene
     Editor's region picker, over the project's sheets), or **Flipbook clip** (a list of the
     project's clips; greyed out when the project has none). Clips have an optional **fps** (blank:
     the clip's own). A thumbnail of the frame, or of the clip's first frame, sits beside it.
   - **＋ Variant** adds a picture, a copy of the first, to change (at most 8). Each zone draws one
     of the pictures, chosen by the room's seed and the zone, the same on every device. A variant's
-    **Remove variant** takes it out. Setting the first picture to **Not drawn** moves the first
+    **Remove variant** takes it out. Setting the first picture to **Default** moves the first
     variant up.
   - **Scale** (blank: 1; 0.05–20) multiplies the fitted size. Each picture is centred on its zone
     and fitted inside it, with its own ratio kept. In Salmons' river a rock's or a whirlpool's

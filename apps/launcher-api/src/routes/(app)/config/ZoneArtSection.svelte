@@ -18,6 +18,7 @@
 		setZoneArtScale,
 		setZoneArtSource,
 		shownZoneArtRows,
+		zoneArtDefault,
 		zoneArtRows,
 	} from './zoneArtDoc';
 
@@ -54,7 +55,7 @@
 	const clipsById = $derived(new Map(clips.map((c) => [c.id, c])));
 
 	const KINDS = [
-		['', 'Not drawn'],
+		['', 'Default'],
 		['sprite', 'Sheet frame'],
 		['flipbook', 'Flipbook clip'],
 	] as const;
@@ -271,6 +272,10 @@
 		align-items: center;
 		gap: 6px 8px;
 		margin-bottom: 4px;
+	}
+	.default {
+		font-size: 12px;
+		color: #8b8b98;
 	}
 	.thumb {
 		display: inline-flex;

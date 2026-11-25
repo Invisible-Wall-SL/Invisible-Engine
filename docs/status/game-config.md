@@ -790,7 +790,15 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
-- 2026-11-25 — **Zone art** (branch `claude/wizardly-galileo-kjszii`, in review; owner on Salmons'
+- 2026-11-25 — **Zone art shows what a family draws now** (owner: "instead of 'not drawn', a preview
+  of what is currently used"). The first picture's choice is **Default**, not "Not drawn", and the
+  row shows what that is: for a Salmons generator the built-in art's line and its pictures as
+  thumbnails from the project's copy of the sheet (`zoneArtDoc.ts` `SALMONS_BUILT_IN_ZONE_ART`,
+  `zoneArtDefault`: 9 rocks, the whirlpool's first frame, the waterfall's lip, splash, face and
+  cliff, the sand tile; bridges, source and sea are drawn in code, so a line only); for any other
+  game "Nothing drawn". A project without the sheet keeps the line, no thumbnail. `check:zone-art`
+  (72) holds every name to `SALMONS_REGIONS` and the families to `SALMONS_DRAWN_ZONE_FAMILIES`.
+- 2026-11-25 — **Zone art** (merged as #1910; owner on Salmons'
   Zones: "nowhere to set their art"; agent `arcade-games`). How to use it:
   [tools/game-config](../tools/game-config.md) "Zone art"; plan:
   [design/zone-art](../design/zone-art.md); Salmons' side: [status/salmons](salmons.md).

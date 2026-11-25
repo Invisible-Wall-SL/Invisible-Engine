@@ -654,5 +654,47 @@ for (const [project, base] of [
 	);
 }
 
+{
+	const { SALMONS_REGIONS, SALMONS_DRAWN_TILES } =
+		await import('../../../packages/engine-layout/src/lib/salmonsArt/regions.ts');
+	const { SALMONS_BUILT_IN_ZONE_ART, zoneArtDefault } = cardEdits;
+	const known = new Set<string>([...Object.values(SALMONS_REGIONS).flat(), ...SALMONS_DRAWN_TILES]);
+	const named = Object.values(SALMONS_BUILT_IN_ZONE_ART).flatMap((b) =>
+		b.pictures.map(([, region]) => region),
+	);
+	ok(
+		'9. every built-in default names a region Salmons draws',
+		named.every((r) => known.has(r)),
+		named.filter((r) => !known.has(r)).join(', '),
+	);
+	eq(
+		'9. the defaults cover exactly the families Salmons draws',
+		Object.keys(SALMONS_BUILT_IN_ZONE_ART).sort(),
+		[...gc.SALMONS_DRAWN_ZONE_FAMILIES].sort(),
+	);
+	const props = `invisible_wall/salmons/manifests/${gc.salmonsProjectManifestName('salmons_props')}`;
+	eq(
+		'9. a Salmons rock shows its 9 built-in rocks from the project sheet',
+		zoneArtDefault('rock#', 'salmonsMap', [{ key: props }]),
+		{
+			label: 'Built-in rocks, one of 9 per rock',
+			thumbs: Array.from({ length: 9 }, (_, i) => `${props}::rock_${i}`),
+		},
+	);
+	eq(
+		'9. without the project sheet the line stays, no thumbnail',
+		zoneArtDefault('whirlpool#', 'salmonsMap', []).thumbs,
+		[],
+	);
+	eq(
+		'9. a plain game draws nothing by default',
+		zoneArtDefault('rock#', undefined, [{ key: props }]),
+		{
+			label: 'Nothing drawn',
+			thumbs: [],
+		},
+	);
+}
+
 console.log(`check:zone-art — ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

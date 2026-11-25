@@ -1,11 +1,14 @@
 import {
 	SALMONS_ART_GENERATORS,
 	SALMONS_DRAWN_ZONE_FAMILIES,
+	SALMONS_PROJECT_SHEETS,
+	salmonsProjectSheetOf,
 	ZONE_ART_LIMITS,
 	normalizeZoneArt,
 	zoneFamilyOf,
 	type GameConfigDoc,
 	type ZoneArt,
+	type SalmonsProjectSheet,
 	type ZoneArtSource,
 } from 'game-config';
 
@@ -135,4 +138,66 @@ export function removeZoneArt(doc: GameConfigDoc, family: string): void {
 export function clipThumbRef(clip: { assetKey: string; firstFrame: string } | undefined): string {
 	if (!clip?.firstFrame) return '';
 	return clip.firstFrame.includes('::') ? clip.firstFrame : `${clip.assetKey}::${clip.firstFrame}`;
+}
+
+/** What a family with no zone art draws today: a line for it, and its pictures as scoped refs. */
+export type ZoneArtDefault = { label: string; thumbs: string[] };
+
+type BuiltIn = { label: string; pictures: [SalmonsProjectSheet, string][] };
+const { props, terrain, waterfall_face, cliff } = SALMONS_PROJECT_SHEETS;
+
+/**
+ * What Salmons' own drawing code (`engine-layout` `salmonsArt/river.ts`) draws for each family it
+ * draws, by the built-in region names its project sheets keep. `check:zone-art` holds every name
+ * to `SALMONS_REGIONS` and every family to `SALMONS_DRAWN_ZONE_FAMILIES`.
+ */
+export const SALMONS_BUILT_IN_ZONE_ART: Readonly<Record<string, BuiltIn>> = {
+	'rock#': {
+		label: 'Built-in rocks, one of 9 per rock',
+		pictures: Array.from({ length: 9 }, (_, i): [SalmonsProjectSheet, string] => [
+			props,
+			`rock_${i}`,
+		]),
+	},
+	'whirlpool#': { label: 'Built-in whirlpool, 4 frames', pictures: [[props, 'whirlpool_0']] },
+	'waterfall#': {
+		label: 'Built-in lip, splash, face and cliff',
+		pictures: [
+			[props, 'waterfall_lip_0'],
+			[props, 'waterfall_splash_0'],
+			[waterfall_face, 'waterfall_face'],
+			[cliff, 'cliff'],
+		],
+	},
+	'sandbank#': { label: 'Built-in sand tiles', pictures: [[terrain, 'sand_c']] },
+	'bridge#': { label: 'Built-in placeholder bridge, drawn in code', pictures: [] },
+	source: { label: 'Built-in river water and forest', pictures: [] },
+	sea: { label: 'Built-in sea water', pictures: [] },
+};
+
+/**
+ * What `family` draws with no entry: Salmons' built-in art for a Salmons generator (its pictures
+ * from the project's copy of the sheet, none when the project has no such sheet), else nothing.
+ */
+export function zoneArtDefault(
+	family: string,
+	generator: string | undefined,
+	sheets: readonly { key: string }[],
+): ZoneArtDefault {
+	const builtIn =
+		generator && SALMONS_ART_GENERATORS.includes(generator)
+			? SALMONS_BUILT_IN_ZONE_ART[family]
+			: undefined;
+	if (!builtIn) return { label: 'Nothing drawn', thumbs: [] };
+	const keyOf = new Map(
+		sheets.flatMap((s) => {
+			const sheet = salmonsProjectSheetOf(s.key);
+			return sheet ? [[sheet, s.key] as const] : [];
+		}),
+	);
+	const thumbs = builtIn.pictures.flatMap(([sheet, region]) => {
+		const key = keyOf.get(sheet);
+		return key ? [`${key}::${region}`] : [];
+	});
+	return { label: builtIn.label, thumbs };
 }
