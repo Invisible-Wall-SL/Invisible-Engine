@@ -371,7 +371,8 @@ run on the server.
   - a class whose places are all people's refuses the join (`no place left for <class>`);
   - a join that names no class gets the first class with a place a person has not taken;
   - every place a person's: `the room is full`;
-  - a leave, or a manual respawn as another class, lets a bot of the class left back in;
+  - a leave, a manual respawn as another class, or a pick of another class in the lobby
+    ([salmons-levels §4.1](salmons-levels.md)), lets a bot of the class left back in;
   - nobody in the room: no bots.
   A config that lists its bots by count plays as the bullets above. 2D rooms only so far.
 

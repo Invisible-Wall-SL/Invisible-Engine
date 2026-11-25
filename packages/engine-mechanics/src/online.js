@@ -15,9 +15,9 @@
  * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
  * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
- * bitfield of {@link BUTTONS}; `aim` is a point on the field. A caught player may add `respawn`
- * (`1 +` the index of the character it picked, at most {@link RESPAWN_MAX}; 0 none), read only while
- * the room waits for it to press Respawn.
+ * bitfield of {@link BUTTONS}; `aim` is a point on the field. A person may add `respawn` (`1 +` the
+ * index of the character it picked, at most {@link RESPAWN_MAX}; 0 none), read only while the room
+ * waits for it to press Respawn (it was caught) or lets its people pick (a lobby before round 1).
  *
  * A step with no input moves its player by nothing: the player stands still until the next input
  * arrives (a body has no momentum: the step sets its velocity to 0). A level's currents
@@ -351,6 +351,60 @@ export function launchJoin(carried, launch, hasMenu) {
 	return {
 		join: { name, character, ...(carried.pass ? { pass: carried.pass } : {}) },
 		choose: hasMenu && !character,
+	};
+}
+
+/**
+ * WHAT A PERSON ASKS TO PLAY AS, on its device (`apps/lines` `game/online.ts`; the room's half is
+ * `services/game-server` `roomSim.ts`): a caught person's Respawn, or a pick of another character
+ * in the lobby, sent as an input's `respawn` and answered by the room's state alone.
+ *
+ * `press(respawn)` is a press of a character. `input(seq)` is the `respawn` input `seq` carries:
+ * the ask, on every input from the press until the room acknowledges one that carried it.
+ * `answer(ack, playing)` reads a state of the room, while the room takes the ask: `ack` the newest
+ * input it applied for the own player and `playing` the character it has the player as, counted
+ * as `respawn` is (0: none, it is out). The room answers on the very input that asks, so the state
+ * whose `ack` reaches the first input that carried the ask says its answer too: the character
+ * asked for, or anything else, when no place was left (`refused`, kept until the next press and no
+ * longer sent). `drop()` forgets it (the room no longer takes it: round 1 started, the person is
+ * back).
+ *
+ * The room answers a run of inputs asking the same once, and tests the place once
+ * (`roomSim.ts`). So a press right after inputs that asked for the same character first sends
+ * one input that asks for nothing: the room hears every press as an ask of its own.
+ *
+ * So every press is answered once, whatever events the room sends and in whatever order, and
+ * nothing is asked for longer than the room takes to acknowledge an input.
+ */
+export function createRespawnAsk() {
+	/** `{ respawn, from, refused }`: `from` is the first input that carried it (0: none yet). */
+	let ask;
+	/** What the last input carried. */
+	let last = 0;
+	return {
+		press(respawn) {
+			ask = { respawn, from: 0, refused: false };
+		},
+		input(seq) {
+			const asking = ask && !ask.refused ? ask.respawn : 0;
+			const respawn = asking && !ask.from && asking === last ? 0 : asking;
+			if (respawn) ask.from ||= seq;
+			last = respawn;
+			return respawn;
+		},
+		answer(ack, playing) {
+			if (!ask || !(ask.from > 0 && ack >= ask.from)) return;
+			if (playing === ask.respawn) ask = undefined;
+			else ask.refused = true;
+		},
+		drop() {
+			ask = undefined;
+		},
+		get refused() {
+			return ask?.refused === true;
+		},
+		/** What it holds, or `null` (the probe's). */
+		held: () => (ask ? { ...ask } : null),
 	};
 }
 

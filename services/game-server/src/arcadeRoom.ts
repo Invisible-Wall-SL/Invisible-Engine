@@ -504,6 +504,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			this.state.endsAt = sim.rules.endsAt;
 			this.state.winner = sim.rules.winner;
 			this.state.winnerName = sim.rules.winnerName;
+			// Only once it is true: a game with no lobby never sends the field.
+			if (sim.rules.picking || this.state.picking) this.state.picking = sim.rules.picking;
 			this.writeStains();
 		}
 

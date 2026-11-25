@@ -27,7 +27,10 @@
  * before its first round: each person who joins is told (`lobby`), and once `minPlayers` people are in or `maxWaitSeconds` have passed since the first,
  * a `countdown` of `countdownSeconds` runs (`endsAt` its end) and round 1 starts; a lobby every
  * person left starts over (one whose place is held after a drop still counts as there; it counts
- * towards the start again once it rejoins). Without one, the first join starts round 1.
+ * towards the start again once it rejoins). Until round 1 starts, the countdown included, a person
+ * in the lobby may change the class it plays in place ({@link OnlineRules.picking}): the room reads
+ * the same `respawn` of its inputs, and answers as it answers a Respawn. Without a lobby, the first
+ * join starts round 1.
  *
  * A bot (`player.bot`, P10.16) plays by the same rules, but it neither reaches the goal nor tops a
  * round's scores unless the game's `bots.canWin` says it may (Salmons' does); one that may not is
@@ -299,7 +302,13 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		/** Whether a caught player waits for its Respawn (`respawn: 'manual'`) in a running round. */
 		awaitsRespawn: (player) =>
 			phase === 'running' && player.status === STATUS.out && player.until === Infinity,
-		/** A player that pressed Respawn, back at its spawn as the character the room gave it. */
+		/** Whether a person may change the class it plays in place: in a game with a lobby, while
+		 *  the room waits for its first round (the countdown included). */
+		get picking() {
+			return phase === 'waiting' && !!lobby;
+		},
+		/** A player that pressed Respawn, or picked another class in the lobby, back at its spawn as
+		 *  the character the room gave it. */
 		respawned(player, stamp) {
 			player.mark = false;
 			player.memo = {};
@@ -310,11 +319,9 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			respawn(player);
 			emit({ type: 'respawned', id: player.id, character: player.character.id });
 		},
-		/** A Respawn the room refused: the character it picked has no place left. Told once a catch
-		 *  (a device may send its Respawn on every input). */
+		/** A Respawn, or a lobby's pick, the room refused: the character picked has no place left.
+		 *  The room says when (once for each run of inputs that ask for the same character). */
 		refused(player) {
-			if (player.memo.refused === 1) return;
-			player.memo.refused = 1;
 			emit({ type: 'respawnRefused', id: player.id });
 		},
 		/** A player the room just let in: a new player's first join starts the first round. */

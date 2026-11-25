@@ -14,9 +14,15 @@
 // opens the game with no character carried gets the menu and is in no room while it is up; picking
 // Fisherman (another page: Bear) and Join River puts it in that running room as that; a reload asks
 // again; a join carried from the last page plays at once, with no menu.
-// The lobby asks nothing (owner, 2026-11-20): while a new room waits, its lobby shows the room's
-// river with the people in it and who the page plays, and no name field, class or Join River, for a
-// page that carried its character and for one that came through the start menu alike.
+// The lobby has no form (owner, 2026-11-20): while a new room waits, its lobby shows the room's
+// river with the people in it and who the page plays, and no name field or Join River, for a page
+// that carried its character and for one that came through the start menu alike.
+// A class picked in the lobby (owner, 2026-11-25): under that note, a row of Salmon, Fisherman and
+// Bear, the one the ROOM has the page as lit. A page presses Fisherman and is a fisherman in the
+// same room, at once, spawned as the fisherman's component; another presses Bear during the
+// countdown; round 1 starts with each as what it picked, and spawned as that. A click on a class is not a tap on the river. On a 390 × 844 phone the row fits, and a
+// tap on a class with no place left (Bear, the other page's) shows "No place left", again on the
+// next tap, until a class with a place is tapped.
 // Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
 // whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
 // the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
@@ -219,6 +225,32 @@ for (const key of [LOBBY_GAME, NEW_LOBBY_GAME])
 		),
 	);
 
+// The same lobby with one bear's place, and no start before three people: a second page's pick of
+// Bear is refused there for as long as the pages look.
+const FULL_LOBBY_GAME = 'salmons-lobby-full';
+writeFileSync(
+	join(configs, `${FULL_LOBBY_GAME}.json`),
+	JSON.stringify(
+		normalizeGameConfigDoc({
+			...authored,
+			arcade: {
+				...authored.arcade,
+				online: {
+					...authored.arcade.online,
+					characters: authored.arcade.online.characters.map((c) =>
+						c.id === 'bear' ? { ...c, max: 1 } : c,
+					),
+					rules: {
+						...authored.arcade.online.rules,
+						lobby: { minPlayers: 3, maxWaitSeconds: 600, countdownSeconds: 20 },
+					},
+					bots: undefined,
+				},
+			},
+		}),
+	),
+);
+
 // The device's view: the shipped level pinned, the own bear in a rock-free lane of the water below
 // its last waterfall (one terrace: nothing there is drawn raised) and a still bear bot for each
 // place, in cells from it (x across the river, y along it: up-river is −y).
@@ -396,6 +428,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PHONE_UA =
 	'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+const PHONE = { w: 390, h: 844, mobile: true };
 /** Give a page a window of `w` × `h` CSS px (device scale factor 1), now. */
 const resizeTo = (page, { w, h, mobile = false }) =>
 	page.page('Emulation.setDeviceMetricsOverride', {
@@ -488,7 +521,7 @@ async function ready({ page, started }) {
 		page.evaluate(
 			'(() => { const f = window.__IE_FLOW_V2__; return f ? f.ordered().map((c) => c.id) : []; })()',
 		);
-	return { page, state, settle, key, artMs, shown };
+	return { page, state, settle, key, artMs, shown, play };
 }
 
 const boot = async (profile, extra) => ready(await open(profile, extra));
@@ -547,9 +580,10 @@ const pressMenu = async (page, label) => {
 };
 /**
  * What a page's lobby shows and asks: the note the room's art draws in it (the probe's
- * `online.screens.lobby`: the room's river with its people, who the page plays), a form drawn in
- * the canvas (`online.screens.menu`, which a runtime before 2026-11-20 drew there), the text
- * fields on the page and whether the start menu is over it.
+ * `online.screens.lobby`: the room's river with its people, who the page plays and, while the room
+ * lets its people pick, the class lit, each class's button and whether the last pick was
+ * refused), a form drawn in the canvas (`online.screens.menu`, which a runtime before 2026-11-20
+ * drew there), the text fields on the page and whether the start menu is over it.
  */
 const lobbyOf = async (game) => {
 	const screens = (await game.state()).arcade?.online?.screens ?? {};
@@ -570,9 +604,68 @@ const lobbyCounting = async (game, people) => {
 	}
 	return lobby;
 };
-/** Whether a lobby asks nothing: no form in the canvas, no field on the page, no start menu. */
-const asksNothing = (lobby) => lobby.menu === undefined && lobby.fields === 0 && !lobby.startMenu;
+/** Whether a lobby has no form: none in the canvas, no field on the page, no start menu. */
+const noForm = (lobby) => lobby.menu === undefined && lobby.fields === 0 && !lobby.startMenu;
 const inRiver = (people) => new RegExp(`^${people} players in .+ River$`);
+/** The lobby once `test` holds of it (a pick's answer takes the room a moment), or as it is. */
+const lobbyWhen = async (game, test) => {
+	let lobby = await lobbyOf(game);
+	for (let i = 0; i < 40 && !test(lobby); i++) {
+		await game.settle(150);
+		lobby = await lobbyOf(game);
+	}
+	return lobby;
+};
+/** Whether the lobby's classes are a row of Salmon, Fisherman, Bear inside a `w` × `h` window. */
+const rowInside = (buttons, w, h) => {
+	const row = Object.entries(buttons ?? {});
+	return (
+		row.map(([id]) => id).join() === 'salmon,fisherman,bear' &&
+		row.every(([, at], i) => at.y === row[0][1].y && (i === 0 || at.x > row[i - 1][1].x)) &&
+		row.every(([, at]) => at.x > 0 && at.x < w && at.y > 0 && at.y < h)
+	);
+};
+/** A point of a page's canvas (stage px) in its window. */
+const windowPoint = async (game, at) => {
+	const rect = JSON.parse(
+		await game.page.evaluate(
+			'JSON.stringify(document.querySelector("canvas").getBoundingClientRect())',
+		),
+	);
+	return { x: Math.round(rect.left + at.x), y: Math.round(rect.top + at.y) };
+};
+/** Click a page's canvas at a point of its stage, as a mouse does. */
+const clickCanvas = async (game, at) => {
+	const point = await windowPoint(game, at);
+	await game.page.page('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+	for (const type of ['mousePressed', 'mouseReleased'])
+		await game.page.page('Input.dispatchMouseEvent', {
+			type,
+			...point,
+			button: 'left',
+			buttons: type === 'mousePressed' ? 1 : 0,
+			clickCount: 1,
+		});
+};
+/** Tap it, as a finger does. */
+const tapCanvas = async (game, at) => {
+	const point = await windowPoint(game, at);
+	await game.page.page('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+	await game.page.page('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+};
+/** The buttons the page's inputs pressed over the frames after `act` (0: none). */
+const pressedAfter = async (game, act) => {
+	await act();
+	let pressed = 0;
+	for (let i = 0; i < 16; i++) {
+		await game.play([{ op: 'step', frames: 1 }]);
+		pressed |= (await game.state()).arcade?.online?.buttons ?? 0;
+	}
+	return pressed;
+};
+const onlineOf = async (game) => (await game.state()).arcade?.online ?? {};
+const toldOf = (online, type) =>
+	(online.events ?? []).filter((e) => e.type === type && e.id === online.me).length;
 
 /** The room's own record of a session: which room, its phase, and the player as the room has it. */
 const inRoom = async (sessionId) => {
@@ -800,13 +893,79 @@ try {
 	const alone = await lobbyCounting(l1, 1);
 	writeFileSync(join(out, 'lobby-waiting.png'), await l1.page.screenshot());
 	verdict(
-		'…which shows the room’s river with its one person and who the page plays, and asks nothing: no name field, no class, no Join River',
+		'…which shows the room’s river with its one person and who the page plays, with no form: no name field, no Join River',
 		alone.note?.shown === true &&
 			inRiver(1).test(alone.note.river) &&
 			alone.note.you === 'You are Lia, a Salmon' &&
-			asksNothing(alone),
+			noForm(alone),
 		{ lobby: alone },
 	);
+	verdict(
+		'…and offers Salmon, Fisherman and Bear in a row inside the window, the one the room has the page as lit',
+		rowInside(alone.note?.buttons, 1280, 720) &&
+			alone.note.choice === 'salmon' &&
+			alone.note.refused === false,
+		{ note: alone.note },
+	);
+	const l1Me = (await onlineOf(l1)).me;
+	const l1Room = await inRoom(l1Me);
+	const spawnedAsJoined = (await onlineOf(l1)).spawned;
+	const classes = alone.note?.buttons;
+	if (!classes) verdict('the lobby drew its classes, so they could be pressed', false);
+	else {
+		// A click is a tap for the game (a salmon's jump button) wherever it is not a screen's own.
+		const beside = await pressedAfter(l1, () => clickCanvas(l1, { x: 200, y: 560 }));
+		const onOwn = await pressedAfter(l1, () => clickCanvas(l1, classes.salmon));
+		await l1.settle(600);
+		const same = await onlineOf(l1);
+		verdict(
+			'a click on a class is the lobby’s, not a tap on the river (a click beside the row is one); the class it plays already changes nothing',
+			beside !== 0 &&
+				onOwn === 0 &&
+				same.screens?.lobby?.you === 'You are Lia, a Salmon' &&
+				same.ask === null &&
+				toldOf(same, 'respawned') === 0 &&
+				(await inRoom(l1Me))?.character === 'salmon',
+			{ beside, onOwn, ask: same.ask, note: same.screens?.lobby },
+		);
+		await clickCanvas(l1, classes.fisherman);
+		const picked = await lobbyWhen(l1, (lobby) => lobby.note?.choice === 'fisherman');
+		// The camera follows the player to its new start.
+		await l1.settle(1500);
+		const asPicked = await onlineOf(l1);
+		const l1Now = await inRoom(l1Me);
+		writeFileSync(join(out, 'lobby-picked.png'), await l1.page.screenshot());
+		verdict(
+			'Fisherman pressed in the lobby: the note reads “a Fisherman”, lit, and the room has the page as a fisherman',
+			picked.note?.you === 'You are Lia, a Fisherman' &&
+				picked.note.choice === 'fisherman' &&
+				picked.note.refused === false &&
+				l1Now?.character === 'fisherman' &&
+				asPicked.art?.looks?.[l1Me]?.kind === 'circle',
+			{ note: picked.note, room: l1Now, look: asPicked.art?.looks?.[l1Me] },
+		);
+		// What the page spawned for its player is its class's component: a class changed in place
+		// never hides the player, so its salmon instance has to go by the change alone.
+		verdict(
+			'…and the instance it is spawned as is the fisherman’s component now, where it joined as the salmon’s',
+			JSON.stringify(spawnedAsJoined) === '["salmonsSalmon"]' &&
+				JSON.stringify(asPicked.spawned) === '["salmonsFisherman"]',
+			{ joined: spawnedAsJoined, picked: asPicked.spawned },
+		);
+		verdict(
+			'…in place: the same room, still waiting, the same player (no leave, no join), one `respawned`, and the page asks nothing more',
+			l1Now?.roomId === l1Room?.roomId &&
+				l1Now.phase === 'waiting' &&
+				l1Now.players === 1 &&
+				asPicked.me === l1Me &&
+				asPicked.ask === null &&
+				toldOf(asPicked, 'respawned') === 1 &&
+				toldOf(asPicked, 'left') === 0 &&
+				toldOf(asPicked, 'joined') <= 1 &&
+				noForm(picked),
+			{ before: l1Room, now: l1Now, ask: asPicked.ask, events: asPicked.events },
+		);
+	}
 	const l2 = await boot('l2', { rooms_name: 'Leo', rooms_game: LOBBY_GAME });
 	const countingFrom = Date.now();
 	await Promise.all([l1.settle(1500), l2.settle(1500)]);
@@ -819,13 +978,36 @@ try {
 	const pair = [await lobbyCounting(l1, 2), await lobbyCounting(l2, 2)];
 	writeFileSync(join(out, 'lobby-countdown.png'), await l2.page.screenshot());
 	verdict(
-		'…and each lobby counts both people in the one river, still asking nothing',
-		pair.every((lobby) => inRiver(2).test(lobby.note?.river ?? '') && asksNothing(lobby)) &&
+		'…and each lobby counts both people in the one river, still with no form',
+		pair.every((lobby) => inRiver(2).test(lobby.note?.river ?? '') && noForm(lobby)) &&
 			pair[0].note.river === pair[1].note.river &&
 			pair[1].note.you === 'You are Leo, a Salmon',
 		{ lobbies: pair },
 	);
-	const left = Math.max(0, LOBBY.countdownSeconds * 1000 + 4000 - (Date.now() - countingFrom));
+	const l2Me = (await onlineOf(l2)).me;
+	// With no row to press (a room that does not let its people pick) there is nothing to wait for.
+	let counted = pair[1];
+	if (counted.note?.buttons) {
+		await clickCanvas(l2, counted.note.buttons.bear);
+		counted = await lobbyWhen(l2, (lobby) => lobby.note?.choice === 'bear');
+	}
+	await l2.settle(1500);
+	const l2Shown = await l2.shown();
+	const l2Now = await inRoom(l2Me);
+	writeFileSync(join(out, 'lobby-countdown-picked.png'), await l2.page.screenshot());
+	verdict(
+		'during the countdown the classes are still there: Bear pressed, the page is a bear, the countdown goes on',
+		rowInside(pair[1].note?.buttons, 1280, 720) &&
+			counted.note?.you === 'You are Leo, a Bear' &&
+			counted.note.choice === 'bear' &&
+			l2Shown.includes('salmonsCountdown') &&
+			l2Now?.character === 'bear' &&
+			l2Now.phase === 'waiting' &&
+			l2Now.players === 2,
+		{ note: counted.note, shown: l2Shown, room: l2Now },
+	);
+	// At least a second of frames on both pages: each draws the state it holds by then.
+	const left = Math.max(1000, LOBBY.countdownSeconds * 1000 + 4000 - (Date.now() - countingFrom));
 	await Promise.all([l1.settle(left), l2.settle(left)]);
 	const started = [await l1.shown(), await l2.shown()];
 	const phases = [
@@ -841,6 +1023,29 @@ try {
 		{ phases, shown: started, notes: dropped.map((lobby) => lobby.note) },
 	);
 	writeFileSync(join(out, 'lobby.png'), await l2.page.screenshot());
+	const inRound = [await inRoom(l1Me), await inRoom(l2Me)];
+	const roundLooks = [
+		(await onlineOf(l1)).art?.looks?.[l1Me],
+		(await onlineOf(l2)).art?.looks?.[l2Me],
+	];
+	verdict(
+		'round 1 starts with each page as the class it picked in the lobby: a fisherman and a bear, drawn as such',
+		inRound[0]?.character === 'fisherman' &&
+			inRound[1]?.character === 'bear' &&
+			inRound.every((room) => room?.phase === 'running' && room.roomId === l1Room?.roomId) &&
+			roundLooks[0]?.kind === 'circle' &&
+			roundLooks[1]?.kind === 'sprite' &&
+			roundLooks[1].region === 'bear',
+		{ inRound, looks: roundLooks },
+	);
+	const roundSpawned = [(await onlineOf(l1)).spawned ?? [], (await onlineOf(l2)).spawned ?? []];
+	verdict(
+		'…each spawned as its class’s component: the fisherman’s and the bear’s, and no salmon’s on either stage',
+		roundSpawned[0].includes('salmonsFisherman') &&
+			roundSpawned[1].includes('salmonsBear') &&
+			roundSpawned.every((ids) => !ids.includes('salmonsSalmon')),
+		{ spawned: roundSpawned },
+	);
 
 	// The start menu before the join: the lobby's room is running now, Lia and Leo in it. A page
 	// opens the game as the published link does, no character carried.
@@ -990,7 +1195,8 @@ try {
 				freshLobby.note?.shown === true &&
 				freshLobby.note.you === `You are ${freshRoom.name}, a Bear` &&
 				inRiver(1).test(freshLobby.note.river) &&
-				asksNothing(freshLobby),
+				noForm(freshLobby) &&
+				freshLobby.note.choice === 'bear',
 			{ freshRoom, shown: freshShown, lobby: freshLobby },
 		);
 	}
@@ -1001,6 +1207,83 @@ try {
 		menuErrors,
 	});
 	for (const page of [l1.page, l2.page, ...menuPages]) await page.close();
+
+	// A class with no place left, on a phone: the bears' one place is Uma's, in a lobby two people
+	// do not start.
+	const u1 = await boot('u1', {
+		rooms_name: 'Uma',
+		rooms_game: FULL_LOBBY_GAME,
+		rooms_character: 'bear',
+	});
+	const u2 = await ready(
+		await open('u2', { rooms_name: 'Ugo', rooms_game: FULL_LOBBY_GAME }, undefined, PHONE),
+	);
+	await Promise.all([u1.settle(1500), u2.settle(1500)]);
+	const onPhoneLobby = await lobbyCounting(u2, 2);
+	const u2Me = (await onlineOf(u2)).me;
+	writeFileSync(join(out, 'lobby-phone.png'), await u2.page.screenshot());
+	verdict(
+		'on a 390 × 844 phone the lobby’s three classes fit the window, under who the page plays',
+		rowInside(onPhoneLobby.note?.buttons, PHONE.w, PHONE.h) &&
+			onPhoneLobby.note.you === 'You are Ugo, a Salmon' &&
+			onPhoneLobby.note.choice === 'salmon',
+		{ note: onPhoneLobby.note },
+	);
+	const phoneClasses = onPhoneLobby.note?.buttons;
+	if (!phoneClasses) verdict('the phone’s lobby drew its classes, so they could be tapped', false);
+	else {
+		await tapCanvas(u2, phoneClasses.bear);
+		const refused = await lobbyWhen(u2, (lobby) => lobby.note?.refused === true);
+		await u2.settle(600);
+		const afterRefusal = await onlineOf(u2);
+		writeFileSync(join(out, 'lobby-phone-refused.png'), await u2.page.screenshot());
+		verdict(
+			'a tap on a class with no place left (Bear, the other page’s): the note says so, and the page stays a salmon',
+			refused.note?.refused === true &&
+				refused.note.you === 'You are Ugo, a Salmon' &&
+				refused.note.choice === 'salmon' &&
+				(await inRoom(u2Me))?.character === 'salmon' &&
+				afterRefusal.ask?.refused === true &&
+				toldOf(afterRefusal, 'respawnRefused') === 1 &&
+				toldOf(afterRefusal, 'respawned') === 0,
+			{ note: refused.note, ask: afterRefusal.ask, events: afterRefusal.events },
+		);
+		await tapCanvas(u2, phoneClasses.bear);
+		for (let i = 0; i < 40 && toldOf(await onlineOf(u2), 'respawnRefused') < 2; i++)
+			await u2.settle(150);
+		const again = await onlineOf(u2);
+		verdict(
+			'…and says so again when Bear is tapped again: each press is answered',
+			toldOf(again, 'respawnRefused') === 2 &&
+				again.screens?.lobby?.refused === true &&
+				again.ask?.refused === true &&
+				(await inRoom(u2Me))?.character === 'salmon',
+			{ note: again.screens?.lobby, ask: again.ask, events: again.events },
+		);
+		await tapCanvas(u2, phoneClasses.fisherman);
+		const moved = await lobbyWhen(u2, (lobby) => lobby.note?.choice === 'fisherman');
+		await u2.settle(1500);
+		const afterMove = await onlineOf(u2);
+		writeFileSync(join(out, 'lobby-phone-picked.png'), await u2.page.screenshot());
+		verdict(
+			'…until a class with a place is tapped: Fisherman, the line goes, and nothing more is asked',
+			moved.note?.you === 'You are Ugo, a Fisherman' &&
+				moved.note.refused === false &&
+				afterMove.ask === null &&
+				(afterMove.spawned ?? []).includes('salmonsFisherman') &&
+				!afterMove.spawned.includes('salmonsSalmon') &&
+				(await inRoom(u2Me))?.character === 'fisherman' &&
+				(await inRoom(u2Me))?.phase === 'waiting',
+			{ note: moved.note, ask: afterMove.ask, spawned: afterMove.spawned },
+		);
+	}
+	const pickErrors = [];
+	for (const page of [u1.page, u2.page])
+		pickErrors.push(...(await page.evaluate('window.__AR_ERRORS__').catch(() => [])));
+	verdict('no page error on the lobby’s phone and its room', pickErrors.length === 0, {
+		pickErrors,
+	});
+	for (const page of [u1.page, u2.page]) await page.close();
 
 	// THE DEVICE'S VIEW. What a page says its window shows, by the engine's own functions on the
 	// exported layout's camera and the config's bodies (`apps/lines` `online.ts` `follow`).
@@ -1153,7 +1436,6 @@ try {
 		same(onQhd.sent, QHD_SENT) && same(onQhd.drawn, QHD_SENT),
 		onQhd,
 	);
-	const PHONE = { w: 390, h: 844, mobile: true };
 	const phone = await viewPage('view-phone', 'salmons-view-phone', PHONE);
 	const PHONE_SENT = ['up25', 'up12', 'down26', 'across5'];
 	const onPhone = await phone.until(saysOn(PHONE), PHONE_SENT);

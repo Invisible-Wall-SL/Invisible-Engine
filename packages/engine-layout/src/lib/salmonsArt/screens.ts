@@ -20,10 +20,11 @@ import {
  * SALMONS' SCREENS DRAWN IN CODE, as the original's Svelte client drew them
  * (`GuiltyForever/Salmon-` `client/src/components/*.svelte`, `client/style.css`), each in place of
  * its node on a screen the Flow shows (`referenceLayouts/salmonsScreens.ts`): the win animation,
- * the death screen (with what to respawn as, owner decision 4), the lobby's note and the loading
- * phrases. The runtime says what each shows (`show`), and does what their buttons ask through its
- * {@link SalmonsScreenHost}: nothing here talks to the room. The start menu is not one of them: it
- * comes before the join, over the page (`startMenu.ts`).
+ * the death screen (with what to respawn as, owner decision 4), the lobby's note (with what to
+ * play as, owner 2026-11-25) and the loading phrases. The runtime says what each shows (`show`),
+ * and does what their buttons ask through its {@link SalmonsScreenHost}: nothing here talks to the
+ * room. The start menu is not one of them: it comes before the join, over the page
+ * (`startMenu.ts`).
  */
 
 /** A room of the game, as the server lists it: its id and the people in it. */
@@ -33,6 +34,8 @@ export type RiverListing = { roomId: string; players: number };
 export type SalmonsScreenHost = {
 	/** Respawn the own caught player as `character`. */
 	respawn: (character: string) => void;
+	/** Ask the room to let the own player play `character` from now on (the lobby's pick). */
+	pick: (character: string) => void;
 	/** Leave for a new room of the game, as the player is now. */
 	rejoin: () => void;
 	/** The game's rooms now, or `undefined` when the server lists none. */
@@ -40,8 +43,15 @@ export type SalmonsScreenHost = {
 };
 
 export type CaughtShown = { by: string; character: string };
-/** The waiting room and who the device plays in it. */
-export type LobbyShown = { roomId: string; name: string; character: string };
+/** The waiting room and who the device plays in it. `picking`: the room lets its people change
+ *  what they play now; `refused`: the class this device last picked had no place left. */
+export type LobbyShown = {
+	roomId: string;
+	name: string;
+	character: string;
+	picking: boolean;
+	refused: boolean;
+};
 
 export type SalmonsScreens = {
 	/** Each code-drawn part, by the node it is drawn in place of. */
@@ -51,6 +61,9 @@ export type SalmonsScreens = {
 	/** The room refused the Respawn (the class picked is full): the death screen says so. */
 	refused: () => void;
 	lobby: (shown: LobbyShown | undefined) => void;
+	/** Whether a press at a point of the canvas is given to a button a screen offers over the game
+	 *  in play (the lobby's classes): that press is the screen's, not the game's. */
+	takes: (x: number, y: number) => boolean;
 	/** What each draws now (the probe's). */
 	drawn: () => Record<string, unknown>;
 	destroy: () => void;
@@ -95,6 +108,9 @@ const CHARACTER_NAMES: Readonly<Record<string, string>> = {
 	bear: 'Bear',
 };
 
+/** What a person is told when the class it picked is full (the death screen, the lobby). */
+const NO_PLACE = 'No place left for that one: pick another';
+
 /** One-of buttons in a row, centred on the view's place. */
 function choiceRow(
 	options: readonly { id: string; label: string }[],
@@ -115,8 +131,11 @@ function choiceRow(
 	}
 	return {
 		view,
+		width: total,
 		height: Math.max(0, ...buttons.map((b) => b.button.height)),
 		select: (id: string) => buttons.forEach((b) => b.button.select(b.id === id)),
+		/** Whether a view is one of the buttons. */
+		has: (target: Container) => buttons.some(({ button }) => button.view === target),
 		/** Each button's centre on the canvas (the probe's). */
 		centres: () => Object.fromEntries(buttons.map((b) => [b.id, centreOf(b.button.view)])),
 		destroy: () => view.destroy({ children: true }),
@@ -221,7 +240,7 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
 			onRespawn(choice);
 		});
 		respawn.view.position.set(w / 2, row.view.y + row.height / 2 + 24 + respawn.height / 2);
-		const full = label('No place left for that one: pick another', 12, 0xffaaaa);
+		const full = label(NO_PLACE, 12, 0xffaaaa);
 		full.anchor.set(0.5, 0);
 		full.position.set(w / 2, respawn.view.y + respawn.height / 2 + 16);
 		root.addChild(dim, glow, title, by, ask, row.view, respawn.view, full);
@@ -279,12 +298,25 @@ export const riverRows = (sorted: readonly RiverListing[]) =>
 		.map((r) => `${r.players} players in ${riverNameFor(r.roomId)} River`)
 		.join('\n');
 
-const LOBBY = { riverY: -60, youY: -20, river: 0xffffff, you: 0xffdd57 };
+/** The lobby's note: where each line's middle sits from the canvas's (px), the row's top, how far
+ *  under the row the refusal's middle sits, the least margin the row and the refusal keep to the
+ *  canvas's sides, and the lines' colours. */
+const LOBBY = {
+	riverY: -60,
+	youY: -20,
+	promptY: 14,
+	rowY: 34,
+	fullGap: 20,
+	margin: 12,
+	river: 0xffffff,
+	you: 0xffdd57,
+	full: 0xffaaaa,
+};
 
 /** A line of the lobby's note: outlined, so it reads over whatever the river shows behind it. */
-const noteLine = (fontSize: number, fill: number) =>
+const noteLine = (fontSize: number, fill: number, text = '') =>
 	new Text({
-		text: '',
+		text,
 		style: {
 			fontFamily: PIXEL_FONT,
 			fontSize,
@@ -299,19 +331,34 @@ const noteLine = (fontSize: number, fill: number) =>
 const centreLine = (line: Text, x: number, y: number) =>
 	line.position.set(Math.round(x - line.width / 2), Math.round(y - line.height / 2));
 
+/** The scale at which `width` px fit between the note's margins on a canvas `w` px wide: 1, or
+ *  less on a canvas narrower than that (a phone, once the pixel font is shipped). */
+const fitTo = (w: number, width: number) => Math.min(1, (w - 2 * LOBBY.margin) / width);
+
 /**
  * The lobby's note, where a new room waits for its players, under the layout's own title: the
  * room's river with the people in it, as the start menu listed it (the server's listing, asked
  * every 3 s while the lobby shows; the count pops when it rises; a server that does not list the
  * room leaves the river's name alone and is asked again every 15 s), and who this device plays.
- * Nothing to fill in or press: who it plays was picked before the join (`startMenu.ts`), and a
- * caught player picks again on the death screen.
+ * While the room lets its people change that (`picking`: until round 1 starts), a row of the
+ * classes under it, the one the ROOM has the device as lit: a press asks the room at once
+ * (`onPick`), and the row follows what the room answers; a pick it refused (`refused`) says so
+ * under the row, in the death screen's words, until the next press. The row and that line are
+ * drawn smaller on a canvas narrower than they are. Nothing here leaves the room or types a name:
+ * that was the start menu's, before the join (`startMenu.ts`).
  */
-function createLobbyNote(rivers: SalmonsScreenHost['rivers']) {
+function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character: string) => void) {
 	const root = new Container();
 	const river = noteLine(18, LOBBY.river);
 	const you = noteLine(14, LOBBY.you);
-	root.addChild(river, you);
+	const prompt = noteLine(12, LOBBY.river, 'Play as');
+	const row = choiceRow(
+		SALMONS_RESPAWN_CHARACTERS.map((id) => ({ id, label: CHARACTER_NAMES[id] })),
+		onPick,
+	);
+	const full = noteLine(12, LOBBY.full, NO_PLACE);
+	const fullWidth = full.width;
+	root.addChild(river, you, prompt, row.view, full);
 	let shown: LobbyShown | undefined;
 	let players: number | undefined;
 	let clock = 0;
@@ -328,6 +375,7 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers']) {
 				: riverRows([{ roomId: shown.roomId, players }]);
 		const playing = `a ${CHARACTER_NAMES[shown.character] ?? shown.character}`;
 		you.text = shown.name ? `You are ${shown.name}, ${playing}` : `You are ${playing}`;
+		row.select(shown.character);
 	};
 	/** Ask how many people the room holds; no answer in time, or the room not listed, shows none. */
 	const poll = () => {
@@ -355,6 +403,17 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers']) {
 		river.scale.set(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1);
 		centreLine(river, w / 2, h / 2 + LOBBY.riverY);
 		centreLine(you, w / 2, h / 2 + LOBBY.youY);
+		const picking = shown?.picking === true;
+		prompt.visible = picking;
+		row.view.visible = picking;
+		full.visible = picking && shown?.refused === true;
+		const fit = fitTo(w, row.width);
+		const rowHeight = row.height * fit;
+		centreLine(prompt, w / 2, h / 2 + LOBBY.promptY);
+		row.view.scale.set(fit);
+		row.view.position.set(Math.round(w / 2), Math.round(h / 2 + LOBBY.rowY + rowHeight / 2));
+		full.scale.set(fitTo(w, fullWidth));
+		centreLine(full, w / 2, h / 2 + LOBBY.rowY + rowHeight + LOBBY.fullGap);
 		if (shown && onScreen(root) && clock - polledAt >= pollMs) poll();
 	});
 	return {
@@ -363,18 +422,30 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers']) {
 			if (
 				next?.roomId === shown?.roomId &&
 				next?.name === shown?.name &&
-				next?.character === shown?.character
+				next?.character === shown?.character &&
+				next?.picking === shown?.picking &&
+				next?.refused === shown?.refused
 			)
 				return;
 			if (next?.roomId !== shown?.roomId) players = undefined;
 			shown = next;
 			write();
 		},
+		/** Whether Pixi gives a press at this point of the canvas to one of the classes. Its own hit
+		 *  test answers (a button's rim and round corners, the row hidden or under another screen),
+		 *  so what takes the press here is what gets its tap there. */
+		takes: (x: number, y: number) => {
+			const target = part.app()?.renderer.events.rootBoundary.hitTest(x, y);
+			return !!target && row.has(target);
+		},
 		drawn: () => ({
 			shown: shown !== undefined,
 			river: shown ? river.text : '',
 			you: shown ? you.text : '',
 			players: players ?? null,
+			...(shown?.picking
+				? { choice: shown.character, refused: shown.refused, buttons: row.centres() }
+				: {}),
 		}),
 		destroy: () => {
 			destroyed = true;
@@ -425,7 +496,7 @@ export function createSalmonsScreens(
 ): SalmonsScreens {
 	const won = createWinAnimation(fish, () => host.rejoin());
 	const caught = createCaughtScreen(host.respawn);
-	const lobby = createLobbyNote(host.rivers);
+	const lobby = createLobbyNote(host.rivers, host.pick);
 	const phrases = createLoadingPhrases();
 	return {
 		mounts: new Map([
@@ -438,6 +509,7 @@ export function createSalmonsScreens(
 		caught: caught.show,
 		refused: caught.refused,
 		lobby: lobby.show,
+		takes: lobby.takes,
 		drawn: () => ({
 			won: won.drawn(),
 			caught: caught.drawn(),
