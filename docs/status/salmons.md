@@ -151,9 +151,9 @@ upload.
     same. A runtime built without the despawn fails the three playtest verdicts that read
     `online.spawned`.
   - **Bytes** (`check:runtime-bytes`): `lines`, `match3` and `card` the same bytes. The two
-    arcade runtimes grow by this code (as first built: `arcade` 2,123,265 → 2,123,912 B gzip,
-    +647, the bundle +302 and the lazy Salmons art chunk +345; `arcade3d` +683; the review fixes
-    add 51 and 42 B more); their manifests are re-recorded on the tree that merges. `pnpm
+    arcade runtimes grow by this code, re-recorded on the tree merged with `main` at `6afdd01`
+    (zone art, #1910): `arcade` 2,125,255 → 2,125,988 B gzip (+733), `arcade3d` 2,633,975 →
+    2,634,735 (+760); as first built, the bundle +302 and the lazy Salmons art chunk +345. `pnpm
     check:svelte`: `apps/lines` 145 (baseline 145), `packages/engine-layout` 290 (baseline 290).
   - **Not done.** A pressed button shows nothing until the room answers (a round trip; the death
     screen's row is local and answers at once). A person may change class as often as its inputs
@@ -165,6 +165,54 @@ upload.
     read off the state, is played in Node against the room (the gate) and not in a browser: no
     playtest has a refused Respawn. The countdown's "STARTING IN" is the layout's own text and
     is hard to read over trees, as before.
+- **Zone art: each zone family's picture is chosen in Game Config (2026-11-25; owner: "nowhere to
+  set their art"; in review; branch `claude/wizardly-galileo-kjszii`; runtime and launcher change,
+  no config change; Salmons draws exactly as before until someone sets an entry).** Plan and
+  phases: [design/zone-art](../design/zone-art.md). A general arcade feature (owner decision, same
+  day). Salmons is the first game that uses it.
+  - **What it is.** `arcade.zoneArt`, keyed by zone family (`rock#`, `whirlpool#`, …, the Zones
+    chips' grouping, `game-config` `zoneFamilyOf`). Each entry has a picture (a frame of a project
+    sheet, or a Flipbook clip), optional variants (one per zone, picked by the room's seed and the
+    zone id), `placement: 'stamp'` and an optional scale. It is carried past the normalizer like
+    the slide and touch schemes, so the slot, match-3 and card runtimes do not change by a byte.
+    It is cosmetic: a room's levels and `levelHash` are the same with it or without it, and a
+    device with zone art in a room without it adopts nothing and is not refused (`check:zone-art`
+    §5, through the game server's own `configSource` and `createRoomSim`).
+  - **In Salmons' river** (`salmonsArt/river.ts`, `zoneArt.ts`): a rock or whirlpool whose zone has
+    a stamp is drawn with the stamp's picture in place of `rock_N` / `whirlpool_N`, at the built-in
+    size times the scale. A clip plays on the river's ticker. Any other family's stamp stands
+    upright on its zone. A rock still draws both of its seeded numbers, so no other tree, rock or
+    bed moves. With no entry, `online.ts` passes no zone art (`roomZoneArt` answers `undefined`)
+    and the river runs its old path. A picture that is not loaded draws the built-in piece.
+  - **Any other arcade game:** its stamps are layout nodes under its play field's spawn layer
+    (`engine-layout/zone-art`, `apps/lines` `game/zoneArt.ts`).
+  - **Ships (rule 8):** the frame's sheet and the clip with its sheets, though no scene places
+    them, and the frame listed in the index's `characterArt` so the boot keeps the sheet loaded.
+  - **Edited in** `/config` → **Zone art** ([tools/game-config](../tools/game-config.md) "Zone
+    art"). For a Salmons level, the rule-only families (`band#…`, `waterfall#Bear`, the bears' and
+    fishermen's walls) are hidden behind **Show rule-only zones**.
+  - **Gates:** `check:zone-art` (67), `check:salmons-art` (33; its pin of `salmonsArt` takes the
+    new argument), `check:salmons-export` (39), `check:game-config-family` (569; knows the new
+    heading), `check:art-scope`, `check:flipbook-characters` (254), `check:room-levels` (15),
+    `check:room-sim` (43), `check:arcade-rules` (79), svelte-check at baseline for `apps/lines`,
+    `apps/launcher-api` and `packages/engine-layout`.
+  - **Played** on the branch's arcade runtime (headless Chrome). `zone-art-play.mjs` (new, 5/5;
+    [playtest/arcade-sample](../playtest/arcade-sample.md) item 10) plays a plain game: a sheet
+    frame and a clip stamped on their zones, and nothing drawn without zone art. `arcade-play.mjs`
+    passes 14/14. `salmons-play.mjs` (no zone art) passes 101/101 on its second run: its river is
+    in the original images, with as many `rock_` pieces as rocks and four `whirlpool_` frames per
+    pool. The first run failed one verdict, "isometric: page A draws its salmon at its projected
+    place". That verdict cannot tell the two places apart when the salmon is drawn at the camera's
+    centre (projected (644, 347), flat (640, 349), under its 60 px), which depends on the room's
+    random seed, not on this change.
+    Salmons' river with zone art set was not played in a browser. It finds a frame by the same
+    scoped key (`<sheet>::<frame>`) the plain game's sprite was found by, and a clip's frames
+    through `resolveClipFrames`, as `<Flipbook>` does.
+  - **Not done (next phases):** a rig source, `fill` / `edge` placements (sandbank ground, the sea,
+    a waterfall's lip), a clip's random start frame, a `z`, and the zone map drawing the chosen
+    art.
+  - **Owner steps:** none to keep Salmons as it is. To use it: pick art in `/config` → Zone art,
+    save, and publish. It reaches rooms with the runtime release of the merge.
 - **A device plays its room's levels: the picture is the collisions (2026-11-25; owner: "changing
   the seed generates a new level, but does not update collisions"; in review; branch
   `claude/zealous-darwin-t8xiyc`; runtime and game-server change, no config change; NOT live
@@ -1764,14 +1812,6 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
   clip is drawn on land too (or, switched at the water's edge, starts the clip again there). Not
   taken: no bear clip exists. Take it with the first bear clips, or give `<SpawnLayer>` a way to
   put a filter on a clip.
-- **A smooth turn's cross-fade does not fade on a rig** (found 2026-11-25; `sheetRigLook.ts`
-  `opacity`; since #1895). Its `AlphaFilter` is on a `RigView`, which Pixi measures 0 × 0 for a
-  filter, so the pass is skipped and both pictures are drawn at full strength. Since #1902 only
-  a sheet that sets **Blend (ms)** fades, and the bear's sets none, so no live character shows
-  it today. The fix is the wading's: a `filterArea` on the fading view. Not done here: it
-  changes how a blended turn looks, which is its own look to judge
-  (`scripts/playtest/character-turn-strip.mjs`). `check:character-turn` holds only that the
-  filter is set, not that it is drawn.
 - **Owner: look at the live bear.** The waterline's numbers were judged on the bear sprite and a
   stand-in rig. If `R_Bear`'s body is much narrower than its box the curve will read flatter
   than here; `WADE.reach` and `WADE.sag` are the two to move.
@@ -2221,6 +2261,19 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     nothing is asked for ever. (4) `takes` asks Pixi's own hit test (a press on a button's
     4 px rim picked and was a tap too). (5) Wordings here, in the design and in the playbook.
     `check:room-lobby` 16 → 35; `salmons-levels-play.mjs` 41 → 54.
+- 2026-11-25 — **A smooth turn's cross-fade fades on a rig** (bug found with the wading; branch
+  `claude/laughing-ritchie-jj9vuc`, #1905; in review). `sheetRigLook.ts`
+  flattened a fading `RigView` with an `AlphaFilter` that Pixi sized by its fast measure, which
+  finds nothing in a rig, so every pass was skipped and both pictures were drawn at full
+  strength until the blend ended (since #1895). The fading view now carries a `filterArea`:
+  its local bounds each frame, 25 % of the longer side as a margin (8 px at least), the rig's
+  box if it measures empty; cleared when it is opaque again. `check:character-turn` 113 → 115:
+  every fading view's pass, read as Pixi reads it, must have a size and hold the pose drawn (red
+  on the unfixed look: "a pass of no size is skipped"), an opaque one has none, and two
+  mutations (no `filterArea`; a pass that cuts the pose). Looked at with
+  `character-turn-strip.mjs`: only `iso-rig-blend` changes, from a cut with both pictures solid
+  to a fade of two whole pictures; the eleven other strips, the bear as saved among them, are
+  the same bytes. Only a sheet that sets **Blend (ms)** draws differently; the bear sets none.
 
 - 2026-11-25 — **A device plays its room's levels** (owner: "changing the seed generates a new
   level, but does not update collisions"; branch `claude/zealous-darwin-t8xiyc`; in review). The

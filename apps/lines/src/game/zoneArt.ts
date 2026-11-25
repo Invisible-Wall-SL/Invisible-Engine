@@ -1,0 +1,56 @@
+import { resolveFlipbook, type LayoutDoc } from 'engine-layout';
+import { withZoneArtNodes } from 'engine-layout/zone-art';
+import {
+	normalizeGameConfigDoc,
+	usesSalmonsArt,
+	zoneArtOf,
+	zoneArtStamps,
+	type ArcadeZone,
+	type ZoneStamp,
+} from 'game-config';
+
+import { bakedGameConfig } from '../editor-scenes';
+
+/**
+ * ZONE ART, ON THE ARCADE RUNTIME (`docs/design/zone-art.md`): the stamps Game Config's
+ * `arcade.zoneArt` (read off the baked config: the normalizer drops it) draws on the zones the game
+ * plays, chosen by the room's seed (`0` offline), the
+ * same on every device. Cosmetic: nothing here reaches the loop, a rule or the room.
+ *
+ * A game whose generator makes its zones draws them in its generator's own art (Salmons:
+ * `online.ts` hands the room's stamps to the river); a game of its config's own zones draws them as
+ * layout nodes under its play field's spawn layer ({@link withZoneArt}). A config with no zone art
+ * changes nothing.
+ * Reached only through the arcade family's seam, so no other runtime carries it.
+ */
+
+/** The stamps of `zones` in a room seeded `seed`; empty for a config with no zone art. */
+export function zoneStampsOf(zones: readonly ArcadeZone[], seed: number | string): ZoneStamp[] {
+	return zoneArtStamps(zones, zoneArtOf(bakedGameConfig()), seed);
+}
+
+/** A registered clip's Bounds box: a stamp of it keeps its ratio. */
+const clipSize = (clipId: string) => {
+	const bounds = resolveFlipbook(clipId)?.bounds;
+	return bounds && bounds.w > 0 && bounds.h > 0 ? { w: bounds.w, h: bounds.h } : undefined;
+};
+
+/**
+ * `doc` with its zone stamps as layout nodes, for a game whose zones are its config's own (the
+ * arcade seam passes the loaded doc through it, `editor-scenes` `setRoomDocChange`): drawn under
+ * the online room's layer, or offline the play field's. `doc` itself when nothing is drawn, and for
+ * a game whose generator makes its zones: a room of one replaces this change with its own field
+ * (`online.ts` `withRoomField`), whose art draws the stamps.
+ */
+export function withZoneArt(doc: LayoutDoc): LayoutDoc {
+	const baked = bakedGameConfig();
+	const map = zoneArtOf(baked);
+	if (!map) return doc;
+	const config = normalizeGameConfigDoc(baked);
+	const arcade = config?.arcade;
+	if (!arcade || usesSalmonsArt(config) || arcade.online?.generator) return doc;
+	return withZoneArtNodes(doc, zoneArtStamps(arcade.zones ?? [], map, 0), {
+		layer: arcade.online?.layer,
+		clipSize,
+	});
+}

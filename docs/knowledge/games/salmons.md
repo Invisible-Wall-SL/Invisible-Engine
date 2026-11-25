@@ -33,7 +33,7 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   `salmons_props`, `salmons_characters`, `salmons_waterfall_face` (locked, region names unchanged;
   `salmons_cliff` still to import, see the status file).
   A published project sheet wins region by region; the built-in copy is the fallback. Never rename
-  a region: the drawing code names them.
+  a region: the drawing code names them. Game Config zone art replaces a rock's or whirlpool's.
 - Online: published to the test server 2026-10-26. Online rooms (`services/game-server`, P10.14)
   are built but not deployed and not used by this project.
 

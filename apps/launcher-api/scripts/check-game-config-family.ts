@@ -1048,6 +1048,7 @@ const HEADINGS: Record<string, ConfigSection> = {
 	'Big win tiers': 'winLevels',
 	'Match-3': 'match3',
 	Arcade: 'arcade',
+	'Zone art': 'arcade',
 	'Online room': 'arcade',
 	'Mouse and touch': 'arcade',
 	'Online rules': 'arcade',

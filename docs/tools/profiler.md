@@ -71,6 +71,29 @@ the readout gets a **Send** button and the reading goes straight to the project'
 A game opened with `?perf=1` but without a capture link shows no **Send** button and sends nothing.
 Players never load the readout at all.
 
+### Capture on a cloud phone (BrowserStack Live)
+
+BrowserStack Live lends you a real phone in a browser tab, so you can measure phones nobody on
+the team owns. A cloud phone cannot scan a QR code, so the Profiler opens the link on it for you:
+
+- Sign in to BrowserStack in this browser once.
+- In **New capture**, pick the phone under **Cloud phone** (Samsung Galaxy S25, Google Pixel 9,
+  Samsung Galaxy A16 5G, iPhone 16 or iPhone 13). The **Device label** becomes
+  "BS Live · <phone>", so its readings carry its name. Click **Open capture**.
+- Click **BrowserStack Live** under **As shipped** (or under a variant). A new tab starts that
+  phone in BrowserStack Live, in Chrome on Android or Safari on iPhone, with the capture link
+  already open.
+- Play as in steps 4–5 with the mouse, then tap **Send**. The reading arrives in **Readings**.
+- For another phone, pick it and click **New session**: a session's links carry the label it was
+  opened with.
+
+The button only opens BrowserStack's own dashboard; no BrowserStack key is stored. For a phone
+not in the list, type its label, click **Copy link** and paste the link into the phone's address
+bar (the Live toolbar's clipboard button sends your clipboard to the phone).
+
+The phone is real, so its fps counts like any phone's. Keep the phone screen at its normal
+size in Live, and play each phase a few seconds (Devices needs 120 frames a phase).
+
 ### Paste a reading from a delivery
 
 7. A delivery runs on a partner's page, and nothing can be sent from there. Open it with `?perf=1`,
@@ -344,7 +367,8 @@ The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Dev
 budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug") and P6 ("Lab runs") are done.
 Planned in [the design](../design/invisible-profiler.md), not built yet:
 
-- **Cloud phones** from an online device service (P7).
+- **Scripted cloud phones** (P7), parked: they need a BrowserStack Automate plan. Cloud phones
+  are tested by hand today (see **Capture on a cloud phone** above).
 
 Today:
 

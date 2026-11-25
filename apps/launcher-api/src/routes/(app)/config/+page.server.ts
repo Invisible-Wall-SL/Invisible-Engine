@@ -4,6 +4,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
+import { listClips } from '$lib/server/flipbookStorage';
 import {
 	gameConfigDefaultFor,
 	gameConfigPresetsFor,
@@ -80,6 +81,21 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			)
 		: undefined;
 
+	// The Flipbook clips a zone family may be drawn with (the Zone art card): only an arcade config
+	// has zones, so no other project pays the listing. A failed listing offers no clip.
+	const clips = doc?.arcade
+		? await listClips(clientKey, projectKey).then(
+				(rows) =>
+					rows.map((c) => ({
+						id: c.id,
+						name: c.name,
+						assetKey: c.assetKey,
+						firstFrame: c.firstFrame,
+					})),
+				() => [],
+			)
+		: [];
+
 	// The template default the "Reset to template default" action restores. Sent even when the
 	// project is already on it (source === 'template') so the button works after any edit without a
 	// round-trip. Null only if the generated defaults are broken (see `gameConfigDefaults.ts`).
@@ -143,6 +159,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// shared }` — `name` is the value a `spine` param stores; `key` is the R2 prefix the animation
 		// dropdown keys its `/api/editor/rig/meta` fetch by.
 		spines: assets.spines.map((s) => ({ name: s.name, key: s.key, shared: s.shared })),
+		clips,
 		projection,
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.

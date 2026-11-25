@@ -13,6 +13,21 @@ import type { GameConfigDoc } from './types';
 export const SALMONS_ART_GENERATORS: readonly string[] = ['salmonsRiver', 'salmonsMap'];
 
 /**
+ * The zone families (`zoneArt.ts` `zoneFamilyOf`) Salmons' art draws a piece on: the rest of its
+ * generators' zones are walls and currents for the rules alone (`band#Water`, `waterfall#Bear`, …),
+ * which `/config`'s Zone art card hides unless asked.
+ */
+export const SALMONS_DRAWN_ZONE_FAMILIES: readonly string[] = [
+	'rock#',
+	'whirlpool#',
+	'sandbank#',
+	'waterfall#',
+	'bridge#',
+	'source',
+	'sea',
+];
+
+/**
  * Each built-in sheet's project sheet; `waterfall_face` and `cliff` are the one-region sheets of the
  * tiles. Plain literals, no top-level calls: a runtime that never draws Salmons must tree-shake this
  * module away (`check:runtime-bytes`).

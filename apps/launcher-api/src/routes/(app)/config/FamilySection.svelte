@@ -59,6 +59,7 @@
 	import OnlineSection from './OnlineSection.svelte';
 	import PagedRows from './PagedRows.svelte';
 	import SnapshotRows from './SnapshotRows.svelte';
+	import ZoneArtSection from './ZoneArtSection.svelte';
 	import ZoneMap from './ZoneMap.svelte';
 	import { MAX_SEED } from '$lib/editor/generatedLevelCore';
 	import {
@@ -86,6 +87,8 @@
 		issuesFor,
 		readOnly,
 		projectKey,
+		pickSheets = [],
+		clips = [],
 	}: {
 		doc: GameConfigDoc;
 		/** The symbols the strips deal — what a collect goal can name. */
@@ -94,6 +97,10 @@
 		readOnly: boolean;
 		/** The project the page edits: a link to another tool opens it there. */
 		projectKey: string;
+		/** The sheets a zone family's frame is picked from (the region picker's list). */
+		pickSheets?: { key: string; name: string }[];
+		/** The project's Flipbook clips a zone family may be drawn with. */
+		clips?: { id: string; name: string; assetKey: string; firstFrame: string }[];
 	} = $props();
 
 	const FAMILY_LABELS: Record<ConfigFamily, string> = {
@@ -691,10 +698,21 @@
 				>
 			</fieldset>
 		</div>
-		{#each issuesFor('arcade').filter((i) => !i.path.startsWith('arcade.online')) as issue (issue.path + issue.message)}
+		{#each issuesFor('arcade').filter((i) => !i.path.startsWith('arcade.online') && !i.path.startsWith('arcade.zoneArt')) as issue (issue.path + issue.message)}
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 		{/each}
 	</SectionCard>
+	{#if level || zones.length || doc.arcade?.zoneArt}
+		<ZoneArtSection
+			bind:doc
+			zones={level?.zones ?? zones}
+			{generator}
+			{readOnly}
+			{pickSheets}
+			{clips}
+			{issuesFor}
+		/>
+	{/if}
 	{#if doc.arcade?.online}
 		<OnlineSection
 			bind:doc

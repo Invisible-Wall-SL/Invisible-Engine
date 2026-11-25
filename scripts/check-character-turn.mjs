@@ -33,7 +33,8 @@
 // 12. the looks that draw a blend, on pixi's own objects and the rig runtime's with no renderer:
 //     the clip look cross-fades two sprites, the rig look (sheetRigLook.ts) mixes one pose in one
 //     view or cross-fades two, each carried on at the phase the other had reached, and leans about
-//     the sheet's pivot;
+//     the sheet's pivot; a fading view is drawn faded: the box Pixi filters it over has a size and
+//     holds its pose (its `filterArea`: Pixi's own measure finds no size in a rig, and skips);
 // 13. each of 2 to 8 and of 10 to 12 goes red on a mutation written here.
 //
 // Run: pnpm check:character-turn
@@ -1847,6 +1848,8 @@ const rigStage = (sheet, facing = 'n') => {
 	const animator = createSheetRigAnimator(sheet, RIG_SOURCE, facing);
 	const look = createSheetRigLook('hero', RIG_DATA, sheet);
 	const into = new Container();
+	// Under a render group, as on a stage: Pixi's own measure for a filter reads through one.
+	new Container({ isRenderGroup: true }).addChild(into);
 	const unmount = look.mount(into);
 	assert.equal(into.children.length, 1);
 	const [root] = into.children;
@@ -1861,11 +1864,29 @@ const rigStage = (sheet, facing = 'n') => {
 	return { sheet, animator, look, into, root, unmount, entryOf, phaseOf };
 };
 
+const boxOf = (rect) => ({ x: rect.x, y: rect.y, w: rect.width, h: rect.height });
+/** What Pixi measures a container by for a filter with no `filterArea` (`getFastGlobalBounds`):
+ *  nothing in a `RigView`, whose drawn parts are left out of measuring. */
+const fastPass = (view) => boxOf(view.getFastGlobalBounds(true).rectangle);
+/**
+ * The box Pixi's filter system draws a view's filters over (`FilterSystem` `_calculateFilterArea`),
+ * in the view's own space: its `filterArea`, else its own measure. An empty one is a pass Pixi
+ * skips with no error, and the view is drawn at full strength.
+ */
+const filterPass = (view) => (view.filterArea ? boxOf(view.filterArea) : fastPass(view));
+
 /**
  * Drive a rig's animator and its look together along `headingAt` (degrees), as `online.ts` does:
  * each frame with what the look drew, its views, and the phase of each.
  */
-function rigDrive(stage, headingAt, ms, from = 0, handOver = (frame) => frame) {
+function rigDrive(
+	stage,
+	headingAt,
+	ms,
+	from = 0,
+	handOver = (frame) => frame,
+	passOf = filterPass,
+) {
 	const { animator, look, root, entryOf, phaseOf } = stage;
 	const samples = [];
 	for (let atMs = from; atMs <= from + ms; atMs += FRAME_MS) {
@@ -1879,6 +1900,10 @@ function rigDrive(stage, headingAt, ms, from = 0, handOver = (frame) => frame) {
 			lean: view.rotation,
 			// The alpha of the filter that flattens it while it fades; none ⇒ it is opaque.
 			fade: (view.filters ?? []).map((filter) => filter.alpha),
+			// The box its fade is drawn over, and the pose it draws, in its own space.
+			pass: view.filters?.length ? passOf(view) : undefined,
+			pose: boxOf(view.bounds.rectangle),
+			area: view.filterArea !== undefined,
 			animation: entryOf(view).animation.name,
 			phase: phaseOf(view),
 		}));
@@ -1930,9 +1955,22 @@ const walksOn = (samples, phaseStep = (moved) => moved) =>
 		);
 	});
 
-const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose }) => {
+/** A view that fades is DRAWN faded: Pixi's pass over it has a size, and holds the pose it draws. */
+const fadesDrawn = (view, label) => {
+	const { pass, pose } = view;
+	assert.ok(pass.w > 0 && pass.h > 0, `${label}: a pass of no size is skipped, drawn opaque`);
+	assert.ok(
+		pass.x <= pose.x &&
+			pass.y <= pose.y &&
+			pass.x + pass.w >= pose.x + pose.w &&
+			pass.y + pass.h >= pose.y + pose.h,
+		`${label}: the pass ${JSON.stringify(pass)} cuts the pose ${JSON.stringify(pose)}`,
+	);
+};
+
+const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose, passOf }) => {
 	const stage = rigStage(rigSheet(BLENDS), 'ne');
-	const samples = rigDrive(stage, ROUND, 1100 + 700 * 5 + 400);
+	const samples = rigDrive(stage, ROUND, 1100 + 700 * 5 + 400, 0, undefined, passOf);
 	const changes = changesOf(samples);
 	assert.equal(changes.length, ROUND_CHANGES.length, 'every change of the round is drawn');
 	walksOn(samples, phaseStep);
@@ -2008,6 +2046,9 @@ const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose }) => {
 				// A view that fades is flattened by a filter at its alpha; an opaque one has none.
 				assert.deepEqual(s.views[1].fade, alpha.to < 1 ? [alpha.to] : []);
 				assert.deepEqual(s.views[0].fade, alpha.from < 1 ? [alpha.from] : []);
+				for (const view of s.views)
+					if (view.fade.length) fadesDrawn(view, `${s.atMs} ms, ${view.animation}`);
+					else assert.equal(view.area, false, 'an opaque view has no pass of its own');
 			}
 			// Done: the picture left is not drawn, the frame's is opaque.
 			same(
@@ -2016,6 +2057,7 @@ const rigRound = ({ phaseStep, posesOf = (frame) => frame.blend.pose }) => {
 				'only the frame`s view is drawn',
 			);
 			assert.deepEqual(done.front.fade, [], 'opaque');
+			assert.equal(done.front.area, false, 'opaque, and drawn without a pass');
 		}
 		assert.equal(done.drawn.blend, undefined);
 		assert.equal(done.drawn.animation, to);
@@ -2354,6 +2396,15 @@ mutation('a rig`s walk that started again at a change of picture', () => {
 });
 mutation('a rig`s walk that started again when it turned back', () => {
 	rigComesBack((moved, sample) => (sample.frame.blend?.weight === 0 ? 0 : moved));
+});
+mutation('a rig view faded with no `filterArea`, measured by Pixi alone', () => {
+	rigRound({ phaseStep: (moved) => moved, passOf: fastPass });
+});
+mutation('a rig view faded over a pass that cuts its pose', () => {
+	rigRound({
+		phaseStep: (moved) => moved,
+		passOf: (view) => ({ ...filterPass(view), w: filterPass(view).w / 2 }),
+	});
 });
 mutation('a mirrored twin read as one pose', () => {
 	rigRound({ phaseStep: (moved) => moved, posesOf: () => true });

@@ -87,7 +87,7 @@ A seed and the same keys replay the same game.
   clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
   A line's hand and style and the rising catch text are the player's, not its look's (`standOf`).
 - **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
-- **A character sheet is carried, not normalized** (C2a): `normalizeGameConfigDoc` drops it (slot bundles keep that code); read it off the raw config with `game-config` `characterSheet.ts`. `check:character-sheet`.
+- **A character sheet and zone art are carried, not normalized** (C2a; `arcade.zoneArt`, [zone-art](../../design/zone-art.md)): `normalizeGameConfigDoc` drops them (slot bundles keep that code); read them off the raw config (`characterSheet.ts`, `zoneArt.ts` `zoneArtOf`). Zone art is cosmetic, in no room or fingerprint; a family with no entry draws as before. `check:character-sheet`, `check:zone-art`.
 - **`<SpawnLayer>` and `arcadeClips` know nothing of a lean** (C9, `view.turn`): a character that turns smoothly has no published clip; `engine-layout/sheet-clip` draws it through the code-look channel (arcade runtimes only). `check:character-turn`.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
@@ -162,7 +162,7 @@ A seed and the same keys replay the same game.
 - **Symptom:** a new reader of the published clips map does not see a smoothly turning character, or its gold differs. **Cause:** it is drawn by `sheetClipLook.ts`, not published. **Guard:** a gold-tint change in `SpawnLayer.svelte` is mirrored in `SHEET_CLIP_GOLD` (`check:character-turn` holds them equal); the map: none.
 - **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** a spawn layer placed
   off the world's origin is culled by its offset (`arcadeLoop.ts`). **Guard:** none.
-- **Symptom:** a filter on a character a rig draws does nothing, with no error. **Cause:** Pixi sizes a filter by a measure that finds nothing in a `RigView`, and skips the pass. **Guard:** give the container a `filterArea` (`salmonsArt/wade.ts`; `salmons-play.mjs --rig`). `sheetRigLook.ts`'s fade has none: status/salmons.
+- **Symptom:** a filter on a character a rig draws does nothing, with no error. **Cause:** Pixi sizes a filter by a measure that finds nothing in a `RigView`, and skips the pass. **Guard:** give the container a `filterArea` refitted each frame (`salmonsArt/wade.ts`, `salmons-play.mjs --rig`; `sheetRigLook.ts`'s cross-fade, `check:character-turn` reads the pass as Pixi does).
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
 
@@ -176,7 +176,7 @@ A seed and the same keys replay the same game.
   `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
   `check:arcade-platformer`, `check:characters-tool`, `check:editor-tilemap`,
   `check:editor-world-camera`, `check:layout-path`, `check:game-config-family`,
-  `check:family-tools`, `check:art-scope`, `check:component-state-machine`.
+  `check:family-tools`, `check:art-scope`, `check:component-state-machine`, `check:zone-art`.
 - **Playbooks** (headless browser, branch runtime): `docs/playtest/arcade-sample.md`
   (`scripts/playtest/arcade-play.mjs`), `docs/playtest/arcade-characters.md`,
   `docs/playtest/arcade-platformer.md`, `docs/playtest/online-sample.md` (two pages, local game
