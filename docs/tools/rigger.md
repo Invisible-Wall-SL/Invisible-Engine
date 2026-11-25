@@ -372,10 +372,26 @@ it sits behind. Hover its header for the same summary.
     alone. Do it again to show them all.
   - An eye on a selected row hides or shows the whole **Shift / Ctrl** selection.
   - **👁** in the section header shows every slot again. It works while the section is folded.
-  - On a template rig, a row of **group eyes** sits above the slots, one per group the template
-    names: each draw-order layer (a head with its face, a hand with its fingers), and the slots a
-    swap hides (the fingers a drawn **hand pose** replaces). Click one to hide or show the group,
-    Alt-click or right-click to show only it.
+  - **Groups** sit above the slots, one row each. A template rig brings its own: each draw-order
+    layer (a head with its face, a hand with its fingers), and the slots a swap hides (the fingers a
+    drawn **hand pose** replaces). Click a group's eye to hide or show the group, Alt-click or
+    right-click to show only it.
+  - **Make your own group:** select rows (**Shift**-click for a run, **Ctrl**-click to add one), then
+    **＋** in the section header and name it. Your groups have a dashed eye, **✎** renames one and
+    **🗑** deletes it (its slots stay). Saving the same name again replaces its slots. They are kept
+    with the rig (in `controls.json` beside the `.irig`), so everyone who opens the rig sees them,
+    and they follow the rig: a renamed slot is renamed in them, a deleted one leaves them, and a group
+    with no slot left goes. Making, renaming or deleting one is an undo step. The game never sees
+    them.
+  - **Each group's slider dims it on the stage while you work** (0–100 %), in every mode. A slot in
+    two dimmed groups gets both (50 % and 50 % draw it at 25 %). Like the eye, it is only your view:
+    kept per rig in this browser, never saved, and the `.irig` stays the same.
+  - **⤓ writes a group's dimming into the rig.** In **Setup** it multiplies each slot's setup alpha
+    by the slider (a slot at 50 % with the slider at 40 % ends at 20 %), so the stage looks the same;
+    clips that key the slot's colour keep their own keys. In **Animate** it keys each slot's opacity
+    at the playhead, at its opacity there times the slider (a slot the clip colours with separate
+    colour and alpha keys gets an alpha key, so its colour keys keep working). Either way the slider
+    goes back to 100 %, and it is one undo step. It is off at 100 %, in Preview and in Cinematic.
 - **Reorder in Setup by dragging the ⋮⋮ grip** of a row to its new place. A line shows where it
   will land, and the list scrolls when you hold it near its top or bottom edge. Select several rows
   first (**Shift**-click for a run, **Ctrl**-click to add or take out one) and they move together as

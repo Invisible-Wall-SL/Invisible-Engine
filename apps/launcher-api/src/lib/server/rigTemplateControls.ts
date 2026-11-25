@@ -141,6 +141,8 @@ export function controlsForTemplate(
 	delete rest.controls;
 	delete rest.rig;
 	delete rest.irig;
+	// Slot groups name this rig's own art, which a template's rigs do not share.
+	delete rest.slotGroups;
 	// A saved template carries no 3D data, so a limb solved in 3D (and its switch) stays behind.
 	const dropped = [...fit.dropped];
 	const flat = Object.entries(rest.limbs ?? {}).filter(([, l]) => l.ik3d);

@@ -183,6 +183,25 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-25 — **Your own slot groups, with a view opacity.** ＋ in the Slots header saves the
+  Shift / Ctrl selection as a named group, beside the template's groups (layers, swap `hides`), with
+  the same eye (click, Alt / right-click solo); ✎ renames, 🗑 deletes. The groups are kept in the
+  rig's `controls.json` (new field `slotGroups`, `src/lib/rigControls.ts`; the bundle
+  `vendor/rigger-controls.js` rebuilt), so they ride the save, backups and the rig library and
+  everyone who opens the rig has them; slots are a new ref kind there (`renamesBetween` pairs a slot
+  renamed in place on the same bone), so a renamed slot follows, a deleted one leaves, an emptied
+  group goes. A template made from the rig does not carry them. Every group row has a 0–100 %
+  slider that dims its slots on the stage only (per rig in this browser, `rigger.slotGroupAlpha:…`;
+  a slot in several groups gets the product; scaled and put back around the draw in `withSlotEye`).
+  ⤓ writes it into the rig: Setup multiplies the members' setup alpha (what the stage showed), Animate
+  keys each member's opacity at the playhead (alpha there × slider) — on `alpha` for a slot the clip
+  colours with the split `rgb` / `alpha` timelines, since an `rgba` key is read after them and
+  would override both — and the slider goes back to 100 %. Guards: `check:rig-controls` (schema,
+  fit, rename), `tools/rigger-spike/slot-groups-browser.mjs` (46 checks vs engine-rig's playback,
+  `--mutants` 7/7). Open: the slot panel's own opacity slider and ◆ Key still key `rgba` on a slot
+  with split `rgb` / `alpha` keys (the bug ⤓ avoids), and `keySlotColor` keeps an eased key's curve
+  without refitting its value handles. Not yet confirmed in the authed WebGL page.
+
 - 2026-11-25 — **↑ ↓ on a slot no longer throws the panel back to the top.** Every structural
   rebuild (`rebuildFromRawDoc` → `buildInspector`) empties the inspector's lists, which clamped the
   `#inspector` scroller to 0, so moving a slot far down a long list meant scrolling back to it after

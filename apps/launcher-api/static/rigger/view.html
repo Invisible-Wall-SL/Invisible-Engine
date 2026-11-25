@@ -427,11 +427,17 @@
   .trow .slotEye { padding:0 3px; opacity:.5; }
   .trow:hover .slotEye, .trow.eyeOff .slotEye { opacity:1; }
   .trow.eyeOff .slotName { opacity:.4; font-style:italic; }
-  #slotEyeAll { float:right; font-size:12px; line-height:14px; }
-  .slotGroups { flex-wrap:wrap; }
-  .slotGroupEye { padding:0 6px; font-size:10px; line-height:16px; }
+  #slotEyeAll, #slotGroupAdd { float:right; font-size:12px; line-height:14px; }
+  .slotGroups { margin:2px 14px 6px; }
+  .slotGroupHead { display:flex; align-items:center; gap:4px; color:var(--dim); font-size:10px; }
+  .slotGroupHead > span { flex:1; cursor:help; }
+  .slotGroupRow { display:flex; align-items:center; gap:3px; margin-top:2px; }
+  .slotGroupEye { flex:1; min-width:0; padding:0 6px; font-size:10px; line-height:16px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .slotGroupEye.part { opacity:.75; }
   .slotGroupEye.off { opacity:.45; }
+  .slotGroupEye.mine { border-style:dashed; }
+  .slotGroupRow input[type=range] { width:58px; margin:0; }
+  .slotGroupPct { width:28px; text-align:right; color:var(--dim); font-size:10px; }
   #consDetail .chead, #slotDetail .chead { display:flex; align-items:center; gap:4px; margin-bottom:2px; }
   #consDetail .chead > b, #slotDetail .chead > b { flex:1; color:var(--txt); font-size:12px; overflow:hidden; text-overflow:ellipsis; }
   #consDetail .chead > button, #slotDetail .chead > button { padding:0 6px; font-size:12px; line-height:18px; }
@@ -7308,14 +7314,16 @@ async function importRig(id){
 // picker buttons.
 function mergeImportedControls(ctl, original, prefix){
   if (!ctl || !original || controlsLocked || !window.RiggerControls) return;
-  const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
+  const renames = { bone: new Map(), slot: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
   for (const b of original.bones || []) renames.bone.set(b.name, prefix + b.name);
+  for (const s of original.slots || []) renames.slot.set(s.name, prefix + s.name);
   for (const k of ["ik", "transform", "path", "physics"]) for (const c of original[k] || []) renames[k].set(c.name, prefix + c.name);
   const doc = window.RiggerControls.renameControls(ctl, renames);
   ctlEdit((d) => {
     for (const [n, c] of Object.entries(doc.bones || {})) (d.bones = d.bones || {})[n] = c;
     for (const l of doc.layers || []) if (!(d.layers || []).some((x) => x.name === l.name)) (d.layers = d.layers || []).push(l);
     for (const [s, members] of Object.entries(doc.sets || {})) (d.sets = d.sets || {})[prefix + s] = members;
+    for (const [g, members] of Object.entries(doc.slotGroups || {})) (d.slotGroups = d.slotGroups || {})[prefix + g] = members;
     for (const [c, p] of Object.entries(doc.presets || {})) (d.presets = d.presets || {})[c] = p;
     for (const [l, limb] of Object.entries(doc.limbs || {})) (d.limbs = d.limbs || {})[prefix + l] = limb;
     // its mirror pairs join (its bones are all new, under the prefix); the line stays the rig's
@@ -8994,6 +9002,7 @@ function renameSlot(oldName, newName){
     if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) for (const o of fr.offsets) if (o.slot === oldName) o.slot = newName;
   }
   if (rig3d.doc && R3()) R3().rename3d(rig3d.doc, "slot", oldName, newName);
+  renameInControls("slot", oldName, newName);
   if (selSlot === oldName) selSlot = newName;
   renameSlotView(oldName, newName);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
@@ -14182,7 +14191,8 @@ const setupSlotNames = () => ((rawDoc && rawDoc.slots) || []).map((s) => s.name)
 // handles are neither drawn nor picked. Not the animated attachment or alpha, which it never touches.
 const slotEye = { key: null, hidden: new Set() };
 // By bundle and stem, so the artist's source .json and the .irig its first save opens share one set.
-const slotEyeKey = () => (selected ? "rigger.slotEye:" + (curProjectLabel || "default") + ":" + (selected.dir_b64 || "") + "/" + irigStem(selected) : null);
+const slotViewKey = (what) => (selected ? "rigger." + what + ":" + (curProjectLabel || "default") + ":" + (selected.dir_b64 || "") + "/" + irigStem(selected) : null);
+const slotEyeKey = () => slotViewKey("slotEye");
 /** The open rig's hidden slot names, read from this browser when another rig opened. */
 function slotEyeHidden(){
   const key = slotEyeKey();
@@ -14228,13 +14238,20 @@ function renameSlotView(from, to){
   if (slotMulti.delete(from)) slotMulti.add(to);
   if (slotAnchor === from) slotAnchor = to;
 }
-/** Run a draw of the rig with the hidden slots' art off, put back at once (not through setAttachment, which drops a mesh's deform). */
+/** Run a draw of the rig with the hidden slots' art off and the dimmed slots' alpha scaled, put back at once (not through setAttachment, which drops a mesh's deform). */
 function withSlotEye(draw){
   const set = skeleton ? slotEyeHidden() : null;
   const off = set && set.size ? skeleton.slots.filter((s) => set.has(s.data.name)) : [];
   const kept = off.map((s) => s.attachment);
+  const alphas = skeleton && Object.keys(slotGroupAlphas()).length ? slotViewAlphas(slotEyeGroupList, slotGroupAlpha) : null;
+  const dim = alphas && alphas.size ? skeleton.slots.filter((s) => alphas.has(s.data.name)) : [];
+  const was = dim.map((s) => s.color.a);
   for (const s of off) s.attachment = null;
-  try { draw(); } finally { off.forEach((s, i) => { s.attachment = kept[i]; }); }
+  for (const s of dim) s.color.a *= alphas.get(s.data.name);
+  try { draw(); } finally {
+    off.forEach((s, i) => { s.attachment = kept[i]; });
+    dim.forEach((s, i) => { s.color.a = was[i]; });
+  }
 }
 /** The selected slot is hidden: its handles are neither drawn nor picked on the stage. */
 const slotEyeOffSel = () => !!selSlot && slotEyeHidden().has(selSlot);
@@ -14255,6 +14272,130 @@ function slotEyeGroups(){
     add(ch.label, "The slots “" + ch.label + "” hides while it shows a drawn pose", ch.hides.map((h) => h.slot));
   return out;
 }
+// A group's view opacity (0…1, by group id), per rig in this browser like the eye: it dims the
+// group's slots on the stage alone, never rawDoc, a key or the saved .irig, until ⤓ writes it.
+const slotAlpha = { key: null, of: {} };
+function slotGroupAlphas(){
+  const key = slotViewKey("slotGroupAlpha");
+  if (key !== slotAlpha.key){
+    slotAlpha.key = key;
+    slotAlpha.of = {};
+    if (key) try {
+      const v = JSON.parse(localStorage.getItem(key) || "{}");
+      if (v && typeof v === "object") for (const [id, a] of Object.entries(v)) if (typeof a === "number" && a >= 0 && a < 1) slotAlpha.of[id] = a;
+    } catch {}
+  }
+  return slotAlpha.of;
+}
+function slotGroupAlpha(id){ const a = slotGroupAlphas()[id]; return a == null ? 1 : a; }
+function setSlotGroupAlpha(id, a){
+  const of = slotGroupAlphas();
+  if (!(a < 1)) delete of[id]; else of[id] = Math.max(0, a);
+  if (!slotAlpha.key) return;
+  try { if (Object.keys(of).length) localStorage.setItem(slotAlpha.key, JSON.stringify(of)); else localStorage.removeItem(slotAlpha.key); } catch {}
+}
+/** The dimmed slots' view opacity: a slot in several groups gets the product of theirs. */
+function slotViewAlphas(groups, alphaOf){
+  const out = new Map();
+  for (const g of groups){
+    const a = alphaOf(g.id);
+    if (a < 1) for (const n of g.names) out.set(n, (out.has(n) ? out.get(n) : 1) * a);
+  }
+  return out;
+}
+// A colour hex ("rrggbb" or "rrggbbaa") with its alpha times `k`.
+const alphaTimes = (hex, k) => hex.slice(0, 6) + hex2(parseInt(hex.slice(6, 8) || "ff", 16) / 255 * k);
+
+// The groups an author made of the selected slots (＋), kept in the rig's controls.json beside the
+// .irig so everyone who opens the rig has them; the game never reads it. A slot renamed in the rig is
+// renamed in them, a deleted one leaves them, and a group left with none goes (`fitControls`).
+const userSlotGroups = () => (controlsDoc && controlsDoc.slotGroups) || {};
+// Every group the Slots list shows: the template's, then the author's (any size, kept even when a
+// template group has the same slots).
+function slotGroupList(){
+  const out = slotEyeGroups().map((g) => Object.assign(g, { id: "t:" + g.label }));
+  const have = new Set(eyeSlotNames());
+  for (const [name, members] of Object.entries(userSlotGroups())){
+    const names = members.filter((n) => have.has(n));
+    if (names.length) out.push({ id: "u:" + name, label: name, user: true, tip: "Your group “" + name + "”: " + names.join(", ") + " (" + names.length + " slot" + (names.length > 1 ? "s" : "") + ")", names });
+  }
+  return out;
+}
+function addSlotGroup(){
+  const sel = selectedSlotNames();
+  if (!sel.length){ showErr("Select the slots first (Shift / Ctrl-click their rows), then ＋ saves them as a group."); return; }
+  const nm = (prompt("Group name (" + sel.length + " slot" + (sel.length > 1 ? "s" : "") + ")", "") || "").trim();
+  if (!nm) return;
+  if (userSlotGroups()[nm] && !confirm("Replace the group “" + nm + "” with the " + sel.length + " selected slots?")) return;
+  if (historyStep(() => ctlEdit((doc) => { doc.slotGroups = doc.slotGroups || {}; doc.slotGroups[nm] = [...new Set(sel)]; }))) renderSlotGroups();
+}
+function renameSlotGroup(from){
+  const to = (prompt("Rename group", from) || "").trim();
+  if (!to || to === from || !userSlotGroups()[from]) return;
+  if (userSlotGroups()[to]){ showErr("There is a group “" + to + "” already."); return; }
+  // In place, so the list keeps its order.
+  if (!historyStep(() => ctlEdit((doc) => { doc.slotGroups = Object.fromEntries(Object.entries(doc.slotGroups).map(([k, v]) => [k === from ? to : k, v])); }))) return;
+  const a = slotGroupAlpha("u:" + from);
+  setSlotGroupAlpha("u:" + from, 1); setSlotGroupAlpha("u:" + to, a);
+  renderSlotGroups();
+}
+function deleteSlotGroup(name){
+  if (!userSlotGroups()[name] || !historyStep(() => ctlEdit((doc) => { delete doc.slotGroups[name]; }))) return;
+  setSlotGroupAlpha("u:" + name, 1);
+  renderSlotGroups();
+}
+// A slot whose open clip colours it with the 4.2 split timelines (`rgb`, `rgb2`, `alpha`): an `rgba`
+// key would be read after them and override both, so its opacity is keyed on `alpha`.
+function slotSplitColour(slotName){ const cs = slotChannel(slotName); return !!cs && !!(cs.alpha || cs.rgb || cs.rgb2); }
+// Such a slot's alpha at `t`: its `alpha` keys (value 0 when a key has none, as the reader takes it),
+// its setup alpha before the first one or without any.
+function slotSplitAlphaAt(slotName, t){
+  const cs = slotChannel(slotName), keys = (cs && cs.alpha) || [];
+  if (!keys.length || t < keys[0].time) return hexToRGBA(slotColorAt(slotName, t)).a;
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1], va = a.value ?? 0;
+  if (!b || a.curve === "stepped") return va;
+  const vb = b.value ?? 0;
+  if (Array.isArray(a.curve)) return bezierValue(a.time, va, a.curve[0], a.curve[1], a.curve[2], a.curve[3], b.time, vb, t);
+  return b.time > a.time ? va + (vb - va) * (t - a.time) / (b.time - a.time) : va;
+}
+function keySlotSplitAlpha(slotName, value){
+  const cs = rawDoc.animations[curAnim].slots[slotName];
+  cs.alpha = cs.alpha || [];
+  upsertBoneKey(cs.alpha, roundN(animTime, 4), { value: roundN(value, 4) });
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+// ⤓ writes a group's view opacity into the rig. Setup MULTIPLIES each member's setup alpha by it,
+// which is what the stage showed (setup alpha × view opacity), where setting it would change any
+// slot not at 100%; Animate keys each member's opacity at the playhead as its alpha there × it. The
+// view opacity then goes back to 100%, so the stage looks as it did.
+function applySlotGroupAlpha(g){
+  const k = slotGroupAlpha(g.id);
+  if (!rawDoc || !(k < 1) || cineMode || !(editMode || animMode)) return;
+  const names = g.names.filter((n) => rawDoc.slots.some((s) => s.name === n));
+  if (!names.length) return;
+  const done = historyStep(() => {
+    if (editMode){
+      for (const s of rawDoc.slots) if (names.includes(s.name)){
+        const c = alphaTimes(s.color || "ffffffff", k);
+        if (c === "ffffffff") delete s.color; else s.color = c;
+      }
+      rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+      markDirty();
+      return true;
+    }
+    if (!ensureCurAnim()) return false;
+    for (const n of names){
+      if (slotSplitColour(n)) keySlotSplitAlpha(n, slotSplitAlphaAt(n, animTime) * k);
+      else keySlotColor(n, alphaTimes(slotColorAt(n, animTime), k));
+    }
+    return true;
+  });
+  if (!done) return;
+  setSlotGroupAlpha(g.id, 1);
+  renderSlotGroups();
+}
+
 // The group eyes again, once the rig's template has loaded.
 function renderSlotGroups(){
   const list = $("#slotList");
@@ -14264,16 +14405,40 @@ function renderSlotGroups(){
   if (bar) list.insertBefore(bar, list.querySelector(".trow[data-slot]"));
   refreshSlotEyes();
 }
+// One row per group: its eye, its view opacity, ⤓ to write that into the rig, and ✎ 🗑 on the author's.
 function slotGroupBar(){
-  slotEyeGroupList = slotEyeGroups();
+  slotEyeGroupList = slotGroupList();
   if (!slotEyeGroupList.length) return null;
-  const bar = document.createElement("div"); bar.className = "ctlBar slotGroups";
+  const bar = document.createElement("div"); bar.className = "slotGroups";
+  const head = document.createElement("div"); head.className = "slotGroupHead";
+  const t = document.createElement("span"); t.textContent = "Groups";
+  t.title = "👁 hides a group's slots on this stage and the slider dims them while you work (a slot in two groups gets both); neither reaches the rig or the game. "
+    + "⤓ writes the dimming into the rig: the setup colour's alpha in Setup, an opacity key at the playhead in Animate. "
+    + "Your groups (dashed) are kept with the rig, in controls.json, for everyone who opens it.";
+  head.appendChild(t);
+  bar.appendChild(head);
+  const canWrite = !!rawDoc && !cineMode && (editMode || animMode);
   slotEyeGroupList.forEach((g, i) => {
-    const b = document.createElement("button"); b.type = "button"; b.className = "slotGroupEye"; b.dataset.group = String(i);
+    const row = document.createElement("div"); row.className = "slotGroupRow";
+    const b = document.createElement("button"); b.type = "button"; b.className = "slotGroupEye" + (g.user ? " mine" : ""); b.dataset.group = String(i);
     b.title = g.tip + ". Click: hide or show them all · Alt-click or right-click: show only them";
     b.onclick = (e) => { e.stopPropagation(); toggleSlotGroup(g, e.altKey); };
     b.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotGroup(g, true); };
-    bar.appendChild(b);
+    const pc = Math.round(slotGroupAlpha(g.id) * 100);
+    const r = document.createElement("input"); r.type = "range"; r.min = "0"; r.max = "100"; r.value = String(pc); r.className = "slotGroupAlpha";
+    r.title = "Dim “" + g.label + "” on this stage while you work (the game draws it as the rig says)";
+    r.setAttribute("aria-label", r.title);
+    const pct = document.createElement("span"); pct.className = "slotGroupPct"; pct.textContent = pc + "%";
+    const ap = ctlIcon("⤓", editMode ? "Write the dimming into the rig: each slot's setup alpha × the slider (the stage stays as it is; the slider goes back to 100%)"
+      : "Key each slot's opacity at the playhead as its opacity there × the slider (the stage stays as it is; the slider goes back to 100%)", () => applySlotGroupAlpha(g));
+    ap.classList.add("slotGroupApply");
+    ap.disabled = !canWrite || pc >= 100;
+    r.oninput = () => { setSlotGroupAlpha(g.id, Number(r.value) / 100); pct.textContent = r.value + "%"; ap.disabled = !canWrite || Number(r.value) >= 100; };
+    row.append(b, r, pct, ap);
+    if (g.user) row.append(
+      ctlIcon("✎", "Rename the group", () => renameSlotGroup(g.label)),
+      ctlIcon("🗑", "Delete the group (its slots stay)", () => deleteSlotGroup(g.label)));
+    bar.appendChild(row);
   });
   return bar;
 }
@@ -14313,6 +14478,12 @@ function refreshSlotEyes(){
   });
   let all = $("#slotEyeAll");
   if (!all){ all = ctlIcon("👁", "", () => setSlotEye([])); all.id = "slotEyeAll"; $("#secSlots > summary").appendChild(all); }
+  let add = $("#slotGroupAdd");
+  if (!add){
+    add = ctlIcon("＋", "Save the selected slots (Shift / Ctrl-click their rows) as a group: its own eye and view opacity, kept with the rig for everyone who opens it", addSlotGroup);
+    add.id = "slotGroupAdd"; $("#secSlots > summary").appendChild(add);
+  }
+  add.style.display = rawDoc ? "" : "none";
   all.disabled = !off;
   all.title = off ? "Show the " + off + " hidden slot" + (off > 1 ? "s" : "") : "No slot is hidden";
   all.setAttribute("aria-label", all.title);
@@ -21614,7 +21785,7 @@ function openStoredControls(stored, codeLoaded){
   if (stored.doc) controlsDoc = stored.doc;
   return stored.dropped && stored.dropped.length ? stored.dropped : null;
 }
-const CTL_EMPTY_KEYS = ["bones", "layers", "sets", "limbs", "presets", "picker"];
+const CTL_EMPTY_KEYS = ["bones", "layers", "sets", "limbs", "presets", "picker", "slotGroups"];
 // Drop what says nothing: an empty bone entry, an empty map or list.
 function pruneControls(doc){
   if (doc.bones) for (const [n, c] of Object.entries(doc.bones)){
@@ -21656,11 +21827,11 @@ function setControlFields(name, patch){
 // A rename in the irig followed into the sidecar (C1's `renameControls`, the code the save runs).
 function renameInControls(kind, from, to){
   if (!controlsDoc || !window.RiggerControls || from === to) return;
-  const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
+  const renames = { bone: new Map(), slot: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
   renames[kind].set(from, to);
   controlsDoc = window.RiggerControls.renameControls(controlsDoc, renames);
 }
-// The sidecar without what names a bone or constraint the irig no longer has (a delete, an undo).
+// The sidecar without what names a bone, constraint or slot the irig no longer has (a delete, an undo).
 function fitControlsToRig(){
   if (!controlsDoc || !rawDoc || !window.RiggerControls) return;
   controlsDoc = window.RiggerControls.fitControls(controlsDoc, rawDoc).doc;
