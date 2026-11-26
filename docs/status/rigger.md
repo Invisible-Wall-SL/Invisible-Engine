@@ -13,7 +13,7 @@ undo/redo. Every rig now runs on our own license-free runtime, `packages/engine-
 Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated; static `static/rigger/view.html` + vendored `rigger-fx.js` / `rigger-text.js` bundles, cache-busted by `?v=BUILD_ID`). Reads/writes byte-valid 4.2-format JSON under our `.irig` extension, saved to R2 beside the artist's source. The design's build plan is complete, Phase 6 included: rigs are read, posed and drawn by our own 4.2-format-compatible runtime, `packages/engine-rig` — `engine-rig/pixi` (`RigView`) in the games, the Scene Editor and FX; `engine-rig/webgl` (vendored as `static/rig-viewer/vendor/invisible-rig.js`, rebuilt with `pnpm --filter launcher-api build:invisible-rig`) in the Rigger, the Rig Viewer and the editor. No third-party runtime code ships (`scripts/check-rig-runtime-free.mjs`):
 
 - **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete (a delete keeps every dependant where the setup pose had it); **IK / transform / path / physics constraints** (add — at the next free solve order —, edit, rename, delete, dopesheet tracks; a rig whose constraint never runs for an order clash offers **🩹 Repair**; in Animate mode the panel shows and keys the values at the playhead).
-- **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
+- **Slots / skins** — draw-order reorder (the list shows the front at the top, like a layers panel), 📁 slot folders, region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
 - **Image sequences** — declare a numbered atlas run as a rig `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because rig's loader throws on it and the rig would no longer open.
 - **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
 - **Weights** — bind-to-bone, per-vertex numeric editing, weight brush + heatmap, and **Auto-weight to chain** (inverse-square distance to the chain's length-bearing bone segments, ≤4 influences).
@@ -183,6 +183,65 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **Review fixes for folders (#1925).** (1) A step with a free slot and a folder's
+  middle slot selected (`w,x,a,b,c,d`, folder `a,b,c`, `{x,b}`, Ctrl+]) took unselected `a` out of
+  its folder: `slotFolderStep` now moves a folder's selected slots only inside it, every free slot
+  past whole folders, and (4) a folder whose every slot is selected by hand whole, where it used to
+  empty the folder. Guard: `tools/rigger-spike/slot-folder-step.mjs` (the cases plus a sweep of every
+  selection × direction over three rigs, 4 mutants). (2) `fitControls` returns the groups that could
+  not become folders as `unconverted` (and the save GET passes it on), instead of a notice the page
+  parsed: a group naming a missing slot garbled it and hid the real notice. (3) A save still
+  sending `slotGroups` (a tab opened before the deploy) is saved with them as folders, as the read
+  turns them, not refused with a 422. (5) The preview and the slot panel play a clip's rgba and
+  split colour keys in the clip's own order, as engine-rig does (`clipColourAt`), where rgba used to
+  lose to split keys. A folder's ✎ / 🗑 are off outside Setup. Guards: `check:rig-controls`,
+  `slot-colour-keys-browser.mjs` (step 5, a mutant), `slot-folders-browser.mjs` (the notice).
+  Still open: the dopesheet's easing buttons cover `rgba` / `rgba2` keys only, not split ones.
+
+- 2026-11-26 — **📁 Slot folders, and the Slots list with the front at the top.** The owner's
+  verdict on #1906's loose groups ("closer to Photoshop"): they are replaced by true folders, rows
+  inside the list (▸ / ▾, 📁 name, count; members indented), one level, a slot in one folder at most,
+  a folder's slots always together in the draw order. ＋📁 in the header or Ctrl+G makes one of the
+  selection, gathering spread slots into one run at the frontmost of them (just in front of its
+  folder when that folder keeps other slots): a draw-order change, so Setup only, one undo step,
+  through `applySlotOrder` (every draw-order key kept). Drag: a drop between a folder's slots or
+  under a closed folder's row puts slots in, anywhere else takes them out; a folder's ⋮⋮ drags it as a
+  block (into another folder: lands in front of it). ↑ ↓ / Ctrl+] [: a slot passes a whole folder,
+  slots of one folder move inside it and leave it where they are at its edge, a folder moves whole;
+  Shift goes all the way (inside the folder for its slots). The folder's eye solos / hides, ✎ or a
+  double-click renames, 🗑 ungroups; the view slider (on the selected or dimmed folder) and ⤓ are
+  #1906's. Closed state and opacity are per browser (`rigger.slotFolderShut:…`,
+  `rigger.slotGroupAlpha:…`, ids `f:<name>`). Kept in `controls.json` as `slotFolders`
+  (`src/lib/rigControls.ts`, bundle rebuilt); the invariant lives in one place, `fitSlotFolders`, run
+  on every rebuild (`fitControlsToRig`) and on the server's read: a new slot placed inside a folder's
+  run joins it, a copy of a member (⧉ Duplicate, ✨ Auto FX) joins its folder (`slotFolderAdopt`),
+  and a folder keeps its largest run, so a slot moved out leaves (＋ Add slot and an import, at the
+  front, join none). `slotGroups` is read only: a group whose slots are together and unshared became
+  a folder, the others are left out without touching the draw order and named in the open's notice.
+  The template's group eyes are back to the compact chip bar they were before #1906 (no slider). The
+  list is turned over (display only: rawDoc, the .irig and keys unchanged); its caption is gone,
+  the header tooltip says which end is the front. Guards: `check:rig-controls` (folders, fit,
+  migration), `tools/rigger-spike/slot-folders-browser.mjs` (58 checks, replaces
+  `slot-groups-browser.mjs`), `slot-eye-dnd-browser.mjs` updated to the flipped list. Not yet
+  confirmed in the authed WebGL page.
+
+- 2026-11-26 — **A slot's colour keys go on the timeline its clip already uses.** The slot panel's
+  opacity slider and ◆ Key opacity, its colour picker, ◆ Key, ◆ Key all and ⤓ wrote an `rgba` key
+  on a slot whose clip colours it with the split 4.2 `rgb` / `alpha` (or `rgb2`) timelines, and
+  engine-rig reads `rgba` after them, so the game lost the clip's fades. One path now:
+  `keySlotColor(slot, hex, part)` keys `alpha` for an opacity change and `rgb` (`rgb2`, carrying the
+  dark, on a two-colour slot) for a colour change on such a slot; with no `part` (◆ Key, Key all)
+  only the split timelines the clip has. Slots with no colour keys or with `rgba` / `rgba2` keep
+  today's keys, so no clip ends with both kinds on a slot. A dark colour over `rgb` keys, which carry
+  none, is refused with a hint. The panel reads the opacity the split keys play
+  (`slotColorAt` / `slotDarkAt` via `clipColourAt`), the Animate stage now poses `rgb` / `rgb2` /
+  `alpha` keys in the clip's order (`poseAtTime`), and they get timeline rows (✕ / retime / copy).
+  Re-keying an eased colour key now refits its value handles to the new value
+  (`upsertBoneKey`, now given the colour key's values). Setup is unchanged: there the only
+  colour writers are ⤓ (setup alpha) and the dark-colour switch. Guard:
+  `tools/rigger-spike/slot-colour-keys-browser.mjs` (26 checks played through engine-rig,
+  `--mutants` 8/8). Open: the easing buttons still cover only `rgba` / `rgba2` keys.
+
 - 2026-11-25 — **Your own slot groups, with a view opacity.** ＋ in the Slots header saves the
   Shift / Ctrl selection as a named group, beside the template's groups (layers, swap `hides`), with
   the same eye (click, Alt / right-click solo); ✎ renames, 🗑 deletes. The groups are kept in the
@@ -197,10 +256,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   keys each member's opacity at the playhead (alpha there × slider) — on `alpha` for a slot the clip
   colours with the split `rgb` / `alpha` timelines, since an `rgba` key is read after them and
   would override both — and the slider goes back to 100 %. Guards: `check:rig-controls` (schema,
-  fit, rename), `tools/rigger-spike/slot-groups-browser.mjs` (46 checks vs engine-rig's playback,
-  `--mutants` 7/7). Open: the slot panel's own opacity slider and ◆ Key still key `rgba` on a slot
-  with split `rgb` / `alpha` keys (the bug ⤓ avoids), and `keySlotColor` keeps an eased key's curve
-  without refitting its value handles. Not yet confirmed in the authed WebGL page.
+  fit, rename) and the browser gate, since replaced by `slot-folders-browser.mjs` when folders
+  replaced these groups (2026-11-26).
 
 - 2026-11-25 — **↑ ↓ on a slot no longer throws the panel back to the top.** Every structural
   rebuild (`rebuildFromRawDoc` → `buildInspector`) empties the inspector's lists, which clamped the

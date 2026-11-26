@@ -29,8 +29,8 @@ import { levelOverlay, levelShape, salmonsMapRiver, seedLevels } from './salmons
 
 /**
  * The generators a config can name, by id (`game-config` `ONLINE_GENERATOR_IDS` lists them).
- * `make(seed, levels)` gets the config's `arcade.online.levels`: its `river` and `waterfalls`
- * shape the level (neither: the original's) and its overlays are laid on top;
+ * `make(seed, levels)` gets the config's `arcade.online.levels`: its `river`, `waterfalls`,
+ * `generator` and `biomes` shape the level (none: the original's) and its overlays are laid on top;
  * `salmonsRiver` (P10.16's band river) takes none and is kept for the recorded traces.
  * A generator that reads levels also says what it read of them for one seed (`levels`, in a form
  * that is again a config's `levels`: `salmonsMap.js` `seedLevels`), which is what a room tells its
@@ -39,7 +39,8 @@ import { levelOverlay, levelShape, salmonsMapRiver, seedLevels } from './salmons
 export const ONLINE_GENERATORS = {
 	salmonsRiver: { make: (seed) => salmonsRiver(seed), geometry: salmonsGeometry },
 	salmonsMap: {
-		make: (seed, levels) => salmonsMapRiver(seed, levelOverlay(levels, seed), levelShape(levels)),
+		make: (seed, levels) =>
+			salmonsMapRiver(seed, levelOverlay(levels, seed), levelShape(levels, seed)),
 		geometry: salmonsGeometry,
 		levels: seedLevels,
 	},

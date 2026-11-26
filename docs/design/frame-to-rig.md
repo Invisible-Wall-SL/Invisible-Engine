@@ -750,8 +750,8 @@ The dialog now ends in **🦴 Create rig** (§6 steps 3–4, the GPU 🎨 Fill a
   rig through `/api/rigger/new` with `{manifestKey, templateId, fit}`, as any template create:
   claim, `.atlas`, `template.json` with the fit, `controls.json`, reindex, the missing-parts report.
   A taken rig name is refused before anything is made. `GET /api/rigger/from-frame?clipId=` lists the
-  clip's kept cuts (the newest per frame): the dialog opens the newest at once, before the track, and
-  a frame with one opens it, so a kept cut goes straight to Create rig. A cut now names its clip and
+  clip's kept cuts (the newest per frame): ↺ Reuse opens one at once, before the track, so a kept cut
+  goes straight to Create rig — offered, never opened by itself on a new rig (§13.1d). A cut now names its clip and
   frame (`cut.json` `clip`); one made before is matched by the page and region it was cut from.
 - **The fit** (§4.6, as `proof.py fit()`): the scale is the template's shoulder width over the
   frame's, the origin the hips' middle; the chest sits on the shoulder line, the head on the eyes'
@@ -1545,8 +1545,8 @@ The owner, on `S_NellyAnimTest` after #1894/#1900: their names say the character
 right, so every sided part landed on the other side (joints and arrangement to fix by hand); and "the
 head is still not rigged and the face is sliding on top of it".
 
-- **⇄ Swap sides** (the dialog's top row; `SheetMapping.swapSides`, kept in `sheet.json`, and
-  remembered per sheet in the browser): the region names are read with their sides the other way
+- **⇄ Swap sides** (the dialog's top row; `SheetMapping.swapSides`, kept in `sheet.json`; a new rig
+  starts with it off, §13.1d): the region names are read with their sides the other way
   round (`rigSheetMap.ts` `nameScore` / `suggestSheetMap` / `suggestProp` with `swap`: `l`↔`r`,
   `left`↔`right`, any other side word as the other side's letter, an exact name included). Toggled
   on a mapping, each sided part matched by name takes the region its name now says and is guessed
@@ -1580,6 +1580,68 @@ head is still not rigged and the face is sliding on top of it".
   imported face turns a frame-made head whole where it rides the head alone, 55.6% of its mesh; a
   mutant); `sheet-rig-browser.mjs` (the toggle on the page: every part, joints, the hand-mapped
   question, props, the arrangement, sent, read back, remembered; 8 page mutants).
+
+### 13.1d Every new rig starts from scratch, both dialogs (2026-11-26)
+
+The owner: "when I create a new rig, using the same sheet and the same template, the Cut and rig
+automation remember the old one, and therefore I can't start from scratch".
+
+**What carried over on ＋ New rig:**
+- 🗺 From my sheet:
+  - The open rig's `sheet.json`, fetched and opened in place of the suggestion: regions, joints,
+    props, the arrangement, Swap sides.
+  - Short of that, the dialog's own last state in the tab, same template and sheet.
+  - ⇄ Swap sides, remembered per sheet in `localStorage`.
+- 🎞 From a Flipbook frame:
+  - The dialog's last cut, touch-ups and all, while its clip stayed picked.
+  - On a clip pick, the newest kept cut opened at once.
+  - After the track, that cut's frame was picked over the best.
+  - A frame picked opened its kept cut.
+  - A part taken from another frame was read off that frame's kept cut, whatever its touch-ups.
+
+**Now a new rig opens as the first time.** The suggestion and guesses in the sheet dialog; the best
+frame, its plan and no cut open in the frame dialog. ⇄ Swap sides starts off. The old state stays
+reachable, offered and never applied by itself:
+
+- **↺ Reuse** (in the top row of each dialog):
+  - Sheet: the open rig's mapping when it is of this template and sheet (or of no sheet picked yet),
+    and the mapping left in the dialog, changed and closed without Create (`s2r.left`, captured on
+    close). Each gets its own button.
+  - Frame: a kept cut of the clip (as listed when the dialog opened: `f2r.kept`). The picked frame's
+    comes first, else the newest; while ✂ Edit cut has a rig open, that rig's own cut.
+  - Once a cut is reused, the dialog works as before: kept cuts open when their frame is picked and
+    lend parts (`f2r.fresh` false).
+  - Until then only cuts made in this dialog (`f2r.cutHere`) open or lend parts. ✂ Cut of a frame
+    with a kept cut makes a new job and leaves the kept one as it was.
+  - The listing still shows each frame's newest cut, so a fresh cut of a frame shadows the old one
+    the next time the dialog opens. A rig made from the old one still reaches it through ✂ Edit
+    cut, by job.
+- **↺ Start over** (an icon button) puts the dialog back to that first guess as one step, which **↶**
+  takes back. It asks first when there is a hand edit not kept anywhere:
+  - Sheet: anything changed since the suggestion or the reuse (`s2r.dirty`, which the suggestion now
+    clears). Start over reads the names as ⇄ Swap sides is set.
+  - Frame: touch-ups not 💾 kept, dragged joints, a part's frame picked by hand. The open cut stays
+    kept, for ↺ Reuse; ✂ Cut then makes a fresh one.
+- 🗺 Edit mapping and ✂ Edit cut still open the rig's own mapping or cut. Start over works there too;
+  Reuse is for new rigs only (the sheet dialog shows none while editing).
+
+**Gates:**
+- `sheet-rig-browser.mjs` (53 checks, 11 new page mutants):
+  - closed untouched and opened again: the same first guess and nothing to reuse;
+  - closed after changes: the first guess, and ↺ Reuse what you left, which brings them back;
+  - ＋ New rig with the made rig open: the first guess again, byte for byte, and ↺ Reuse “Sheety”,
+    which opens the rig's mapping;
+  - ↺ Start over (asked, the first guess, the arrangement gone) and ↶, and on the swapped sheet,
+    names read as ⇄ says;
+  - a new mapping unswapped whatever the dialog last had.
+- `frame-rig-browser.mjs` (38 checks, now with `--mutants`, 10 page mutants):
+  - picking the clip opens no cut and ↺ Reuse opens the kept one;
+  - ＋ New rig with the made rig open: the best frame, no cut, the cut offered; a frame with a kept
+    cut opens none; ✂ Cut sends no job; a part from frame 2 is cut anew, not read off frame 2's kept
+    cut;
+  - ↺ Reuse still opens the kept cut, touch-ups and all;
+  - ↺ Start over (asked, the best frame, the cut offered) and ↶ (the cut, its labels, sources and
+    the touch-up not yet kept, back).
 
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
@@ -1624,8 +1686,8 @@ page's drawing, the face, a joint dragged, ⇅, ⟲, a region changed, a prop ad
 dragged, ◧ Arranged (every part drawn where the preview puts it, sampled pixel by pixel; a part
 dragged carrying its hand, snapped, turned about its elbow; the next preview agreeing to 0.02 px; a
 prop dragged and turned), the create's body with the arrangement, the rig opened with its `frame`
-clip, the report, the mapping and its arrangement opened again, ⤺; `--mutants` runs 15 page mutants,
-each red. `check:rigger-writes`: the preview route places as the create would, writes nothing, and
+clip, the report, a new rig on the first guess and ↺ Reuse of the mapping and its arrangement, ↺
+Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:rigger-writes`: the preview route places as the create would, writes nothing, and
 refuses another client's sheet and a misfit.
 
 ### 13.4 Owed

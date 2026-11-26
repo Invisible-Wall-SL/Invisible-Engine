@@ -1537,6 +1537,9 @@ importers:
       engine-fx:
         specifier: workspace:*
         version: link:../engine-fx
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../engine-mechanics
       engine-rig:
         specifier: workspace:*
         version: link:../engine-rig

@@ -254,7 +254,7 @@ export function diagnosisText({ diagnosis: d }) {
 }
 
 /** The brief's answer, checked: what the later steps rely on, never echoed. */
-export function checkBrief(body, id) {
+export function checkBrief(body, id, inputMode) {
 	if (!body || typeof body !== 'object') fail('The brief is not a JSON object.');
 	if (body.fixRun !== id) fail('The brief is for another fix run.');
 	if (typeof body.baseSha !== 'string' || !SHA.test(body.baseSha)) {
@@ -278,6 +278,7 @@ export function checkBrief(body, id) {
 	}
 	const mode = body.mode === undefined ? 'build' : body.mode;
 	if (!MODES.includes(mode)) fail('The brief names a mode the job does not know.');
+	if (inputMode !== mode) fail('The mode the run was started with is not the brief’s mode.');
 	const chosen =
 		body.mode === 'build'
 			? checkDecision(body.decision, body.diagnosis)
@@ -301,7 +302,7 @@ async function brief() {
 	const auth = { authorization: `Bearer ${token}`, accept: 'application/json' };
 	const res = await request(launcher(`${id}/brief`), { headers: auth }, 'for the brief');
 	if (!res.ok) fail(`The launcher answered ${res.status} for the brief.`);
-	const got = checkBrief(await res.json().catch(() => null), id);
+	const got = checkBrief(await res.json().catch(() => null), id, env('FIX_MODE'));
 	mkdirSync(p.bug, { recursive: true });
 	writeFileSync(join(p.bug, 'brief.md'), `${got.brief.replace(/\r\n?/g, '\n').trimEnd()}\n`);
 	if (got.decision) {
@@ -573,13 +574,21 @@ function readPlain(workspaceReal, path, limit) {
 	}
 }
 
-/** A changed file's text, which must be UTF-8. */
-function textOf(bytes) {
+/** A path as this job may print it: the log is public and reads `::` commands, so only a plain
+ *  printable-ASCII path is shown. */
+const shown = (path) => (/^[!-~]{1,300}$/.test(path) ? path : 'a path outside printable ASCII');
+
+/** A changed file's text, which must be UTF-8 with no NUL: a NUL means a binary file. */
+function textOf(bytes, path) {
+	let text;
 	try {
-		return decoder.decode(bytes);
+		text = decoder.decode(bytes);
 	} catch {
-		return fail('A changed file is not UTF-8 text.');
+		return fail(`A changed file is not UTF-8 text: ${shown(path)}.`);
 	}
+	if (text.includes('\u0000'))
+		fail(`A changed file holds a NUL byte (a binary file): ${shown(path)}.`);
+	return text;
 }
 
 /**
@@ -617,7 +626,7 @@ export function collectChange(main, workspace) {
 		files.push({
 			path,
 			...(after.mode !== mode ? { mode: after.mode } : {}),
-			content: textOf(after.bytes),
+			content: textOf(after.bytes, path),
 		});
 	}
 	const known = new Set(tracked.map((t) => t.path));
@@ -645,7 +654,7 @@ export function collectChange(main, workspace) {
 		files.push({
 			path,
 			...(after.mode === '100755' ? { mode: '100755' } : {}),
-			content: textOf(after.bytes),
+			content: textOf(after.bytes, path),
 		});
 	}
 	return files.sort((a, b) => (a.path < b.path ? -1 : 1));
@@ -747,6 +756,7 @@ export const CAPS = {
 	scope: 40,
 	summary: 2_000,
 	lesson: 4_000,
+	explanation: 3_000,
 	command: 300,
 	area: 40,
 	evidence: 2_000,
@@ -815,6 +825,9 @@ export function readResultJson(path) {
 		scope: cut(v.scope, CAPS.scope),
 		summary: cut(v.summary, CAPS.summary),
 		lesson: cut(v.lesson, CAPS.lesson),
+		changed: cut(v.changed, CAPS.explanation),
+		howToCheck: cut(v.howToCheck, CAPS.explanation),
+		risks: cut(v.risks, CAPS.explanation),
 		gates,
 		...(diagnosis ? { diagnosis } : {}),
 		...(sb && typeof sb === 'object' && typeof sb.area === 'string' && typeof sb.title === 'string'

@@ -1175,7 +1175,7 @@ export function normalizeLevelOverlay(raw: unknown): LevelOverlay | undefined {
 
 /** A seed as an overlay key: its canonical decimal (no sign or leading zero), within uint32, the
  *  only spelling `String(seed)` of a room's seed can match. */
-const seedKey = (key: string): boolean =>
+export const seedKey = (key: string): boolean =>
 	/^(0|[1-9]\d{0,9})$/.test(key) && Number(key) <= 0xffffffff;
 
 /** Normalize `arcade.online.levels`: whole uint32 seeds, overlays keyed by seed or `'*'`. */

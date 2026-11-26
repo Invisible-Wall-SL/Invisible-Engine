@@ -112,6 +112,9 @@ const roomFields = {
 	phase: t.string(),
 	step: t.uint32(),
 	round: t.uint32(),
+	/** The step the phase ends at, 0 = never; a lobby's, from its first person, round 1's start
+	 *  (`engine-mechanics` `OnlineRules.endsAt`: 0 until the countdown from a server older than
+	 *  2026-11-26). */
 	endsAt: t.uint32(),
 	winner: t.string(),
 	/** The last round's winner's name (a far winner is not in a nearby device's view). */

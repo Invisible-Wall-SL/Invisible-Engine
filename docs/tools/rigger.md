@@ -356,10 +356,12 @@ a rival answer to the same question. Move the box, or bind a different bone.
 > here and in the game. The editor says so in red under the picker, and the build
 > warns as well.
 
-### The Slots list: hide slots while you work, drag to reorder
+### The Slots list: folders, hide slots while you work, drag to reorder
 
-The **Slots (draw order)** section lists every slot in draw order: the top row is drawn first, so
-it sits behind. Hover its header for the same summary.
+The **Slots (draw order)** section lists every slot with the **front at the top**, like the layers
+panel of a paint program: the top row is drawn last, over the rest, and the bottom row first,
+behind. Only the list is turned over: the rig, its `.irig` and its keys keep the 4.2 draw order.
+Hover its header for a summary.
 
 - **👁 hides a slot on the stage while you work**: meshing in Setup, posing and animating, and in
   Preview. Its art is not drawn, and its mesh, path, box, point and pivot handles are neither drawn
@@ -372,34 +374,56 @@ it sits behind. Hover its header for the same summary.
     alone. Do it again to show them all.
   - An eye on a selected row hides or shows the whole **Shift / Ctrl** selection.
   - **👁** in the section header shows every slot again. It works while the section is folded.
-  - **Groups** sit above the slots, one row each. A template rig brings its own: each draw-order
-    layer (a head with its face, a hand with its fingers), and the slots a swap hides (the fingers a
-    drawn **hand pose** replaces). Click a group's eye to hide or show the group, Alt-click or
-    right-click to show only it.
-  - **Make your own group:** select rows (**Shift**-click for a run, **Ctrl**-click to add one), then
-    **＋** in the section header and name it. Your groups have a dashed eye, **✎** renames one and
-    **🗑** deletes it (its slots stay). Saving the same name again replaces its slots. They are kept
-    with the rig (in `controls.json` beside the `.irig`), so everyone who opens the rig sees them,
-    and they follow the rig: a renamed slot is renamed in them, a deleted one leaves them, and a group
-    with no slot left goes. Making, renaming or deleting one is an undo step. The game never sees
-    them.
-  - **Each group's slider dims it on the stage while you work** (0–100 %), in every mode. A slot in
-    two dimmed groups gets both (50 % and 50 % draw it at 25 %). Like the eye, it is only your view:
-    kept per rig in this browser, never saved, and the `.irig` stays the same.
-  - **⤓ writes a group's dimming into the rig.** In **Setup** it multiplies each slot's setup alpha
-    by the slider (a slot at 50 % with the slider at 40 % ends at 20 %), so the stage looks the same;
-    clips that key the slot's colour keep their own keys. In **Animate** it keys each slot's opacity
-    at the playhead, at its opacity there times the slider (a slot the clip colours with separate
-    colour and alpha keys gets an alpha key, so its colour keys keep working). Either way the slider
-    goes back to 100 %, and it is one undo step. It is off at 100 %, in Preview and in Cinematic.
+  - On a template rig, a row of **group eyes** sits above the slots, one per group the template
+    names: each draw-order layer (a head with its face, a hand with its fingers), and the slots a
+    swap hides (the fingers a drawn **hand pose** replaces). Click one to hide or show the group,
+    Alt-click or right-click to show only it.
+- **📁 Folders** hold slots that sit together in the draw order. A folder's row shows **▸ / ▾**, its
+  name and how many slots it holds, and its slots are indented under it. There is one level of
+  folders (no folder in a folder), and a slot is in one folder at most.
+  - **Make one:** select rows (**Shift**-click for a run, **Ctrl**-click to add one), then **＋📁**
+    in the section header, or **Ctrl+G** (Cmd+G), and name it. Slots that are apart in the draw
+    order are first **gathered** into one run where the frontmost of them is (just in front of its
+    folder, when that one is in a folder that keeps other slots). That changes the draw order, so
+    it is done in **Setup** only, and every draw-order key keeps drawing what it was keyed with.
+    Making a folder is one undo step.
+  - **▸ / ▾** closes and opens it (kept per rig in this browser). A click on its row selects its
+    slots. Its **👁** hides or shows them all, **Alt-click** or **right-click** shows only them.
+    Double-click its name or **✎** to rename it, and **🗑** ungroups it: the folder goes, its slots
+    stay where they are.
+  - **Its slider dims it on the stage while you work** (0–100 %), in every mode. It shows under the
+    folder's row while the folder is selected, or while it is dimmed. Like the eye, it is only your
+    view: kept per rig in this browser, never saved, and the `.irig` stays the same.
+  - **⤓ writes a folder's dimming into the rig.** In **Setup** it multiplies each slot's setup
+    alpha by the slider (a slot at 50 % with the slider at 40 % ends at 20 %), so the stage looks
+    the same; clips that key the slot's colour keep their own keys. In **Animate** it keys each
+    slot's opacity at the playhead, at its opacity there times the slider (on the clip's alpha keys
+    when it has them). Either way the slider goes back to 100 %, and it is one undo step. It is off
+    at 100 %, in Preview and in Cinematic.
+  - Folders are kept with the rig (in `controls.json` beside the `.irig`), so everyone who opens the
+    rig sees them. The game never sees them. A renamed slot is renamed in its folder, a deleted one
+    leaves it, and a folder with no slot left goes. A copy of a folder's slot (**⧉ Duplicate slot**,
+    **✨ Auto FX slots**) joins that folder. Any slot that ends up inside a folder's run joins it,
+    and any slot moved out of the run leaves it. **＋ Add slot** puts the new slot in no folder.
+  - Slot groups made before folders became folders when their slots were together and in no other
+    group; the others were left out, without changing the draw order, and the status line names
+    them when the rig opens.
 - **Reorder in Setup by dragging the ⋮⋮ grip** of a row to its new place. A line shows where it
   will land, and the list scrolls when you hold it near its top or bottom edge. Select several rows
   first (**Shift**-click for a run, **Ctrl**-click to add or take out one) and they move together as
-  a block, in their order. Each drop is one undo step. It writes the same setup draw order as ↑ / ↓,
-  which still work, and every draw-order key keeps the order it was keyed with. The mouse, a pen and
-  a finger all drag it. **Esc** cancels a drag.
-- **Keys (Setup):** **Ctrl+]** / **Ctrl+[** move the selected slots one place forward / back, and
-  **Shift+Ctrl+]** / **Shift+Ctrl+[** take them to the front / back (Cmd on a Mac).
+  a block, in their order. Drop between a folder's slots, or on the lower half of a closed folder's
+  row, to put them in that folder; drop anywhere else to take them out. Drag a folder's ⋮⋮ to move
+  the folder and its slots as a block (dropped inside another folder, it lands just above that
+  folder). Each drop is one undo step. Every draw-order key keeps the order it was keyed with. The
+  mouse, a pen and a finger all drag it. **Esc** cancels a drag.
+- **↑ / ↓** on a row move it one place to the front (up) or the back (down), each one undo step:
+  - a slot in no folder passes the next slot, or a whole folder;
+  - a slot in a folder moves among the folder's slots; at the folder's edge, ↑ or ↓ takes it out of
+    the folder where it is, and the next one moves it on;
+  - a folder's ↑ / ↓ moves it whole past the next slot or folder.
+- **Keys (Setup):** **Ctrl+]** / **Ctrl+[** do the same as ↑ / ↓ for the selected slots, or for the
+  folder whose row you clicked, and **Shift+Ctrl+]** / **Shift+Ctrl+[** take them all the way to the
+  front / back (inside their folder, for slots of one folder). Cmd on a Mac.
 
 ### Edit the rig (Setup mode)
 
@@ -414,7 +438,7 @@ it sits behind. Hover its header for the same summary.
   reparent (cycles are prevented); **rename**; **🗑 Delete bone** (root can't be
   deleted — see **What a delete takes with it** below). Add a bone with
   **＋ Add bone** in the Bone hierarchy section.
-- **Slots:** reorder draw order with ↑/↓, or by dragging (see **The Slots list** below); place a region attachment
+- **Slots:** reorder draw order with ↑/↓, or by dragging, and group them in folders (see **The Slots list** above); place a region attachment
   (x/y/rotation/scale); pick a **shows / image** attachment; rename; delete.
   **＋ Add slot** adds one. **⧉ Duplicate slot** copies a slot — its image(s) and
   every animation timeline that drives it — onto the same bone, then you swap the
@@ -943,7 +967,13 @@ Three things to know before you use it:
     (Linear / Stepped / Ease In / Out / In-Out) shape the interpolation out of it.
 
   Colour and opacity share one `rgba` timeline under the hood (byte-valid rig
-  4.2), so editing one never clobbers the other.
+  4.2), so editing one never clobbers the other. A clip that already colours the slot with
+  separate colour and alpha keys (common in rigs from other editors) keeps them: opacity keys go on
+  its alpha keys and colour keys on its colour keys, so the game plays both. The panel shows the
+  opacity the game plays there, and the timeline lists those keys as **opacity** / **colour (rgb)**
+  rows. The easing buttons cover the `rgba` keys only. A two-tone slot with separate keys keys its
+  dark colour with its colour; over colour keys that carry no dark colour, the dark colour is not
+  keyed and the hint says why.
 - **Mesh shapes (deform keys).** Select a mesh's slot (in the tree) and its vertices
   show as handles: **drag a vertex** to key the mesh's shape at the playhead. Scrub
   elsewhere and drag again for a second shape; the mesh eases from one to the next.
@@ -1255,9 +1285,21 @@ of the panel. What each step does is the tooltip on the dialog's title.
    the part would be cut short), `right upper arm, right forearm out of the picture` (a joint past
    the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
    the face`, `an arm joint hard to see`, `no face found`, `one hand not found`. Click another frame
-   to use it instead. If the clip has **a kept cut** (✂ on its frame in the strip), the newest opens at
-   once, before the tracking ends, and goes straight to **🦴 Create rig**; picking a frame with a kept
-   cut opens it.
+   to use it instead. A new rig always starts here as the first time — the best frame, its joints as
+   tracked, each part's frame planned, no cut open — even when the clip was cut before.
+   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on its
+     frame in the strip): the picked frame's, else the newest. It opens that cut as it was kept —
+     parts, touch-ups, props and the frames its parts are cut from — at once, before the tracking
+     ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut opens it
+     when picked.
+   - Until you reuse one, nothing kept opens by itself: picking a frame with a kept cut shows the
+     frame, ✂ Cut makes a new cut of it (the kept one stays as it was), and a part taken from
+     another frame is cut there anew.
+   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best frame,
+     no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
+     picked a part's frame; **↶** brings back what it replaced. The cut that was open stays kept,
+     for ↺ Reuse.
+   - **✂ Edit cut** on a frame-made rig opens the cut it was made from (see below).
 2. **Check the joints.** The frame shows what the tracker found: yellow dots on the shoulders,
    elbows, wrists and hips, a cyan dot per hand (drags the whole hand) and a red dot on the face
    (drags the whole face). Drag any it got wrong before cutting.
@@ -1295,8 +1337,8 @@ of the panel. What each step does is the tooltip on the dialog's title.
    that frame's picture and number. A part this frame shows under 0.97 is planned from another frame
    that shows it clearly better — 0.15 more, or three quarters of what this frame lacks (a head turned
    23°, 0.92, moves for a face to the camera) — the nearest frame of those within 0.01 of its best.
-   **✂ Cut** cuts this frame, then takes each such part from its frame (its kept cut, or a cut made
-   for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
+   **✂ Cut** cuts this frame, then takes each such part from its frame (a cut of that frame made in
+   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
    head; a hand stays on this frame unless you pick otherwise (its finger bones are this frame's).
    - **Where each part comes from shows everywhere.** Each frame a part is cut from gets a colour:
      the chip on that part's row is outlined in it, the frame in the strip is framed in it with the
@@ -1372,7 +1414,8 @@ part's frame, the touch-ups and the props). With it open, **✂** in the rig pan
 atlas and source…; hover it for which frame) opens the same dialog on that cut — that cut, even if a
 newer cut of its frame was made since — with its clip fixed. Everything works as when you made it:
 ✂ Re-cut, the brush and the lasso, a part taken from another frame, ＋ / 🗑 props and their bones,
-💾 Keep touch-ups. **🔄 Update rig** takes 🦴 Create rig's place:
+💾 Keep touch-ups. ↺ Start over goes back to the best frame with no cut open, and ↺ Reuse then offers
+the rig's cut again. **🔄 Update rig** takes 🦴 Create rig's place:
 
 - The parts are made again on the rig's other sheet (`<name>_parts` and `<name>_parts_b` take turns),
   so the rig games ship does not change until the update is saved. If another rig was pointed at that
@@ -1417,7 +1460,7 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    its joints guessed again as that side's (a joint you dragged stays where you dragged it on its
    drawing), each prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged
    starts over on its bones. Parts you mapped by hand are asked about first. The setting is kept with
-   the rig's mapping, and this browser remembers it for the sheet.
+   the rig's mapping; a new rig starts with it off.
 2. **The table.** Each part has a region list: change it, or pick **—** to leave the part out (it is
    left out of the rig, as any missing template part). A part marked `*` is one the template's
    controls and clips use: the rig is still made without it, and the report after **🦴 Create rig**
@@ -1470,15 +1513,28 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
    does not map. When a rig cannot be made, the popup says why.
 
-The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
-the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left
-it and the arrangement as you left it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then
-drives it as any rig of the template.
+The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped). 🎥
+Motion then drives the rig as any rig of the template.
+
+**Every new rig starts from scratch.** **＋ New rig → 🗺 From my sheet** always opens on the first
+guess: each part the region its name says, its joints guessed, the worn things suggested as props,
+nothing arranged, ⇄ Swap sides off. This holds even with a rig of the same sheet and template open.
+A mapping made before is offered beside the sheet, never taken by itself:
+
+- **↺ Reuse “name”**: the mapping the open rig was made from (when it is of this sheet and
+  template), every joint where you left it and the arrangement as you left it. 🦴 Create rig then
+  makes a new rig from it.
+- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig.
+- **↺ Start over** (the icon) takes the open mapping back to the first guess, reading the names as ⇄
+  Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
+
+To change the open rig itself, use 🗺 Edit mapping (below).
 
 **Change the rig you made, in place (🗺 Edit mapping → 🔄 Update rig).** A rig made from a sheet has
 **🗺** beside ⟳ source… in the rig panel. It opens the dialog on the rig's own mapping, with its sheet
 fixed (to map another sheet, make a new rig from it). Re-map a part, arrange the parts again, add or
-take off props, then **🔄 Update rig** (in 🦴 Create rig's place):
+take off props (↺ Start over puts the first guess in its place, ↶ the rig's mapping back), then
+**🔄 Update rig** (in 🦴 Create rig's place):
 
 - **What it rebuilds.** The parts are built as Create rig builds them and swapped into the open rig.
 - **What stays.** Its bones (yours too, where you put them), every clip and key, constraints and IK,

@@ -94,6 +94,30 @@ const PIECES = {
 };
 const SEEDS = [7, 9, 31337, 123456789];
 
+/** Every generator setting an author may give, a few of them off their defaults (2026-11-26). */
+const TUNED = {
+	riverLength: 320,
+	obstacleChance: 0.45,
+	bridgeCount: 1,
+	rockSize: 2,
+	bankCells: 18,
+};
+/** Authored biomes that change what a level plays (densities) and draws (looks), with one seed's
+ *  own sequence. */
+const BIOMES = {
+	kinds: [
+		{ id: 'rapids', rocks: 2.5, whirlpools: 2, trees: [2, 5], forestFloor: '#3a2f1e' },
+		{ id: 'meadow', rocks: 0, whirlpools: 0, sand: 2, waterfalls: 0.5, bridges: false },
+	],
+	sequences: {
+		'*': [
+			{ from: 0, biome: 'rapids' },
+			{ from: 150, biome: 'meadow' },
+		],
+		9: [{ from: 0, biome: 'meadow' }],
+	},
+};
+
 /**
  * Each config's `levels`, and what they say part by part (`parts`: a tag per part, by seed when it
  * depends on one), written by hand so the parts the decision names are held to them and not to the
@@ -107,6 +131,15 @@ const CONFIGS = {
 	straighter: { levels: { river: { winding: 0.4 } }, parts: { river: 'straighter' } },
 	nine: { levels: { waterfalls: { count: 9 } }, parts: { waterfalls: 'nine' } },
 	pieces: { levels: { overlays: { '*': PIECES } }, parts: { overlays: 'pieces' } },
+	tuned: { levels: { generator: TUNED }, parts: { generator: 'tuned' } },
+	biomed: {
+		levels: { ...SALMONS_LEVELS, biomes: BIOMES },
+		parts: {
+			river: 'salmons',
+			waterfalls: 'tall',
+			biomes: (seed) => (seed === 9 ? 'biomed-9' : 'biomed'),
+		},
+	},
 	seven: {
 		levels: { ...SALMONS_LEVELS, overlays: { 7: PIECES } },
 		parts: {
@@ -122,7 +155,9 @@ const tagOf = (name, part, seed) => {
 };
 /** The parts of two configs' levels that differ for a room of `seed`, in name order. */
 const partsThatDiffer = (a, b, seed) =>
-	['overlays', 'river', 'waterfalls'].filter((p) => tagOf(a, p, seed) !== tagOf(b, p, seed));
+	['biomes', 'generator', 'overlays', 'river', 'waterfalls'].filter(
+		(p) => tagOf(a, p, seed) !== tagOf(b, p, seed),
+	);
 
 /** A game as a device resolves the config it booted with (`online.ts` `joinOnlineRoom`). */
 const deviceGame = (baked) =>
@@ -241,6 +276,11 @@ try {
 						);
 						const differs = partsThatDiffer(roomName, deviceName, seed);
 						assert.deepEqual(decided.differs, differs, `${what}: the parts named`);
+						assert.deepEqual(
+							decided.made.biomes,
+							sim.made.biomes,
+							`${what}: the biomes the device draws are the room's`,
+						);
 						assert.equal(decided.adopted, differs.length > 0, `${what}: adopted`);
 						assert.equal(decided.levelHash, said.levelHash, `${what}: its fingerprint`);
 						assert.equal(decided.roomLevelHash, said.levelHash);
@@ -265,6 +305,44 @@ try {
 				`      ${pairs} decisions: ${drifted} would have played another level than their room, ` +
 					`${adopted} adopted the room's levels, none refused`,
 			);
+		},
+	);
+
+	await check(
+		'a room plays the stored config’s generator settings and biomes, and says them',
+		async () => {
+			for (const seed of SEEDS) {
+				const tuned = await roomOf('tuned', seed);
+				const P = JSON.parse(tuned.said.levels).generator;
+				assert.deepEqual(
+					Object.keys(P).length,
+					Object.keys(JSON.parse(JSON.stringify(seedLevels({ generator: {} }, seed).generator)))
+						.length,
+					'every setting, said whole',
+				);
+				for (const [key, value] of Object.entries(TUNED)) assert.equal(P[key], value, key);
+				assert.equal(tuned.sim.made.world.h, (P.sourceRows + 320 + P.seaRows) * CELL);
+				assert.equal(tuned.sim.made.bridges.length, 1);
+				assert.ok(tuned.sim.made.rocks.every((r) => r.w === 2 * CELL));
+				const biomed = await roomOf('biomed', seed);
+				const said = JSON.parse(biomed.said.levels).biomes;
+				assert.deepEqual(
+					said.sequences['*'],
+					seed === 9 ? BIOMES.sequences[9] : BIOMES.sequences['*'],
+					`seed ${seed}: the room says the seed's own sequence`,
+				);
+				assert.deepEqual(
+					said.kinds.map((k) => k.id),
+					['rapids', 'meadow'],
+				);
+				assert.deepEqual(biomed.sim.made.biomes.kinds, said.kinds);
+				const plain = await roomOf('live', seed);
+				assert.notEqual(
+					biomed.said.levelHash,
+					plain.said.levelHash,
+					`seed ${seed}: the biomes' densities move the level`,
+				);
+			}
 		},
 	);
 

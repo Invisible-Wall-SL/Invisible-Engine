@@ -22,6 +22,7 @@
 		apiErrorText,
 		changedText,
 		effortLabel,
+		fixRunTag,
 		openChangesWord,
 		plural,
 		shortSha,
@@ -418,7 +419,8 @@
 
 {#snippet card(c: ChangeSummary)}
 	{@const pill = statusPill(c.status)}
-	{@const bugs = bugRefsIn(`${c.title}\n${c.branch}`)}
+	{@const fixTag = fixRunTag(c.branch)}
+	{@const bugs = bugRefsIn(`${c.title}\n${c.branch}`).filter((n) => n !== fixTag?.bug)}
 	<button
 		type="button"
 		class="change"
@@ -432,10 +434,11 @@
 		</span>
 		<span class="change-title">{c.title}</span>
 		{#if c.status.kind === 'blocked'}<span class="change-blocked">{c.status.reason}</span>{/if}
-		{#if c.draft || c.agentDefinition || bugs.length}
+		{#if c.draft || c.agentDefinition || fixTag || bugs.length}
 			<span class="tags">
 				{#if c.draft}<Pill tone="amber" tag>draft</Pill>{/if}
 				{#if c.agentDefinition}<Pill tone="amber" tag>agent definition</Pill>{/if}
+				{#if fixTag}<Pill tone="blue" tag>{fixTag.text}</Pill>{/if}
 				{#each bugs as n (n)}<Pill tone="muted" tag>{bugRef(n)}</Pill>{/each}
 			</span>
 		{/if}

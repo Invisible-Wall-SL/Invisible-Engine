@@ -2,12 +2,17 @@ import { PATTERNS } from '../../../../../scripts/check-secrets.mjs';
 import { SCOPES, squashSubjectHasScope } from '../../../../../scripts/commit-scope.mjs';
 import {
 	DIAGNOSIS_CAPS,
+	EXPLANATION_CAP,
+	EXPLANATION_KEYS,
 	FIX_OPTION_IDS,
+	MAX_BUILD_NOTE,
 	MAX_OPTIONS,
 	capText,
 	fixRunTitle,
 	isFixOptionId,
+	type FixRunChoice,
 	type FixRunDiagnosis,
+	type FixRunExplanation,
 	type FixRunFile,
 	type FixRunOption,
 	type FixRunOutcome,
@@ -35,6 +40,8 @@ export interface ParsedResult {
 	scope: string;
 	summary: string;
 	lesson: string;
+	/** A build's plain-language account of its change: empty when the result gave none. */
+	explanation: FixRunExplanation;
 	gates: { command: string; ok: boolean }[];
 	secondBug: FixRunSecondBug | null;
 	/** What the result said under `diagnosis`, unread: {@link readDiagnosis} judges it. */
@@ -47,6 +54,7 @@ export const TEXT_CAPS = {
 	title: 120,
 	summary: 2_000,
 	lesson: 4_000,
+	explanation: EXPLANATION_CAP,
 	command: 300,
 	area: 40,
 	scope: 40,
@@ -147,15 +155,25 @@ export interface FixRunText {
 	title: string;
 	summary: string;
 	lesson: string;
+	explanation: FixRunExplanation;
 	gates: { command: string; ok: boolean }[];
 	secondBug: FixRunSecondBug | null;
 }
+
+/** Whether a cleaned explanation says something under all three headings. */
+export const isExplained = (e: FixRunExplanation): boolean =>
+	EXPLANATION_KEYS.every((k) => e[k].length > 0);
 
 export function cleanResult(r: ParsedResult): FixRunText {
 	return {
 		title: cleanLine(r.title, TEXT_CAPS.title),
 		summary: cleanText(r.summary, TEXT_CAPS.summary),
 		lesson: cleanText(r.lesson, TEXT_CAPS.lesson),
+		explanation: {
+			changed: cleanText(r.explanation.changed, TEXT_CAPS.explanation),
+			howToCheck: cleanText(r.explanation.howToCheck, TEXT_CAPS.explanation),
+			risks: cleanText(r.explanation.risks, TEXT_CAPS.explanation),
+		},
 		gates: r.gates.map((g) => ({
 			command: cleanLine(g.command, TEXT_CAPS.command).replace(/`/g, "'"),
 			ok: g.ok,
@@ -499,10 +517,11 @@ export function localProblem(c: LocalCheck): string | null {
 			return 'it sets a mode other than 100644 or 100755';
 		}
 		if (f.content !== null) {
-			if (!f.content.isWellFormed() || f.content.includes('\u0000')) {
-				return 'a file is not UTF-8 text';
+			if (!f.content.isWellFormed()) return `a file is not UTF-8 text (${f.path})`;
+			if (f.content.includes('\u0000')) return `a file holds a NUL byte (${f.path})`;
+			if (HIDDEN.test(f.content)) {
+				return `a file holds Unicode tag or bidi control characters (${f.path})`;
 			}
-			if (HIDDEN.test(f.content)) return 'a file holds Unicode tag or bidi control characters';
 			bytes += Buffer.byteLength(f.content, 'utf8');
 		}
 	}
@@ -519,6 +538,11 @@ export function localProblem(c: LocalCheck): string | null {
 		['the title', r.title, c.text.title],
 		['the summary', r.summary, c.text.summary],
 		['the lesson', r.lesson, c.text.lesson],
+		...EXPLANATION_KEYS.map((k): [string, string, string] => [
+			'the explanation',
+			r.explanation[k],
+			c.text.explanation[k],
+		]),
 		...r.gates.map((g, i): [string, string, string] => [
 			'a gate command',
 			g.command,
@@ -794,23 +818,98 @@ export interface Publication {
 }
 
 /**
- * The pull request's title and body, and the commit's message: the run's cleaned words, who
- * started it from which bug, and the Actions run — never the bug's description, screenshots,
- * project or client. No CI-skip directive survives into any of them.
+ * What a build was built from (ADR-0014 §2): the option a person chose, and the diagnosis it came
+ * from. Both are the launcher's own record of words already cleaned when they were stored.
+ */
+export interface Decision {
+	choice: FixRunChoice;
+	diagnosis: FixRunDiagnosis;
+}
+
+/**
+ * The first rule the decision's text breaks that a summary is held to: a secret in it, or the
+ * bug's project or client named in it. The person's note is public with it, so it is held to the
+ * same. Names the rule; null when none.
+ */
+export function decisionProblem(d: Decision, names: string[]): string | null {
+	const where = 'the decision';
+	const note = d.choice.note ?? '';
+	const texts = [...diagnosisTexts(d.diagnosis), d.choice.name, d.choice.change, note];
+	for (const t of texts) {
+		const found = secretIn(t) ?? secretIn(unmarked(t));
+		if (found) return `secret scan: ${found} in ${where}`;
+	}
+	for (const t of texts) {
+		const folded = [fold(t), fold(unmarked(t))];
+		if (names.some((n) => folded.some((f) => f.includes(n)))) {
+			return `privacy: ${where} names the bug's project or client`;
+		}
+	}
+	return null;
+}
+
+/** `2026-11-26 14:03 UTC`, or null when the stamp is not a date. */
+function stamp(iso: string): string | null {
+	const at = new Date(iso);
+	return Number.isNaN(at.getTime())
+		? null
+		: `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+/** A pull request body is at most 65,536 characters; these headings stay far inside it. */
+const section = (heading: string, text: string): string[] => [`## ${heading}`, text, ''];
+
+/**
+ * The pull request's title and body, and the commit's message: the run's cleaned words under fixed
+ * headings a person reads in order — what they reported, what was wrong, the option they chose,
+ * what changed, what else was possible, how to check it, the risks — then the gates, the lesson,
+ * who started it from which bug, and the Actions run. Never the bug's description, screenshots,
+ * project or client: the diagnosis is the run's own words, and the person's note their own. No
+ * CI-skip directive survives into any of them.
  */
 export function publication(p: {
 	number: number;
 	runId: string;
 	scope: string;
 	text: FixRunText;
+	decision: Decision;
 	person: string;
 	actionsUrl: string | null;
 }): Publication {
 	const title = withoutDirectives(fixRunTitle(p.scope, p.number, p.text.title));
 	const started = `from ${bugRef(p.number)}`;
+	const { choice, diagnosis } = p.decision;
+	const text = (t: string) => cleanText(t, DIAGNOSIS_CAPS.text);
+	const when = stamp(choice.decidedAt);
+	const others = diagnosis.options.filter((o) => o.id !== choice.optionId);
 	const body = [
-		p.text.summary || '(The run gave no summary.)',
-		'',
+		...section('What you reported', text(diagnosis.reported)),
+		...section('What was wrong', text(diagnosis.cause)),
+		...section(
+			'The option you chose',
+			[
+				`**${choice.optionId} — ${cleanLine(choice.name, DIAGNOSIS_CAPS.name)}**`,
+				'',
+				text(choice.change),
+				'',
+				`Chosen by \`${cleanPerson(choice.decidedBy)}\`${when ? ` on ${when}` : ''}.`,
+				...(choice.note ? ['', `Their note: ${cleanText(choice.note, MAX_BUILD_NOTE)}`] : []),
+			].join('\n'),
+		),
+		...section('What changed', p.text.explanation.changed),
+		...(others.length
+			? section(
+					'What else was possible',
+					others
+						.map(
+							(o) =>
+								`- ${o.id} — ${cleanLine(o.name, DIAGNOSIS_CAPS.name)}: ${cleanLine(o.change, DIAGNOSIS_CAPS.text)}`,
+						)
+						.join('\n'),
+				)
+			: []),
+		...section('How to check it yourself', p.text.explanation.howToCheck),
+		...section('Risks', p.text.explanation.risks),
 		'**Gates run**',
 		...p.text.gates.map((g) => `- \`${g.command}\` — ${g.ok ? 'passed' : 'failed'}`),
 		'',
