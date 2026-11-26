@@ -4,7 +4,27 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<link rel="stylesheet" href="https://use.typekit.net/aba0ebl.css" />
-		<meta name="viewport" content="width=device-width" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!--
+			The page never moves under the game: iOS Safari scrolls (and double-tap zooms) a page
+			whose body only has `overflow: hidden`, which slid the canvas, and everything pinned to
+			the top, off the screen while the toolbar folded and unfolded.
+		-->
+		<style>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				overflow: hidden;
+				overscroll-behavior: none;
+				touch-action: manipulation;
+				background-color: black;
+			}
+			body {
+				position: fixed;
+				inset: 0;
+			}
+		</style>
 
 		<!--
 			Boot loading-screen API. Defined in <head> — BEFORE SvelteKit's deferred module
@@ -112,7 +132,7 @@
 
 		%sveltekit.head%
 	</head>
-	<body style="margin: 0; padding: 0; overflow: hidden; background-color: black">
+	<body>
 		<div>%sveltekit.body%</div>
 
 		<!--
