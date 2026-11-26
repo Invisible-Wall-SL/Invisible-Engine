@@ -233,7 +233,9 @@ async function suite(quiet) {
 
 	await step('3. Animate: a drag on a bone keys its translate, a drag on the ring keys its rotate', async () => {
 		await setMode('animate');
-		await evaluate('newAnimation(); animWorkLen[curAnim] = 1; graphSnap = false; tlSelOnly = true; true');
+		// the dopesheet takes the bottom of the stage: frame the rig again, so the bone picked in Setup is
+		// not left under the mode bar (a press there never reaches the stage)
+		await evaluate('newAnimation(); animWorkLen[curAnim] = 1; graphSnap = false; tlSelOnly = true; fitView(); true');
 		await frames(2);
 		// What the bone's pose adds to its setup now: a key is written as that, so a drag's own share is
 		// the key less this.

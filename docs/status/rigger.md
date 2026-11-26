@@ -209,7 +209,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   it and selects its owner after the click (`dopeClickKey`, so the double-click still deletes). Guards: new
   `tools/rigger-spike/timeline-tree-browser.mjs` (46 checks, 22 page mutants); `pen-drag-browser.mjs`
   and `rig-limbs-browser.mjs` turn the bone snap off (their drags measure raw distances; W's sparks
-  share one origin); `cinematic-timeline.golden.json` re-recorded for the four Tweak-mode steps whose
+  share one origin), and `pen-drag-browser.mjs` frames the rig again on entering Animate (the mode
+  bar, a button wider, covered the bone it had picked in Setup, so the press never reached the
+  stage); `cinematic-timeline.golden.json` re-recorded for the four Tweak-mode steps whose
   dopesheet is now the tree. Red on `main` before this change too, in this container:
   `rig-control-shapes-browser.mjs` (the ring drag held to a limit) and `rig-3d-stage-browser.mjs`
   (the Local ring's 30° turn, 29.56°). ⏳ Not yet tried on the authed page.
