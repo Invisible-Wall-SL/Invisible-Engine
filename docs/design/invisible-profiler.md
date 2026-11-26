@@ -123,16 +123,16 @@ A finding is `{ rule, severity, evidence, estimate, owner }`, computed from a re
 the pair, by small pure functions with fixtures (one file per rule, a `check:profiler` gate). The
 first set reads only fields that exist today:
 
-| Rule | Reads | Says | Owner |
-|---|---|---|---|
-| Fps below budget | report phases | which phase, by how much, on which devices | the game kind's agent |
-| GPU-bound or CPU-bound | render/tick ms vs interval, `?perfgpu=1` wait | which side to cut | `engine-pixi-svelte` |
-| Feature cost | two reports, one with a test switch | fps and draws a switch buys (`particles=off`, `fx=0`, `aa=0`) | `invisible-fx` / `invisible-shader-graph` / engine |
-| Spikes by cause | `spikes` | shader compiles, uploads, churn mid-round | `engine-pixi-svelte` |
-| Textures over budget | `textureList`, breakdown | largest textures, oversize pages, WebP where KTX2 was expected | `atlas-python-tools` |
-| Unused bytes | breakdown issues | files nothing loads, duplicates, MB saved by removing | the project's author (FTP Browser) |
-| Optimize off | breakdown | MB a 🗜 Optimize build would save | publisher |
-| Regression | this build vs the last on the same device class | the metric that moved and the categories that grew | the build's changes |
+| Rule                   | Reads                                           | Says                                                           | Owner                                              |
+| ---------------------- | ----------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------- |
+| Fps below budget       | report phases                                   | which phase, by how much, on which devices                     | the game kind's agent                              |
+| GPU-bound or CPU-bound | render/tick ms vs interval, `?perfgpu=1` wait   | which side to cut                                              | `engine-pixi-svelte`                               |
+| Feature cost           | two reports, one with a test switch             | fps and draws a switch buys (`particles=off`, `fx=0`, `aa=0`)  | `invisible-fx` / `invisible-shader-graph` / engine |
+| Spikes by cause        | `spikes`                                        | shader compiles, uploads, churn mid-round                      | `engine-pixi-svelte`                               |
+| Textures over budget   | `textureList`, breakdown                        | largest textures, oversize pages, WebP where KTX2 was expected | `atlas-python-tools`                               |
+| Unused bytes           | breakdown issues                                | files nothing loads, duplicates, MB saved by removing          | the project's author (FTP Browser)                 |
+| Optimize off           | breakdown                                       | MB a 🗜 Optimize build would save                               | publisher                                          |
+| Regression             | this build vs the last on the same device class | the metric that moved and the categories that grew             | the build's changes                                |
 
 Estimates come from what was measured (a test-switch delta, the bytes of a file), never from a
 model of the GPU. A finding without a measurement behind it says "unmeasured" rather than a number.
@@ -161,10 +161,10 @@ current-games harness already runs headless Chrome (`.github/workflows/current-g
 slot's for every game. The probe reports `kind` (the config's family: `slot`, `arcade`, `match3`,
 `card`) from `perf: 8`, and the launcher reads the phase set off it:
 
-| Set | Phases | What decides a frame's phase |
-|---|---|---|
-| slot (every family but arcade, and every `perf: 7` reading) | `idle`, `spinning`, `round` | a reel moving; else the game's xstate state |
-| arcade | `menu`, `play` | the runtime's own tick (`apps/lines/src/game/arcadePerf.ts`): `play` while the local loop moves a body or the online room's `state.phase` is `running`; else `menu` (title, lobby, countdown, win screen) |
+| Set                                                         | Phases                      | What decides a frame's phase                                                                                                                                                                              |
+| ----------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| slot (every family but arcade, and every `perf: 7` reading) | `idle`, `spinning`, `round` | a reel moving; else the game's xstate state                                                                                                                                                               |
+| arcade                                                      | `menu`, `play`              | the runtime's own tick (`apps/lines/src/game/arcadePerf.ts`): `play` while the local loop moves a body or the online room's `state.phase` is `running`; else `menu` (title, lobby, countdown, win screen) |
 
 Why: an arcade game never spins, so every frame of the owner's first Salmons reading
 (2026-11-26) landed in `idle` and its findings named no arcade cause. Why no third arcade phase:
@@ -287,4 +287,3 @@ two iPhones), kept to the plan's monthly minutes. Not on every Publish: device m
 **Owner steps (not code):** open the account and choose the plan; the username and access key go
 into the runner's env vars only (`BROWSERSTACK_USERNAME`, `BROWSERSTACK_ACCESS_KEY`), never into
 the repo (hard rule 1).
-

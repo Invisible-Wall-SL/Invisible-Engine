@@ -406,11 +406,11 @@ them, so a project with many old readings shows its full list after a few visits
     | ------------- | ------------------------- | -------- | -------- |
     | Phone, tablet | fps idle, menu            | < 58     | < 55     |
     | Phone, tablet | fps spinning, round, play | < 55     | < 50     |
-    | Phone, tablet | p95 frame, every phase | > 20 ms  | > 25 ms  |
-    | Phone, tablet | GPU memory             | > 120 MB | > 150 MB |
-    | Desktop       | fps, every phase       | < 58     | < 55     |
-    | Desktop       | p95 frame, every phase | > 20 ms  | > 25 ms  |
-    | Every device  | Shipped size           | > 20 MB  | > 25 MB  |
+    | Phone, tablet | p95 frame, every phase    | > 20 ms  | > 25 ms  |
+    | Phone, tablet | GPU memory                | > 120 MB | > 150 MB |
+    | Desktop       | fps, every phase          | < 58     | < 55     |
+    | Desktop       | p95 frame, every phase    | > 20 ms  | > 25 ms  |
+    | Every device  | Shipped size              | > 20 MB  | > 25 MB  |
 
     "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
     Draws a frame and desktop GPU memory have no default; set one if your project wants it. An
