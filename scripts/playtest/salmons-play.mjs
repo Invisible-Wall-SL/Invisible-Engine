@@ -914,9 +914,9 @@ const paramsFor = (extra) =>
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Open a page on the game. `next` is a join the page makes as if the last page had left for a new
- * room (`online.ts` `takeNextJoin`: session storage, scoped to this server and game), seeded once:
- * a winner's `pass` makes its salmon golden.
+ * Open a page on the game. `next` is a join the page finds kept for it, as after a leave for a new
+ * room that did not get in (`online.ts` `takeNextJoin`: session storage, scoped to this server and
+ * game), seeded once: a winner's `pass` makes its salmon golden.
  */
 async function boot(profile, extra = {}, next = undefined) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, profile));
@@ -3316,7 +3316,7 @@ play: try {
 	// The game won (the original's one game a room): page W's salmon starts just below the source
 	// and swims into it. The win animation comes up (it won: "You Won!", eggs), the room gives it a
 	// winner's pass, and its button leaves for a new room, where it is golden.
-	let w = await ready(
+	const w = await ready(
 		await boot('w', { rooms_name: 'Wyn', rooms_character: 'salmon', rooms_game: WIN_GAME }),
 	);
 	await settle(w, 600);
@@ -3346,29 +3346,42 @@ play: try {
 			passW,
 		{ wonW, winScreen, passW },
 	);
+	// The button leaves for a new room on the same page (`online.ts` `switchRoom`): the page is
+	// stepped until it is another session's. A page that loaded again would have lost the mark.
 	await w.page.evaluate('window.__ptBeforeRejoin = true');
 	if (winScreen?.button) await clickAt(w, winScreen.button);
-	// The fish swims off (the page's frames are the probe's, so it is stepped), then the page leaves
-	// and loads again.
-	let rejoined;
-	for (let i = 0; i < 80 && !rejoined; i++) {
-		const reloaded = await w.page
-			.evaluate('!window.__ptBeforeRejoin && !!window.__IE_DETERMINISM__')
-			.catch(() => false);
-		if (reloaded) rejoined = true;
-		else {
-			await w.play([{ op: 'step', frames: 6 }]).catch(() => {});
-			await wait(150);
-		}
+	let newW = {};
+	for (let i = 0; i < 120 && !(newW.me && newW.me !== meW); i++) {
+		await w.play([{ op: 'step', frames: 6 }]).catch(() => {});
+		await wait(50);
+		newW = await drawnOf(w).catch(() => ({}));
 	}
-	if (rejoined) w = await ready(w.page);
-	await settle(w, 800);
-	const newW = await drawnOf(w);
+	const stayed = await w.page.evaluate('window.__ptBeforeRejoin === true').catch(() => false);
+	const shownNewW = await shown(w);
+	// Its room marks the golden salmon as its round runs, and its art comes under it.
+	for (let i = 0; i < 40 && !((newW.marked ?? []).includes(newW.me) && newW.art); i++) {
+		await settle(w, 150);
+		newW = await drawnOf(w);
+	}
+	writeFileSync(join(out, '14c-joined-new-game.png'), await w.page.screenshot());
+	result.shots.push('14c-joined-new-game.png');
 	verdict(
-		'…“Join New Game” leaves for a new room (another river), where its salmon is golden',
-		!!rejoined && newW.seed !== seedW && (newW.marked ?? []).includes(newW.me),
-		{ seeds: [seedW, newW.seed], marked: newW.marked },
+		'…“Join New Game” leaves for a new room (another river) on the same page, with no reload: the win screen is gone, no loading screen shows, and its salmon is golden',
+		stayed &&
+			!!newW.me &&
+			newW.me !== meW &&
+			newW.seed !== seedW &&
+			shownNewW.includes('basegame') &&
+			!shownNewW.includes('salmonsWon') &&
+			!shownNewW.includes('loading') &&
+			newW.screens?.won?.shown === false &&
+			!(newW.events ?? []).some((ev) => ev.type === 'gameWon') &&
+			(newW.marked ?? []).includes(newW.me) &&
+			newW.art?.looks?.[newW.me]?.region === 'salmon_golden',
+		{ stayed, seeds: [seedW, newW.seed], shown: shownNewW, marked: newW.marked },
 	);
+	const wErrors = await w.page.evaluate('window.__AR_ERRORS__').catch(() => ['the page is gone']);
+	verdict('page W: no page error across the two rooms', wErrors.length === 0, wErrors);
 	await w.page.close();
 
 	// The bloodstain (GuiltyForever/Salmon- PR #8): page K's bear catches page Q's salmon in open

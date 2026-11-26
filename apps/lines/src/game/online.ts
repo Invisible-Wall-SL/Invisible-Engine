@@ -1,3 +1,5 @@
+import { flushSync } from 'svelte';
+
 import type { Room } from 'engine-rooms';
 import type { Predict, Reconciler } from 'engine-rooms/predict';
 import {
@@ -156,8 +158,10 @@ import {
 } from '../editor-scenes';
 import { typingInto } from './flowKeys';
 import { zoneStampsOf } from './zoneArt';
-import { getFlowV2 } from './flowV2InterpreterHolder';
+import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
+import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
+import { stateModes } from './stateModes.svelte';
 
 /**
  * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §6, §10; P10.14, P10.15) —
@@ -233,9 +237,16 @@ import { stateApp } from './stateApp';
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`;
  * `?room_size=<n>` joins a TEST room of that many players instead of the game's public rooms
- * (the server's `ROOM_NAME_TEST`, which refuses a size outside the game's test range); a
- * reload that leaves for a new room (Salmons' win screen) carries its name, character and
- * winner's pass in session storage instead ({@link takeNextJoin}).
+ * (the server's `ROOM_NAME_TEST`, which refuses a size outside the game's test range).
+ *
+ * ANOTHER ROOM ON THE SAME PAGE ({@link switchRoom}; Salmons' win screen's "Join New Game"): the
+ * device leaves its room and joins a new one as its player is now, without loading the page again.
+ * The picture of the old room stands until the new one is in hand (joined, its level made); then,
+ * in one task, everything held or drawn for the old one goes ({@link closeSession}) and the
+ * mounted game shows the new one ({@link showRoom}): every screen taken down, the flow back at
+ * its start, the new field drawn by the room's art in the layout node's place. Whatever stops
+ * that (a join that fails or never answers, a room that refuses the device, art that does not
+ * load, anything thrown) loads the page again to join as that same player ({@link failSwitch}).
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
  * loads it.
  */
@@ -461,6 +472,25 @@ type Session = {
 	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
 	 *  screen px, eased, and where it was drawn. */
 	lifts: Map<string, { lift: number; x: number; y: number }>;
+	/** The device left this room for another ({@link switchRoom}): its leave is no lost room. */
+	quit: boolean;
+	/** Stop hearing the room's states and events. */
+	unlisten: () => void;
+	/** Everything held or drawn for it is gone ({@link closeSession}). */
+	closed: boolean;
+	/** It took another room's place on a mounted game ({@link switchRoom}). */
+	switched: boolean;
+};
+
+/** What this page joins rooms of, read once at its boot: the config's own game, the server and the
+ *  game's key, the launch's own name and character, a test room's size, an authoring boot. */
+type Launch = {
+	resolved: OnlineGame;
+	url: string;
+	game: string;
+	own: { name: string | null; character: string | null };
+	size: string | null;
+	authoring: boolean;
 };
 
 let session: Session | undefined;
@@ -671,13 +701,10 @@ export async function joinOnlineRoom(): Promise<void> {
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
 	const generator = resolved.online.generator;
 	const startMenu = generator ? START_MENU[generator] : undefined;
-	const launch = launchJoin(
-		next,
-		{ name: params.get('rooms_name'), character: params.get('rooms_character') },
-		startMenu !== undefined,
-	);
-	let join = launch.join;
-	if (launch.choose && startMenu) {
+	const own = { name: params.get('rooms_name'), character: params.get('rooms_character') };
+	const asked = launchJoin(next, own, startMenu !== undefined);
+	let join = asked.join;
+	if (asked.choose && startMenu) {
 		try {
 			const picked = await startMenu({
 				name: join.name,
@@ -690,13 +717,40 @@ export async function joinOnlineRoom(): Promise<void> {
 			);
 		}
 	}
+	const refused = await enterRoom(
+		{
+			resolved,
+			url,
+			game,
+			own,
+			size: params.get('room_size'),
+			authoring: params.get(AUTHORING_PARAM) === '1',
+		},
+		join,
+	);
+	if (refused !== undefined) return refuseOnlineBoot(refused);
+}
+
+/**
+ * Join a room of the launch's game as `join` and make it the page's session. Returns why it could
+ * not; nothing once it is in, or when that room went again meanwhile (its leave has said so).
+ * `replaced` is the session it takes the place of on a page whose game is mounted
+ * ({@link switchRoom}): its picture stands until this one is made, and the task that makes it
+ * lets the old one go and shows the new room in its place ({@link showRoom}).
+ */
+async function enterRoom(
+	launch: Launch,
+	join: NextJoin,
+	replaced?: Session,
+): Promise<string | undefined> {
+	const { resolved, url, game, size, authoring } = launch;
+	const generator = resolved.online.generator;
 	let room: Room | undefined;
 	let predict: Predict | undefined;
 	try {
 		const { Client } = await import('engine-rooms');
 		const sdk =
 			resolved.online.netcode === 'colyseus' ? await import('engine-rooms/predict') : null;
-		const size = params.get('room_size');
 		room = await new Client(url).joinOrCreate(size ? ROOM_NAME_TEST : ROOM_NAME, {
 			game,
 			...join,
@@ -705,16 +759,25 @@ export async function joinOnlineRoom(): Promise<void> {
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
 		room?.leave().catch(() => {});
-		return refuseOnlineBoot(
-			`the game server did not let it in (${error instanceof Error ? error.message : String(error)})`,
-		);
+		return `the game server did not let it in (${error instanceof Error ? error.message : String(error)})`;
+	}
+	const switched = replaced !== undefined;
+	// A switch that has already failed is loading the page again: what it joined late goes.
+	if (switched && reloading) {
+		room.leave(true).catch(() => {});
+		return undefined;
 	}
 	// A room that is gone for good (disposed, a kick, a reconnect that ran out) leaves nothing to
-	// play: say so on the same screen rather than freeze on the last state.
-	// A leave while the join still waits (for the seed) must not leave a session for a dead room.
-	let left = false;
+	// play: say so on the same screen rather than freeze on the last state. Until its session is
+	// made, a leave is the join's answer (its close code), and nothing of it is drawn yet: on a
+	// switch the old room's picture stands.
+	let left: number | undefined;
+	let made: Session | undefined;
 	room.onLeave((code: number) => {
-		left = true;
+		left = code;
+		if (!made) return predict?.dispose();
+		// A room the device left for another is closed where the other took its place.
+		if (made.quit) return;
 		if (session) dropArt(session);
 		session = undefined;
 		clearMarks();
@@ -723,16 +786,16 @@ export async function joinOnlineRoom(): Promise<void> {
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
 	const seed = generator ? await roomSeed(room) : undefined;
+	if (left !== undefined) return `the room closed as it was joined (code ${left})`;
 	if (generator && seed === undefined) {
 		room.leave().catch(() => {});
-		return refuseOnlineBoot('the room did not say which field it plays');
+		return 'the room did not say which field it plays';
 	}
-	const authoring = params.get(AUTHORING_PARAM) === '1';
 	// The room's levels, not this boot's config's: the state that carried the seed carries them.
 	const level = seed === undefined ? undefined : roomLevelGame(resolved, seed, stateOf(room));
 	if (level && 'refused' in level) {
 		room.leave().catch(() => {});
-		return refuseOnlineBoot(otherLevel(level, authoring));
+		return otherLevel(level, authoring);
 	}
 	const played = level ?? { game: resolved, made: undefined };
 	const draw = generator ? FIELD_DRAWINGS[generator] : undefined;
@@ -740,7 +803,13 @@ export async function joinOnlineRoom(): Promise<void> {
 	const prepared = preparedEditorDoc();
 	if (field && prepared && !holdsNode(prepared, field.id)) {
 		room.leave().catch(() => {});
-		return refuseOnlineBoot(missingFieldNode(field.id));
+		return missingFieldNode(field.id);
+	}
+	const loadArt = generator ? FIELD_ART[generator] : undefined;
+	// A mounted game draws another room's field only through that room's art ({@link showRoom}).
+	if (replaced && field && !loadArt) {
+		room.leave().catch(() => {});
+		return 'this game has no art to draw another room’s field with: load it again';
 	}
 	const current: Session = {
 		room,
@@ -810,31 +879,52 @@ export async function joinOnlineRoom(): Promise<void> {
 		facing: undefined,
 		buttons: 0,
 		lifts: new Map(),
+		quit: false,
+		unlisten: () => {},
+		closed: false,
+		switched,
 	};
-	if (left) return;
+	if (switched && reloading) {
+		room.leave(true).catch(() => {});
+		return undefined;
+	}
+	made = current;
 	// A key pressed before the room (the menu, a join) is not the first step's press.
 	keyLatch.clear();
+	if (replaced) {
+		closeSession(replaced);
+		// Measured on the layout the page booted with, as a boot's load measures it
+		// ({@link withRoomField}); a layout fetched at mount is not in hand here.
+		if (field && prepared) current.fieldDrawn = holdsNode(prepared, field.id);
+		dropNextJoin();
+	}
 	session = current;
 	if (level?.adopted && authoring) showLevelsNotice(level.differs);
-	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	const stains = onlineStainsOf(bakedGameConfig());
 	if (loadArt && field && played.made && seed !== undefined)
-		loadArt(played.made, seed, stains, roomZoneArt(played.game.zones, seed)).then(
-			(art) => {
-				if (session !== current || left) return art.destroy();
+		loadArt(played.made, seed, stains, roomZoneArt(played.game.zones, seed))
+			.then((art) => {
+				if (session !== current || left !== undefined) return art.destroy();
 				current.art = art;
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
-				current.screens = art.screens(screenHost(current, url, game));
+				current.screens = art.screens(screenHost(current, launch));
 				for (const [id, mount] of current.screens.mounts) setFieldArt(id, mount);
-			},
-			(error: unknown) => console.warn('[online] the field art did not load', error),
-		);
+			})
+			.catch((error: unknown) => {
+				console.warn('[online] the field art did not load', error);
+				// A room joined in another's place has only its art to draw its field with, and no
+				// screen (lobby note, death screen, win button) without it: the person is not left
+				// there.
+				if (switched && session === current)
+					failSwitch(launch, join, `the new room’s art did not load (${error})`);
+			});
 	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
 	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
-	room.onStateChange(() => received(current, performance.now()));
-	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
+	const onState = () => received(current, performance.now());
+	room.onStateChange(onState);
+	const offEvents = room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
 		current.lines.events(events);
@@ -859,9 +949,153 @@ export async function joinOnlineRoom(): Promise<void> {
 		))
 			raise(current, signal);
 	});
+	current.unlisten = () => {
+		room.onStateChange.remove(onState);
+		offEvents();
+	};
+	if (switched) await showRoom(current, launch, join);
+	return undefined;
 }
 
-/** The session-storage key a leave for a new room writes and the next boot's join reads once. */
+/** Draws nothing: the ground of a room whose art is still to come, in the layout node's place. */
+const NO_GROUND: ArtMount = () => () => {};
+
+/**
+ * Show the room the page is in now on the mounted game, in place of the one it left
+ * ({@link switchRoom}; that one is let go already, in this same task), with no frame between.
+ *
+ * THE FIELD. The game keeps the layout it mounted with, whose field node is the first room's. A
+ * generated field is drawn by the room's art in that node's place, so the node is never drawn
+ * again: nothing until this room's art is in ({@link NO_GROUND}), then its river. The world's size
+ * is the session's ({@link useOnlineCamera}).
+ *
+ * THE CAMERA. The room's state is read at once, so the own player has its place and the first
+ * frame is drawn from there, not from where the old room's camera stood.
+ *
+ * THE FLOW is not built again, and its doc is not changed: it is brought back to its start
+ * (`game/roomFlow.ts` `restartFlow`), which shows the game and whatever the room's phase asks for
+ * (Salmons' lobby) with no loading screen on the way. Its start-up chain may hold for a tap, so it
+ * is not waited for; if it fails, the switch has ({@link failSwitch}).
+ */
+async function showRoom(current: Session, launch: Launch, join: NextJoin) {
+	if (current.field) setFieldArt(current.field.id, NO_GROUND);
+	received(current, performance.now());
+	const flow = getFlowV2();
+	if (!flow) return;
+	const { chain } = await restartFlow(flow, bakedFlowV2Doc(), {
+		unmount: flushSync,
+		resetModes: stateModes.reset,
+		roomValues: () => bindServerVariables(current, stateOf(current.room)),
+		complete: dispatchFlowV2Complete,
+	});
+	chain.catch((error: unknown) => failSwitch(launch, join, `its flow did not start (${error})`));
+}
+
+/** How long a leave for a new room may take to be in it (the join's answers and the room's first
+ *  state), ms: past it the switch has failed. */
+const SWITCH_MS = 12000;
+
+/**
+ * Leave the room for a new one of the same game, as the player is now and with the winner's pass
+ * the room gave it, on the same page. Nothing is heard, sent or moved for the old room from here
+ * on, and its picture stands until the new one takes its place ({@link enterRoom}); the win
+ * screen's button says it is joining meanwhile (`salmonsArt/winAnimation.ts`).
+ *
+ * The join is also written where a boot reads it ({@link takeNextJoin}) and taken back once the
+ * device is in. Whatever stops the switch (a join the server refuses, one that has not put the
+ * device in a room within {@link SWITCH_MS}, a level it cannot make, anything thrown on the way)
+ * ends in {@link failSwitch}.
+ */
+async function switchRoom(current: Session, launch: Launch) {
+	if (session !== current) return;
+	let join: NextJoin = {};
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const me = stateOf(current.room).players?.get(current.room.sessionId);
+		join = launchJoin(
+			{
+				...(me?.name ? { name: me.name } : {}),
+				...(me ? { character: me.character } : {}),
+				...(current.pass ? { pass: current.pass } : {}),
+			},
+			launch.own,
+			false,
+		).join;
+		keepNextJoin(launch, join);
+		current.quit = true;
+		current.unlisten();
+		session = undefined;
+		current.room.leave(true).catch(() => {});
+		const refused = await Promise.race([
+			enterRoom(launch, join, current),
+			new Promise<string>((resolve) => {
+				timer = setTimeout(() => resolve('the new room did not answer in time'), SWITCH_MS);
+			}),
+		]);
+		if (refused !== undefined) failSwitch(launch, join, refused);
+	} catch (error) {
+		failSwitch(launch, join, error instanceof Error ? error.message : String(error));
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Whether a failed switch is already loading the page again. */
+let reloading = false;
+
+/**
+ * A leave for a new room did not get the person into one they can play: leave whatever room the
+ * page is in and load the page again, to join as that same player (the join is kept for that boot,
+ * {@link takeNextJoin}). It is what "Join New Game" did before it stayed on the page, and it works
+ * in every kind of boot: the error screen and its Reload show only on a live-authoring boot
+ * (`editor-scenes` `markRuntimeStale`), so elsewhere a failed switch would leave the win screen up
+ * with nothing to press.
+ */
+function failSwitch(launch: Launch, join: NextJoin, reason: string) {
+	if (reloading) return;
+	reloading = true;
+	console.error(`[online] could not change rooms (${reason}): loading the game again`);
+	if (session) {
+		session.quit = true;
+		session.unlisten();
+		session.room.leave(true).catch(() => {});
+	}
+	keepNextJoin(launch, join);
+	window.location.reload();
+}
+
+/**
+ * Let go of a room the device left for another (it stopped hearing it when it left), with
+ * everything held or drawn for it: its prediction, each player's instance and looks, the lines,
+ * marks, clips and stains, the art with its screens (the win animation stopped), the camera (the
+ * next room's world may be another size), the fingers and keys held, and an author's note about
+ * its levels.
+ */
+function closeSession(current: Session) {
+	if (current.closed) return;
+	current.closed = true;
+	current.sdk?.me?.dispose();
+	current.sdk?.predict.dispose();
+	const live = spawnStore();
+	for (const instance of current.drawn.values()) live.despawn(instance);
+	current.drawn.clear();
+	dropArt(current);
+	clearMarks();
+	clearClips();
+	worldCamera = undefined;
+	if (pointerIo) {
+		pointerIo.tracker.release();
+		pointerIo.touch?.control.release();
+		pointerIo.touch = undefined;
+		pointerIo.owner = undefined;
+		syncTouchButton(pointerIo, undefined);
+	}
+	pendingTap = undefined;
+	keyLatch.clear();
+	document.getElementById(LEVELS_NOTICE_ID)?.remove();
+}
+
+/** The session-storage key a leave for a new room writes and a boot's join reads once. */
 const NEXT_JOIN_KEY = 'ie:rooms:next-join';
 
 type NextJoin = { name?: string; character?: string; pass?: string };
@@ -869,9 +1103,27 @@ type NextJoin = { name?: string; character?: string; pass?: string };
 /** The longest name a next join carries (the start menu's field). */
 const NEXT_NAME_LENGTH = 40;
 
+/** Keep the join a leave for a new room makes, for the boot a failed one loads. */
+function keepNextJoin({ url, game }: Launch, join: NextJoin) {
+	try {
+		sessionStorage.setItem(NEXT_JOIN_KEY, JSON.stringify({ server: url, game, ...join }));
+	} catch {
+		// No session storage: a boot after a failed join is the launch's own.
+	}
+}
+
+/** The device is in its new room: no later boot is that join. */
+function dropNextJoin() {
+	try {
+		sessionStorage.removeItem(NEXT_JOIN_KEY);
+	} catch {
+		// No session storage: nothing was kept.
+	}
+}
+
 /**
- * The join the last page asked for when it left for a new room, taken: read and cleared at every
- * boot, and honoured only by a launch of the same game on the same server.
+ * The join a leave for a new room kept and did not get to make ({@link failSwitch}), taken: read
+ * and cleared at every boot, and honoured only by a launch of the same game on the same server.
  */
 function takeNextJoin(server: string | null, game: string | null): NextJoin {
 	try {
@@ -2415,11 +2667,10 @@ const respawnOf = (current: Session, character: string) =>
  * What Salmons' screens' buttons do: Respawn, and a class of the lobby's note, ask the room for
  * a character with the inputs' `respawn` (1 + its index in the config's
  * `arcade.online.characters`) until the room answers (`createRespawnAsk`), and the player stays
- * in its room; leaving for a new room (the win animation's button) leaves this one and loads the
- * game again, its next join (`NEXT_JOIN_KEY`) as the player is now, and the winner's with the
- * pass the room gave it.
+ * in its room; the win animation's button leaves for a new room on the same page
+ * ({@link switchRoom}).
  */
-function screenHost(current: Session, server: string, game: string): SalmonsScreenHost {
+function screenHost(current: Session, launch: Launch): SalmonsScreenHost {
 	const ask = (character: string) => {
 		const respawn = respawnOf(current, character);
 		if (respawn) current.ask.press(respawn);
@@ -2427,26 +2678,8 @@ function screenHost(current: Session, server: string, game: string): SalmonsScre
 	return {
 		respawn: ask,
 		pick: ask,
-		rejoin: () => {
-			const me = stateOf(current.room).players?.get(current.room.sessionId);
-			const next: NextJoin & { server: string; game: string } = {
-				server,
-				game,
-				...(me?.name ? { name: me.name } : {}),
-				...(me ? { character: me.character } : {}),
-				...(current.pass ? { pass: current.pass } : {}),
-			};
-			try {
-				sessionStorage.setItem(NEXT_JOIN_KEY, JSON.stringify(next));
-			} catch {
-				// No session storage: the next join is the launch's own.
-			}
-			void current.room
-				.leave(true)
-				.catch(() => {})
-				.then(() => window.location.reload());
-		},
-		rivers: (signal) => listRivers(server, game, signal),
+		rejoin: () => void switchRoom(current, launch),
+		rivers: (signal) => listRivers(launch.url, launch.game, signal),
 	};
 }
 
@@ -2492,9 +2725,13 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => ScreenSize
 	setWorldProjector(projector);
 	const zoom = projector ? sceneCameraZoom(scene) : undefined;
 	setWorldZoom(1);
+	// A room that took another's place on this page plays its own field's world, whichever room
+	// the layout was loaded for; the page's first room, the layout's, as loaded for it.
+	const world = sceneWorld(scene);
+	const field = session?.switched && session.field ? session.game.field : undefined;
 	worldCamera = {
 		camera,
-		world: sceneWorld(scene),
+		world: world && field ? { w: field.w, h: field.h } : world,
 		view,
 		projector,
 		zoom,

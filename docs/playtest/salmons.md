@@ -168,9 +168,9 @@ one room with its two people. Catcher (Fisherman is chosen, Bear offered), the n
 River: the page is in that running room as a fisherman by that name, drawn as one, walks on its
 keys and shows no lobby (`joined-as-fisherman.png`). Another page picks Bear and plays a bear
 (`joined-as-bear.png`). The fisherman's page loaded again shows the menu again with its name kept,
-and the room gains nobody meanwhile. A page whose last page carried its join (`ie:rooms:next-join`
-with a name and `bear`) plays at once with no menu. Last, a page comes through the menu (Bear)
-into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen, whose note says what
+and the room gains nobody meanwhile. A page that finds its join kept (`ie:rooms:next-join` with a
+name and `bear`, as after a "Join New Game" that did not get in) plays at once with no menu. Last,
+a page comes through the menu (Bear) into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen, whose note says what
 was picked ("You are NAME, a Bear", Bear lit in its row) and which draws no second form
 (`menu-then-lobby.png`). On a
 runtime without the menu the first two verdicts fail and a third says its choices could not be
@@ -346,8 +346,10 @@ shares). `--rooms`, `--seconds`, `--span` and `--salmon` are in its header. Resu
     banner).
 19b. Page W joins `salmons-win` (its salmon just below the source) and swims into it: `gameWon`
     for W (`winnerName` "Wyn"), the flow shows `salmonsWon`, the screen says "You Won!" and lays
-    eggs (`14b-you-won.png`), and the room sends W a `winnerPass`. Its "Join New Game" leaves and
-    reloads into a new room (another seed), where W's salmon is golden.
+    eggs (`14b-you-won.png`), and the room sends W a `winnerPass`. Its "Join New Game" leaves for
+    a new room (another seed) on the same page: a mark set on its window before the click is
+    still there, the win screen is gone, no loading screen shows, and W's salmon is golden
+    (`14c-joined-new-game.png`). No page error across the two rooms.
 19c. Bloodstains (`GuiltyForever/Salmon-` PR #8): pages K (a bear on the bank) and Q (a salmon
     in open water just upstream, carried past him by the current) join `salmons-blood` (the
     authored river). K steps towards the water (its swipe lands a tile ahead of its last move) and taps J until it catches Q's salmon: both pages are sent one stain (the probe's `online.stains`) within 1 px of
@@ -699,6 +701,82 @@ Salmons active, `/editor` → the river screen → **Generated level** → chang
 **Save levels**, and do not publish. Open the game from its launcher card: the notice names
 "waterfalls", and the river on screen is the one the banks and waterfalls stop you at. Publish in
 Game Maker and open it again once the old room has closed: no notice, and your waterfalls.
+
+## Another room on the same page (`salmons-rejoin-play.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-rejoin-play.mjs --runtime apps/lines/build --out <dir> \
+  [--chrome <exe>] [--netcode engine|colyseus] [--timing] [--baked]
+```
+
+Owner, 2026-11-25: "when I finish a game and click join new room, the game restarts from the
+loading screen, I would expect to be in a room already" ([status/salmons](../status/salmons.md)).
+On the same runtime build and a real game server on localhost: the exported game (`salmonsMap`,
+random seeds) with a lobby one person starts (a countdown of 5 s) and no bots. 43 verdicts; play
+both netcodes, and `jo` and `fay` once more with `--baked` (below).
+
+- **`jo`** (a salmon) plays three games on ONE document. In each the room stands its salmon in
+  the source (the server runs in the script's process; Space is tapped, since only a free salmon
+  wins), the win screen says "You Won!" and the room sends a pass. "Join New Game" is clicked, and
+  then, 12 verdicts a switch:
+  - the page did not load again: a mark set on its window before the click is still there, and
+    the tab has still loaded one document (each document counts itself in session storage);
+  - it has left its room and is in another (the server's own record of both sessions), of
+    another seed;
+  - at once the flow shows `basegame` and `salmonsLobby` and neither `salmonsWon` nor `loading`,
+    and the room's phase is `waiting` (`switch-N-at-once.png`);
+  - that first frame's camera is on the own salmon where the NEW room has it (the river's foot),
+    not where the old room's camera stood (the source);
+  - the lobby's note reads "You are Jo, a Salmon" in a river of one, and the win animation is
+    not drawn (`switch-N-lobby.png`);
+  - the level made and drawn is the NEW room's: the probe's zones are the room sim's and are not
+    the old room's, `online.level`'s fingerprints are the room's `levelHash`, and the art drew
+    that level's rocks and whirlpools;
+  - one river is drawn (`fieldArt.live` 1), so the old one went with its room;
+  - nothing of the old game is held: no `gameWon` or `winnerPass` among the page's events and
+    signals, one instance spawned, no winner, and the flow's `phase` variable is `waiting`;
+  - the countdown ends, round 1 starts and the lobby and its countdown go;
+  - its salmon is golden (the pass followed it): marked by the room, drawn with the golden
+    texture;
+  - ArrowUp swims it upstream, predicted (`engine`: the page's predictor counts corrections;
+    `colyseus`: the probe names the netcode), the camera on it (`switch-N-round.png`).
+
+  After each switch `result.json`'s `measures.held` has the page's JS heap after a collection, its
+  display objects (on the stage, and alive in the heap), its GPU textures and its sockets alive:
+  read them across the three, they are reported and not judged. Sockets alive that grow by one a
+  switch mean each old session is still held by something.
+- **`fay`** plays four switches that fail, one after the other on one page whose launch names
+  no character (so only a kept join spares it the start menu): a join the server refuses (the
+  page's matchmaking request is refused), a join that never answers (the win screen's button
+  must read "Joining…" meanwhile: `joining.png`; the switch gives up after 12 s of the page's
+  clock), something thrown in the swap (the flow's own hide), and art that does not load for
+  the new room. Each must end with the page loaded again (one more document) and the person in
+  a new room's lobby as they were ("You are Fay, a Salmon", its three classes to press; golden
+  while the pass was not spent), no start menu, the kept join spent, and the reason on the
+  console (`failed-<which>-end.png`). No page error in the room it ends in.
+- **`--baked`** plays `jo` and `fay` (not `tim`) on pages with no `runtime=1`, as a standalone
+  build boots: the failures above must end the same way where the error screen is never drawn.
+  It needs a runtime with this game baked in, one netcode's:
+  `--write-bundle apps/lines/src/baked-editor-bundle.json --netcode engine`, build with
+  `PUBLIC_IE_FAMILIES=arcade`, copy `apps/lines/build` out, `git checkout` the bundle file (never
+  commit it), and pass the copy as `--runtime`.
+- **`tim`** runs on the real clock (no `ie_determinism`), three switches: `measures.switchMs`
+  has, for each, the ms from the click to the first frame that shows the new room's lobby and to
+  the first frame whose stage holds the river's art, how many frames that was, the frame time,
+  when the join was asked and answered, what the flow showed at each change, and how many
+  documents loaded (0). `timing-N-lobby.png` and `timing-N-art.png` are that page. A headless
+  shell draws the river in software at about 3 frames a second, so read the frames, not the
+  seconds: the waits are frames. `--timing` plays only this page (four switches) and takes any
+  runtime: on a build that still reloads it reports `documents: 1` and the loading screen among
+  what was shown.
+
+Look at `switch-1-at-once.png` and `switch-1-lobby.png` as well as the verdicts: the first is the
+first frame drawn after the swap, the second the lobby over the new river's art a moment later.
+
+**By hand, once the change is live:** win a game (or lose one: the button then reads "Start New
+Session"), press the button. The fish swims off, and the next thing on screen is the new river's
+lobby, with no boot screen, no loading screen and no tap to start.
 
 ## The fisherman's hold and throw (`salmons-throw-play.mjs`)
 

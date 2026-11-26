@@ -319,7 +319,56 @@ check('a new room’s lobby has no form: its note shows the room, who waits and 
 	assert.doesNotMatch(screens, /createElement\(|Join River|localStorage/);
 	assert.match(screens, /\n\trejoin: \(\) => void;\n/);
 	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
-	assert.match(online, /\n\t\trejoin: \(\) => \{\n/);
+	assert.match(online, /\n\t\trejoin: \(\) => void switchRoom\(current, launch\),\n/);
+	// That leave joins as the player is in the room it leaves (its name, its class, the winner's
+	// pass), on the same page. The join is kept for the boot after one that failed, and taken
+	// back once the device is in.
+	assert.match(
+		online,
+		/join = launchJoin\(\s+\{\s+\.\.\.\(me\?\.name \? \{ name: me\.name \} : \{\}\),\s+\.\.\.\(me \? \{ character: me\.character \} : \{\}\),\s+\.\.\.\(current\.pass \? \{ pass: current\.pass \} : \{\}\),\s+\},\s+launch\.own,\s+false,\s+\)\.join;\s+keepNextJoin\(launch, join\);/,
+	);
+	// It is taken back as soon as the device is in the new room. Whatever stops the switch (a
+	// refusal, no answer in time, anything thrown, art that does not load) ends in one place,
+	// which keeps the join and loads the page again: a person is never left on a dead win screen,
+	// in any kind of boot (the error screen shows only on a live-authoring one).
+	assert.match(
+		online,
+		/closeSession\(replaced\);[\s\S]{0,400}?dropNextJoin\(\);\s+\}\s+session = current;/,
+	);
+	assert.match(
+		online,
+		/function failSwitch\([^)]*\) \{\s+if \(reloading\) return;\s+reloading = true;[\s\S]{0,400}?keepNextJoin\(launch, join\);\s+window\.location\.reload\(\);\s+\}/,
+	);
+	// Until its session is made, a room's leave is the join's answer, said once (no second
+	// error screen), and clears nothing of the picture that stands.
+	assert.match(online, /left = code;\s+if \(!made\) return predict\?\.dispose\(\);/);
+	assert.match(
+		online,
+		/const seed = generator \? await roomSeed\(room\) : undefined;\s+if \(left !== undefined\) return `the room closed as it was joined/,
+	);
+	// A join that answers after the switch failed is left, not shown over the reload.
+	assert.equal(
+		online.match(
+			/if \(switched && reloading\) \{\s+room\.leave\(true\)[^;]*;\s+return undefined;\s+\}/g,
+		)?.length,
+		2,
+	);
+	assert.equal(online.match(/location\.reload/g).length, 1, 'loaded again from that one place');
+	const switching = online.slice(
+		online.indexOf('async function switchRoom('),
+		online.indexOf('/** Whether a failed switch'),
+	);
+	assert.match(switching, /Promise\.race\(\[\s+enterRoom\(launch, join, current\),/);
+	assert.match(switching, /setTimeout\(\(\) => resolve\([^)]*\), SWITCH_MS\)/);
+	assert.match(switching, /if \(refused !== undefined\) failSwitch\(launch, join, refused\);/);
+	assert.match(switching, /let timer[^\n]*\n\ttry \{\n\t\tconst me = /, 'all of it is caught');
+	assert.match(switching, /\} catch \(error\) \{\s+failSwitch\(launch, join,/);
+	assert.doesNotMatch(switching, /refuseOnlineBoot/);
+	assert.match(
+		online,
+		/if \(switched && session === current\)\s+failSwitch\(launch, join, `the new room’s art did not load/,
+	);
+	assert.match(online, /chain\.catch\(\(error: unknown\) => failSwitch\(launch, join,/);
 	// A class pressed in the lobby stays in the room: it is what the device asks, sent as inputs,
 	// as a caught player's Respawn is; every input's `respawn` is that ask's and nothing else's.
 	assert.match(
