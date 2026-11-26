@@ -2923,8 +2923,8 @@ const MUTANTS = [
 		'the layers sent to the fit back to front, not front to back',
 		[
 			FIT,
-			'...(m.layers ? { order: [...m.layers].reverse() } : {}),',
-			'...(m.layers ? { order: [...m.layers] } : {}),',
+			'...(m.layers && fitLayers ? { order: [...m.layers].reverse() } : {}),',
+			'...(m.layers && fitLayers ? { order: [...m.layers] } : {}),',
 		],
 	],
 	['layers', 'the layers not kept in sheet.json', [FIT, '...(layers ? { layers } : {}),', '']],

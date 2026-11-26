@@ -734,9 +734,47 @@ const GUARDS = {
 		});
 		good =
 			ok(
-				'layers: a changed list judged on the order the update applies (a finger Setup drew behind the head)',
-				!fingerRefused.ok && /"pinky_1_l" behind "head"/.test(fingerRefused.problem),
+				"layers: a changed list judged on the order the update applies (a finger Setup drew behind the head), worded for Setup's slots",
+				!fingerRefused.ok &&
+					/^Setup's slots draw "pinky_1_l" behind "head"/.test(fingerRefused.problem) &&
+					/fix the order in Setup's slots/.test(fingerRefused.problem),
 				fingerRefused.ok ? 'updated' : fingerRefused.problem,
+			) && good;
+		// A prop worn anew on the left forearm, which the list draws behind the head: a slot new to the
+		// rig that the Arm depth control steps, so it meets the control as 🦴 Create rig's would.
+		const onArm = clone(base);
+		const fore = onArm.parts.lower_arm_l;
+		onArm.props.push({
+			name: 'prop_band',
+			region: 'shadow_blob',
+			host: 'lower_arm_l',
+			bone: boneOfSlot(M, 'lower_arm_l'),
+			at: fore.joints[Object.keys(fore.joints)[0]],
+		});
+		const bandList = M.sheetLayerList(
+			t.slots.map((s) => s.name),
+			(p) => slotOf(M, p),
+			{ ...onArm, layers: fromRig },
+		);
+		bandList.splice(bandList.indexOf('prop_band'), 1);
+		bandList.splice(bandList.indexOf('head') + 1, 0, 'prop_band');
+		const bandMapping = { ...onArm, layers: bandList };
+		const bandRefused = M.updateSheetRig({
+			template: t,
+			regions: REGIONS,
+			was: base,
+			mapping: bandMapping,
+			current: before,
+		});
+		const bandCreate = M.sheetRig(t, REGIONS, bandMapping);
+		good =
+			ok(
+				'layers: a prop worn anew on an arm, drawn behind the head, refused as 🦴 Create rig refuses it',
+				!bandRefused.ok &&
+					/the Layers draw "prop_band" behind "head"/.test(bandRefused.problem) &&
+					!bandCreate.ok &&
+					/behind "head"/.test(bandCreate.problem),
+				bandRefused.ok ? 'updated' : bandRefused.problem,
 			) && good;
 		log(`${drawn.size} layers; the chain moved behind the torso, the key's drawing kept`);
 		return good;
@@ -759,6 +797,7 @@ if (ONLY || process.argv.includes('--no-mutants')) {
 
 console.log('\n=== mutants of the shipped code: each must turn its check red');
 const UPD = 'rigSheetUpdate.ts';
+const FIT = 'rigSheetFit.ts';
 const MUTANTS = [
 	[
 		'kept',
@@ -827,7 +866,7 @@ const MUTANTS = [
 	[
 		'layers',
 		'the list applied back to front',
-		[UPD, '\t\t).reverse();\n\t\tconst slots', '\t\t);\n\t\tconst slots'],
+		[FIT, '\t\tm,\n\t).reverse();\n}', '\t\tm,\n\t);\n}'],
 	],
 	['layers', "a draw-order key's drawing not kept", [UPD, '\t\t\tback();\n', '']],
 	[
@@ -835,7 +874,7 @@ const MUTANTS = [
 		"Setup's order held to the depth controls on every update",
 		[
 			UPD,
-			'const fitted = sheetRig(t, regions, { ...m, layers: undefined });',
+			'const fitted = sheetRig(t, regions, m, { fitLayers: false });',
 			'const fitted = sheetRig(t, regions, m);',
 		],
 	],
@@ -847,15 +886,30 @@ const MUTANTS = [
 	[
 		'layers',
 		'a list held to the controls though it moves no slot the rig had',
-		[UPD, '\t\t\t\tinDrawOrder(had, want).some((n, i) => n !== had[i]) &&\n', ''],
+		[FIT, 'return want.some((n) => !have.has(n) && stepped.has(n));', 'return true;'],
+	],
+	[
+		'layers',
+		'a list that moves a slot the rig had never held to the controls',
+		[FIT, '\tif (inDrawOrder(had, want).some((n, i) => n !== had[i])) return true;\n', ''],
+	],
+	[
+		'layers',
+		'a slot new to the rig, in a depth control, never held to it',
+		[FIT, 'return want.some((n) => !have.has(n) && stepped.has(n));', 'return false;'],
+	],
+	[
+		'layers',
+		"a slot Setup put wrong worded as the Layers'",
+		[FIT, 'return listed && !listed.has(back)', 'return false'],
 	],
 	[
 		'layers',
 		"a list judged on the template's order, not the one the update applies",
 		[
 			UPD,
-			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, now);',
-			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, want);',
+			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, now, new Set(want));',
+			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, want, new Set(want));',
 		],
 	],
 	[
@@ -868,7 +922,7 @@ const MUTANTS = [
 		],
 	],
 ];
-const SOURCES = { [UPD]: join(SERVER, UPD) };
+const SOURCES = { [UPD]: join(SERVER, UPD), [FIT]: join(SERVER, FIT) };
 for (const [guard, what, mutation] of MUTANTS) {
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {

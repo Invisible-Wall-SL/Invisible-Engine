@@ -15,7 +15,6 @@
  *   moves a slot; then the slots it lists take its order, held to the depth controls as a create's.
  */
 import type { SheetMapping } from '../rigSheetMap';
-import { sheetLayerList } from '../rigSheetMap';
 import { inDrawOrder } from '../rigSlotOrder';
 import {
 	frameRigUpdate,
@@ -25,7 +24,7 @@ import {
 	type FrameUpdateReport,
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
-import { sheetMappingProblem, sheetRig, slotsAgainstDepth } from './rigSheetFit';
+import { layersJudged, sheetLayerOrder, sheetRig, slotsAgainstDepth } from './rigSheetFit';
 import { fitTemplate, frameWorld } from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
@@ -97,12 +96,10 @@ export function sameKeys(a: unknown, b: unknown): boolean {
 
 /**
  * The rig a mapping builds, as 🦴 Create rig builds it but in the template's order: the layers are
- * applied to the merged rig, and held to the depth controls only when they move a slot it had.
+ * applied to the merged rig, and held to the depth controls only as `layersJudged` says.
  */
 function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMapping) {
-	const bad = sheetMappingProblem(t, regions, m);
-	if (bad) return { ok: false as const, problem: bad };
-	const fitted = sheetRig(t, regions, { ...m, layers: undefined });
+	const fitted = sheetRig(t, regions, m, { fitLayers: false });
 	if (!fitted.ok) return fitted;
 	const { fit, art } = fitted.value;
 	return {
@@ -169,15 +166,10 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	// The layers: the edited list's order when the author changed it and it moves a slot, every
 	// draw-order key still drawing what it drew; else the rig's own order stays (a Setup reorder
 	// included, even one a depth control would refuse from the list). The order applied is held to
-	// the depth controls when the list moves a slot the open rig had (as the page's preview judges).
+	// the depth controls as `layersJudged` says (as the page's preview judges).
 	const layered: string[] = [];
 	if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {
-		const slotOf = (part: string) => o.template.parts.find((p) => p.name === part)?.slot ?? part;
-		const want = sheetLayerList(
-			o.template.slots.map((s) => s.name),
-			slotOf,
-			o.mapping,
-		).reverse();
+		const want = sheetLayerOrder(o.template, o.mapping);
 		const slots = (doc.slots ?? []) as { name: string }[];
 		const byName = new Map(slots.map((s) => [s.name, s]));
 		const was = slots.map((s) => s.name);
@@ -185,8 +177,8 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		if (now.some((n, i) => n !== was[i])) {
 			const had = ((o.current.slots ?? []) as { name: string }[]).map((s) => s.name);
 			const against =
-				inDrawOrder(had, want).some((n, i) => n !== had[i]) &&
-				slotsAgainstDepth(fitTemplate(o.template, fit).channels, now);
+				layersJudged(o.template, fit, o.mapping, o.was.layers, had) &&
+				slotsAgainstDepth(fitTemplate(o.template, fit).channels, now, new Set(want));
 			if (against) return { ok: false, problem: against };
 			const back = keepDrawOrders(doc as Parameters<typeof keepDrawOrders>[0]);
 			doc.slots = now.map((n) => byName.get(n)!);

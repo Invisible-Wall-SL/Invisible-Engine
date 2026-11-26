@@ -48,7 +48,8 @@
 //    ⋮⋮ drags a sheet's prop as the slot it is; 🗺 Edit mapping opens the rig's own order, Ctrl+] in
 //    the dialog never moves the rig's slots behind it, and 🔄 Update rig keeps Setup's order; on a
 //    rig whose Setup drew the arm behind the head the preview draws that order unjudged (no depth
-//    warning) until a change there moves a slot, as 🔄 Update rig judges it;
+//    warning) until a change there moves a slot, as 🔄 Update rig judges it (a finger Setup drew
+//    behind the head is worded for Setup's slots);
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -280,19 +281,14 @@ const PAGE_MUTANTS = [
 		's2r.layers = null;',
 	],
 	[
-		"🗺 Layers: Edit mapping's preview judging the rig's own order (a depth control's warning on Setup's)",
-		'...(s2rLayersChecked() ? {} : { checkLayers: false })',
-		'',
+		"🗺 Layers: Edit mapping's preview not sending the open rig (a depth control's warning on Setup's)",
+		'body: JSON.stringify({ sheet: s2rMapping(), ...s2rPreviewRig() }),',
+		'body: JSON.stringify({ sheet: s2rMapping() }),',
 	],
 	[
-		"🗺 Layers: Edit mapping's preview never judging a list that moves a slot",
-		'.reverse().join() !== list.filter((n) => have.has(n)).join();',
-		'.reverse().join() === null;',
-	],
-	[
-		"🗺 Layers: Edit mapping's preview judging a list that moves nothing",
-		'.reverse().join() !== list.filter((n) => have.has(n)).join();',
-		'.reverse().join() !== null;',
+		"🗺 Layers: Edit mapping's preview sending the rig's slots front to back",
+		'return { rig: { slots: rawDoc.slots.map((s) => s.name),',
+		'return { rig: { slots: rawDoc.slots.map((s) => s.name).reverse(),',
 	],
 	[
 		"🗺 Layers: Edit mapping's preview dropping the order it draws unjudged",
@@ -533,13 +529,16 @@ const server = createServer(async (req, res) => {
 			const body = await readBody(req);
 			seen.previews++;
 			seen.preview = body.sheet;
-			seen.previewChecked = body.checkLayers !== false;
+			seen.previewRig = body.rig ?? null;
 			const parsed = S.parseSheetMapping(body.sheet);
 			if ('problem' in parsed)
 				return json({ message: `bad sheet mapping: ${parsed.problem}` }, 400);
-			const pv = S.sheetPreview(S.HALF_BODY, REGIONS, parsed.mapping, {
-				checkLayers: seen.previewChecked,
-			});
+			const pv = S.sheetPreview(
+				S.HALF_BODY,
+				REGIONS,
+				parsed.mapping,
+				body.rig ? { rig: body.rig } : {},
+			);
 			return pv.ok ? json(pv.value) : json({ message: pv.problem }, 400);
 		}
 		if (p === '/api/rigger/new') {
@@ -1498,8 +1497,10 @@ try {
 		q({ editRows, rigList }),
 	);
 	// A rig whose Setup drew the arm behind the head (which the Arm depth control would refuse from the
-	// list), opened so: the preview draws that order, unjudged, so no warning. A change there that
-	// moves a slot (the chain behind the torso) is judged, as 🔄 Update rig judges it, and warns.
+	// list), opened so: the preview, sent the open rig, draws that order unjudged, so no warning. A
+	// change there that moves a slot (the chain behind the torso) is judged, as 🔄 Update rig judges
+	// it, and warns; with a finger Setup drew behind the head instead (the two front rows then
+	// swapped, far from the head), the word is for Setup's slots.
 	const armBack = [...editRows];
 	armBack.splice(armBack.indexOf('upper_arm_l'), 1);
 	armBack.splice(armBack.indexOf('head') + 1, 0, 'upper_arm_l');
@@ -1510,10 +1511,11 @@ try {
 	await evaluate(
 		'window.settled = async () => { for (let i = 0; i < 5; i++) { const g = s2r.pgen; await s2rPreview(); if (s2r.pgen === g + 1) return true; } throw new Error("the preview kept being overtaken"); }; true',
 	);
-	const armRig = async (list) => {
+	const frontSwapped = [editRows[1], editRows[0], ...editRows.slice(2)];
+	const armRig = async (list, setupBehindHead = 'upper_arm_l') => {
 		await evaluate(`(() => {
 			window.__armWas = { layers: s2r.layers, slots: rawDoc.slots };
-			const slots = [...rawDoc.slots], at = slots.findIndex((s) => s.name === "upper_arm_l");
+			const slots = [...rawDoc.slots], at = slots.findIndex((s) => s.name === ${q(setupBehindHead)});
 			const [arm] = slots.splice(at, 1);
 			slots.splice(slots.findIndex((s) => s.name === "head"), 0, arm);
 			rawDoc.slots = slots;
@@ -1522,8 +1524,8 @@ try {
 		})()`);
 		const got = {
 			sent: seen.preview && seen.preview.layers,
-			checked: seen.previewChecked,
-			warn: await evaluate('!!document.querySelector("#s2rLayers .s2rLayerWarn")'),
+			rig: q(seen.previewRig?.slots) === q(await evaluate('rawDoc.slots.map((s) => s.name)')),
+			warn: await evaluate('document.querySelector("#s2rLayers .s2rLayerWarn")?.textContent ?? ""'),
 			art: await evaluate('s2r.preview ? s2r.preview.art.map((a) => a.name) : null'),
 		};
 		await evaluate('s2r.layers = __armWas.layers; rawDoc.slots = __armWas.slots; true');
@@ -1531,16 +1533,22 @@ try {
 	};
 	const openedArm = await armRig(armBack);
 	const changedArm = await armRig(armMoved);
+	const fingerArm = await armRig(frontSwapped, 'pinky_1_l');
 	ok(
-		'🗺 Edit mapping on a rig Setup drew with the arm behind the head: the preview draws that order unjudged (no warning); a change that moves a slot is judged (and warns)',
+		'🗺 Edit mapping on a rig Setup drew with the arm behind the head: the preview, sent the open rig, draws that order unjudged (no warning); a change that moves a slot is judged (and warns)',
 		q(openedArm.sent) === q(armBack) &&
-			openedArm.checked === false &&
+			openedArm.rig &&
 			!openedArm.warn &&
 			openedArm.art?.indexOf('upper_arm_l') < openedArm.art?.indexOf('head') &&
 			q(changedArm.sent) === q(armMoved) &&
-			changedArm.checked === true &&
-			changedArm.warn,
+			changedArm.rig &&
+			/the Layers draw "upper_arm_l" behind "head"/.test(changedArm.warn),
 		q({ openedArm, changedArm }),
+	);
+	ok(
+		"… a finger Setup drew behind the head, the list changed: the word is for Setup's slots",
+		/^⚠ Setup's slots draw "pinky_1_l" behind "head"/.test(fingerArm.warn),
+		q(fingerArm),
 	);
 	await evaluate('settled()');
 	await evaluate(

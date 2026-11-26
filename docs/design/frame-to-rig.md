@@ -1681,10 +1681,12 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
   `keepDrawOrders`, so every draw-order key keeps drawing what it drew. The edited mapping is built
   in the template's order and the list applied to the merged rig, so a rig whose Setup drew an arm
   behind the head (which the list could not ask for) still updates. The order applied is held to the
-  depth controls (`slotsAgainstDepth`) only when the list moves a slot the open rig had; a prop worn
-  anew moves none. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in
-  Setup's slots survives an update that does not touch the list; its preview judges the list by the
-  same test (`s2rLayersChecked`) and otherwise draws it unjudged (`checkLayers: false`).
+  depth controls (`slotsAgainstDepth`) as `layersJudged` says: when the list moves a slot the open
+  rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
+  worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
+  slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
+  survives an update that does not touch the list; its preview sends the open rig (`rig`) and is
+  judged by the same `layersJudged`, else draws the list unjudged.
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
 

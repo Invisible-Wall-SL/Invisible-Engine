@@ -12992,17 +12992,6 @@ function s2rLayersFromRig(){
   if (own.length) s2r.layers = own;
   s2rRender();
 }
-// Whether the launcher holds the list to the depth controls: always for a new rig; on 🗺 Edit mapping
-// as 🔄 Update rig does (updateSheetRig), only when it changed since the kept mapping and moves a slot
-// the open rig has. Otherwise the preview draws it unjudged, so Setup's own order warns of nothing.
-function s2rLayersChecked(){
-  if (!s2r.edit || !rawDoc) return true;
-  const kept = sheetSrc.doc && sheetSrc.doc.layers;
-  if (JSON.stringify(s2rLayersOut().layers ?? null) === JSON.stringify(kept ?? null)) return false;
-  const list = s2rLayerList(), listed = new Set(list);
-  const had = rawDoc.slots.map((s) => s.name), have = new Set(had);
-  return had.filter((n) => listed.has(n)).reverse().join() !== list.filter((n) => have.has(n)).join();
-}
 // The slot a pick draws in: a part's, a prop's own.
 function s2rSelSlot(){
   const sel = s2r.sel;
@@ -13281,6 +13270,13 @@ function s2rArrangeItems(){
 }
 const s2rIsSel = (it) => !!s2r.sel && (it.part ? s2r.sel.part === it.part : s2r.sel.prop === it.prop);
 
+// 🗺 Edit mapping: the open rig, so the launcher judges the Layers as 🔄 Update rig will
+// (rigSheetFit.ts layersJudged): Setup's own order warns of nothing a change here does not touch.
+function s2rPreviewRig(){
+  if (!s2r.edit || !rawDoc) return {};
+  const layers = sheetSrc.doc && sheetSrc.doc.layers;
+  return { rig: { slots: rawDoc.slots.map((s) => s.name), ...(layers ? { layers } : {}) } };
+}
 // The rig as the launcher fits it, again once the mapping has changed (a beat after the last change).
 function s2rRequestPreview(){
   clearTimeout(s2r.ptimer);
@@ -13291,7 +13287,7 @@ async function s2rPreview(){
   const gen = ++s2r.pgen;
   try {
     const r = await fetch("/api/rigger/from-sheet/preview", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping(), ...(s2rLayersChecked() ? {} : { checkLayers: false }) }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping(), ...s2rPreviewRig() }),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const p = await r.json();

@@ -187,23 +187,26 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   whose Setup drew `upper_arm_l` behind `head` could not be updated after any 🗺 Edit mapping change:
   the Layers list opens from the rig's slots, goes out as `layers`, and the edited mapping's build
   held it to the Arm depth control. `updateSheetRig` now builds both mappings in the template's order
-  (`build`, after `sheetMappingProblem`), applies the list to the merged rig only when it changed
-  since the kept mapping AND moves a slot, and holds the order it applies to the depth controls
-  (`slotsAgainstDepth`, on the merged order, so a finger Setup drew behind the head counts) only
-  when the list moves a slot the open rig had (a prop worn anew moves none) — so the server keeps
-  the rig's order for any client, and a changed list still meets the control. The dialog's preview
-  judges the list by the same test (`s2rLayersChecked`); otherwise it draws the list unjudged
-  (`/api/rigger/from-sheet/preview` `checkLayers: false`, `sheetPreview` fitting in the template's
-  order and drawing in the list's), so ◧ Arranged draws what the rig draws and warns of nothing the
-  update would not refuse. Also: one `MAX_LAYERS` (256,
+  (`sheetRig` `fitLayers: false`), applies the list to the merged rig only when it changed since the
+  kept mapping AND moves a slot, and holds the order it applies to the depth controls
+  (`slotsAgainstDepth`, on the merged order, so a finger Setup drew behind the head counts) as
+  `layersJudged` says: when the list moves a slot the open rig had, or draws a slot new to it that a
+  depth control steps (a prop worn anew on an arm, refused behind the head as 🦴 Create rig refuses
+  it); a prop worn elsewhere (a badge on the torso) is not judged — so the server keeps the rig's
+  order for any client, and a changed list still meets the control. A slot drawn wrong that the
+  list does not name is worded for Setup's slots ("fix the order in Setup's slots, or leave the
+  Layers as opened"). The dialog's preview sends the open rig (`rig: { slots, layers }`) and
+  `sheetPreview` judges with the same `layersJudged` (on the rig's order with the list applied, then
+  the list itself), else draws the list unjudged in its order, so ◧ Arranged draws what the rig
+  draws and warns of what the update would refuse. Also: one `MAX_LAYERS` (256,
   `rigTemplateFit.ts`) for `parseRigFit` and `parseSheetMapping`; ↺ Start over's confirm names the
   Layers; ✕ mid-drag ends the Layers drag (`s2rLayerDragEnd`); the Layers tooltip and the guide say a
   clip's draw-order keys still draw what they drew, so a new order shows at setup and in clips that
   key none. `sheet-rig-browser.mjs` gave Setup's ⋮⋮ drag room: the rig panel left the slot list's
   scroller 9 px tall, so the grip sat in the drag's auto-scroll edge and the drop landed rows off
   (65/67 every run); it now drags in a 2000 px-tall viewport and checks both points clear the edge
-  first. Guards: `sheet-rig-update.mjs` 119/119 (4 checks, 4 mutants new; each check failed on the
-  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 69/69, 55/55 page mutants (4
+  first. Guards: `sheet-rig-update.mjs` 160/160 (5 checks, 7 mutants new; each check failed on the
+  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 70/70, 54/54 page mutants (3
   new; 2 Layers mutants re-anchored on `s2rMapping(st)`'s text, where #1941 had left them
   unplanted). ⏳ Not live-verified.
 
