@@ -621,6 +621,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   re-recorded all five runtimes in `scripts/runtime-bytes/`; the follow-up re-recorded the two arcade ones. Checked in Chromium at 430 × 739 (no
   scroll, canvas fills, readout shown); **not yet checked on a real iPhone** (Chromium does not
   scroll like Safari). Lesson: `docs/knowledge/lessons/engine-shell.md`.
+  **Accepted trade-off (owner, 2026-11-26):** with the page pinned, iOS Safari's toolbar no longer
+  folds away on a swipe, so every game keeps the toolbar's height in portrait and landscape.
 
 - 2026-11-19 — **Runtime builds no longer depend on the checkout's folder** (#1728). Svelte names a
   component from `rootDir`, by default the build's cwd (`apps/lines`), so a component under

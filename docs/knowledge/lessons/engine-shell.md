@@ -8,11 +8,11 @@ page-level overlays (`PerfHud`). Traps that hit every game in play: [current-gam
 
 ### On an iPhone the game slid up and the profiler's Send went off screen
 
-- **Symptom:** owner, 2026-11-26, BrowserStack iPhone 16 Pro Max / iOS 27 on Salmons: title cut, a
-  black strip over Safari's toolbar, no Send; the lobby's river line ran off both sides.
+- **Symptom:** owner, 2026-11-26, BrowserStack iPhone, Salmons: title cut, black strip, no Send.
 - **Cause:** `<body>` only had `overflow: hidden`, which iOS Safari still scrolls; the lobby line was
   sized in the playtest's fallback font, narrower than the pixel font a phone loads.
 - **Fix:** `app.html` pins `html`/`body`; an embed pins only its own container (`build-embed.mjs`, never the
   partner's page); `PerfHud` follows `visualViewport`; the lobby lines fit the canvas.
 - **Guard:** none for the scroll (Chromium does not scroll like Safari): check on a real iPhone.
+  Accepted (owner, 2026-11-26): pinned, iOS Safari's toolbar no longer folds away on a swipe.
 - **PR:** #1937 (2026-11-26) and its follow-up, branch `claude/wonderful-wozniak-d6hr0p`
