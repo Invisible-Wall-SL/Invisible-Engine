@@ -296,8 +296,8 @@ const MUTANTS = [
 		'move',
 		'the keys left as they were under a move',
 		[
-			'changeSlotsKeepingDrawOrder(rawDoc, () => { const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp; });',
-			'const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp;',
+			'changeSlotsKeepingDrawOrder(rawDoc, () => { rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n))); });',
+			'rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n)));',
 		],
 	],
 	[

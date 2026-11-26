@@ -413,42 +413,83 @@ nothing in it can be selected and moved by hand.
   seeds. Changing the seed is a preview: it does not mark the screen changed.
 - **Pinned** — pin the shown seed. With seeds pinned, each new room plays the next one in turn;
   with none, every room plays a new random level, as the original game did.
-- **Winding river** — off, the generator's own river: a gentle meander that always runs the same way
-  across the screen. On, the river bends from side to side, so some reaches run the other way
-  across the screen; it still runs straight at the source, each side of a waterfall and through the
-  delta. Ticking it shows three numbers, each with its default as the placeholder (an empty field
-  plays the default):
-  - **Winding** — the share of reaches that bend, 0 to 1 (default 0.75); the others run nearly
-    straight.
-  - **Sharpest turn (°)** — the most a bend turns the river, 0 to 150 degrees (default 140). Past
-    90 the reaches either side of a bend run opposite ways across the screen.
-  - **Towards the source** — how much of the sharpness is kept for the source, 0 to 1 (default
-    0.6). At 0 bends are as sharp all the way down; at 1 the sharp bends are round the source and
-    the river straightens towards the sea.
-- **Waterfalls** — how many a level has, 0 to 12, spread evenly above the delta. Empty: the
-  generator's own six.
-- **Lowest (cells)** / **Highest (cells)** — every waterfall is a whole number of cells high
-  between the two, 1 to 16; a salmon climbs it a tap at a time. A waterfall of 1 is a 72 px cliff,
-  of 8 a 240 px one, of 16 a 432 px one. Both empty: the generator's own heights, 1 to 8 and lowest
-  towards the sea. With Lowest above Highest an amber note says a level plays them the other way
-  round.
 - **Overlay** — what you author on top: for **this seed** or for **every level**. The list shows each
   entry (an added piece, a removed generated piece, a waterfall's new height), each with a bin.
 - **gx / gy**, the piece (**rock**, **whirlpool**, **sandbank**, **waterfall**, with a **height**) —
   a cell of the generator's grid (gx down the river from the source, gy across it). **Add piece**
   puts one there; **Remove generated piece** takes away what the generator put there.
-- **Save levels** — writes the pinned seeds, the river's shape, the waterfalls and the overlays into
-  the project's Game Config (`arcade.online.levels`). It fails, keeping your edits, if someone
-  saved the config meanwhile.
-
-The river's shape and the waterfalls apply to every level, not to the shown seed, and the stage
-redraws at each change. A config saved without **Winding river** keeps the river it has. Rooms play
-the new shape only after the config is published. Until then a game opened from the launcher keeps
-playing the published levels, and a notice at the top of its screen names what differs (river,
-waterfalls, overlays).
+- **Save levels** — writes the pinned seeds, the overlays and everything set in the cards below
+  (generator settings, biomes) into the project's Game Config (`arcade.online.levels`). It fails,
+  keeping your edits, if someone saved the config meanwhile.
 
 An entry the shown level has no place for (an addition on the bank, a removal where nothing was
 generated) is listed in amber as kept, not applied: picking another seed never deletes an overlay.
+
+#### The generator's settings
+
+Below the Generated level card, a foldable card per group sets every number the generator reads:
+**River shape**, **Course**, **Waterfalls**, **Rocks and whirlpools**, **Bridges**, **Sea and
+delta** and **Spawns**. Hover a card's header for what it covers. Each setting is a slider and a
+number field; its ⓘ says what it does, its default and its range. An empty field plays the
+default (shown as the placeholder). A set value gets a reset button, and a card with any setting
+changed gets a reset in its header that puts the whole group back.
+
+- **River shape** carries the **Winding river** tick. Off, the generator's own river: a gentle
+  meander that always runs the same way across the screen. On, the river bends from side to side,
+  still running straight at the source, each side of a waterfall and through the delta, and three
+  more settings show: **Winding** (the share of reaches that bend), **Sharpest turn (°)** (past 90
+  the reaches either side of a bend run opposite ways) and **Towards the source** (how much of the
+  sharpness is kept for the source).
+- **Course** lays out a winding river's reaches; with Winding river off a note says its settings
+  are read only then.
+- **Waterfalls** starts with **Count** (spread evenly above the delta; empty, the generator's own
+  six) and **Lowest / Highest (cells)** (every waterfall is a whole number of cells high between
+  the two; a salmon climbs it a tap at a time). With Lowest above Highest an amber note says a
+  level plays them the other way round.
+
+#### Biomes
+
+The **Biomes** card sets the stretches of the river that each grow their own forest, forest floor
+and riverbed, and lay their own share of rocks, whirlpools, sand, waterfalls and bridges.
+
+- **Authored biomes** — off, the original's six forests take turns every 35 columns. Ticking it
+  starts you from those six (named forest1 to forest6) to change, add to or lay out. The reset in
+  the card header goes back to the original's forests.
+- **Sequence** — whose layout you edit: **every level**, or **this seed** only. A seed's own
+  sequence replaces every level's for that seed. The bin clears the shown scope's sequence.
+- **The strip** runs from the source (left) to the sea (right). Each stretch is painted in its
+  biome's grass, forest floor and riverbed colours with its name on a chip; the sand's start is
+  marked. Click a stretch to select it. Drag a boundary to move where the next biome starts, or
+  focus it and use the arrow keys (a column a press, ten with Shift).
+- **Selected stretch** — its **biome**, the column it starts **from**, **Split** (cut it in two)
+  and a bin to take it out.
+- **No sequence yet** — a note says the biomes take turns every so many columns (set with **Turn
+  every (columns)**), and **Lay out** turns that cycle into a sequence you can edit.
+- **The kinds list** — each biome with a colour swatch; select one to edit it, reorder it with
+  the up and down arrows (the order the cycle uses), remove it with the bin, or **Add biome**.
+- **The selected biome** — its **Name**; the **Trees** it grows (pictures 1 to 6); **Grass tint**,
+  **Floor** and **Riverbed** colours (add or drop riverbed sands); **Lone trees**, **Grass
+  (cells)** and **Forest (cells)**; then its play: **Rocks ×**, **Whirlpools ×** and **Sand ×**
+  (multiples of the generator's own density), **Waterfalls kept** (the share of its stretch's
+  waterfalls it keeps) and **Bridges may cross it**.
+
+Densities change where the pieces land, so the stage moves with them. Once any biome changes the
+rock or whirlpool density, each column draws its own pieces, so tuning one stretch leaves the
+others' pieces where they were. A stretch that asks for more of a piece where the level lays none
+(rocks in the delta, sand above it), where the generator's own settings lay none (a chance or share
+of 0), or for more than every place there, is listed in amber with the overlay orphans, under the
+Generated level card. Nothing is dropped. The stage shows each stretch's floor colour down both edges of the placeholder river; a
+biome's trees and colours show in a room only. The strip shows no waterfalls or pieces (the stage
+does).
+
+#### When it plays
+
+The settings and biomes apply to every level (a biome sequence can be per seed), and the stage
+redraws at each change. A config saved without **Winding river** keeps the river it has. Rooms
+play the new levels only after the config is published. Until then a game opened from the
+launcher keeps playing the published levels, and a notice at the top of its screen names what
+differs. For every setting and the saved shape, see
+[the Salmons levels design, §6](../design/salmons-levels.md#6-every-generator-setting-and-authored-biomes-built-2026-11-26).
 
 ### The bet menu and the auto spin screens
 

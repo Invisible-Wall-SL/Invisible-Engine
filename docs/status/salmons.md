@@ -19,6 +19,98 @@ upload.
 
 ## Current state
 
+- **The whole lobby clock, and the next game by itself (2026-11-26; owner: "have the all
+  countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
+  starts automatically"; in review; design [salmons-levels §4.2](../design/salmons-levels.md)).**
+  - **The lobby shows the time to round 1 from its first person**, not only the last 10 s: with
+    Salmons' lobby that starts near 70 (60 s wait + 10 s countdown) and ticks on the room's clock;
+    a room that fills early drops to 10; a person who joins mid-wait sees the same number. The
+    number is white and still, and red in its last 10 seconds, each new second growing it 45 % and
+    easing back over 450 ms, faint for the end of each. The class picker is unchanged and usable to
+    the end.
+  - **Where the start time lives: the room's `endsAt`** (no new field). From the lobby's first
+    person it is round 1's start at the latest (`onlineRules.js` `joined`: `lobbyEndsAt` + the
+    countdown); the countdown makes it its own end as before; nobody in, or bots only, 0. No
+    schema, config, layout or flow change; `check:online-rules` traces, `check:room-sim`,
+    `check:room-bots`, `check:netcode` and the 3D room are unmoved (no trace has a lobby; the 3D
+    room has its own rules).
+  - **Drawn in code in place of `sm-countdown-seconds`** (`salmonsArt/screens.ts`
+    `createLobbyClock`, `SALMONS_SCREEN_ART.clock`), the countdown screen's text node every
+    published layout already has: no layout upload, and the plain number shows until the art is in.
+    The flow is the seed's: its lobby check already shows the countdown screen whenever
+    `secondsLeft` is above 0, so it now shows from the first person.
+  - **Either order of deploys.** A new runtime on a game server not yet redeployed gets no `endsAt`
+    before the countdown: the lobby looks as today. An old runtime (or a published flow made from
+    the seed) on the new server shows the whole clock as plain text, no red. A published flow that
+    shows the countdown screen only on `countdown` shows the clock from the countdown, as before.
+  - **The next game by itself.** On the win screen (winner and losers alike) of a person who
+    played the round, "Next game in N" counts 10 s (`NEXT_GAME_SECONDS`) over the button and then
+    does what the button does (`switchRoom`; a failed switch reloads, `failSwitch`). The button
+    stays and joins at once; joining, it reads "Joining…" and the count goes. **Played** = an input
+    of the device that moved, pressed a button or asked for a respawn while the round ran
+    (`online.ts` `Session.played`, cleared at `roundStart`): an idle device's screen counts nothing
+    and waits for its press, so an idle tab does not hop rooms for ever. **Only for someone
+    watching:** a page hidden when the screen comes, or hidden once while it counts, stops the
+    count for good; shown again, it does not join by surprise. The screen taken away (a
+    `roundStart` hiding it in a game of rounds) stops it too. In portrait and landscape the line
+    sits 16 px over the button, clear of the title, the subtitle and the button; eggs fall behind
+    it (outlined, it reads over them).
+  - **Proof.** `check:room-lobby` 35 → 42 (the clock in the sim from the first join, mid-wait
+    join, the cut, the wait run out, nobody in, bots only, no lobby; a live room's state; pins of
+    both device halves). Playtests, both netcodes: `salmons-levels-play.mjs` 54 → 57 (the clock;
+    "no countdown yet" rewritten), `salmons-rejoin-play.mjs` 43 → 58 (the count landscape and
+    portrait, a click while it counts, the join at 0, an idle page, a hidden page and shown
+    again, both buttons after) and `salmons-play.mjs` 102 → 103 (page W counts). Runs and
+    screenshots: Recent changes.
+  - **Bundle.** Arcade runtimes only: `arcade` +747 B gzip (2,127,836 → 2,128,583), `arcade3d`
+    +814 B (2,636,665 → 2,637,479), both re-recorded; `lines`, `match3` and `card` the same bytes
+    (`check:runtime-bytes --only lines,match3,card` ok, not re-recorded).
+  - **Deploy.** The clock needs the game server redeployed (closes running rooms: Owner steps);
+    the count is the runtime's, live with the arcade runtime release. No upload or publish.
+- **Every generator setting and authored biomes, from the config (2026-11-26; owner: "I would like
+  to have more control over the level generation, so I can control all of its parameters. also I
+  would like a way to be able to control and author the change in biome that happen in the
+  level"; then, through the coordinating session: biomes also set obstacle density, and the
+  biome strip shows each biome's colours; in review; branch
+  `claude/salmons-authored-generator-biomes`). Plan and schema:
+  [design/salmons-levels §6](../design/salmons-levels.md#6-every-generator-setting-and-authored-biomes-built-2026-11-26).
+  - **What an author has.** `arcade.online.levels.generator`: 58 settings, every number that
+    shapes a level (river length and widths, delta, meander, sand, rocks and whirlpools,
+    waterfalls' columns, bridges, the winding course, world rows and banks, spawns), each with
+    its limit. `arcade.online.levels.biomes`: kinds (trees, lone-tree chance, grass and forest
+    depth, grass tint, forest floor, riverbed sands; rocks, whirlpools and sand ×0–3, waterfalls
+    kept 0–1, bridges yes / no) and a sequence of starts along the river by seed or `'*'`, else a
+    cycle. A density the level has no room for is listed as an orphan in `/editor`.
+  - **Nothing moves unless authored.** Every default is today's value: the recorded maps of seven
+    seeds and the shipped winding river are unchanged with an empty or a full `generator` and with
+    a looks-only `biomes`; with no `biomes` the art is drawn piece for piece as at `a404522` (four
+    rivers fingerprinted in Node). `CURRENT_STRENGTH` is left out: it is a speed, not a place.
+  - **One resolution everywhere.** `levelShape(levels, seed)` in `engine-mechanics`; the room says
+    both blocks (`seedLevels`) and a device adopts them; the river carries its seed's biomes for
+    the art. Game Config carries the blocks as it carries `river` / `waterfalls`.
+  - **`/editor`**: below the Generated level card, River shape (with Winding river), Course,
+    Waterfalls, Rocks and whirlpools, Bridges, Sea and delta, Spawns (a slider, a field, a help tip
+    and a reset per setting; a reset per card) and Biomes (the strip in each biome's colours with
+    draggable boundaries, the kinds list and the selected kind's editor). The stage redraws at
+    each change and marks each stretch's floor down the river's edges. Save levels as before.
+  - **After review (same day):** a density change now draws each column's pieces from its own
+    stream, so tuning one stretch leaves the others' pieces alone; `generator-off` orphans (a
+    density above 1 where the generator's settings place none) and one orphan per run of a kind;
+    a generated rock is held to leave two cells beside it and the half widths are 2 at the least,
+    with a save warning for a rock or a whirlpool as wide as the narrowest water less a cell.
+  - **Gates:** `check:salmons-levels` 27, `check:room-levels` 16, `check:salmons-art` 37, launcher
+    `check:editor-level-generator` 6 (new), `check:salmons-course` 21, `check:salmons-export` 39,
+    `check:zone-art` 70. Runtime bytes: the arcade runtimes grow (below); the slot, match-3 and card
+    runtimes shrink, because `salmonsMap.js` no longer reads `SALMONS_MAP` at module level, so a
+    bundle that never makes a level drops it (manifests re-recorded).
+  - **Live:** nothing until a Save levels (or a re-export) and a publish, and the game server and
+    runtime of this merge: a room of an older game server ignores the blocks, and its devices play
+    its levels (§3 of the design).
+  - **With the trees' art (`@trees`, below).** On a level with authored biomes a tree whose
+    biome picked variant `v` draws picture `v` of the `@trees` source and its variants (round
+    again past the last); without biomes the seed and the cell pick, as #1922 built it.
+    `check:salmons-art` 43.
+
 - **Zone art draws the trees too: Scenery → Trees (2026-11-26; in review; branch
   `claude/wizardly-galileo-kjszii`; runtime and launcher change, no config change; Salmons draws
   exactly as before until someone sets the row).** Plan: [design/zone-art](../design/zone-art.md)
@@ -1597,6 +1689,25 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The whole lobby clock and the next game by itself (2026-11-26; on this branch, once it merges).
+Nothing to upload, export or publish: no config, layout or flow changed.**
+
+1. **The merge does both halves, and one of them closes rooms**: it releases the arcade runtime
+   and deploys the game server (`packages/engine-mechanics` and `services/game-server` are
+   touched), and **the game-server deploy closes every running room**. Merge when the rooms are
+   quiet.
+2. **Either order is safe.** New game server, old runtime: the lobby shows the whole clock as the
+   plain number, no red, and the win screen does not count. New runtime, old game server: the
+   lobby looks as today (no clock until the countdown, then red at the end), and the win screen
+   counts. Both out: compare `rooms.invisiblewall.org/healthz`'s commit and the runtime's release
+   with `main`.
+3. **To check it by hand:** open the published link when no river runs and join. The lobby shows
+   "STARTING IN" near 70 under the class row, white, counting down; with a second person in, it
+   drops to 10 and turns red, pulsing each second. Play the round (move once), win or lose: "Next
+   game in 10" counts over the button and the next river's lobby comes by itself. Do it again
+   without touching the game: nothing counts and the button waits. Switch tabs while it counts and
+   come back: it waits for the press.
+
 **A class picked in the lobby (2026-11-25; once `claude/upbeat-cray-fzmgxe` merges). Nothing to
 upload, export or publish: no config, layout or flow changed.**
 
@@ -2462,6 +2573,38 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **The whole lobby clock, and the next game by itself** (owner: "have the all
+  countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
+  starts automatically"; branch `claude/upbeat-cray-fzmgxe`; in review). `onlineRules.js`
+  (`endsAt` from the lobby's first person), `schema.ts` (the field's comment only),
+  `salmonsArt/screens.ts` (`createLobbyClock` in place of `sm-countdown-seconds`),
+  `salmonsScreens.ts` (`SALMONS_SCREEN_ART.clock`, `SALMONS_CLOCK_URGENT`),
+  `salmonsArt/winAnimation.ts` (the count, `NEXT_GAME_SECONDS`, the page's visibility, the probe's
+  `next` / `count` / `boxes`), `online.ts` (`Session.played`, the clock fed from the state, the
+  probe's `played`). No config, layout, flow or `normalizeGameConfigDoc` change. Gates:
+  `check:room-lobby` 35 → 42; unmoved: `check:room-sim` 43, `check:room-bots` 56,
+  `check:room-size` 20, `check:online-rules` 40, `check:room-levels` 15, `check:netcode` 28,
+  `check:salmons-art` 34, `check:salmons-levels` 18, `check:room-sim-3d` 23, launcher
+  `check:room-flow` 2. Playtests on one arcade build, both netcodes: `salmons-rejoin-play.mjs` 58 / 58,
+  `salmons-levels-play.mjs` 57 / 57, `salmons-play.mjs` 103 / 103 (`engine` and `colyseus` each;
+  the first `colyseus` run of `salmons-play.mjs` failed "…the room's `golden` reached page G's
+  flow", which this change does not touch, and passed on the re-run). Looked at:
+  `win-count-landscape.png`, `win-count-portrait.png`, `win-idle.png`, `lobby-waiting.png`
+  (white "136"), `lobby-clock-red.png` (red "4"). Two playtest traps found on the way: from the
+  win screen's press the probe has no session, so what the screen shows then is read off the
+  stage (with the join sent 1.5 s late); and a page stepped faster than the clock sends inputs
+  faster than the room's message limit (twice the tick rate) and is disconnected (`4002`), so
+  long waits are stepped no faster than the clock.
+- 2026-11-26 — **Every generator setting and authored biomes** (owner; in review; branch
+  `claude/salmons-authored-generator-biomes`). `engine-mechanics`: `salmonsMap.js`
+  `SALMONS_GENERATOR` / `_LIMITS` / `_WHOLE` / `_PAIRS`, `generatorParams`, `biomeOrphans`, every
+  generator function reading `shape.generator`; new `salmonsBiomes.js` (`resolveBiomes`,
+  `biomeAt`, `biomeStretches`, the built-in six); `salmons.js` takes the river's length off the
+  river. `game-config` `levelsShape.ts`: `generator` and `biomes` carried, normalized and
+  validated. `engine-layout`: `salmonsArt/river.ts` draws by biome (new `engine-mechanics`
+  dependency), `salmonsRiver.ts` marks stretches. `/editor`: `EditorLevelGenerator.svelte`,
+  `EditorLevelBiomes.svelte`, `LevelParamField.svelte`; `IconButton` gains `up` / `down`. Gates
+  as in Current state; `scripts/salmons/art-fingerprint.mjs` new.
 - 2026-11-26 — **Browser check of the published link** (cloud deploy session): start menu, joins
   as all three classes, bot catches, the win and the room's lock all seen live; a person's own
   catch and respawn not reached before a bot won (Current state, "Live check").

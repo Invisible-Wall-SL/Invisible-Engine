@@ -31,6 +31,7 @@ import {
 	controlsDocProblems,
 	controlsIrigProblems,
 	fitControls,
+	fitSlotFolders,
 	renameControls,
 	renamesBetween,
 	type ControlsDoc,
@@ -97,14 +98,19 @@ const refuses = (what: string, doc: unknown, why: RegExp) => {
 };
 refuses('no object', [], /^controls\.json must be an object$/);
 refuses(
-	'an empty slot group',
-	edited(good, ['slotGroups', 'face'], []),
-	/slotGroups\.face must list at least 1/,
+	'an empty slot folder',
+	edited(good, ['slotFolders', 'face'], []),
+	/slotFolders\.face must list at least 1/,
 );
 refuses(
-	'a slot twice in a group',
-	edited(good, ['slotGroups', 'face'], ['head', 'head']),
-	/slotGroups\.face lists a name twice/,
+	'a slot twice in a folder',
+	edited(good, ['slotFolders', 'face'], ['head', 'head']),
+	/slotFolders\.face lists a name twice/,
+);
+refuses(
+	'a slot in two folders',
+	edited(good, ['slotFolders', 'face'], ['head', 'hand']),
+	/slotFolders puts slot "hand" in "arm" and "face"/,
 );
 refuses('a missing rig', edited(good, ['rig']), /controls\.json\.rig is missing/);
 refuses(
@@ -327,23 +333,138 @@ misfits(
 	/^bones\.tail names bone "tail", which is not in the rig$/,
 );
 misfits(
-	'a slot group member the rig lacks',
-	edited(good, ['slotGroups', 'arm', 1], 'tail'),
-	/^slotGroups\.arm\[1\] names slot "tail", which is not in the rig$/,
+	'a slot folder member the rig lacks',
+	edited(good, ['slotFolders', 'arm', 1], 'tail'),
+	/^slotFolders\.arm\[1\] names slot "tail", which is not in the rig$/,
+);
+misfits(
+	'a folder whose slots are not together in the draw order',
+	edited(good, ['slotFolders'], { arm: ['upper_arm', 'hand'] }),
+	/^slotFolders\.arm: its slots are not together in the draw order$/,
 );
 {
-	const slotFit = fitControls(edited(good, ['slotGroups', 'face', 0], 'hat'), irig);
+	const slotFit = fitControls(edited(good, ['slotFolders', 'face', 0], 'hat'), irig);
 	check(
-		'irig: fitting drops a slot group left with no slot, keeping the others whole',
-		sameJson(slotFit.doc.slotGroups, { arm: ['upper_arm', 'lower_arm', 'hand'] }) &&
+		'irig: fitting drops a folder left with no slot, keeping the others whole',
+		sameJson(slotFit.doc.slotFolders, { arm: ['upper_arm', 'lower_arm', 'hand'] }) &&
 			slotFit.dropped.length === 1,
 		JSON.stringify(slotFit),
 	);
-	const one = fitControls(edited(good, ['slotGroups', 'arm', 0], 'tail'), irig).doc.slotGroups;
+	const one = fitControls(edited(good, ['slotFolders', 'arm', 0], 'tail'), irig).doc.slotFolders;
 	check(
-		'irig: fitting drops a missing slot from its group alone',
+		'irig: fitting drops a missing slot from its folder alone',
 		sameJson(one?.arm, ['lower_arm', 'hand']),
 		JSON.stringify(one),
+	);
+}
+// ── 2b. Folders kept true over the draw order, and the old groups turned into folders ─────────
+{
+	const order = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+	const fit = (f: Record<string, string[]>, o = order, seen?: Set<string>) =>
+		fitSlotFolders(f, o, seen);
+	check(
+		'folders: a true folder is left as it is, listed back to front',
+		sameJson(fit({ x: ['d', 'b', 'c'] }), { x: ['b', 'c', 'd'] }),
+	);
+	check(
+		'folders: a slot moved out of a folder’s run leaves it',
+		sameJson(fit({ x: ['a', 'b', 'f'] }), { x: ['a', 'b'] }),
+		JSON.stringify(fit({ x: ['a', 'b', 'f'] })),
+	);
+	check(
+		'folders: of two equal runs the frontmost stays',
+		sameJson(fit({ x: ['b', 'd'] }), { x: ['d'] }),
+		JSON.stringify(fit({ x: ['b', 'd'] })),
+	);
+	check(
+		'folders: a slot in two folders stays in the first',
+		sameJson(fit({ x: ['b', 'c'], y: ['c', 'd'] }), { x: ['b', 'c'], y: ['d'] }),
+	);
+	check(
+		'folders: one split by another folder keeps its largest run',
+		sameJson(fit({ x: ['a', 'b', 'd'], y: ['c'] }), { x: ['a', 'b'], y: ['c'] }),
+	);
+	const seen = new Set(['a', 'b', 'd', 'e']);
+	check(
+		'folders: a new slot placed inside a folder’s run joins it',
+		sameJson(fit({ x: ['b', 'd'] }, ['a', 'b', 'c', 'd', 'e'], seen), { x: ['b', 'c', 'd'] }),
+	);
+	check(
+		'folders: a new slot next to a run, or an old one inside it, does not join',
+		sameJson(fit({ x: ['b', 'd'] }, ['a', 'b', 'c', 'd', 'e', 'n'], new Set([...seen, 'c'])), {
+			x: ['d'],
+		}) && sameJson(fit({ x: ['d', 'e'] }, ['a', 'b', 'c', 'd', 'e', 'n'], seen), { x: ['d', 'e'] }),
+	);
+	check('folders: an empty folder goes', sameJson(fit({ x: ['zz'] }), {}));
+
+	// The old loose groups (#1906): together and unshared → a folder; else left out, the order kept.
+	const legacy = {
+		...good,
+		slotFolders: undefined,
+		slotGroups: {
+			arm: ['hand', 'upper_arm', 'lower_arm'],
+			spread: ['torso', 'head'],
+			dup: ['head'],
+			face: ['lower_arm'],
+		},
+	} as ControlsDoc;
+	delete legacy.slotFolders;
+	const migrated = fitControls(legacy, irig);
+	check(
+		'migration: a group together in the draw order becomes a folder, a shared or spread one does not',
+		sameJson(migrated.doc.slotFolders, {
+			arm: ['upper_arm', 'lower_arm', 'hand'],
+			dup: ['head'],
+		}) && migrated.doc.slotGroups === undefined,
+		JSON.stringify(migrated.doc.slotFolders),
+	);
+	check(
+		'migration: each group left out is named once, as its own field',
+		sameJson(migrated.unconverted, ['spread', 'face']) && migrated.dropped.length === 0,
+		JSON.stringify(migrated),
+	);
+	const gone = fitControls(
+		{
+			controls: 1,
+			rig: 'hero',
+			slotGroups: { g: ['upper_arm', 'gone', 'lower_arm'] },
+		} as ControlsDoc,
+		irig,
+	);
+	check(
+		'migration: a group naming a slot the rig lacks says so, and its others still become a folder',
+		sameJson(gone.dropped, ['slotGroups.g[1] names slot "gone", which is not in the rig']) &&
+			sameJson(gone.unconverted, []) &&
+			sameJson(gone.doc.slotFolders, { g: ['upper_arm', 'lower_arm'] }),
+		JSON.stringify(gone),
+	);
+	const old = checkedControls(
+		{
+			controls: 1,
+			rig: 'x',
+			slotGroups: { arm: ['hand', 'lower_arm'], spread: ['torso', 'head'] },
+		},
+		'hero',
+		irig,
+	);
+	check(
+		'a save from a tab opened before folders: its groups saved as folders, not refused',
+		old.problems.length === 0 &&
+			sameJson(old.doc?.slotFolders, { arm: ['lower_arm', 'hand'] }) &&
+			old.doc?.slotGroups === undefined,
+		JSON.stringify(old),
+	);
+	check(
+		'migration: the draw order is never touched, and the result is what a save accepts',
+		sameJson(irig.slots, controlsIrig().slots) &&
+			checkedControls(migrated.doc, 'hero', irig).problems.length === 0,
+		JSON.stringify(checkedControls(migrated.doc, 'hero', irig).problems),
+	);
+	const clash = fitControls({ ...legacy, slotFolders: { arm: ['torso'] } } as ControlsDoc, irig);
+	check(
+		'migration: a group named like a folder gets a number',
+		Object.hasOwn(clash.doc.slotFolders ?? {}, 'arm 2'),
+		JSON.stringify(clash.doc.slotFolders),
 	);
 }
 misfits(
@@ -447,7 +568,8 @@ for (const [what, f] of [
 	);
 check(
 	'fit: a sidecar that fits keeps every field, and the read drops nothing',
-	JSON.stringify(fitControls(good, irig)) === JSON.stringify({ doc: good, dropped: [] }),
+	JSON.stringify(fitControls(good, irig)) ===
+		JSON.stringify({ doc: good, dropped: [], unconverted: [] }),
 );
 
 // ── 3. Renames ──────────────────────────────────────────────────────────────────────────────────
@@ -553,7 +675,7 @@ check(
 	check(
 		'rename: a slot renamed in place follows into its groups',
 		sameJson(map(renamesBetween(irig, slotRenamed)), { slot: { hand: 'hand_l_art' } }) &&
-			sameJson(renameControls(good, renamesBetween(irig, slotRenamed)).slotGroups?.arm, [
+			sameJson(renameControls(good, renamesBetween(irig, slotRenamed)).slotFolders?.arm, [
 				'upper_arm',
 				'lower_arm',
 				'hand_l_art',

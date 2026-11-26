@@ -24,7 +24,12 @@
 //    part's region and joints (the dragged one as dragged), the head's face, the props; the rig opens
 //    with every mapped part drawn from its own region (`path`), the report says what was made; the
 //    arrangement and the prop's turn go out as the page has them and the rig has its clip `frame`;
-//  - with that rig open, 🗺 opens its kept mapping again, arrangement and all, and ⤺ forgets it;
+//  - ＋ New rig always starts on the first guess: closed untouched and opened again, the same guess and
+//    nothing to reuse; closed after changes, the first guess and ↺ Reuse what you left, which brings
+//    them back; with the made rig open (same sheet, same template), the first guess again — not its
+//    mapping — and ↺ Reuse “Sheety”, which opens it, arrangement and all; ⤺ forgets the arrangement;
+//  - ↺ Start over, the mapping changed by hand: asked first, then the first guess (the arrangement
+//    gone), and ↶ brings back what it replaced; on a swapped sheet it reads the names as ⇄ says;
 //  - 🗺 Edit mapping on that rig opens its mapping with 🔄 Update rig in Create rig's place (the sheet
 //    fixed); a part re-mapped and 🔄 Update rig: `/api/rigger/from-sheet/update` (faked with the
 //    shipped `updateSheetRig`) gets the edited mapping and the one the rig keeps, the merged rig is one
@@ -32,7 +37,7 @@
 //  - ⇄ Swap sides, on the sheet named the owner's way (the character's own sides): every part takes
 //    the drawing it is, its joints guessed again as that side's (a joint dragged by hand kept on its
 //    drawing); a part mapped by hand asked about and moved; a prop goes with its drawing; a moved
-//    part starts over in ◧ Arranged; sent with the mapping, read back from it, remembered per sheet;
+//    part starts over in ◧ Arranged; sent with the mapping, read back from it, off on a new one;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -78,7 +83,56 @@ const PAGE_MUTANTS = [
 		'const dx = r.offX || 0, dy = r.origH ? r.origH - (r.offY || 0) - r.h : 0;',
 		'const dx = 4, dy = 4;',
 	],
-	['the kept mapping not opened', 'if (r.ok) kept = (await r.json()).sheet;', 'void r;'],
+	[
+		"＋ New rig opening the open rig's mapping, not the first guess",
+		'await s2rLoad($("#newRigAtlas").value || "");',
+		'await s2rLoad(sheetSrc.doc ? sheetSrc.doc.manifestKey : $("#newRigAtlas").value || "", sheetSrc.doc, sheetSrc.doc && irigStem(selected));',
+	],
+	[
+		"the open rig's mapping not offered",
+		'if (rawDoc && selected && fits(sheetSrc.doc)){',
+		'if (false){',
+	],
+	[
+		'a mapping left in the dialog not offered',
+		's2r.left = { mapping: s2rMapping(), at: Date.now() };',
+		'void s2rMapping;',
+	],
+	[
+		'the first guess counted as changed by hand',
+		's2r.dirty = false;\n  s2rNote(Object.keys(got).length',
+		's2rNote(Object.keys(got).length',
+	],
+	[
+		'↺ Reuse opening the first guess, not the mapping',
+		'await s2rLoad(c.mapping.manifestKey, c.mapping, c.from);',
+		'await s2rLoad(c.mapping.manifestKey);',
+	],
+	[
+		'↺ Start over not asking first',
+		'if (s2r.dirty && !confirm("↺ Start over',
+		'if (false && !confirm("↺ Start over',
+	],
+	[
+		'↺ Start over keeping the arrangement',
+		'Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {},',
+		'Object.assign(s2r, { map: {}, props: [], faces: {},',
+	],
+	[
+		'↺ Start over not guessing again',
+		'  s2rSuggest();\n  s2rRender(); s2rDraw();\n}\nfunction s2rUndoStartOver',
+		'  s2rRender(); s2rDraw();\n}\nfunction s2rUndoStartOver',
+	],
+	[
+		'↺ Start over forgetting ⇄ Swap sides',
+		'Object.assign(s2r, { map: {}, props: [], arrange: null,',
+		'Object.assign(s2r, { swap: false, map: {}, props: [], arrange: null,',
+	],
+	[
+		'↶ not bringing the mapping back',
+		'Object.assign(s2r, u, { undo: null,',
+		'Object.assign(s2r, { undo: null,',
+	],
 	[
 		'◧ Arranged never asking the launcher',
 		'if (key !== s2r.previewKey){ s2r.previewKey = key; s2rRequestPreview(); }',
@@ -145,8 +199,13 @@ const PAGE_MUTANTS = [
 	['⇄ swapSides not sent', '    ...(s2r.swap ? { swapSides: true } : {}),\n', ''],
 	[
 		"⇄ the setting not read back from a rig's mapping",
-		'swap: kept ? kept.swapSides === true : s2rSwapKept(key) });',
-		'swap: s2rSwapKept(key) });',
+		'swap: !!kept && kept.swapSides === true });',
+		'swap: false });',
+	],
+	[
+		'⇄ a new rig starting as the dialog left it',
+		'swap: !!kept && kept.swapSides === true });',
+		'swap: kept ? kept.swapSides === true : s2r.swap });',
 	],
 ];
 if (process.argv.includes('--mutants')) {
@@ -606,6 +665,32 @@ try {
 	);
 	await shot('sheet-rig-dialog.png');
 
+	// Closed untouched and opened again: the same first guess, nothing left to reuse.
+	const firstGuess = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	const reuseNow = () =>
+		evaluate(
+			'[...document.querySelectorAll("#s2rReuse button")].map((b) => [b.textContent, b.title])',
+		);
+	/** ✕, then ＋ New rig's 🗺 From my sheet again: the dialog read anew (`s2r.gen` moves on). */
+	const reopen = async () => {
+		const gen = await evaluate('s2r.gen');
+		await evaluate(
+			'document.getElementById("s2rClose").click(); document.getElementById("newRigFromSheet").click(); true',
+		);
+		await waitFor(
+			`s2r.gen > ${gen} && document.getElementById("s2rModal").classList.contains("open") && !!s2r.sheet && s2r.faces.head === "found"`,
+			20000,
+		);
+	};
+	await reopen();
+	const untouched = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	const untouchedReuse = await reuseNow();
+	ok(
+		'closed untouched and opened again: the same first guess, and nothing to ↺ Reuse',
+		q(untouched) === q(firstGuess) && untouchedReuse.length === 0,
+		q(untouchedReuse),
+	);
+
 	// A joint dragged on the stage: the left upper arm's elbow, 30 stage pixels down.
 	const dragged = await evaluate(`(() => {
 		document.querySelector('#s2rParts [data-part="upper_arm_l"]').click();
@@ -696,6 +781,36 @@ try {
 			Math.abs(worn.before[1] - worn.at[1]) < 0.11,
 		q(worn),
 	);
+
+	// Closed with those changes and opened again: the first guess, the changes offered, not taken.
+	const changed = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	await reopen();
+	const leftOpen = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	const leftReuse = await reuseNow();
+	ok(
+		'closed with changes and opened again, a new rig starts on the first guess; what was left is offered as ↺ Reuse, not taken',
+		q(leftOpen) === q(firstGuess) &&
+			leftReuse.length === 1 &&
+			/^↺ Reuse what you left \d/.test(leftReuse[0][0]),
+		q(leftReuse),
+	);
+	const beforeLeft = await evaluate('s2r.gen');
+	await evaluate('document.querySelector("#s2rReuse button").click(); true');
+	await waitFor(`s2r.gen > ${beforeLeft} && !!s2r.sheet`, 20000);
+	const tookLeft = await evaluate(
+		'({ mapping: JSON.parse(JSON.stringify(s2rMapping())), note: document.getElementById("s2rNote").textContent })',
+	);
+	ok(
+		'↺ Reuse what you left brings those changes back as they were',
+		q(tookLeft.mapping) === q(changed) && /the mapping you left/.test(tookLeft.note),
+		q(tookLeft.note),
+	);
+	// The watch picked again, as it was when the dialog closed (◧ Arranged grabs the part picked first).
+	await evaluate(`(() => {
+		const i = s2r.props.findIndex((p) => p.region === "watch_R");
+		document.querySelectorAll("#s2rProps .s2rRow")[i].click();
+		return true;
+	})()`);
 
 	// ◧ Arranged: every part drawn where the preview (the create's own fit) puts it.
 	const previewsBefore = seen.previews;
@@ -955,23 +1070,48 @@ try {
 	await shot('sheet-rig-report.png');
 	await evaluate('closeAlert(); true');
 
-	// With that rig open, 🗺 opens its kept mapping.
+	// ＋ New rig again with that rig open, the same sheet and template: the first guess, not the rig's
+	// mapping, which ↺ Reuse offers and brings back.
+	await evaluate('document.getElementById("newRigBtn").click(); true');
+	await waitFor(
+		`!!document.querySelector('#newRigApply option[value="template:half-body"]') && !!document.querySelector('#newRigAtlas option[value=${q(MANIFEST)}]')`,
+		15000,
+	);
+	const beforeNew = await evaluate('s2r.gen');
 	await evaluate(`(() => {
-		s2r.dirty = false;
-		document.getElementById("newRigBtn").click();
+		document.getElementById("newRigApply").value = "template:half-body";
+		document.getElementById("newRigAtlas").value = ${q(MANIFEST)};
+		document.getElementById("newRigFromSheet").click();
 		return true;
 	})()`);
-	await waitFor(`!!document.querySelector('#newRigAtlas option[value=${q(MANIFEST)}]')`, 15000);
-	await evaluate('document.getElementById("newRigFromSheet").click(); true');
 	await waitFor(
-		'document.getElementById("s2rModal").classList.contains("open") && !!s2r.sheet && s2r.from === "Sheety"',
+		`s2r.gen > ${beforeNew} && document.getElementById("s2rModal").classList.contains("open") && !!s2r.sheet && s2r.faces.head === "found"`,
 		20000,
 	);
+	const anew = await evaluate(
+		'({ mapping: JSON.parse(JSON.stringify(s2rMapping())), from: s2r.from })',
+	);
+	const anewReuse = await reuseNow();
+	ok(
+		'＋ New rig after a rig of the same sheet and template opens on the first guess (every part the region its name says, its joints guessed, the props suggested, nothing arranged), not that rig’s mapping',
+		q(anew.mapping) === q(firstGuess) && anew.from === null,
+		q({ from: anew.from, elbow: anew.mapping.parts.upper_arm_l?.joints.elbow }),
+	);
+	ok(
+		'… and offers that rig’s mapping as ↺ Reuse “Sheety”, and nothing else',
+		anewReuse.length === 1 &&
+			anewReuse[0][0] === '↺ Reuse “Sheety”' &&
+			/Sheety/.test(anewReuse[0][1]),
+		q(anewReuse),
+	);
+	const beforeReuse = await evaluate('s2r.gen');
+	await evaluate('document.querySelector("#s2rReuse button").click(); true');
+	await waitFor(`s2r.gen > ${beforeReuse} && !!s2r.sheet && s2r.from === "Sheety"`, 20000);
 	const reopened = await evaluate(
 		`({ elbow: s2r.map.upper_arm_l && s2r.map.upper_arm_l.joints.elbow, props: s2r.props.length, note: document.getElementById("s2rNote").textContent })`,
 	);
 	ok(
-		'🗺 opens the open rig’s kept mapping again, every joint as placed',
+		'↺ Reuse “Sheety” brings the rig’s mapping back, every joint as placed',
 		Math.abs(reopened.elbow?.[1] - dragged.after[1]) < 1e-9 &&
 			reopened.props === TRUTH.props.length &&
 			/Sheety/.test(reopened.note),
@@ -982,7 +1122,41 @@ try {
 	await evaluate(`document.querySelector('#s2rView button[data-view="arranged"]').click(); true`);
 	await waitFor('!!s2r.preview && !!s2r.aview && s2r.preview.frame === true', 15000);
 	const again = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
-	await evaluate('document.getElementById("s2rUnarrange").click(); true');
+	// ↺ Start over on it, changed by hand (the neck given another drawing): asked first, then the first
+	// guess, the arrangement gone too; ↶ brings back what it replaced.
+	const edited = await evaluate(`(() => {
+		window.__confirms = [];
+		window.confirm = (m) => (window.__confirms.push(String(m)), true);
+		const s = document.querySelector('#s2rParts [data-part="neck"] select');
+		s.value = "bg_glow"; s.dispatchEvent(new Event("change"));
+		return JSON.parse(JSON.stringify(s2rMapping()));
+	})()`);
+	await evaluate('document.getElementById("s2rStartOver").click(); true');
+	await waitFor('!!s2r.undo && s2r.faces.head === "found"', 15000);
+	const over = await evaluate(
+		'({ mapping: JSON.parse(JSON.stringify(s2rMapping())), confirms: window.__confirms.slice(), undo: document.getElementById("s2rUndoStart").style.display !== "none" })',
+	);
+	ok(
+		'↺ Start over asks first, then the first guess: every part the region its name says, its joints guessed, the props suggested, nothing arranged',
+		over.confirms.length === 1 &&
+			/Start over/.test(over.confirms[0]) &&
+			q(over.mapping) === q(firstGuess) &&
+			over.undo &&
+			!!edited.arrange,
+		q({ confirms: over.confirms, undo: over.undo, arrange: over.mapping.arrange }),
+	);
+	await evaluate('document.getElementById("s2rUndoStart").click(); true');
+	const undoneStart = await evaluate(
+		'({ mapping: JSON.parse(JSON.stringify(s2rMapping())), undo: document.getElementById("s2rUndoStart").style.display !== "none", confirms: window.__confirms.length })',
+	);
+	ok(
+		'↶ brings back the mapping it replaced, the arrangement and the neck with it, in one step',
+		q(undoneStart.mapping) === q(edited) && !undoneStart.undo && undoneStart.confirms === 1,
+		q({ undo: undoneStart.undo, neck: undoneStart.mapping.parts.neck?.region }),
+	);
+	await evaluate(
+		'window.confirm = () => true; document.getElementById("s2rUnarrange").click(); true',
+	);
 	const forgot = await evaluate('({ arrange: s2r.arrange, sent: "arrange" in s2rMapping() })');
 	ok(
 		'the kept arrangement opens again as arranged (the prop’s turn too), and ⤺ forgets it',
@@ -1061,7 +1235,6 @@ try {
 	await evaluate(`(async () => {
 		window.__confirms = [];
 		window.confirm = (m) => (window.__confirms.push(String(m)), true);
-		try { localStorage.removeItem(S2R_SWAP_KEY + ${q(OWNER_MANIFEST)}); } catch {}
 		document.getElementById("s2rModal").classList.add("open");
 		await s2rLoad(${q(OWNER_MANIFEST)});
 		return true;
@@ -1107,7 +1280,6 @@ try {
 			confirms: window.__confirms,
 			pressed: document.getElementById("s2rSwapSides").getAttribute("aria-pressed"),
 			sent: s2rMapping().swapSides,
-			kept: (() => { try { return localStorage.getItem(S2R_SWAP_KEY + ${q(OWNER_MANIFEST)}); } catch { return null; } })(),
 		};
 	})()`);
 	const sm = swapped.map;
@@ -1172,13 +1344,28 @@ try {
 		q(swapped.arrange),
 	);
 	ok(
-		'… shown on, sent with the mapping and remembered for this sheet',
-		swapped.pressed === 'true' && swapped.sent === true && swapped.kept === '1',
-		q({ pressed: swapped.pressed, sent: swapped.sent, kept: swapped.kept }),
+		'… shown on, and sent with the mapping',
+		swapped.pressed === 'true' && swapped.sent === true,
+		q({ pressed: swapped.pressed, sent: swapped.sent }),
+	);
+	const kept = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	await evaluate('window.__confirms = []; document.getElementById("s2rStartOver").click(); true');
+	const restarted = await evaluate(`({
+		map: Object.fromEntries(Object.entries(s2r.map).map(([p, x]) => [p, x.region])),
+		swap: s2r.swap, arrange: s2r.arrange, confirms: window.__confirms.length,
+	})`);
+	ok(
+		'↺ Start over reads the names as ⇄ Swap sides says: every part the drawing it is, the fist mapped by hand gone, nothing arranged',
+		restarted.swap &&
+			Object.entries(TRUTH.parts).every(([p, t]) => drawingOf[restarted.map[p]] === t.region) &&
+			!restarted.map.hand_r_fist &&
+			!restarted.map.hand_l_fist &&
+			restarted.arrange === null &&
+			restarted.confirms === 1,
+		q(restarted),
 	);
 	const reread = await evaluate(`(async () => {
-		const kept = s2rMapping();
-		try { localStorage.removeItem(S2R_SWAP_KEY + ${q(OWNER_MANIFEST)}); } catch {}
+		const kept = ${q(kept)};
 		await s2rLoad(${q(OWNER_MANIFEST)}, kept);
 		const fromKept = s2r.swap;
 		await s2rLoad(${q(OWNER_MANIFEST)});
@@ -1186,7 +1373,7 @@ try {
 		return { fromKept, fresh };
 	})()`);
 	ok(
-		'a kept mapping opens swapped as it was made; a fresh one as this browser left the sheet',
+		'a kept mapping opens swapped as it was made; a new one unswapped, whatever the dialog last had',
 		reread.fromKept === true && reread.fresh === false,
 		q(reread),
 	);

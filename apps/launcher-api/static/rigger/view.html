@@ -447,17 +447,20 @@
   .trow .slotEye { padding:0 3px; opacity:.5; }
   .trow:hover .slotEye, .trow.eyeOff .slotEye { opacity:1; }
   .trow.eyeOff .slotName { opacity:.4; font-style:italic; }
-  #slotEyeAll, #slotGroupAdd { float:right; font-size:12px; line-height:14px; }
-  .slotGroups { margin:2px 14px 6px; }
-  .slotGroupHead { display:flex; align-items:center; gap:4px; color:var(--dim); font-size:10px; }
-  .slotGroupHead > span { flex:1; cursor:help; }
-  .slotGroupRow { display:flex; align-items:center; gap:3px; margin-top:2px; }
-  .slotGroupEye { flex:1; min-width:0; padding:0 6px; font-size:10px; line-height:16px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #slotEyeAll, #slotFolderAdd { float:right; font-size:12px; line-height:14px; }
+  .slotGroups { flex-wrap:wrap; }
+  .slotGroupEye { padding:0 6px; font-size:10px; line-height:16px; }
   .slotGroupEye.part { opacity:.75; }
   .slotGroupEye.off { opacity:.45; }
-  .slotGroupEye.mine { border-style:dashed; }
-  .slotGroupRow input[type=range] { width:58px; margin:0; }
-  .slotGroupPct { width:28px; text-align:right; color:var(--dim); font-size:10px; }
+  /* folders, as in a layers panel: the folder's row, its slots indented under it */
+  .trow.slotFolderRow .slotName { font-weight:600; }
+  .trow.slotFolderRow .slotFold { width:14px; padding:0; }
+  .trow .slotEye.part { opacity:.75; }
+  .trow.inFolder { padding-left:30px; }
+  .slotFolderOpac { display:none; align-items:center; gap:3px; margin:0 14px 2px 48px; }
+  .slotFolderOpac.on { display:flex; }
+  .slotFolderOpac input[type=range] { flex:1; min-width:0; margin:0; }
+  .slotFolderPct { width:28px; text-align:right; color:var(--dim); font-size:10px; }
   #consDetail .chead, #slotDetail .chead { display:flex; align-items:center; gap:4px; margin-bottom:2px; }
   #consDetail .chead > b, #slotDetail .chead > b { flex:1; color:var(--txt); font-size:12px; overflow:hidden; text-overflow:ellipsis; }
   #consDetail .chead > button, #slotDetail .chead > button { padding:0 6px; font-size:12px; line-height:18px; }
@@ -716,7 +719,7 @@
           style="width:100%;font-size:11px;color:var(--dim);">
         <label style="margin-top:9px;" title="Pick a template above (Half body), then a Flipbook clip: its frames are tracked and scored here, the best is picked, and ✂ Cut splits it into the template's parts and props (glasses, a chain, a watch…), each named as the template names it.">or cut a Flipbook frame</label>
         <button id="newRigFromFrame" style="width:100%;font-size:11px;">🎞 From a Flipbook frame…</button>
-        <label style="margin-top:9px;" title="Pick a template above, then one of this project's sheets drawn your own way: its regions are matched to the template's parts by their names, each part's joints are guessed from its drawing for you to drag where they belong, and 🦴 Create rig fits the template to them, every body part skinned, ready for 🎥 Motion. With a rig made this way open, its mapping opens again here.">or map your own sheet</label>
+        <label style="margin-top:9px;" title="Pick a template above, then one of this project's sheets drawn your own way: its regions are matched to the template's parts by their names, each part's joints are guessed from its drawing for you to drag where they belong, and 🦴 Create rig fits the template to them, every body part skinned, ready for 🎥 Motion. Every new rig starts from the names and the guesses; a mapping made before (the open rig's, or one left in the dialog) is offered there as ↺ Reuse.">or map your own sheet</label>
         <button id="newRigFromSheet" style="width:100%;font-size:11px;">🗺 From my sheet…</button>
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
@@ -732,7 +735,7 @@
         <div class="body" id="boneTree"></div>
       </details>
       <details class="sec" id="secSlots">
-        <summary title="Every slot in draw order: the top row is drawn first, so it sits behind. 👁 hides a slot on this stage while you work, in every mode (Alt-click or right-click shows it alone); it is kept in this browser and never saved, so the game still draws every slot. In Setup, drag ⋮⋮ to move a slot, or the Shift / Ctrl selection as a block, in the draw order; Ctrl+] / Ctrl+[ move them one place forward / back, with Shift to the front / back.">Slots (draw order) <span class="pill" id="cSlots"></span></summary>
+        <summary title="Every slot, the front at the top: the top row is drawn last, over the rest. 👁 hides a slot on this stage while you work, in every mode (Alt-click or right-click shows it alone); it is kept in this browser and never saved, so the game still draws every slot. 📁 folders hold slots that are together in the draw order: ＋📁 (Ctrl+G) puts the selection in one, ▸ / ▾ closes and opens it, its slider dims it on this stage and ⤓ writes that into the rig. In Setup, drag ⋮⋮ to move a slot, the Shift / Ctrl selection or a folder; drop between a folder's slots to put it in, outside to take it out. ↑ / ↓ and Ctrl+] / Ctrl+[ move one place to the front / back, with Shift all the way.">Slots (draw order) <span class="pill" id="cSlots"></span></summary>
         <div class="body" id="slotList"></div>
       </details>
       <details class="sec" id="secSkins">
@@ -980,12 +983,15 @@
   <div id="f2rModal" class="rigModal ws">
     <div class="modal-box">
       <div class="modal-head">
-        <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there; ★ on a kept cut takes it now). The stage shows the cut ◧ Assembled: each part drawn from its own frame, outlined in that frame's colour, which the strip and the Parts list use too; ▣ This frame shows the picked frame alone. Click a part's frame chip, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again), and a kept cut opens again with its clip. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there; ★ on a kept cut takes it now). The stage shows the cut ◧ Assembled: each part drawn from its own frame, outlined in that frame's colour, which the strip and the Parts list use too; ▣ This frame shows the picked frame alone. Click a part's frame chip, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again). ＋ New rig always starts from the clip's best frame with no cut open, as the first time: ↺ Reuse opens a cut kept before (the picked frame's, else the newest), and ↺ Start over takes the dialog back to that first guess; ✂ Edit cut in a frame-made rig's panel opens the cut it was made from. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="f2rClose" style="padding:1px 8px;">✕</button>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
         <select id="f2rClip" style="flex:1;min-width:0;" title="A Flipbook clip of this project."></select>
+        <button id="f2rReuse" style="display:none;flex:0 0 auto;"></button>
+        <button id="f2rStartOver" class="f2rIcon" title="↺ Start over: the clip's best frame again, its joints as tracked and each part's frame as planned, with no cut open (✂ Cut makes a fresh one; the cut that was open stays kept, for ↺ Reuse). Asks first when you touched it up and did not 💾 keep it, dragged a joint or picked a part's frame; ↶ brings it back." aria-label="Start over">↺</button>
+        <button id="f2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The cut as it was before ↺ Start over, touch-ups and all." aria-label="Undo start over">↶</button>
         <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
       </div>
       <div id="f2rPickBar" role="status"><span id="f2rPickText" style="flex:1;min-width:0;"></span><button id="f2rPickCancel" class="f2rIcon" style="padding:0 5px;" title="Stop picking (Esc)" aria-label="Stop picking">✕</button></div>
@@ -1037,13 +1043,16 @@
   <div id="s2rModal" class="rigModal ws">
     <div class="modal-box">
       <div class="modal-head">
-        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left: ⇄ Swap sides when your names say the character's own); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left: ⇄ Swap sides when your names say the character's own); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: 🗺 Edit mapping in its panel changes it. ＋ New rig always starts here from the names and the guesses, as the first time: ↺ Reuse opens a mapping made before (the open rig's, or the one you left here), and ↺ Start over takes this one back to the first guess.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="s2rClose" style="padding:1px 8px;">✕</button>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
         <select id="s2rSheet" style="flex:1;min-width:0;" title="One of this project's sheets or atlases."></select>
-        <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping.">⇄ Swap sides</button></span>
+        <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping; a new rig starts with it off.">⇄ Swap sides</button></span>
+        <span id="s2rReuse" style="display:contents;"></span>
+        <button id="s2rStartOver" class="f2rIcon" title="↺ Start over: the mapping back to the first guess. Every part takes the region its name says (as ⇄ Swap sides reads them), its joints guessed from its drawing, the worn things suggested as props, nothing arranged. Asks first when you changed it; ↶ brings it back." aria-label="Start over">↺</button>
+        <button id="s2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The mapping as it was before ↺ Start over." aria-label="Undo start over">↶</button>
         <input type="text" id="s2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
         <button id="s2rCreate" disabled title="Make the template rig over this sheet, fitted to the joints, and open it.">🦴 Create rig</button>
       </div>
@@ -2709,6 +2718,7 @@ async function selectSkeleton(entry){
   showLoading("Loading " + (entry.name || "skeleton") + "…");
   $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · rig " + entry.version : "");
   let ctlDropped = null;
+  slotGroupsLeftOut = [];
   try {
     const ctlCode = ensureRiggerControls();
     await loadRuntime(entry.runtime);
@@ -2736,7 +2746,11 @@ async function selectSkeleton(entry){
     frameSrcOpened(entry);
     sheetSrcOpened(entry, gen);
     if (rig3d.doc) ensureRigger2p5d().then((ok) => { if (ok && gen === rigGen){ bake3dReset(); renderAnimSection(); if (animMode) renderTimeline(); } });
-    if (ctlDropped) showNotice("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""), 9000);
+    const unfoldered = [...new Set(slotGroupsLeftOut)];
+    const notes = [];
+    if (ctlDropped && ctlDropped.length) notes.push("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""));
+    if (unfoldered.length) notes.push("📁 Slot groups that could not become folders (their slots are not together in the draw order, or one is in another), left out: " + unfoldered.join(", "));
+    if (notes.length) showNotice(notes.join(" · "), 9000);
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
     // absent — which is every rig today) document never delays the rig appearing.
     loadRigText();
@@ -2982,6 +2996,7 @@ function buildSkeleton(entry){
   if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
   normalizeKeys(rawDoc);
+  slotFolderSeen = null;
   if (!rawDoc) controlsDoc = null; else fitControlsToRig(); // opened from the source .json, it may lack what the .irig had
   // A rig that binds clips needs the project clip list for more than the inspector: it is what
   // `bindingContentBounds` measures a carrier rig's size FROM, and that runs on save. Loading it
@@ -3148,66 +3163,7 @@ function buildInspectorRows(entry){
   renderControlPanel();
   $("#boneDetail").style.display = "none";
 
-  // ---- slots in draw order (setup order = skeletonData.slots = rawDoc.slots) ----
-  const slotList = $("#slotList"); clearChildren(slotList);
-  if (editMode){
-    const as = document.createElement("button");
-    as.textContent = "＋ Add slot";
-    as.title = "Add a slot on the selected bone (or root)";
-    as.style.cssText = "margin:6px 14px 2px;";
-    as.onclick = () => addSlot(selBone != null ? skeletonData.bones[selBone].name : null);
-    slotList.appendChild(as);
-    const afx = document.createElement("button");
-    afx.textContent = "✨ Auto FX slots";
-    afx.title = "For every _shine / _glow / _shadow / _blur / _zoom / _colour region in this rig's atlas whose base is slotted, duplicate the base slot (reusing its mesh + animation) and swap the copy's image to the FX region. Shadows go behind, others in front. Skips FX slots that already exist.";
-    afx.style.cssText = "margin:6px 14px 2px;";
-    afx.onclick = () => autoCreateFxSlots();
-    slotList.appendChild(afx);
-  }
-  const slots = skeletonData.slots;
-  // Which end is which. The list is in DRAW ORDER, so the top row is drawn first and therefore sits
-  // BEHIND — the opposite of every layer panel most people have used, where the top is the front.
-  // Unlabelled, it reads as “drag it to the top to put it over the rig” and does the exact reverse.
-  if (slots.length > 1){
-    const cap = document.createElement("div");
-    cap.textContent = "↑ behind · drawn first — in front · drawn last ↓";
-    cap.style.cssText = "font-size:10px;color:var(--dim);opacity:.75;padding:2px 4px 4px;line-height:1.3;";
-    slotList.appendChild(cap);
-  }
-  const groups = slotGroupBar();
-  if (groups) slotList.appendChild(groups);
-  slots.forEach((sd, z) => {
-    const row = document.createElement("div");
-    row.className = "trow" + (selSlot === sd.name ? " sel" : "");
-    row.dataset.slot = sd.name;
-    decorateSlotRow(row, sd.name);
-    const nm = document.createElement("span");
-    nm.className = "slotName";
-    nm.textContent = sd.name;
-    row.appendChild(nm);
-    row.onclick = (e) => clickSlotRow(sd.name, e); // whole row, not just the name
-    const t = document.createElement("span"); t.className = "tag";
-    t.textContent = "→ " + (sd.boneData ? sd.boneData.name : "") + (sd.attachmentName ? " · " + sd.attachmentName : "");
-    row.appendChild(t);
-    if (editMode){
-      const ctl = document.createElement("span");
-      ctl.style.cssText = "float:right;display:inline-flex;gap:2px;";
-      const mk = (txt, d, dis, title) => {
-        const b = document.createElement("button");
-        b.textContent = txt; b.title = title; b.disabled = dis;
-        b.style.cssText = "padding:0 5px;font-size:11px;line-height:16px;";
-        b.onclick = (e) => { e.stopPropagation(); moveSlot(z, d); };
-        return b;
-      };
-      ctl.appendChild(mk("↑", -1, z === 0, "move back (earlier in draw order)"));
-      ctl.appendChild(mk("↓", 1, z === slots.length - 1, "move forward (later in draw order)"));
-      row.appendChild(ctl);
-    }
-    slotList.appendChild(row);
-  });
-  $("#cSlots").textContent = "(" + slots.length + ")";
-  markSlotRows();
-  refreshSlotEyes();
+  renderSlotList();
   renderSlotDetail();
 
   // ---- skins + attachment counts (flag weighted meshes) ----
@@ -7366,7 +7322,7 @@ function mergeImportedControls(ctl, original, prefix){
     for (const [n, c] of Object.entries(doc.bones || {})) (d.bones = d.bones || {})[n] = c;
     for (const l of doc.layers || []) if (!(d.layers || []).some((x) => x.name === l.name)) (d.layers = d.layers || []).push(l);
     for (const [s, members] of Object.entries(doc.sets || {})) (d.sets = d.sets || {})[prefix + s] = members;
-    for (const [g, members] of Object.entries(doc.slotGroups || {})) (d.slotGroups = d.slotGroups || {})[prefix + g] = members;
+    for (const [g, members] of Object.entries(doc.slotFolders || {})) (d.slotFolders = d.slotFolders || {})[prefix + g] = members;
     for (const [c, p] of Object.entries(doc.presets || {})) (d.presets = d.presets || {})[c] = p;
     for (const [l, limb] of Object.entries(doc.limbs || {})) (d.limbs = d.limbs || {})[prefix + l] = limb;
     // its mirror pairs join (its bones are all new, under the prefix); the line stays the rig's
@@ -9648,6 +9604,7 @@ function duplicateSlotCore(slotName, newName, position){
   dup.name = newName;
   changeSlotsKeepingDrawOrder(rawDoc, () => rawDoc.slots.splice(position === "before" ? idx : idx + 1, 0, dup),
     (order) => order.flatMap((n) => (n !== slotName ? [n] : position === "before" ? [newName, n] : [n, newName])));
+  slotFolderAdopt(newName, slotName);
   // 2. its attachment(s) in every skin
   for (const sk of rawDoc.skins || [])
     if (sk.attachments && sk.attachments[slotName])
@@ -10407,6 +10364,10 @@ const f2r = {
   busy: false, drag: null, painting: false, gen: 0, saved: [], view: "assembled", sourceCuts: {}, partScores: null,
   // ✂ Edit cut: the rig the open cut was made from ({ dir, stem, job, sources }), or null for a new rig.
   edit: null,
+  // fresh: a new rig's dialog as the first time, where a cut kept before (`kept`, as the clip listed
+  // them) opens only by ↺ Reuse and only the cuts made here (`cutHere`, by job) open or lend parts;
+  // undo: what ↺ Start over replaced.
+  fresh: true, kept: [], cutHere: new Set(), undo: null,
 };
 function f2rDirty(){ return f2r.brushDirty || f2r.propsDirty || f2r.sourcesDirty; }
 
@@ -10437,7 +10398,80 @@ function openFrameToRig(){
   $("#f2rModal").classList.add("open");
   f2rFillClips();
   if (projectClips === null) loadProjectClips().then(f2rFillClips);
+  // A new rig starts as the first time, on the clip still picked: its kept cuts listed again, offered.
+  if (f2r.clip){ f2rFresh(); f2rLoadSaved(f2r.clip, f2r.gen); }
   f2rDraw();
+}
+
+// The first guess: the clip's best frame, its joints as tracked and its parts' frames planned, no cut
+// open, nothing made here yet.
+function f2rFresh(){
+  Object.assign(f2r, { sel: -1, frame: null, plan: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, fresh: true, cutHere: new Set(), undo: null });
+  $("#f2rWhy").textContent = "";
+  const best = f2r.scores ? f2r.scores.best : null;
+  if (best !== null && f2r.track) f2rSelect(best);
+  else { f2rRenderStrip(); f2rRenderCut(); f2rDraw(); }
+}
+
+// A cut that may open or lend a part: any while editing a rig's or once ↺ Reuse opened one, else only
+// those made here.
+function f2rUsable(c){ return !f2r.fresh || f2r.cutHere.has(c.job); }
+
+// ↺ Reuse: the cut kept before for the rig being edited, else for the picked frame, else the newest.
+function f2rReuseOf(){
+  if (!f2r.fresh || !f2r.clip) return null;
+  const k = f2r.kept;
+  return (f2r.edit && k.find((c) => c.job === f2r.edit.job)) || k.find((c) => c.frame === f2r.sel) || k[0] || null;
+}
+function f2rReuseUi(){
+  const b = $("#f2rReuse"), c = f2rReuseOf();
+  b.style.display = c ? "" : "none";
+  b.disabled = f2r.busy;
+  if (c){
+    b.textContent = "↺ Reuse frame " + c.frame + "'s cut";
+    b.title = "Open the cut kept for frame " + c.frame + " of this clip (" + new Date(c.saved).toLocaleString() + "): its parts, touch-ups, props and the frames its parts are cut from, as kept. A new rig starts without it.";
+  }
+  $("#f2rStartOver").disabled = !f2r.clip || f2r.busy;
+  $("#f2rUndoStart").style.display = f2r.undo ? "" : "none";
+  $("#f2rUndoStart").disabled = f2r.busy;
+}
+async function f2rReuse(){
+  const c = f2rReuseOf();
+  if (!c || f2r.busy) return;
+  if ((f2rDirty() || f2r.moved) && !confirm("↺ Reuse opens frame " + c.frame + "'s kept cut in place of this one: what you did not 💾 keep here is dropped. Go on?")) return;
+  f2r.fresh = false;
+  for (const k of f2r.kept) if (!f2r.saved.some((x) => x.job === k.job)) f2r.saved.push(k);
+  await f2rOpenSaved(c);
+}
+
+// ↺ Start over: back to the first guess as one step, which ↶ takes back; the cut that was open stays
+// kept, for ↺ Reuse.
+function f2rStartOver(){
+  if (f2r.busy || !f2r.clip) return;
+  const byHand = !!f2r.plan && Object.values(f2r.plan).some((p) => p.byHand);
+  if ((f2rDirty() || f2r.moved || byHand) && !confirm("↺ Start over drops what you did not 💾 keep here — touch-ups, dragged joints, the frames you picked for parts — and goes back to the clip's best frame, as it was tracked.\n\n↶ brings it back.")) return;
+  const keep = ["sel", "frame", "plan", "labels", "overlay", "frameImg", "moved", "fresh", ...Object.keys(F2R_CLEAN)];
+  const undo = Object.fromEntries(keep.map((k) => [k, f2r[k]]));
+  Object.assign(undo, { cut: f2r.cut && JSON.parse(JSON.stringify(f2r.cut)), cutHere: new Set(f2r.cutHere), why: $("#f2rWhy").textContent });
+  f2rFresh();
+  f2r.undo = undo;
+  f2rNote(f2r.sel >= 0 ? "started over on frame " + f2r.sel + ", the best: ✂ Cut makes a fresh cut" : "started over: pick a frame, then ✂ Cut");
+  f2rRenderStrip(); f2rRenderCut();
+}
+function f2rUndoStartOver(){
+  const u = f2r.undo;
+  if (!u || f2r.busy) return;
+  if ((f2rDirty() || f2r.moved) && !confirm("↶ brings back the cut from before ↺ Start over, dropping what you did since. Go on?")) return;
+  const { why, ...state } = u;
+  Object.assign(f2r, state, { undo: null, composite: null });
+  const cut = f2r.cut;
+  if (cut){
+    f2r.saved = f2r.saved.some((x) => x.job === cut.job) ? f2r.saved.map((x) => (x.job === cut.job ? cut : x)) : [cut, ...f2r.saved];
+    f2rBuildOverlay();
+  }
+  $("#f2rWhy").textContent = why;
+  f2rNote("↶ the cut as it was before ↺ Start over");
+  f2rRenderStrip(); f2rRenderCut(); f2rDraw();
 }
 
 function f2rFillClips(){
@@ -10475,7 +10509,7 @@ function closeFrameToRig(){
 async function f2rPickClip(id){
   const clip = (projectClips || []).find((c) => c.id === id);
   if (f2r.src) f2r.src.close();
-  Object.assign(f2r, { clip, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, saved: [], sourceCuts: {}, partScores: null });
+  Object.assign(f2r, { clip, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, saved: [], sourceCuts: {}, partScores: null, fresh: !f2r.edit, kept: [], cutHere: new Set(), undo: null });
   const gen = ++f2r.gen;
   f2rRenderStrip(); f2rRenderCut(); f2rDraw();
   if (!clip) return;
@@ -10513,12 +10547,10 @@ async function f2rPickClip(id){
     // ✂ Edit cut: the rig's cut opens once it is read; when it is gone, its main frame, to cut again.
     if (f2r.edit && !f2r.edit.missing){ f2rRenderStrip(); return; }
     const main = f2r.edit && frameSrc.doc && frameSrc.doc.clip ? frameSrc.doc.clip.frame : null;
-    const kept = f2r.saved[0];
     f2rNote(best === null ? "no frame of this clip has a body the tracker found"
       : main !== null ? "the cut this rig was made from is gone: ✂ Cut its frame " + main + " again, then 🔄 Update rig"
-      : track.frames.length + " frames scored; " + (kept ? "frame " + kept.frame + " has a kept cut" : "the best is picked"));
+      : track.frames.length + " frames scored; the best is picked" + (f2r.kept.length ? " (↺ Reuse opens a cut kept before)" : ""));
     if (main !== null && main < track.frames.length) f2rSelect(main);
-    else if (kept) f2rSelect(kept.frame);
     else if (best !== null) f2rSelect(best);
     else f2rRenderStrip();
   } catch (e){
@@ -10526,17 +10558,19 @@ async function f2rPickClip(id){
   }
 }
 
-// The clip's kept cuts, newest first: the newest opens at once when nothing is open yet.
+// The clip's kept cuts, newest first (each frame's newest), offered by ↺ Reuse; the ones made here
+// since stay with them.
 async function f2rLoadSaved(clip, gen){
   try {
     const r = await fetch("/api/rigger/from-frame?clipId=" + encodeURIComponent(clip.id));
     if (!r.ok) return;
     const j = await r.json();
     if (gen !== f2r.gen) return;
-    f2r.saved = (j.cuts || []).filter((c) => c.template === f2r.tpl.id);
+    const listed = (j.cuts || []).filter((c) => c.template === f2r.tpl.id);
+    f2r.kept = listed.filter((c) => !f2r.cutHere.has(c.job));
+    f2r.saved = [...f2r.saved.filter((c) => f2r.cutHere.has(c.job)), ...f2r.kept];
     if (f2r.edit){ await f2rLoadEditCuts(clip, gen); return; }
     f2rRenderStrip();
-    if (f2r.saved.length && f2r.sel < 0 && !f2r.busy) await f2rOpenSaved(f2r.saved[0]);
   } catch { /* no kept cuts to offer */ }
 }
 
@@ -10552,6 +10586,7 @@ async function f2rLoadEditCuts(clip, gen){
   const cuts = await Promise.all(jobs.map(one));
   if (gen !== f2r.gen) return;
   for (const c of cuts) if (c && c.template === f2r.tpl.id) f2r.saved = [c, ...f2r.saved.filter((x) => x.frame !== c.frame && x.job !== c.job)];
+  f2r.kept = f2r.saved.slice();
   f2rRenderStrip();
   const mine = cuts[0];
   if (!mine){
@@ -10607,7 +10642,7 @@ function f2rSelect(i){
   const row = f2r.scores.rows[i];
   $("#f2rWhy").textContent = "frame " + i + (row.score === null ? ": no body found" : ": " + row.score.toFixed(2) + (row.reasons.length ? " — " + row.reasons.join("; ") : " — every limb in the picture plane"));
   const kept = f2r.saved.find((c) => c.frame === i);
-  if (kept) f2rOpenSaved(kept);
+  if (kept && f2rUsable(kept)) f2rOpenSaved(kept);
 }
 
 // The strip: each frame, its score and what it gives. A frame a part is cut from carries the parts'
@@ -10617,6 +10652,7 @@ function f2rRenderStrip(){
   const strip = $("#f2rStrip");
   strip.innerHTML = "";
   f2rRenderPickBar();
+  f2rReuseUi();
   if (!f2r.scores) return;
   const lends = f2rLends(), pick = f2r.pickFor, rows = pick ? f2rPartScores() : null;
   const of = (i) => (rows && rows[i] ? rows[i][pick] : null);
@@ -10641,7 +10677,7 @@ function f2rRenderStrip(){
     }
     const b = document.createElement("b");
     const kept = f2r.saved.some((c) => c.frame === i);
-    if (kept) d.title += "\n✂ a kept cut";
+    if (kept) d.title += f2r.saved.some((c) => c.frame === i && f2rUsable(c)) ? "\n✂ a kept cut" : "\n✂ a cut kept before: ↺ Reuse opens it";
     if (parts.length) d.title += "\n◧ the cut takes " + parts.join(", ") + " from this frame";
     if (rows){
       b.textContent = (i === f2r.sel ? "▣ " : "") + (ps ? ps.score.toFixed(2) : "—");
@@ -11056,6 +11092,7 @@ async function f2rCut(){
     if (gen !== f2r.gen || sel !== f2r.sel) return;
     cut.saved = Date.now();
     f2r.saved = [cut, ...f2r.saved.filter((c) => c.frame !== sel)];
+    f2r.cutHere.add(cut.job);
     delete f2r.sourceCuts[cut.job];
     Object.assign(f2r, { cut, labels: f2rLabelsOf(labelsImg), frameImg, overlay: null, moved: false, ...F2R_CLEAN });
     f2rBuildOverlay();
@@ -11099,9 +11136,10 @@ async function f2rTakePartFrom(i){
   try { await f2rSourceFrom(part, i); } finally { f2r.busy = false; f2rRenderStrip(); f2rRenderCut(); }
 }
 
-// Cut `part` from frame i: its kept cut, or one cut for it now. False (and why, in the note) when not.
+// Cut `part` from frame i: its kept cut (one made here, on a new rig), or one cut for it now. False
+// (and why, in the note) when not.
 async function f2rSourceFrom(part, i){
-  let kept = f2r.saved.find((c) => c.frame === i);
+  let kept = f2r.saved.find((c) => c.frame === i && f2rUsable(c));
   if (!kept || !kept.names.includes(part)){
     f2rNote("cutting frame " + i + " for " + part + "…");
     try {
@@ -11113,6 +11151,7 @@ async function f2rSourceFrom(part, i){
       kept = await r.json();
       kept.saved = Date.now();
       f2r.saved = [kept, ...f2r.saved.filter((c) => c.frame !== i)];
+      f2r.cutHere.add(kept.job);
       f2rNote("");
     } catch (e){
       f2rNote("could not cut frame " + i + ": " + (e && e.message ? e.message : e));
@@ -11340,6 +11379,7 @@ function f2rPartRow(part, sw, px){
 }
 
 function f2rRenderCut(){
+  f2rReuseUi();
   $("#f2rCut").textContent = f2r.cut ? (f2r.moved ? "✂ Re-cut (joints moved)" : "✂ Re-cut") : "✂ Cut";
   $("#f2rCut").disabled = f2r.busy;
   $("#f2rSave").disabled = !(f2r.cut && f2rDirty());
@@ -11772,6 +11812,9 @@ function wireFrameToRig(){
   $("#f2rClose").onclick = closeFrameToRig;
   $("#f2rModal").onmousedown = (e) => { if (e.target === $("#f2rModal")) closeFrameToRig(); };
   $("#f2rClip").onchange = () => f2rPickClip($("#f2rClip").value);
+  $("#f2rReuse").onclick = f2rReuse;
+  $("#f2rStartOver").onclick = f2rStartOver;
+  $("#f2rUndoStart").onclick = f2rUndoStartOver;
   $("#f2rCut").onclick = f2rCut;
   $("#f2rSave").onclick = f2rSave;
   $("#f2rCreate").onclick = () => (f2r.edit ? f2rUpdate() : f2rCreate());
@@ -11854,6 +11897,8 @@ const s2r = {
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
   view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
   aview: null, adrag: null, swap: false,
+  // left: { mapping, at } a new rig's mapping closed unmade (↺ Reuse); undo: what ↺ Start over replaced.
+  left: null, undo: null,
 };
 
 function s2rNote(t){ $("#s2rNote").textContent = t || ""; }
@@ -11884,24 +11929,14 @@ async function openSheetToRig(edit){
     o.textContent = sheetSrc.doc.manifestKey.replace(/^.*atlas_manifest_|\.json$/g, "");
     sel.appendChild(o);
     $("#s2rModal").classList.add("open");
-    await s2rLoad(sheetSrc.doc.manifestKey, sheetSrc.doc);
+    await s2rLoad(sheetSrc.doc.manifestKey, sheetSrc.doc, irigStem(selected));
     return;
   }
   s2r.edit = null;
-  // The open rig's own mapping, when it was made from a sheet: it opens again to be changed.
-  let kept = null;
-  if (selected && !s2r.dirty){
-    try {
-      const r = await fetch("/api/rigger/from-sheet?dir=" + encodeURIComponent(selected.dir_b64 || ""));
-      if (r.ok) kept = (await r.json()).sheet;
-    } catch { /* none kept */ }
-  }
   const v = ($("#newRigApply") && $("#newRigApply").value) || "";
-  const id = kept ? kept.template.id : v.startsWith("template:") ? v.slice("template:".length) : s2r.tpl ? s2r.tpl.id : "";
-  const tpl = newRigTemplates.find((t) => t.id === id);
+  const tpl = v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) : null;
   if (!tpl){ $("#newRigNote").textContent = "pick a template above (Half body), then map your sheet to it"; return; }
   $("#newRigNote").textContent = "";
-  const changed = !s2r.tpl || s2r.tpl.id !== tpl.id;
   s2r.tpl = tpl;
   s2rModeUi();
   const sel = $("#s2rSheet");
@@ -11912,14 +11947,71 @@ async function openSheetToRig(edit){
   for (const o of $("#newRigAtlas").options) if (o.value) sel.appendChild(o.cloneNode(true));
   if (!$("#s2rName").value) $("#s2rName").value = ($("#newRigName").value || "").trim();
   $("#s2rModal").classList.add("open");
-  if (kept){
-    await s2rLoad(kept.manifestKey, kept);
-    s2r.from = irigStem(selected);
-  } else if (changed || !s2r.sheetKey) await s2rLoad($("#newRigAtlas").value || "");
-  else { sel.value = s2r.sheetKey; s2rRender(); s2rDraw(); }
+  // A new rig starts as the first time: every part matched by its name, its joints guessed. A mapping
+  // made before is offered (↺ Reuse), never taken.
+  await s2rLoad($("#newRigAtlas").value || "");
 }
 
-function closeSheetToRig(){ $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null; }
+// A new rig's mapping changed by hand and closed without 🦴 Create rig is left for ↺ Reuse.
+function closeSheetToRig(){
+  if (!s2r.edit && s2r.sheet && s2r.dirty && Object.keys(s2r.map).length) s2r.left = { mapping: s2rMapping(), at: Date.now() };
+  $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
+}
+
+// ↺ Reuse: a mapping of this template made before, for the sheet picked (or its own while none is):
+// the one left in this dialog, and the open rig's when it was made from a sheet. Not while 🗺 Edit
+// mapping has the rig's own open.
+function s2rReuseOf(){
+  if (s2r.edit || !s2r.tpl) return [];
+  const fits = (m) => !!m && m.template.id === s2r.tpl.id && (!s2r.sheetKey || m.manifestKey === s2r.sheetKey);
+  const out = [];
+  if (s2r.left && fits(s2r.left.mapping)){
+    const at = new Date(s2r.left.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    out.push({ mapping: s2r.left.mapping, from: null, label: "what you left " + at, tip: "Open the mapping you left in this dialog at " + at + ", closed without 🦴 Create rig: its regions, joints, props, arrangement and ⇄ Swap sides." });
+  }
+  if (rawDoc && selected && fits(sheetSrc.doc)){
+    const stem = irigStem(selected);
+    out.push({ mapping: sheetSrc.doc, from: stem, label: "“" + stem + "”", tip: "Open the mapping “" + stem + "” (the open rig) was made from: its regions, joints, props, arrangement and ⇄ Swap sides, as it keeps them. 🦴 Create rig then makes a new rig from it." });
+  }
+  return out;
+}
+function s2rReuseUi(){
+  const box = $("#s2rReuse");
+  box.innerHTML = "";
+  for (const c of s2rReuseOf()){
+    const b = document.createElement("button");
+    b.textContent = "↺ Reuse " + c.label;
+    b.title = c.tip;
+    b.onclick = () => s2rReuse(c);
+    box.appendChild(b);
+  }
+  $("#s2rStartOver").disabled = !s2r.sheet;
+  $("#s2rUndoStart").style.display = s2r.undo ? "" : "none";
+}
+async function s2rReuse(c){
+  if (s2r.dirty && Object.keys(s2r.map).length && !confirm("↺ Reuse " + c.label + " in place of this mapping? Your changes to this one are dropped.")) return;
+  await s2rLoad(c.mapping.manifestKey, c.mapping, c.from);
+}
+
+// ↺ Start over: the mapping back to the first guess, the sheet's names read as ⇄ Swap sides says; one
+// step, which ↶ takes back.
+function s2rStartOver(){
+  if (!s2r.sheet || !s2r.tpl) return;
+  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
+  s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
+  Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  s2rSuggest();
+  s2rRender(); s2rDraw();
+}
+function s2rUndoStartOver(){
+  const u = s2r.undo;
+  if (!u) return;
+  if (s2r.dirty && !confirm("↶ brings back the mapping from before ↺ Start over, dropping what you changed since. Go on?")) return;
+  Object.assign(s2r, u, { undo: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  s2rSwapUi();
+  s2rNote("↶ the mapping as it was before ↺ Start over");
+  s2rRender(); s2rDraw();
+}
 
 // The dialog as a new rig's (🦴 Create rig) or the open rig's (🗺 Edit mapping → 🔄 Update rig).
 function s2rModeUi(){
@@ -12059,11 +12151,12 @@ async function s2rPickSheet(key){
   await s2rLoad(key);
 }
 
-// The sheet `key`: its regions and page; then `kept` (a rig's mapping) or each part suggested by name.
-async function s2rLoad(key, kept){
+// The sheet `key`: its regions and page; then `kept` (a mapping made before, of the rig `from` or
+// left in the dialog) or each part suggested by name.
+async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: kept ? kept.swapSides === true : s2rSwapKept(key) });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
   s2rSwapUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
@@ -12198,12 +12291,13 @@ function s2rSuggest(){
   for (const part of Object.keys(s2r.map)) if (s2rHead(part)) s2rTrackFace(part);
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
+  s2r.dirty = false;
   s2rNote(Object.keys(got).length
     ? Object.keys(got).length + " of " + names.length + " regions matched by name" + (s2r.props.length ? ", " + s2r.props.length + " worn as props" : "") + ": check each part's region and joints"
     : "no region's name says a part: pick each part's region in the table");
 }
 
-// A rig's kept mapping: every joint as it was placed; a region gone from the sheet is left out.
+// A mapping made before: every joint as it was placed; a region gone from the sheet is left out.
 function s2rKeep(kept){
   const names = new Set(s2r.sheet.regions.map((r) => r.name));
   const gone = [];
@@ -12217,7 +12311,9 @@ function s2rKeep(kept){
   s2r.arrange = placed.length ? Object.fromEntries(placed.map(([p, a]) => [p, { at: [...a.at], turn: a.turn }])) : null;
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
-  s2rNote("the mapping “" + irigStem(selected) + "” was made from: 🦴 Create rig makes a new rig from it" + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
+  const what = s2r.edit ? "“" + s2r.from + "”'s mapping: 🔄 Update rig rebuilds it from your changes"
+    : (s2r.from ? "the mapping “" + s2r.from + "” was made from" : "the mapping you left") + ": 🦴 Create rig makes a new rig from it";
+  s2rNote(what + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
 }
 
 function s2rAddProp(region, host, name){
@@ -12265,11 +12361,7 @@ function s2rMapping(){
 // its joints guessed again (a joint dragged by hand stays on the drawing it was dragged on); a part
 // mapped by hand moves to the other side too when the author says so; a prop rides the drawing it is
 // worn on to the part that now draws it; a part whose drawing changed starts over on its bones in
-// ◧ Arranged. Remembered per sheet in this browser, and kept in the mapping (`swapSides`).
-const S2R_SWAP_KEY = "rigger.s2rSwapSides:";
-function s2rSwapKept(key){
-  try { return !!key && localStorage.getItem(S2R_SWAP_KEY + key) === "1"; } catch { return false; }
-}
+// ◧ Arranged. Kept in the mapping (`swapSides`); a new rig starts with it off.
 function s2rSwapUi(){
   const b = $("#s2rSwapSides"); if (!b) return;
   b.classList.toggle("active", s2r.swap);
@@ -12279,7 +12371,6 @@ function s2rToggleSwap(){
   const RM = window.RiggerMotion, was = s2r.swap, now = !was;
   s2r.swap = now;
   s2rSwapUi();
-  try { if (s2r.sheetKey) now ? localStorage.setItem(S2R_SWAP_KEY + s2r.sheetKey, "1") : localStorage.removeItem(S2R_SWAP_KEY + s2r.sheetKey); } catch { /* not kept */ }
   if (!s2r.sheet || !s2r.tpl) return;
   const parts = s2r.tpl.parts.map((p) => p.name);
   const names = s2r.sheet.regions.map((r) => r.name);
@@ -12346,6 +12437,7 @@ function s2rToggleSwap(){
 function s2rRender(){
   const has = !!s2r.sheet;
   $("#s2rCreate").disabled = !has || !Object.keys(s2r.map).length;
+  s2rReuseUi();
   const strip = $("#s2rRegions");
   strip.innerHTML = "";
   if (has) for (const r of s2r.sheet.regions){
@@ -12916,7 +13008,7 @@ async function s2rCreate(){
     const j = await r.json();
     closeSheetToRig();
     $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#s2rName").value = "";
-    s2r.dirty = false;
+    s2r.dirty = false; s2r.left = null;
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
@@ -12939,7 +13031,7 @@ function reportSheetRig(name, label, mapping, j){
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not mapped (left out): " + rest.length + ".\n\n" : "") +
-    "The mapping is kept with the rig: with it open, ＋ New rig → 🗺 From my sheet opens it again.",
+    "The mapping is kept with the rig: 🗺 Edit mapping in its panel changes it, and while it is open ＋ New rig → 🗺 From my sheet offers it (↺ Reuse) for another rig.",
     "Rig made from your sheet");
 }
 
@@ -12948,6 +13040,8 @@ function wireSheetToRig(){
   $("#s2rModal").onmousedown = (e) => { if (e.target === $("#s2rModal")) closeSheetToRig(); };
   $("#s2rSheet").onchange = () => s2rPickSheet($("#s2rSheet").value);
   $("#s2rSwapSides").onclick = s2rToggleSwap;
+  $("#s2rStartOver").onclick = s2rStartOver;
+  $("#s2rUndoStart").onclick = s2rUndoStartOver;
   $("#s2rCreate").onclick = () => (s2r.edit ? s2rUpdate() : s2rCreate());
   $("#s2rGuess").onclick = () => {
     if (!s2r.sel || !s2r.sel.part) return;
@@ -13176,7 +13270,7 @@ function renderShapeKeys(det, slotName){
 }
 
 // Animate-mode slot editor: key the slot's ATTACHMENT (which image shows) and COLOUR
-// at the playhead. Stepped attachment swaps + rgba colour fades.
+// at the playhead. Stepped attachment swaps + colour fades (on the split rgb / alpha keys when the clip has them).
 function renderSlotAnimDetail(det, slotIndex, sd){
   det.innerHTML = "";
   const title = document.createElement("div");
@@ -13207,7 +13301,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const l = document.createElement("span"); l.textContent = "colour"; l.style.cssText = "width:54px;";
     const cp = document.createElement("input"); cp.type = "color"; cp.value = "#" + hex.slice(0, 6); cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
     const note = document.createElement("span"); note.textContent = "tint"; note.style.cssText = "color:var(--dim);";
-    cp.oninput = () => keySlotColor(sd.name, cp.value.slice(1) + slotColorAt(sd.name, animTime).slice(6, 8));
+    cp.oninput = () => keySlotColor(sd.name, cp.value.slice(1) + slotColorAt(sd.name, animTime).slice(6, 8), "rgb");
     r.appendChild(l); r.appendChild(cp); r.appendChild(note); det.appendChild(r);
   }
   // opacity (alpha): dedicated keyframable control — fade the object in / out over time
@@ -13217,7 +13311,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const l = document.createElement("span"); l.textContent = "opacity"; l.style.cssText = "width:54px;";
     const av = document.createElement("input"); av.type = "range"; av.min = "0"; av.max = "100"; av.value = Math.round(alpha * 100); av.style.flex = "1";
     const aPct = document.createElement("span"); aPct.textContent = Math.round(alpha * 100) + "%"; aPct.style.cssText = "width:40px;text-align:right;";
-    const commit = () => keySlotColor(sd.name, slotColorAt(sd.name, animTime).slice(0, 6) + hex2(parseInt(av.value, 10) / 100));
+    const commit = () => keySlotColor(sd.name, slotColorAt(sd.name, animTime).slice(0, 6) + hex2(parseInt(av.value, 10) / 100), "alpha");
     av.oninput = () => { aPct.textContent = av.value + "%"; }; av.onchange = commit;
     r.appendChild(l); r.appendChild(av); r.appendChild(aPct); det.appendChild(r);
     const kb = document.createElement("button");
@@ -14483,16 +14577,13 @@ function drawPivotOverlay(){
 
 // Reorder a slot in the draw order (structural — slots[] order IS draw order). The setup order only:
 // every draw-order key still draws the order it was keyed with.
+// ↑ / ↓ on slot `z`: one place to the front (+1) or the back (−1), past a whole folder, or inside its own
+// folder and out of it at the edge (`slotFolderStep`).
 function moveSlot(z, dir){
-  if (!rawDoc) return;
-  const j = z + dir;
-  if (j < 0 || j >= rawDoc.slots.length) return;
+  if (!rawDoc || !rawDoc.slots[z]) return;
   const movedName = rawDoc.slots[z].name;
-  changeSlotsKeepingDrawOrder(rawDoc, () => { const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp; });
   selSlot = movedName;
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  markDirty();
-  revealSlotRow(movedName);
+  if (applySlotFolderPlan(slotFolderStep(setupSlotNames(), slotFolders(), [movedName], dir, null))) revealSlotRow(movedName);
 }
 /** Scroll the panel just enough to show slot `name`'s row (a move can take it past the edge). */
 function revealSlotRow(name){
@@ -14581,13 +14672,14 @@ function renameSlotView(from, to){
   if (set.delete(from)){ set.add(to); storeSlotEye(); }
   if (slotMulti.delete(from)) slotMulti.add(to);
   if (slotAnchor === from) slotAnchor = to;
+  if (slotFolderSeen && slotFolderSeen.delete(from)) slotFolderSeen.add(to);
 }
 /** Run a draw of the rig with the hidden slots' art off and the dimmed slots' alpha scaled, put back at once (not through setAttachment, which drops a mesh's deform). */
 function withSlotEye(draw){
   const set = skeleton ? slotEyeHidden() : null;
   const off = set && set.size ? skeleton.slots.filter((s) => set.has(s.data.name)) : [];
   const kept = off.map((s) => s.attachment);
-  const alphas = skeleton && Object.keys(slotGroupAlphas()).length ? slotViewAlphas(slotEyeGroupList, slotGroupAlpha) : null;
+  const alphas = skeleton && Object.keys(slotGroupAlphas()).length ? slotViewAlphas(slotFolderGroups(), slotGroupAlpha) : null;
   const dim = alphas && alphas.size ? skeleton.slots.filter((s) => alphas.has(s.data.name)) : [];
   const was = dim.map((s) => s.color.a);
   for (const s of off) s.attachment = null;
@@ -14616,8 +14708,8 @@ function slotEyeGroups(){
     add(ch.label, "The slots “" + ch.label + "” hides while it shows a drawn pose", ch.hides.map((h) => h.slot));
   return out;
 }
-// A group's view opacity (0…1, by group id), per rig in this browser like the eye: it dims the
-// group's slots on the stage alone, never rawDoc, a key or the saved .irig, until ⤓ writes it.
+// A folder's view opacity (0…1, by id "f:<name>"), per rig in this browser like the eye: it dims
+// the folder's slots on the stage alone, never rawDoc, a key or the saved .irig, until ⤓ writes it.
 const slotAlpha = { key: null, of: {} };
 function slotGroupAlphas(){
   const key = slotViewKey("slotGroupAlpha");
@@ -14650,66 +14742,7 @@ function slotViewAlphas(groups, alphaOf){
 // A colour hex ("rrggbb" or "rrggbbaa") with its alpha times `k`.
 const alphaTimes = (hex, k) => hex.slice(0, 6) + hex2(parseInt(hex.slice(6, 8) || "ff", 16) / 255 * k);
 
-// The groups an author made of the selected slots (＋), kept in the rig's controls.json beside the
-// .irig so everyone who opens the rig has them; the game never reads it. A slot renamed in the rig is
-// renamed in them, a deleted one leaves them, and a group left with none goes (`fitControls`).
-const userSlotGroups = () => (controlsDoc && controlsDoc.slotGroups) || {};
-// Every group the Slots list shows: the template's, then the author's (any size, kept even when a
-// template group has the same slots).
-function slotGroupList(){
-  const out = slotEyeGroups().map((g) => Object.assign(g, { id: "t:" + g.label }));
-  const have = new Set(eyeSlotNames());
-  for (const [name, members] of Object.entries(userSlotGroups())){
-    const names = members.filter((n) => have.has(n));
-    if (names.length) out.push({ id: "u:" + name, label: name, user: true, tip: "Your group “" + name + "”: " + names.join(", ") + " (" + names.length + " slot" + (names.length > 1 ? "s" : "") + ")", names });
-  }
-  return out;
-}
-function addSlotGroup(){
-  const sel = selectedSlotNames();
-  if (!sel.length){ showErr("Select the slots first (Shift / Ctrl-click their rows), then ＋ saves them as a group."); return; }
-  const nm = (prompt("Group name (" + sel.length + " slot" + (sel.length > 1 ? "s" : "") + ")", "") || "").trim();
-  if (!nm) return;
-  if (userSlotGroups()[nm] && !confirm("Replace the group “" + nm + "” with the " + sel.length + " selected slots?")) return;
-  if (historyStep(() => ctlEdit((doc) => { doc.slotGroups = doc.slotGroups || {}; doc.slotGroups[nm] = [...new Set(sel)]; }))) renderSlotGroups();
-}
-function renameSlotGroup(from){
-  const to = (prompt("Rename group", from) || "").trim();
-  if (!to || to === from || !userSlotGroups()[from]) return;
-  if (userSlotGroups()[to]){ showErr("There is a group “" + to + "” already."); return; }
-  // In place, so the list keeps its order.
-  if (!historyStep(() => ctlEdit((doc) => { doc.slotGroups = Object.fromEntries(Object.entries(doc.slotGroups).map(([k, v]) => [k === from ? to : k, v])); }))) return;
-  const a = slotGroupAlpha("u:" + from);
-  setSlotGroupAlpha("u:" + from, 1); setSlotGroupAlpha("u:" + to, a);
-  renderSlotGroups();
-}
-function deleteSlotGroup(name){
-  if (!userSlotGroups()[name] || !historyStep(() => ctlEdit((doc) => { delete doc.slotGroups[name]; }))) return;
-  setSlotGroupAlpha("u:" + name, 1);
-  renderSlotGroups();
-}
-// A slot whose open clip colours it with the 4.2 split timelines (`rgb`, `rgb2`, `alpha`): an `rgba`
-// key would be read after them and override both, so its opacity is keyed on `alpha`.
-function slotSplitColour(slotName){ const cs = slotChannel(slotName); return !!cs && !!(cs.alpha || cs.rgb || cs.rgb2); }
-// Such a slot's alpha at `t`: its `alpha` keys (value 0 when a key has none, as the reader takes it),
-// its setup alpha before the first one or without any.
-function slotSplitAlphaAt(slotName, t){
-  const cs = slotChannel(slotName), keys = (cs && cs.alpha) || [];
-  if (!keys.length || t < keys[0].time) return hexToRGBA(slotColorAt(slotName, t)).a;
-  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
-  const a = keys[i], b = keys[i + 1], va = a.value ?? 0;
-  if (!b || a.curve === "stepped") return va;
-  const vb = b.value ?? 0;
-  if (Array.isArray(a.curve)) return bezierValue(a.time, va, a.curve[0], a.curve[1], a.curve[2], a.curve[3], b.time, vb, t);
-  return b.time > a.time ? va + (vb - va) * (t - a.time) / (b.time - a.time) : va;
-}
-function keySlotSplitAlpha(slotName, value){
-  const cs = rawDoc.animations[curAnim].slots[slotName];
-  cs.alpha = cs.alpha || [];
-  upsertBoneKey(cs.alpha, roundN(animTime, 4), { value: roundN(value, 4) });
-  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
-}
-// ⤓ writes a group's view opacity into the rig. Setup MULTIPLIES each member's setup alpha by it,
+// ⤓ writes a folder's view opacity into the rig. Setup MULTIPLIES each member's setup alpha by it,
 // which is what the stage showed (setup alpha × view opacity), where setting it would change any
 // slot not at 100%; Animate keys each member's opacity at the playhead as its alpha there × it. The
 // view opacity then goes back to 100%, so the stage looks as it did.
@@ -14729,15 +14762,12 @@ function applySlotGroupAlpha(g){
       return true;
     }
     if (!ensureCurAnim()) return false;
-    for (const n of names){
-      if (slotSplitColour(n)) keySlotSplitAlpha(n, slotSplitAlphaAt(n, animTime) * k);
-      else keySlotColor(n, alphaTimes(slotColorAt(n, animTime), k));
-    }
+    for (const n of names) keySlotColor(n, alphaTimes(slotColorAt(n, animTime), k), "alpha");
     return true;
   });
   if (!done) return;
   setSlotGroupAlpha(g.id, 1);
-  renderSlotGroups();
+  renderSlotList();
 }
 
 // The group eyes again, once the rig's template has loaded.
@@ -14746,57 +14776,330 @@ function renderSlotGroups(){
   if (!list || !skeletonData) return;
   const old = list.querySelector(".slotGroups"), bar = slotGroupBar();
   if (old) old.remove();
-  if (bar) list.insertBefore(bar, list.querySelector(".trow[data-slot]"));
+  if (bar) list.insertBefore(bar, list.querySelector(".trow"));
   refreshSlotEyes();
 }
-// One row per group: its eye, its view opacity, ⤓ to write that into the rig, and ✎ 🗑 on the author's.
 function slotGroupBar(){
-  slotEyeGroupList = slotGroupList();
+  slotEyeGroupList = slotEyeGroups();
   if (!slotEyeGroupList.length) return null;
-  const bar = document.createElement("div"); bar.className = "slotGroups";
-  const head = document.createElement("div"); head.className = "slotGroupHead";
-  const t = document.createElement("span"); t.textContent = "Groups";
-  t.title = "👁 hides a group's slots on this stage and the slider dims them while you work (a slot in two groups gets both); neither reaches the rig or the game. "
-    + "⤓ writes the dimming into the rig: the setup colour's alpha in Setup, an opacity key at the playhead in Animate. "
-    + "Your groups (dashed) are kept with the rig, in controls.json, for everyone who opens it.";
-  head.appendChild(t);
-  bar.appendChild(head);
-  const canWrite = !!rawDoc && !cineMode && (editMode || animMode);
+  const bar = document.createElement("div"); bar.className = "ctlBar slotGroups";
   slotEyeGroupList.forEach((g, i) => {
-    const row = document.createElement("div"); row.className = "slotGroupRow";
-    const b = document.createElement("button"); b.type = "button"; b.className = "slotGroupEye" + (g.user ? " mine" : ""); b.dataset.group = String(i);
+    const b = document.createElement("button"); b.type = "button"; b.className = "slotGroupEye"; b.dataset.group = String(i);
     b.title = g.tip + ". Click: hide or show them all · Alt-click or right-click: show only them";
     b.onclick = (e) => { e.stopPropagation(); toggleSlotGroup(g, e.altKey); };
     b.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotGroup(g, true); };
-    const pc = Math.round(slotGroupAlpha(g.id) * 100);
-    const r = document.createElement("input"); r.type = "range"; r.min = "0"; r.max = "100"; r.value = String(pc); r.className = "slotGroupAlpha";
-    r.title = "Dim “" + g.label + "” on this stage while you work (the game draws it as the rig says)";
-    r.setAttribute("aria-label", r.title);
-    const pct = document.createElement("span"); pct.className = "slotGroupPct"; pct.textContent = pc + "%";
-    const ap = ctlIcon("⤓", editMode ? "Write the dimming into the rig: each slot's setup alpha × the slider (the stage stays as it is; the slider goes back to 100%)"
-      : "Key each slot's opacity at the playhead as its opacity there × the slider (the stage stays as it is; the slider goes back to 100%)", () => applySlotGroupAlpha(g));
-    ap.classList.add("slotGroupApply");
-    ap.disabled = !canWrite || pc >= 100;
-    r.oninput = () => { setSlotGroupAlpha(g.id, Number(r.value) / 100); pct.textContent = r.value + "%"; ap.disabled = !canWrite || Number(r.value) >= 100; };
-    row.append(b, r, pct, ap);
-    if (g.user) row.append(
-      ctlIcon("✎", "Rename the group", () => renameSlotGroup(g.label)),
-      ctlIcon("🗑", "Delete the group (its slots stay)", () => deleteSlotGroup(g.label)));
-    bar.appendChild(row);
+    bar.appendChild(b);
   });
   return bar;
 }
-// The row's grip (Setup) and eye, before its name. The grip is a button: a finger or a pen (which
-// Chrome on Windows sends as touch) lands on the tap target nearest it, and a plain span is none, so
-// the press would go to the eye beside it.
-function decorateSlotRow(row, name){
-  if (editMode){
-    const g = document.createElement("button"); g.type = "button"; g.className = "ctlIcon slotGrip"; g.textContent = "⋮⋮";
-    g.title = "Drag to another place in the draw order (with the Shift / Ctrl selection, as a block)";
-    g.setAttribute("aria-label", g.title);
-    g.onpointerdown = (e) => startSlotDrag(e, name);
-    row.appendChild(g);
+
+// ---- 📁 slot folders ------------------------------------------------------------------------------
+// A folder holds slots that are together in the draw order, one level deep, a slot in one at most:
+// kept in the rig's controls.json (`slotFolders`, back to front) for everyone who opens the rig, never
+// read by the game. `fitSlotFolders` keeps that true after every rebuild (`fitControlsToRig`): a new
+// slot placed inside a folder's run joins it, and a folder keeps its largest run, so a slot moved out
+// of it leaves. A drop or ↑ / ↓ puts slots in or takes them out on purpose; a copy of a folder's slot
+// joins its folder (`slotFolderAdopt`).
+const slotFolders = () => (controlsDoc && controlsDoc.slotFolders) || {};
+function slotFolderOf(folders, name){
+  for (const [f, ns] of Object.entries(folders)) if (ns.includes(name)) return f;
+  return null;
+}
+const slotFolderGroups = () => Object.entries(slotFolders()).map(([name, names]) => ({ id: "f:" + name, label: name, names }));
+// A copy of a folder's slot (⧉ Duplicate, ✨ Auto FX) goes in that folder.
+function slotFolderAdopt(copy, src){
+  const f = controlsDoc && controlsDoc.slotFolders && !controlsLocked ? slotFolderOf(controlsDoc.slotFolders, src) : null;
+  if (f != null) controlsDoc.slotFolders[f].push(copy);
+}
+// The closed folders, per rig in this browser like the eye.
+const slotShut = { key: null, set: new Set() };
+function slotFoldersShut(){
+  const key = slotViewKey("slotFolderShut");
+  if (key !== slotShut.key){
+    slotShut.key = key;
+    slotShut.set = new Set();
+    if (key) try { const v = JSON.parse(localStorage.getItem(key) || "[]"); if (Array.isArray(v)) for (const n of v) if (typeof n === "string") slotShut.set.add(n); } catch {}
   }
+  return slotShut.set;
+}
+function setSlotFolderShut(name, on){
+  const set = slotFoldersShut();
+  if (on) set.add(name); else set.delete(name);
+  if (!slotShut.key) return;
+  try { if (set.size) localStorage.setItem(slotShut.key, JSON.stringify([...set])); else localStorage.removeItem(slotShut.key); } catch {}
+}
+let selFolder = null; // the folder whose row was clicked (its slots are the selection)
+
+// The Slots list top to bottom: the front (drawn last) first, as in a layers panel, a folder's row
+// above its slots, which a closed folder hides. Pure.
+function slotListRows(names, folders, shut){
+  const out = [], done = new Set();
+  for (let z = names.length - 1; z >= 0; z--){
+    const n = names[z], f = slotFolderOf(folders, n);
+    if (f == null){ out.push({ kind: "slot", name: n, z, folder: null }); continue; }
+    if (!done.has(f)){ done.add(f); out.push({ kind: "folder", name: f, shut: shut.has(f) }); }
+    if (!shut.has(f)) out.push({ kind: "slot", name: n, z, folder: f });
+  }
+  return out;
+}
+// A drag dropped at line `ins` of `rows` (slotListRows): `moving` (slot names; `folder`: the folder
+// row dragged, whose slots they are) go in, in their order, just behind every slot shown above the
+// line. The line inside a folder (between its row and its last slot shown, or under a closed
+// folder's row) puts them in it, anywhere else in no folder; a folder dropped inside another goes in
+// front of it. Null for a folder dropped into itself. Pure.
+function slotFolderDrop(names, folders, rows, moving, folder, ins){
+  const set = new Set(moving), above = rows[ins - 1], below = rows[ins];
+  const owner = (r) => (r ? (r.kind === "folder" ? r.name : r.folder) : null);
+  let into = null;
+  if (below && below.kind === "slot" && below.folder && owner(above) === below.folder) into = below.folder;
+  else if (above && above.kind === "folder" && !(below && below.kind === "slot" && below.folder === above.name)) into = above.name;
+  if (folder && into){
+    if (into === folder) return null;
+    ins = rows.findIndex((r) => r.kind === "folder" && r.name === into);
+    into = null;
+  }
+  let k = 0; // slots shown above the line, not moving (a closed folder's row stands for its slots)
+  for (let i = 0; i < ins; i++){
+    const r = rows[i];
+    if (r.kind === "slot"){ if (!set.has(r.name)) k++; }
+    else if (r.shut && !(into === r.name && i === ins - 1)) k += folders[r.name].filter((n) => !set.has(n)).length;
+  }
+  const shown = names.slice().reverse(), rest = shown.filter((n) => !set.has(n));
+  const order = [...rest.slice(0, k), ...shown.filter((n) => set.has(n)), ...rest.slice(k)].reverse();
+  const out = {};
+  for (const [f, ns] of Object.entries(folders)) out[f] = f === folder ? ns.slice() : ns.filter((n) => !set.has(n));
+  if (into) out[into].push(...moving);
+  return { order, folders: out };
+}
+// `moving` one place to the front (+1) or the back (−1), ±Infinity all the way, as ↑ ↓ and Ctrl+] / [
+// move them (`folder`: a folder's row). A folder whose every slot moves moves whole; selected slots
+// of a folder move only inside it, leaving it where they are at its edge; every other selected slot
+// passes a whole folder as one. No step takes an unselected slot out of its folder. Pure.
+function slotFolderStep(names, folders, moving, dir, folder){
+  const set = new Set(moving), next = Object.assign({}, folders), whole = new Set(folder ? [folder] : []);
+  let order = names.slice();
+  if (!folder) for (const [f, ns] of Object.entries(folders)){
+    const mine = ns.filter((n) => set.has(n));
+    if (!mine.length) continue;
+    if (mine.length === ns.length){ whole.add(f); continue; }
+    const ms = order.filter((n) => ns.includes(n));
+    let out = [];
+    if (Number.isFinite(dir)){
+      const edge = dir > 0 ? ms.slice().reverse() : ms;
+      let i = 0; while (i < edge.length && set.has(edge[i])) i++;
+      out = edge.slice(0, i);
+    }
+    const stay = ms.filter((n) => !out.includes(n)), still = mine.filter((n) => !out.includes(n));
+    const inner = Number.isFinite(dir) ? slotOrderStep(stay, still, dir) : slotOrderDrop(stay, still, dir > 0 ? stay.length : 0);
+    const left = ms.filter((n) => out.includes(n)), block = dir > 0 ? [...inner, ...left] : [...left, ...inner];
+    const at = order.indexOf(ms[0]);
+    order = order.filter((n) => !ms.includes(n));
+    order.splice(at, 0, ...block);
+    next[f] = inner;
+  }
+  const free = moving.filter((n) => slotFolderOf(folders, n) == null);
+  if (!free.length && !whole.size) return { order, folders: next };
+  const units = [], parts = new Map();
+  for (const n of order){
+    const f = slotFolderOf(next, n), id = f != null ? "\u0000" + f : n;
+    if (!parts.has(id)){ units.push(id); parts.set(id, []); }
+    parts.get(id).push(n);
+  }
+  const mv = [...free, ...[...whole].map((f) => "\u0000" + f)];
+  const stepped = Number.isFinite(dir) ? slotOrderStep(units, mv, dir) : slotOrderDrop(units, mv, dir > 0 ? units.length : 0);
+  return { order: stepped.flatMap((u) => parts.get(u)), folders: next };
+}
+// The draw order a new folder of `sel` makes: gathered into one run where its frontmost slot is, or
+// just in front of the folder that slot is in when that folder keeps other slots. Pure.
+function slotFolderGather(names, folders, sel){
+  const set = new Set(sel);
+  let front = Math.max(...sel.map((n) => names.indexOf(n)));
+  const f = slotFolderOf(folders, names[front]);
+  if (f != null && folders[f].some((n) => !set.has(n))) front = Math.max(...folders[f].map((n) => names.indexOf(n)));
+  return slotOrderDrop(names, sel, front + 1);
+}
+const slotFoldersKey = (f) => JSON.stringify(Object.keys(f).sort().map((k) => [k, f[k].slice().sort()]).filter(([, v]) => v.length));
+// A move of slots and folders (`slotFolderDrop` / `slotFolderStep`) written as one undo step, every
+// draw-order key keeping the order it was keyed with (`applySlotOrder`).
+function applySlotFolderPlan(plan){
+  if (!plan || !rawDoc) return false;
+  return historyStep(() => {
+    const regroup = slotFoldersKey(plan.folders) !== slotFoldersKey(slotFolders());
+    if (regroup && !ctlEdit((doc) => { doc.slotFolders = plan.folders; })) return false;
+    if (applySlotOrder(plan.order)) return true;
+    if (regroup) rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    return regroup;
+  });
+}
+// ↑ ↓ on a slot or a folder row (Setup).
+function stepSlots(names, dir, folder){
+  if (!rawDoc || !editMode || !names.length) return;
+  if (applySlotFolderPlan(slotFolderStep(setupSlotNames(), slotFolders(), names, dir, folder)) && !folder) revealSlotRow(names[0]);
+}
+// ＋📁 / Ctrl+G: the selected slots become a folder, gathered together first (Setup) when they are not.
+function makeSlotFolder(){
+  if (!rawDoc) return;
+  const sel = selectedSlotNames();
+  if (!sel.length){ showErr("Select the slots first (Shift / Ctrl-click their rows), then ＋📁 (Ctrl+G) puts them in a folder."); return; }
+  const names = setupSlotNames(), folders = slotFolders(), order = slotFolderGather(names, folders, sel);
+  if (order.some((n, i) => n !== names[i]) && !editMode){ showErr("These slots are not together in the draw order: gather them into a folder in Setup."); return; }
+  let k = 1; while (folders["Folder " + k]) k++;
+  const nm = (prompt("Folder name (" + sel.length + " slot" + (sel.length > 1 ? "s" : "") + ")", "Folder " + k) || "").trim();
+  if (!nm) return;
+  if (folders[nm]){ showErr("There is a folder “" + nm + "” already."); return; }
+  const done = historyStep(() => {
+    if (!ctlEdit((doc) => {
+      const f = (doc.slotFolders = doc.slotFolders || {});
+      for (const x of Object.keys(f)) f[x] = f[x].filter((n) => !sel.includes(n));
+      f[nm] = sel.slice();
+    })) return false;
+    if (!applySlotOrder(order)) rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    return true;
+  });
+  if (done){ selFolder = nm; markSlotRows(); }
+}
+function renameSlotFolder(from){
+  const to = (prompt("Rename folder", from) || "").trim();
+  if (!to || to === from || !slotFolders()[from]) return;
+  if (slotFolders()[to]){ showErr("There is a folder “" + to + "” already."); return; }
+  if (!historyStep(() => ctlEdit((doc) => { doc.slotFolders = Object.fromEntries(Object.entries(doc.slotFolders).map(([x, v]) => [x === from ? to : x, v])); }))) return;
+  const a = slotGroupAlpha("f:" + from), shut = slotFoldersShut().has(from);
+  setSlotGroupAlpha("f:" + from, 1); setSlotGroupAlpha("f:" + to, a);
+  setSlotFolderShut(from, false); setSlotFolderShut(to, shut);
+  if (selFolder === from) selFolder = to;
+  renderSlotList();
+}
+// 🗑 ungroups: the folder goes, its slots stay where they are.
+function ungroupSlotFolder(name){
+  if (!slotFolders()[name] || !historyStep(() => ctlEdit((doc) => { delete doc.slotFolders[name]; }))) return;
+  setSlotGroupAlpha("f:" + name, 1); setSlotFolderShut(name, false);
+  if (selFolder === name) selFolder = null;
+  renderSlotList();
+}
+// A click on a folder's row selects its slots, the frontmost open.
+function selectSlotFolder(name){
+  const ns = slotFolders()[name];
+  if (!ns || !ns.length) return;
+  slotMulti = new Set(ns); slotAnchor = ns[0];
+  selectSlot(ns[ns.length - 1]);
+  selFolder = name;
+  markSlotRows();
+}
+
+// The Slots list: Setup's buttons, the template's group eyes, then a row per folder and slot.
+function renderSlotList(){
+  const slotList = $("#slotList"); clearChildren(slotList);
+  if (editMode){
+    const as = document.createElement("button");
+    as.textContent = "＋ Add slot";
+    as.title = "Add a slot on the selected bone (or root)";
+    as.style.cssText = "margin:6px 14px 2px;";
+    as.onclick = () => addSlot(selBone != null ? skeletonData.bones[selBone].name : null);
+    slotList.appendChild(as);
+    const afx = document.createElement("button");
+    afx.textContent = "✨ Auto FX slots";
+    afx.title = "For every _shine / _glow / _shadow / _blur / _zoom / _colour region in this rig's atlas whose base is slotted, duplicate the base slot (reusing its mesh + animation) and swap the copy's image to the FX region. Shadows go behind, others in front. Skips FX slots that already exist.";
+    afx.style.cssText = "margin:6px 14px 2px;";
+    afx.onclick = () => autoCreateFxSlots();
+    slotList.appendChild(afx);
+  }
+  const groups = slotGroupBar();
+  if (groups) slotList.appendChild(groups);
+  const slots = skeletonData.slots, folders = slotFolders(), shut = slotFoldersShut();
+  if (selFolder && !folders[selFolder]) selFolder = null;
+  for (const r of slotListRows(slots.map((s) => s.name), folders, shut))
+    slotList.appendChild(r.kind === "folder" ? slotFolderRow(r.name, r.shut) : slotRow(slots[r.z], r.z, r.folder));
+  $("#cSlots").textContent = "(" + slots.length + ")";
+  markSlotRows();
+  refreshSlotEyes();
+}
+// ↑ ↓ (Setup) at the right of a row.
+function slotStepButtons(row, names, folder, upOff, downOff){
+  const ctl = document.createElement("span");
+  ctl.style.cssText = "float:right;display:inline-flex;gap:2px;";
+  for (const [txt, d, dis, title] of [["↑", 1, upOff, "Move to the front (up the list, drawn later)"], ["↓", -1, downOff, "Move to the back (down the list, drawn earlier)"]]){
+    const b = document.createElement("button");
+    b.textContent = txt; b.title = title; b.disabled = dis;
+    b.style.cssText = "padding:0 5px;font-size:11px;line-height:16px;";
+    b.onclick = (e) => { e.stopPropagation(); if (folder) stepSlots(names, d, folder); else moveSlot(rawDoc.slots.findIndex((s) => s.name === names[0]), d); };
+    ctl.appendChild(b);
+  }
+  row.appendChild(ctl);
+}
+function slotRow(sd, z, folder){
+  const row = document.createElement("div");
+  row.className = "trow" + (selSlot === sd.name ? " sel" : "") + (folder ? " inFolder" : "");
+  row.dataset.slot = sd.name;
+  decorateSlotRow(row, sd.name);
+  const nm = document.createElement("span");
+  nm.className = "slotName";
+  nm.textContent = sd.name;
+  row.appendChild(nm);
+  row.onclick = (e) => clickSlotRow(sd.name, e); // whole row, not just the name
+  const t = document.createElement("span"); t.className = "tag";
+  t.textContent = "→ " + (sd.boneData ? sd.boneData.name : "") + (sd.attachmentName ? " · " + sd.attachmentName : "");
+  row.appendChild(t);
+  const n = skeletonData.slots.length;
+  if (editMode) slotStepButtons(row, [sd.name], null, z === n - 1 && !folder, z === 0 && !folder);
+  return row;
+}
+// A folder's row (▸ / ▾, 📁, its name) and, under it, its view opacity: shown while it is selected or dimmed.
+function slotFolderRow(name, shut){
+  const frag = document.createDocumentFragment(), ns = slotFolders()[name];
+  const row = document.createElement("div");
+  row.className = "trow slotFolderRow"; row.dataset.folder = name;
+  if (editMode) row.appendChild(slotGrip("Drag the folder, its slots as a block, to another place in the draw order", (e) => startSlotDrag(e, null, name)));
+  const members = () => slotFolders()[name] || [];
+  const eye = ctlIcon("👁", "", (e) => toggleSlotGroup({ names: members() }, e.altKey));
+  eye.classList.add("slotEye");
+  eye.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotGroup({ names: members() }, true); };
+  const fold = ctlIcon(shut ? "▸" : "▾", shut ? "Open the folder" : "Close the folder", () => { setSlotFolderShut(name, !shut); renderSlotList(); });
+  fold.classList.add("slotFold");
+  const nm = document.createElement("span"); nm.className = "slotName"; nm.textContent = "📁 " + name;
+  if (editMode){
+    nm.title = "Double-click to rename";
+    nm.ondblclick = (e) => { e.stopPropagation(); renameSlotFolder(name); };
+  }
+  const t = document.createElement("span"); t.className = "tag"; t.textContent = "(" + ns.length + ")";
+  row.append(eye, fold, nm, t);
+  row.onclick = () => selectSlotFolder(name);
+  const names = setupSlotNames(), z0 = names.indexOf(ns[0]), z1 = names.indexOf(ns[ns.length - 1]);
+  if (editMode) slotStepButtons(row, ns, name, z1 === names.length - 1, z0 === 0);
+  const tools = document.createElement("span"); tools.style.cssText = "float:right;display:inline-flex;";
+  const inSetup = editMode ? "" : " (in Setup)";
+  const ren = ctlIcon("✎", "Rename the folder" + inSetup, () => renameSlotFolder(name)), del = ctlIcon("🗑", "Ungroup: the folder goes, its slots stay where they are" + inSetup, () => ungroupSlotFolder(name));
+  ren.disabled = del.disabled = !editMode;
+  tools.append(ren, del);
+  row.appendChild(tools);
+  frag.appendChild(row);
+  const id = "f:" + name, pc = Math.round(slotGroupAlpha(id) * 100), canWrite = !!rawDoc && !cineMode && (editMode || animMode);
+  const op = document.createElement("div"); op.className = "slotFolderOpac"; op.dataset.folder = name;
+  const r = document.createElement("input"); r.type = "range"; r.min = "0"; r.max = "100"; r.value = String(pc);
+  r.title = "Dim “" + name + "” on this stage while you work (the game draws it as the rig says)";
+  r.setAttribute("aria-label", r.title);
+  const pct = document.createElement("span"); pct.className = "slotFolderPct"; pct.textContent = pc + "%";
+  const ap = ctlIcon("⤓", editMode ? "Write the dimming into the rig: each slot's setup alpha × the slider (the stage stays as it is; the slider goes back to 100%)"
+    : "Key each slot's opacity at the playhead as its opacity there × the slider (the stage stays as it is; the slider goes back to 100%)", () => applySlotGroupAlpha({ id, names: members() }));
+  ap.classList.add("slotGroupApply");
+  ap.disabled = !canWrite || pc >= 100;
+  r.oninput = () => { setSlotGroupAlpha(id, Number(r.value) / 100); pct.textContent = r.value + "%"; ap.disabled = !canWrite || Number(r.value) >= 100; };
+  op.append(r, pct, ap);
+  frag.appendChild(op);
+  return frag;
+}
+// A row's ⋮⋮ grip (Setup). It is a button: a finger or a pen (which Chrome on Windows sends as touch)
+// lands on the tap target nearest it, and a plain span is none, so the press would go to the eye
+// beside it.
+function slotGrip(title, down){
+  const g = document.createElement("button"); g.type = "button"; g.className = "ctlIcon slotGrip"; g.textContent = "⋮⋮";
+  g.title = title;
+  g.setAttribute("aria-label", title);
+  g.onpointerdown = down;
+  return g;
+}
+// A slot row's grip and eye, before its name.
+function decorateSlotRow(row, name){
+  if (editMode) row.appendChild(slotGrip("Drag to another place in the draw order (with the Shift / Ctrl selection, as a block)", (e) => startSlotDrag(e, name)));
   const eye = ctlIcon("👁", "", (e) => toggleSlotEye(name, e.altKey));
   eye.classList.add("slotEye");
   eye.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotEye(name, true); };
@@ -14814,6 +15117,14 @@ function refreshSlotEyes(){
     b.title = (h ? "Hidden on this stage: show it" : "Hide it on this stage while you work (the game still draws it)") + " · Alt-click or right-click: show only this one";
     b.setAttribute("aria-label", b.title); b.setAttribute("aria-pressed", String(h));
   });
+  document.querySelectorAll("#slotList .trow[data-folder]").forEach((r) => {
+    const ns = slotFolders()[r.dataset.folder] || [], k = ns.filter((n) => set.has(n)).length, b = r.querySelector(".slotEye");
+    r.classList.toggle("eyeOff", k > 0 && k === ns.length);
+    b.classList.toggle("part", k > 0 && k < ns.length);
+    b.textContent = k > 0 && k === ns.length ? "◌" : "👁";
+    b.title = (k === ns.length && k ? "Hidden on this stage: show the folder" : "Hide the folder's slots on this stage while you work (the game still draws them)") + " · Alt-click or right-click: show only them";
+    b.setAttribute("aria-label", b.title);
+  });
   document.querySelectorAll("#slotList .slotGroupEye").forEach((b) => {
     const g = slotEyeGroupList[Number(b.dataset.group)]; if (!g) return;
     const k = g.names.filter((n) => set.has(n)).length;
@@ -14822,10 +15133,10 @@ function refreshSlotEyes(){
   });
   let all = $("#slotEyeAll");
   if (!all){ all = ctlIcon("👁", "", () => setSlotEye([])); all.id = "slotEyeAll"; $("#secSlots > summary").appendChild(all); }
-  let add = $("#slotGroupAdd");
+  let add = $("#slotFolderAdd");
   if (!add){
-    add = ctlIcon("＋", "Save the selected slots (Shift / Ctrl-click their rows) as a group: its own eye and view opacity, kept with the rig for everyone who opens it", addSlotGroup);
-    add.id = "slotGroupAdd"; $("#secSlots > summary").appendChild(add);
+    add = ctlIcon("＋📁", "Put the selected slots (Shift / Ctrl-click their rows) in a new folder (Ctrl+G); slots apart in the draw order are gathered at the frontmost one first (Setup)", makeSlotFolder);
+    add.id = "slotFolderAdd"; $("#secSlots > summary").appendChild(add);
   }
   add.style.display = rawDoc ? "" : "none";
   all.disabled = !off;
@@ -14844,6 +15155,9 @@ function selectedSlotNames(){
 }
 function markSlotRows(){
   const multi = new Set(selectedSlotNames());
+  if (selFolder && !(slotFolders()[selFolder] || []).every((n) => multi.has(n))) selFolder = null;
+  document.querySelectorAll("#slotList .trow[data-folder]").forEach((r) => r.classList.toggle("sel", r.dataset.folder === selFolder));
+  document.querySelectorAll("#slotList .slotFolderOpac").forEach((o) => o.classList.toggle("on", o.dataset.folder === selFolder || slotGroupAlpha("f:" + o.dataset.folder) < 1));
   document.querySelectorAll("#slotList .trow[data-slot]").forEach((r) => {
     r.classList.toggle("sel", r.dataset.slot === selSlot);
     r.classList.toggle("sel2", r.dataset.slot !== selSlot && multi.has(r.dataset.slot));
@@ -14851,6 +15165,7 @@ function markSlotRows(){
 }
 // Click selects the slot; Shift adds the run from the last click, Ctrl / Cmd adds or takes out one.
 function clickSlotRow(name, e){
+  selFolder = null;
   const names = eyeSlotNames();
   let open = name;
   if (e.shiftKey && slotAnchor && names.includes(slotAnchor)){
@@ -14870,13 +15185,13 @@ function clickSlotRow(name, e){
 // list scrolls near its edges.
 let slotDrag = null; // { id, names, x, y, moved, ins, sc, raf, at } while a grip is held
 const SLOT_DRAG_EDGE = 28;
-function startSlotDrag(e, name){
+function startSlotDrag(e, name, folder){
   if (e.button !== 0 || !e.isPrimary || !rawDoc || !editMode || slotDrag) return;
   e.preventDefault(); e.stopPropagation();
-  const sel = selectedSlotNames();
+  const sel = folder ? slotFolders()[folder] : selectedSlotNames();
   let sc = $("#slotList");
   while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
-  slotDrag = { id: e.pointerId, names: sel.includes(name) ? sel : [name], x: e.clientX, y: e.clientY, moved: false, ins: null, sc, raf: 0 };
+  slotDrag = { id: e.pointerId, names: folder || sel.includes(name) ? sel : [name], folder: folder || null, x: e.clientX, y: e.clientY, moved: false, ins: null, sc, raf: 0 };
   try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   window.addEventListener("pointermove", slotDragMove);
   window.addEventListener("pointerup", slotDragUp);
@@ -14891,14 +15206,14 @@ function slotDragMove(e){
   if (!d.moved){
     d.moved = true;
     document.body.classList.add("slotDragging");
-    document.querySelectorAll("#slotList .trow[data-slot]").forEach((r) => r.classList.toggle("drag-src", d.names.includes(r.dataset.slot)));
+    document.querySelectorAll("#slotList .trow[data-slot], #slotList .trow[data-folder]").forEach((r) => r.classList.toggle("drag-src", r.dataset.folder ? r.dataset.folder === d.folder : d.names.includes(r.dataset.slot)));
     d.raf = requestAnimationFrame(slotDragScroll);
   }
   slotDropAt();
 }
-// The place under the pointer: before the first row whose middle is below it, else the front.
+// The place under the pointer: before the first row whose middle is below it, else the bottom (the back).
 function slotDropAt(){
-  const d = slotDrag, rows = [...document.querySelectorAll("#slotList .trow[data-slot]")];
+  const d = slotDrag, rows = [...document.querySelectorAll("#slotList .trow[data-slot], #slotList .trow[data-folder]")];
   rows.forEach((r) => r.classList.remove("drop-before", "drop-after"));
   let ins = rows.length;
   for (let i = 0; i < rows.length; i++){ const r = rows[i].getBoundingClientRect(); if (d.y < r.top + r.height / 2){ ins = i; break; } }
@@ -14942,21 +15257,28 @@ function endSlotDrag(){
 function slotDragUp(e){
   if (!slotDrag || e.pointerId !== slotDrag.id) return;
   const d = endSlotDrag();
-  if (d.moved && d.ins != null) historyStep(() => applySlotOrder(slotOrderDrop(setupSlotNames(), d.names, d.ins)));
+  if (d.moved && d.ins != null){
+    const names = setupSlotNames(), folders = slotFolders();
+    applySlotFolderPlan(slotFolderDrop(names, folders, slotListRows(names, folders, slotFoldersShut()), d.names, d.folder, d.ins));
+  }
 }
 function slotDragCancel(e){ if (slotDrag && e.pointerId === slotDrag.id) endSlotDrag(); }
 function slotDragKey(e){ if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); endSlotDrag(); } }
 
-// Setup: Ctrl/Cmd+] / [ moves the selected slots one place forward / back, with Shift to the front / back.
+// Setup: Ctrl/Cmd+] / [ moves the selected slots (or the selected folder) one place to the front /
+// back, with Shift all the way. Ctrl/Cmd+G puts the selected slots in a folder, in any mode.
 function slotOrderKey(e){
-  if (!(e.ctrlKey || e.metaKey) || !editMode || !rawDoc || cineMode) return;
+  if (!(e.ctrlKey || e.metaKey) || !rawDoc || cineMode) return;
   const ae = document.activeElement;
   if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+  if (e.code === "KeyG" && !e.shiftKey && !e.altKey && selSlot){ e.preventDefault(); makeSlotFolder(); return; }
+  if (!editMode) return;
   const fwd = e.code === "BracketRight" || e.key === "]" || e.key === "}", back = e.code === "BracketLeft" || e.key === "[" || e.key === "{";
   const names = fwd || back ? selectedSlotNames() : [];
   if (!names.length) return;
   e.preventDefault();
-  applySlotOrder(slotOrderStep(setupSlotNames(), names, (fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1)));
+  const folder = selFolder && slotFolders()[selFolder] ? selFolder : null;
+  applySlotFolderPlan(slotFolderStep(setupSlotNames(), slotFolders(), names, (fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1), folder));
 }
 
 // ---- mesh vertex editing (Phase 3.1) --------------------------------------
@@ -18105,7 +18427,7 @@ function poseAtTime(name, t, additive){
       } else bone[prop] = (additive ? bone[prop] : bd[prop]) + (k.value || 0);
     }
   }
-  // slot channels (5.4): attachment swap (stepped) + rgba colour
+  // slot channels (5.4): attachment swap (stepped) + colour (rgba, rgba2 and the split rgb / rgb2 / alpha)
   if (a.slots){
     for (const [sn, ch] of Object.entries(a.slots)){
       const slot = skeleton.findSlot(sn); if (!slot) continue;
@@ -18114,9 +18436,12 @@ function poseAtTime(name, t, additive){
         let nm, set = false; for (const key of ch.attachment){ if (key.time <= t + 1e-6){ nm = key.name ?? null; set = true; } else break; }
         if (set) slot.setAttachment(nm ? skeleton.getAttachment(si, nm) : null);
       }
-      if (ch.rgba && ch.rgba.length){ const c = sampleColor(ch.rgba, t); if (c) slot.color.set(c.r, c.g, c.b, c.a); }
-      // §18.4 two-color tinting: rgba2 drives slot.color (light) AND slot.darkColor (dark).
-      if (ch.rgba2 && ch.rgba2.length){ const c = sampleColor2(ch.rgba2, t); if (c){ slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a); if (slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a); } }
+      // §18.4 two-color tinting: rgba2 / rgb2 drive slot.color (light) AND slot.darkColor (dark).
+      if (ch.rgba || ch.rgba2 || ch.rgb || ch.rgb2 || ch.alpha){
+        const c = clipColourAt(ch, slot.data.color, slot.data.darkColor, t);
+        slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a);
+        if (c.dark && slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a);
+      }
     }
   }
   // draw-order channel: reorder the live draw order to the last key ≤ t (setup otherwise)
@@ -18220,14 +18545,17 @@ function upsertKey(arr, time, fields){
 // key's own curve (the segment out of it) and the previous key's (the segment into it) are refitted
 // to the new value: each handle keeps its place between the segment's two values (a flat segment's
 // first handle follows its start, its second its end — where every ease preset puts them).
-function upsertBoneKey(arr, time, fields){
+// `valuesOf(key)`: the key's values in curve order when they are not `fields` as numbers (a colour
+// key's channels, `COLOUR_KEY_VALUES`).
+function upsertBoneKey(arr, time, fields, valuesOf = (k) => Object.keys(fields).map((n) => k[n] ?? 0)){
   const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4), old = i >= 0 ? arr[i] : null;
   upsertKey(arr, time, fields);
   if (!old) return;
-  const names = Object.keys(fields), key = arr[i], prev = arr[i - 1], next = arr[i + 1];
+  const key = arr[i], prev = arr[i - 1], next = arr[i + 1];
   const refit = (seg, a, b, a2, b2) => { // seg's curve: values a→b become a2→b2
-    for (let vi = 0; vi < names.length; vi++) for (let c = 0; c < 2; c++){
-      const n = vi * 4 + c * 2 + 1, va = a[names[vi]] ?? 0, vb = b[names[vi]] ?? 0, wa = a2[names[vi]] ?? 0, wb = b2[names[vi]] ?? 0;
+    const [A, B, A2, B2] = [a, b, a2, b2].map(valuesOf);
+    for (let vi = 0; vi < A.length; vi++) for (let c = 0; c < 2; c++){
+      const n = vi * 4 + c * 2 + 1, va = A[vi], vb = B[vi], wa = A2[vi], wb = B2[vi];
       if (typeof seg.curve[n] !== "number") continue;
       seg.curve[n] = roundN(Math.abs(vb - va) > 1e-9 ? wa + (seg.curve[n] - va) / (vb - va) * (wb - wa) : seg.curve[n] + (c ? wb - vb : wa - va), 4);
     }
@@ -18446,21 +18774,19 @@ function slotAttachmentAt(slotName, t){
 }
 function slotColorAt(slotName, t){
   const cs = slotChannel(slotName);
-  // Two-color slots carry their LIGHT colour on the rgba2 timeline (not rgba).
-  if (slotIsTwoColor(slotName)){ if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbaToHex(c.light); } }
-  else if (cs && cs.rgba && cs.rgba.length){ const c = sampleColor(cs.rgba, t); if (c) return rgbaToHex(c); }
-  const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff";
+  return cs ? rgbaToHex(clipColourAt(cs, hexToRGBA(slotSetupColour(slotName)), null, t).light) : slotSetupColour(slotName);
 }
-// Resolved DARK colour (rgb hex) for a two-color slot at the playhead (rgba2 over setup `dark`).
+function slotSetupColour(slotName){ const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff"; }
+// Resolved DARK colour (rgb hex) for a two-color slot at the playhead (rgba2 / rgb2 over setup `dark`).
 function slotDarkAt(slotName, t){
   const cs = slotChannel(slotName);
-  if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbToHex(c.dark); }
-  return slotSetupDark(slotName);
+  return cs ? rgbToHex(clipColourAt(cs, hexToRGBA(slotSetupColour(slotName)), hexToRGBA(slotSetupDark(slotName)), t).dark) : slotSetupDark(slotName);
 }
 // Key a slot's attachment (stepped) / colour at the playhead.
 /** A slot's channels in the open clip: a drawing slot's image keys in a 3D clip are its bake's (§4.7). */
 function slotChs(slotName){
-  return clip3d(curAnim) && rig3d.doc.views && rig3d.doc.views[slotName] ? ["rgba", "rgba2"] : ["attachment", "rgba", "rgba2"];
+  const colour = ["rgba", "rgba2", "rgb", "alpha", "rgb2"];
+  return clip3d(curAnim) && rig3d.doc.views && rig3d.doc.views[slotName] ? colour : ["attachment", ...colour];
 }
 function keySlotAttachment(slotName, name){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
@@ -18474,31 +18800,88 @@ function keySlotAttachment(slotName, name){
   if (i >= 0) cs.attachment[i] = key; else { cs.attachment.push(key); cs.attachment.sort((x, y) => x.time - y.time); }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
-function keySlotColor(slotName, hex){
-  if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  // Two-color slots key LIGHT + DARK together through rgba2; carry the current dark.
-  if (slotIsTwoColor(slotName)){ keySlotRgba2(slotName, hex.slice(0, 8), slotDarkAt(slotName, animTime)); return; }
+// The open clip's keys for a slot, made when it has none.
+function slotKeysOf(slotName){
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  return ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+}
+// A colour key's values in curve order, by timeline (as the 4.2 reader takes them; `alpha`'s
+// missing value is 0).
+const COLOUR_KEY_VALUES = {
+  rgba: (k) => { const c = hexToRGBA(k.color); return [c.r, c.g, c.b, c.a]; },
+  rgb: (k) => { const c = hexToRGBA(k.color); return [c.r, c.g, c.b]; },
+  alpha: (k) => [k.value ?? 0],
+  rgba2: (k) => { const l = hexToRGBA(k.light), d = hexToRGBA(k.dark); return [l.r, l.g, l.b, l.a, d.r, d.g, d.b]; },
+  rgb2: (k) => { const l = hexToRGBA(k.light), d = hexToRGBA(k.dark); return [l.r, l.g, l.b, d.r, d.g, d.b]; },
+};
+// Keys `keys` play at `t`: null before the first, where the reader holds the setup colour.
+function sampleCurveKeys(keys, t, valuesOf){
+  if (!keys || !keys.length || t < keys[0].time) return null;
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1], va = valuesOf(a);
+  if (!b || a.curve === "stepped") return va;
+  const vb = valuesOf(b), u = b.time > a.time ? (t - a.time) / (b.time - a.time) : 0;
+  return va.map((v, vi) => Array.isArray(a.curve)
+    ? bezierValue(a.time, v, a.curve[vi * 4], a.curve[vi * 4 + 1], a.curve[vi * 4 + 2], a.curve[vi * 4 + 3], b.time, vb[vi], t)
+    : v + (vb[vi] - v) * u);
+}
+// A slot the open clip colours with the 4.2 split timelines (`rgb` / `rgb2`, `alpha`): its keys go
+// there, since an `rgba` / `rgba2` key is read after them and overrides both. So no clip gets both.
+function slotSplitColour(slotName){ const cs = slotChannel(slotName); return !!cs && !!(cs.alpha || cs.rgb || cs.rgb2); }
+// The colour a clip's timelines `ch` play at `t` over `light` / `dark` (the setup's; dark may be
+// null), each kind in the clip's own order, as engine-rig runs them (the later one wins).
+function clipColourAt(ch, light, dark, t){
+  let L = { r: light.r, g: light.g, b: light.b, a: light.a }, D = dark ? { r: dark.r, g: dark.g, b: dark.b } : null;
+  for (const [kind, keys] of Object.entries(ch)){
+    if (kind === "rgba"){ const c = sampleColor(keys, t); if (c) L = c; continue; }
+    if (kind === "rgba2"){ const c = sampleColor2(keys, t); if (c){ L = c.light; if (D) D = c.dark; } continue; }
+    if (kind !== "rgb" && kind !== "rgb2" && kind !== "alpha") continue;
+    const v = sampleCurveKeys(keys, t, COLOUR_KEY_VALUES[kind]); if (!v) continue;
+    if (kind === "alpha"){ L.a = v[0]; continue; }
+    L.r = v[0]; L.g = v[1]; L.b = v[2];
+    if (kind === "rgb2" && D){ D.r = v[3]; D.g = v[4]; D.b = v[5]; }
+  }
+  return { light: L, dark: D };
+}
+// Key a slot's colour `hex` (rrggbbaa) at the playhead. `part` says what changed ("rgb", "alpha";
+// none: both): a split slot keys only that timeline (none: those its clip has, so ◆ Key adds no
+// kind); every other slot keys rgba (two-colour: rgba2, carrying the dark) as a whole.
+function keySlotColor(slotName, hex, part){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  if (slotSplitColour(slotName)){ keySlotSplit(slotName, hex, part, null); return; }
+  if (slotIsTwoColor(slotName)){ keySlotRgba2(slotName, hex.slice(0, 8), slotDarkAt(slotName, animTime)); return; }
+  const cs = slotKeysOf(slotName);
   cs.rgba = cs.rgba || [];
-  const i = cs.rgba.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
-  const key = { time: roundN(animTime, 4), color: hex };
-  if (i >= 0){ if (cs.rgba[i].curve) key.curve = cs.rgba[i].curve; cs.rgba[i] = key; } else { cs.rgba.push(key); cs.rgba.sort((x, y) => x.time - y.time); }
+  upsertBoneKey(cs.rgba, animTime, { color: hex }, COLOUR_KEY_VALUES.rgba);
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+// A split slot's key: `alpha` for its opacity, its light timeline for its colour — `rgb2` (carrying
+// `dark`, or the dark there) when the clip has it, or on a two-colour slot the clip gives neither.
+function keySlotSplit(slotName, hex, part, dark){
+  const cs = slotKeysOf(slotName), light = cs.rgb2 || (!cs.rgb && slotIsTwoColor(slotName)) ? "rgb2" : "rgb";
+  if (part === "alpha" || (!part && cs.alpha)){
+    cs.alpha = cs.alpha || [];
+    upsertBoneKey(cs.alpha, animTime, { value: roundN(hexToRGBA(hex).a, 4) }, COLOUR_KEY_VALUES.alpha);
+  }
+  if (part === "rgb" || part === "dark" || (!part && cs[light])){
+    cs[light] = cs[light] || [];
+    upsertBoneKey(cs[light], animTime, light === "rgb2" ? { light: hex.slice(0, 6), dark: dark || slotDarkAt(slotName, animTime) } : { color: hex.slice(0, 6) }, COLOUR_KEY_VALUES[light]);
+  }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 // Key a two-color slot's DARK colour at the playhead; carries the current light.
 function keySlotDark(slotName, darkHex){
   if (!rawDoc || !animMode || !ensureCurAnim() || !slotIsTwoColor(slotName)) return;
-  keySlotRgba2(slotName, slotColorAt(slotName, animTime).slice(0, 8), darkHex.slice(0, 6));
+  if (!slotSplitColour(slotName)){ keySlotRgba2(slotName, slotColorAt(slotName, animTime).slice(0, 8), darkHex.slice(0, 6)); return; }
+  const cs = slotChannel(slotName);
+  if (cs.rgb && !cs.rgb2){ $("#hint").textContent = "🎨 This clip colours " + slotName + " with rgb keys, which carry no dark colour"; return; }
+  keySlotSplit(slotName, slotColorAt(slotName, animTime), "dark", darkHex.slice(0, 6));
 }
 // Write a single rgba2 key {light: rrggbbaa, dark: rrggbb} at the playhead (two-color slots).
 function keySlotRgba2(slotName, lightHex, darkHex){
-  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  const cs = slotKeysOf(slotName);
   cs.rgba2 = cs.rgba2 || [];
-  const i = cs.rgba2.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
-  const key = { time: roundN(animTime, 4), light: lightHex, dark: darkHex };
-  if (i >= 0){ if (cs.rgba2[i].curve) key.curve = cs.rgba2[i].curve; cs.rgba2[i] = key; } else { cs.rgba2.push(key); cs.rgba2.sort((x, y) => x.time - y.time); }
+  upsertBoneKey(cs.rgba2, animTime, { light: lightHex, dark: darkHex }, COLOUR_KEY_VALUES.rgba2);
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 // Outgoing-curve type of a slot's colour key at a time ("linear"|"stepped"|"bezier").
@@ -18579,7 +18962,7 @@ function retimeBoneKey(boneName, oldTime, newTime){
 }
 
 const BONE_CH_LABEL = { orient: "3D turn", rotate: "rotation", depth: "depth", translate: "translate", scale: "scale", shear: "shear" };
-const SLOT_CH_LABEL = { attachment: "image", rgba: "colour", rgba2: "colour (2-tone)" };
+const SLOT_CH_LABEL = { attachment: "image", rgba: "colour", rgba2: "colour (2-tone)", rgb: "colour (rgb)", alpha: "opacity", rgb2: "colour (2-tone rgb)" };
 // Tracks shown as rows. Overview ("sel" off) = one collapsed row per keyed bone/slot.
 // Focused ("sel" on) = the selected bone/slot EXPANDED into per-channel rows, so each
 // keyframe is clearly tied to a property (rotation / translate / scale / image / colour).
@@ -22122,6 +22505,7 @@ function ensureRiggerControls(){
 function openStoredControls(stored, codeLoaded){
   controlsDoc = null; controlsEtag = stored ? stored.etag : null; controlsLocked = null;
   controlsText = stored && stored.doc ? JSON.stringify(stored.doc) : "";
+  if (stored && stored.unconverted) slotGroupsLeftOut.push(...stored.unconverted);
   if (!stored) { if (!codeLoaded) controlsLocked = "the control layer's code did not load (vendor/rigger-controls.js) — reload the Rigger"; return null; }
   if (stored.torn) controlsLocked = "its controls.json was written for another version of the rig (a save landing now, or one cut off) — reopen it in a moment, or restore it from 🕘 History";
   else if (stored.problems) controlsLocked = "its controls.json cannot be read (" + stored.problems.slice(0, 3).join("; ") + ") — restore a good version from 🕘 History";
@@ -22129,7 +22513,7 @@ function openStoredControls(stored, codeLoaded){
   if (stored.doc) controlsDoc = stored.doc;
   return stored.dropped && stored.dropped.length ? stored.dropped : null;
 }
-const CTL_EMPTY_KEYS = ["bones", "layers", "sets", "limbs", "presets", "picker", "slotGroups"];
+const CTL_EMPTY_KEYS = ["bones", "layers", "sets", "limbs", "presets", "picker", "slotFolders"];
 // Drop what says nothing: an empty bone entry, an empty map or list.
 function pruneControls(doc){
   if (doc.bones) for (const [n, c] of Object.entries(doc.bones)){
@@ -22176,9 +22560,15 @@ function renameInControls(kind, from, to){
   controlsDoc = window.RiggerControls.renameControls(controlsDoc, renames);
 }
 // The sidecar without what names a bone, constraint or slot the irig no longer has (a delete, an undo).
+// `slotFolderSeen`: the slots at the last fit, so a new one placed inside a folder's run joins it.
+// `slotGroupsLeftOut`: the old slot groups (#1906) that could not become folders, for the open's notice.
+let slotFolderSeen = null, slotGroupsLeftOut = [];
 function fitControlsToRig(){
   if (!controlsDoc || !rawDoc || !window.RiggerControls) return;
-  controlsDoc = window.RiggerControls.fitControls(controlsDoc, rawDoc).doc;
+  const fit = window.RiggerControls.fitControls(controlsDoc, rawDoc, slotFolderSeen || undefined);
+  controlsDoc = fit.doc;
+  slotGroupsLeftOut.push(...fit.unconverted);
+  slotFolderSeen = new Set((rawDoc.slots || []).map((s) => s.name));
 }
 
 // ---- layers and selection sets (§5.3) -------------------------------------------------------------

@@ -1,3 +1,5 @@
+import { biomeStretches, type SalmonsBiomes } from 'engine-mechanics';
+
 import { riverElevation } from './salmonsElevation';
 import type { LayoutNode } from '../types';
 
@@ -37,6 +39,9 @@ export type SalmonsRiverDrawing = {
 	/** The original's plank bridges (`salmonsMap`), one row each across the water; `height`: the
 	 *  deck's height, grid cells. Drawn only (by the art). */
 	bridges?: readonly (Rect & { height?: number })[];
+	/** The level's biomes (`engine-mechanics` `salmonsBiomes.js`), when its config authors them:
+	 *  the art draws each row by its column's; none ⇒ the original's six. */
+	biomes?: SalmonsBiomes;
 };
 
 const COLOR = {
@@ -104,6 +109,21 @@ export function salmonsRiverNode(river: SalmonsRiverDrawing): LayoutNode {
 		children.push(rect(`river-sandbank-${i}`, r, COLOR.sandbank, !river.grid)),
 	);
 	river.rocks?.forEach((r, i) => children.push(rect(`river-rock-${i}`, r, COLOR.rock, true)));
+	// An authored river's biomes: each stretch's forest floor, a cell wide down both edges.
+	if (river.biomes && river.grid?.sourceRows !== undefined) {
+		const cell = river.grid.cell;
+		const sourceRows = river.grid.sourceRows;
+		const length = Math.round(river.sea.y / cell) - sourceRows;
+		biomeStretches(river.biomes, 0, length).forEach(({ from, to, kind }, i) => {
+			const y = (from + sourceRows) * cell;
+			const h = (to - from) * cell;
+			const color = parseInt(kind.forestFloor.slice(1), 16);
+			children.push(
+				rect(`river-biome-${i}-left`, { x: 0, y, w: cell, h }, color),
+				rect(`river-biome-${i}-right`, { x: river.world.w - cell, y, w: cell, h }, color),
+			);
+		});
+	}
 	const { steps } = riverElevation(river.waterfalls);
 	river.waterfalls?.forEach((r, i) => {
 		const step = steps.find((s) => s.line === r.y + r.h / 2);

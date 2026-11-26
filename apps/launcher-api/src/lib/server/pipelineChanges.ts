@@ -1,5 +1,12 @@
 import { error } from '@sveltejs/kit';
+import {
+	fixDecisionState,
+	parseFixRunBranch,
+	type FixRunChoice,
+	type FixRunExplanation,
+} from '$lib/bugFixRuns';
 import { PIPELINE_MERGE_CAPABILITY, roleHasCapability } from '$lib/roles';
+import { allFixRunsOfBug, fixDecisionsOfBug, getFixRun } from './bugFixRunsStore';
 import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './concurrency';
 import { ENV } from './env';
 import { githubApp, GithubAppError, type GithubApp } from './githubApp';
@@ -244,6 +251,25 @@ export interface ChangeFile {
 	url: string | null;
 }
 
+/**
+ * What a fix run's change is, read from the launcher's records and never from the pull request's
+ * body, which anyone can edit on GitHub (ADR-0014 §3). `choice` is null for a build from before fix
+ * runs asked first. `decision` is whether the option it was built for is the one recorded on the
+ * bug: Mark ready for review and merge refuse a change whose decision is not `ok`.
+ */
+export interface ChangeFixRun {
+	bug: number;
+	runId: string;
+	choice: FixRunChoice | null;
+	explanation: FixRunExplanation | null;
+	diagnosis: {
+		reported: string;
+		cause: string;
+		otherOptions: { id: string; name: string; change: string }[];
+	} | null;
+	decision: { ok: boolean; reason: string | null };
+}
+
 export interface ChangeDetail extends ChangeSummary {
 	state: string;
 	body: string | null;
@@ -262,6 +288,8 @@ export interface ChangeDetail extends ChangeSummary {
 	harness: HarnessCheck;
 	/** The agent evaluation; null unless the change carries the `agent-definition` label. */
 	agentEval: AgentEvalCheck | null;
+	/** Set when a fix run built this change: what it explains and the decision it answers to. */
+	fixRun: ChangeFixRun | null;
 	/**
 	 * The runtime family packs it edits (ADR-0009 §4). A pack reaches every agent's prompt, but the
 	 * `agent-eval` workflow evaluates one definition only, so the page says its eval is owed by hand.
@@ -692,14 +720,45 @@ async function readPull(number: number, app: GithubApp): Promise<GhPull> {
 	return pull;
 }
 
+/**
+ * The fix run behind a change, when there is one: its branch is `bug-<n>-fix-<id>` AND the run
+ * with that id opened this very pull request. Any other change is an ordinary one: null.
+ */
+export async function fixRunOfChange(branch: string, number: number): Promise<ChangeFixRun | null> {
+	const named = parseFixRunBranch(branch);
+	const run = named && (await getFixRun(named.id));
+	if (!run || run.prNumber !== number) return null;
+	const [runs, decisions] = await Promise.all([
+		allFixRunsOfBug(run.bugNumber),
+		fixDecisionsOfBug(run.bugNumber),
+	]);
+	const state = fixDecisionState(run, runs, decisions);
+	const parent = runs.find((r) => r.id === run.parentRunId)?.diagnosis ?? null;
+	return {
+		bug: run.bugNumber,
+		runId: run.id,
+		choice: run.chosenOption,
+		explanation: run.explanation,
+		diagnosis: parent && {
+			reported: parent.reported,
+			cause: parent.cause,
+			otherOptions: parent.options
+				.filter((o) => o.id !== run.chosenOption?.optionId)
+				.map((o) => ({ id: o.id, name: o.name, change: o.change })),
+		},
+		decision: state.ok ? { ok: true, reason: null } : { ok: false, reason: state.reason },
+	};
+}
+
 /** One change in full: files, why, Check 1, Check 2 with its approvals. Always fresh. */
 export async function getChange(number: number, app: GithubApp = githubApp): Promise<ChangeDetail> {
 	const r = repo();
 	const pull = await readPull(number, app);
 	const sha = pull.head.sha;
-	const [head, { files, truncated }] = await Promise.all([
+	const [head, { files, truncated }, fixRun] = await Promise.all([
 		readHead(app, sha),
 		pullFiles(app, number),
+		fixRunOfChange(pull.head.ref, number),
 	]);
 	const run = harnessRunOf(head, sha);
 	const status = harnessStatusOf(head);
@@ -722,7 +781,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		...summaryOf(pull, head, agentEval),
 		state: pull.state,
 		body: pull.body,
-		why: whyFromBody(pull.body),
+		why: fixRun?.explanation?.changed ?? whyFromBody(pull.body),
 		baseBranch: pull.base.ref,
 		mergeableState: pull.mergeable_state ?? null,
 		mergeable: pull.mergeable ?? null,
@@ -748,6 +807,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			unapprovable,
 		},
 		agentEval,
+		fixRun,
 	};
 }
 
