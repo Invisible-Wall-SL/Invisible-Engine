@@ -1461,8 +1461,8 @@ renaming or redrawing anything. Pick a template in **＋ New rig → Apply saved
 (Half body for the full result), pick the sheet in **Atlas (images)**, then click **🗺 From my
 sheet…**. What each step does is the tooltip on the dialog's title.
 
-1. **The regions.** The **Regions** section of the side panel shows every region of the sheet with the
-   part it is mapped to under it.
+1. **The regions.** The **Regions** section of the side panel shows every region of the sheet with
+   the part it is mapped to under it.
    Each template part is matched to the region its name says, read as words in any order or case
    (`L_arm_upper`, `arm_upper_left`, `ArmL1` and `brazo_izq_1` are all `upper_arm_l`; `ArmR2` is
    `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is
