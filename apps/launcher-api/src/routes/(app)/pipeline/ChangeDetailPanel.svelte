@@ -3,6 +3,7 @@
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
 	import type { MergeResult } from '$lib/server/pipelineMerge';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import AgentEvalSection from './AgentEvalSection.svelte';
 	import Pill from './Pill.svelte';
@@ -11,6 +12,7 @@
 		FIX_NOT_RECORDED_TEXT,
 		MERGE_RETRY_TEXT,
 		NO_CHECKS_TEXT,
+		RERECORD_NOTE_TEXT,
 		apiErrorText,
 		approvalBlocker,
 		approvalState,
@@ -26,6 +28,7 @@
 		mergedText,
 		plural,
 		readyBar,
+		rerecordBar,
 		reportImageUrl,
 		rowCells,
 		safeHref,
@@ -64,6 +67,8 @@
 	let mergeError = $state<{ text: string; retry: boolean } | null>(null);
 	let merged = $state<MergeResult | null>(null);
 	let readyError = $state<string | null>(null);
+	let rerecordError = $state<string | null>(null);
+	let rerecorded = $state<string | null>(null);
 
 	const harness = $derived({
 		...detail.harness,
@@ -102,6 +107,7 @@
 	const bar = $derived(mergeBar(detail, canMerge, blocker?.byHand ?? false));
 	const draftBar = $derived(readyBar(detail, canMerge));
 	const fix = $derived(fixApprovalState(detail, now));
+	const rerecord = $derived(rerecordBar(detail, canMerge));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -224,6 +230,35 @@
 			await reread();
 		} catch (err) {
 			readyError = err instanceof Error ? err.message : String(err);
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function rerecordBytes(): Promise<void> {
+		if (busy || !rerecord) return;
+		const { number } = detail;
+		const confirmed = await askConfirm({
+			title: `Re-record runtime bytes for #${number}`,
+			message: `Commits CI's Linux manifests for the released runtimes onto this branch (scripts/runtime-bytes). The manifest diff is what review reads. It does not merge.`,
+			confirmLabel: 'Re-record',
+		});
+		if (!confirmed) return;
+		busy = 'rerecord';
+		rerecordError = null;
+		rerecorded = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${number}/runtime-bytes`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ headSha: rerecord.headSha }),
+			});
+			const body = (await res.json().catch(() => null)) as { runtimes?: string[] } | null;
+			if (!res.ok) rerecordError = apiErrorText(res.status, body);
+			else rerecorded = `Re-recorded ${(body?.runtimes ?? []).join(', ')}. ${RERECORD_NOTE_TEXT}`;
+			await reread();
+		} catch (err) {
+			rerecordError = err instanceof Error ? err.message : String(err);
 		} finally {
 			busy = null;
 		}
@@ -386,7 +421,7 @@
 					{/if}
 				{/each}
 			</div>
-			<details class="jobs">
+			<details class="jobs" open={c1.kind === 'fail'}>
 				<summary>Jobs</summary>
 				{#each detail.checks as g (g.workflow)}
 					<h4>{g.workflow}</h4>
@@ -400,11 +435,36 @@
 								{:else}
 									{job.name}
 								{/if}
+								{#if job.instruction}
+									<span class="job-instruction">{job.instruction}</span>
+								{:else if job.instructionUnread}
+									<span class="job-instruction dim"
+										>GitHub did not give this job's instruction.</span
+									>
+								{/if}
 							</li>
 						{/each}
 					</ul>
 				{/each}
 			</details>
+			{#if rerecord}
+				<div class="rerecord">
+					<button
+						type="button"
+						class="btn primary"
+						disabled={busy !== null}
+						onclick={rerecordBytes}
+					>
+						{busy === 'rerecord' ? 'Re-recording…' : 'Re-record runtime bytes'}
+					</button>
+					<InfoTip label="What this does">
+						Takes the manifests the failed runtime-bytes run built on CI's Linux machine and commits
+						them to this branch as the App. Use it when the change is meant to reach the runtimes.
+					</InfoTip>
+				</div>
+			{/if}
+			{#if rerecordError}<div class="callout red" role="alert">{rerecordError}</div>{/if}
+			{#if rerecorded}<div class="callout green" role="status">{rerecorded}</div>{/if}
 		{/if}
 	</section>
 
@@ -995,9 +1055,22 @@
 	}
 	.jobs li {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 8px;
 		padding: 3px 0;
 		color: #c9c9d1;
+	}
+	.job-instruction {
+		flex-basis: 100%;
+		margin-left: 68px;
+		color: #d8d8e0;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.rerecord {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 	.job-state {
 		flex: none;

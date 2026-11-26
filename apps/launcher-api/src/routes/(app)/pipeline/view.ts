@@ -481,6 +481,37 @@ export function readyBar(
 	};
 }
 
+/** The words `check-runtime-bytes.mjs` ends a failed comparison on, which its annotation carries. */
+export const RUNTIME_BYTES_SENTENCE = 'a runtime is not the bytes it was';
+/** The check run, and its workflow, that compares the runtimes with their manifests. */
+export const RUNTIME_BYTES_JOB = 'runtime-bytes';
+export const RERECORD_NOTE_TEXT =
+	'CI re-checks the new head; if main changed the runtimes meanwhile, re-record again.';
+
+export interface RerecordBar {
+	/** The head the failed run built: what the server pins the commit to. */
+	headSha: string;
+}
+
+/**
+ * Re-record runtime bytes: offered on an open change whose newest `runtime-bytes` job failed with
+ * the closing sentence of `check:runtime-bytes` (not for a leak it cannot tell from a change, and
+ * not for any other failure), to a `pipelineMerge` holder. Changes are branches of this repository
+ * only (forks are never listed), and the server refuses a head that moved. Null: nothing to offer.
+ */
+export function rerecordBar(
+	detail: Pick<ChangeDetail, 'state' | 'merged' | 'headSha' | 'checks'>,
+	canMerge: boolean,
+): RerecordBar | null {
+	if (!canMerge || detail.state !== 'open' || detail.merged) return null;
+	const job = detail.checks
+		.flatMap((g) => g.jobs)
+		.filter((j) => j.name === RUNTIME_BYTES_JOB)
+		.at(-1);
+	if (job?.state !== 'fail' || !job.instruction?.includes(RUNTIME_BYTES_SENTENCE)) return null;
+	return { headSha: detail.headSha };
+}
+
 /** The bar after a merge: "Merged into main as <sha> by <who> · just now". */
 export function mergedText(
 	result: { merge: Pick<CompletedMerge, 'mergeSha' | 'mergedBy' | 'at'>; already: boolean },
