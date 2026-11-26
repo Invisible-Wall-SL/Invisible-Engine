@@ -1726,6 +1726,158 @@ const newerP6 = (): P6Doc => {
 	);
 }
 
+// ── Components: a prop's collider and its nodes' bands (arcade-prop-components P1) ─────────
+
+const PROP = {
+	zoneKind: 'bridge',
+	fromZone: { length: 'length', height: 'height' },
+	collider: {
+		characters: ['fisherman'],
+		deck: { from: 0, to: { param: 'length', plus: -1 }, height: { param: 'height' } },
+		snap: 0.5,
+		ramps: { near: { length: 3 }, far: { length: { param: 'ramp' } } },
+		hole: 'deckAndRamps',
+		solids: [{ x: 0, y: -1, w: 6, h: 0.2, collide: 'oneWay', side: 'below' }],
+	},
+	preview: { length: 6, height: 6 },
+};
+const PROP_COMPONENT = {
+	...COMPONENT,
+	category: 'scenery',
+	params: [
+		{ key: 'length', kind: 'number', default: 6, engineProvided: true },
+		{ key: 'height', kind: 'number', default: 6, engineProvided: true },
+		{ key: 'ramp', kind: 'number', default: 2 },
+	],
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		propDepth: 'behind',
+		children: [
+			{ id: 'n_reflect', kind: 'sprite', x: 0, y: 0, propDepth: 'water' },
+			{ id: 'n_deck', kind: 'sprite', x: 0, y: 0, propDepth: 'sorted', propZOffset: 1100 },
+			{ id: 'n_arch', kind: 'sprite', x: 0, y: 0, propDepth: 'over' },
+		],
+	},
+	prop: PROP,
+};
+interface PropDoc {
+	prop?: Record<string, unknown> & { collider: Record<string, unknown> };
+	root: StoredNode;
+	[key: string]: unknown;
+}
+const propOf = (doc: unknown): PropDoc['prop'] => (doc as PropDoc).prop;
+
+{
+	const loaded = normalizeComponent(structuredClone(PROP_COMPONENT) as unknown as Def);
+	check('components prop: the read keeps the prop block as authored', loaded.prop, PROP);
+	check(
+		'components prop: …and every node’s band and offset, the root’s included',
+		[
+			loaded.root.propDepth,
+			...loaded.root.children.map((n) => [n.propDepth, n.propZOffset ?? null]),
+		],
+		['behind', ['water', null], ['sorted', 1100], ['over', null]],
+	);
+	const bad = structuredClone(PROP_COMPONENT) as unknown as PropDoc;
+	Object.assign(bad.prop!, { preview: { length: 6, height: 'tall' } });
+	bad.prop!.collider.solids = [
+		{ x: 0, y: 0, w: 1, h: 1, collide: 'solid' },
+		{ x: 0, y: 0, w: 1, h: 1, collide: 'spiky' },
+		{ x: 'a', y: 0, w: 1, h: 1, collide: 'solid' },
+	];
+	bad.prop!.collider.characters = ['fisherman', '', 'fisherman', 7];
+	Object.assign(bad.root.children[0], { propDepth: 'ceiling' });
+	Object.assign(bad.root.children[1], { propZOffset: 'high' });
+	const cleaned = normalizeComponent(bad as unknown as Def);
+	check(
+		'components prop: a malformed solid, character, preview entry, band or offset drops',
+		[
+			cleaned.prop?.collider.solids,
+			cleaned.prop?.collider.characters,
+			cleaned.prop?.preview,
+			'propDepth' in cleaned.root.children[0],
+			['sorted', 'propZOffset' in cleaned.root.children[1]],
+		],
+		[
+			[{ x: 0, y: 0, w: 1, h: 1, collide: 'solid' }],
+			['fisherman'],
+			{ length: 6 },
+			false,
+			['sorted', false],
+		],
+	);
+	resetComponents();
+	const malformed = structuredClone(PROP_COMPONENT) as unknown as PropDoc;
+	delete malformed.prop!.collider.ramps;
+	check(
+		'components prop: a save of a prop with no ramps is refused',
+		await outcome(() => saveComponent(malformed as unknown as Def, 'p', null)),
+		'ComponentValidationError',
+	);
+	check('components prop: …and writes nothing', bucket.has(componentKey), false);
+	const plain = normalizeComponent(structuredClone(COMPONENT) as unknown as Def);
+	check('components prop: a def without one reads with no prop', 'prop' in plain, false);
+}
+
+{
+	// A newer build's field inside `prop` and inside its collider survives an older no-op save.
+	resetComponents();
+	const newer = structuredClone(PROP_COMPONENT) as unknown as PropDoc;
+	Object.assign(newer.prop!, { variants: [{ id: 'mossy' }] });
+	Object.assign(newer.prop!.collider, { sway: 0.2 });
+	const etag = seed(componentKey, newer);
+	const loaded = olderView();
+	check(
+		'components prop: the read drops the newer prop and collider fields',
+		['variants' in loaded.prop!, 'sway' in loaded.prop!.collider],
+		[false, false],
+	);
+	const result = await saveComponent(loaded, 'p', etag);
+	const after = propOf(stored(componentKey));
+	check('components prop: a no-op save keeps the version', result.version, 3);
+	check(
+		'components prop: …and keeps both newer fields',
+		[after?.variants, after?.collider.sway],
+		[[{ id: 'mossy' }], 0.2],
+	);
+	const edited = structuredClone(olderView()) as unknown as PropDoc;
+	edited.prop!.collider.snap = 0.4;
+	const bumped = await saveComponent(edited as unknown as Def, 'p', bucket.get(componentKey)?.etag);
+	const afterEdit = propOf(stored(componentKey));
+	check(
+		'components prop: a collider edit bumps and still keeps them',
+		[bumped.version, afterEdit?.collider.snap, afterEdit?.variants, afterEdit?.collider.sway],
+		[4, 0.4, [{ id: 'mossy' }], 0.2],
+	);
+	const unmade = structuredClone(olderView()) as unknown as PropDoc;
+	delete unmade.prop;
+	await saveComponent(unmade as unknown as Def, 'p', bucket.get(componentKey)?.etag);
+	check(
+		'components prop: removing the prop removes its newer fields with it',
+		'prop' in stored(componentKey),
+		false,
+	);
+}
+
+{
+	// A stored prop this build cannot read (a newer hole): the read drops it, the save puts it back.
+	resetComponents();
+	const newer = structuredClone(PROP_COMPONENT) as unknown as PropDoc;
+	newer.prop!.collider.hole = 'deckOnlyAtNight';
+	const etag = seed(componentKey, newer);
+	const loaded = olderView();
+	check('components prop: an unreadable prop reads as none', 'prop' in loaded, false);
+	const result = await saveComponent(loaded, 'p', etag);
+	check(
+		'components prop: a no-op save keeps the version and the prop, whole',
+		[result.version, propOf(stored(componentKey))],
+		[3, newer.prop],
+	);
+}
+
 // ── Component defaults ("This game's defaults"): `{ id, params }` plus a newer build's fields ─
 
 {

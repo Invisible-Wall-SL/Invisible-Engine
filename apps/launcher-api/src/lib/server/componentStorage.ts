@@ -47,6 +47,7 @@ import {
 	normalizeEvents,
 	normalizeRootListeners,
 } from '../componentEventRows';
+import { normalizeProp, normalizePropDepths } from './componentProp';
 import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
 import { loadSharedSkeletonIndex } from './rig';
 import { loadedStoredDoc } from './unknownBlocks';
@@ -852,6 +853,11 @@ function validateComponent(component: ComponentDef): ComponentDef {
 	if (!isContainerNode(component.root)) {
 		throw new Error("Component root must be a node with kind 'container'.");
 	}
+	if (component.prop !== undefined && !normalizeProp(component.prop)) {
+		throw new Error(
+			'Component prop needs a zone kind, a fromZone.length param, and a collider with a deck, ramps, a snap and a known hole.',
+		);
+	}
 	return normalizeComponent(component);
 }
 
@@ -868,7 +874,9 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		version: raw.version,
 		scope: raw.scope,
 		category: raw.category,
-		root: normalizeRootRepeaters(normalizeRootListeners(identityComponentRoot(raw.root))),
+		root: normalizePropDepths(
+			normalizeRootRepeaters(normalizeRootListeners(identityComponentRoot(raw.root))),
+		),
 	};
 	// Authoring/preview space (default 'game' = omitted). Only persist a non-default
 	// value the editor understands; an unknown/absent value falls back to game space.
@@ -904,6 +912,10 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	// The clips an arcade character plays in an online room (Salmons' S0 art).
 	const characterClips = normalizeCharacterClips(raw.characterClips);
 	if (characterClips) def.characterClips = characterClips;
+	// A prop's collider and the zone params it reads (arcade-prop-components §2); the rules read it
+	// compiled (`engine-mechanics` `compilePropShape`), which refuses what is unplayable.
+	const prop = normalizeProp(raw.prop);
+	if (prop) def.prop = prop;
 	// Enforce "no binding without its param": drop node bindings that point at a param
 	// dropped above (or deleted in the editor), so a corrupt def can't be saved and an
 	// already-orphaned one self-heals on its next load/save.
@@ -1175,7 +1187,8 @@ function isContainerNode(input: unknown): input is ContainerNode {
  * the authoritative invariant that keeps the engine path (which applies root's
  * transform via `LayoutNodeView`) and the editor canvas (which skips it) in
  * agreement, and stops a dropped instance from being offset by a baked-in scene
- * transform. Keeps only id/kind/children + optional box (width/height) + label.
+ * transform. Keeps only id/kind/children + optional box (width/height) + label, and a prop's
+ * band for the whole tree (`propDepth` / `propZOffset`, not a transform).
  */
 function identityComponentRoot(root: ContainerNode): ContainerNode {
 	const next: ContainerNode = {
@@ -1188,6 +1201,8 @@ function identityComponentRoot(root: ContainerNode): ContainerNode {
 	if (typeof root.width === 'number') next.width = root.width;
 	if (typeof root.height === 'number') next.height = root.height;
 	if (typeof root.label === 'string') next.label = root.label;
+	if (root.propDepth !== undefined) next.propDepth = root.propDepth;
+	if (root.propZOffset !== undefined) next.propZOffset = root.propZOffset;
 	return next;
 }
 

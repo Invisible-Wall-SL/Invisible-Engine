@@ -110,6 +110,26 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-26 — **Prop components P1: the model and the compile** ([arcade-prop-components](../design/arcade-prop-components.md)
+  §7 P1, branch `claude/bold-cannon-3a8unw`, in review). `ComponentDef.prop` (`ArcadeProp`:
+  `zoneKind`, `fromZone`, `collider` with `PropLength` deck / ramps, `snap`, `hole`, opt-in
+  `solids`, editor-only `preview`) and each node's `propDepth` (`PROP_DEPTHS`: water / behind /
+  sorted / over) and `propZOffset` in `engine-layout` `types.ts`; `PROP_INPUTS` (`occupied`,
+  `stepOn`, `stepOff`) in `componentInterface.ts`. `engine-mechanics/src/propShape.js` (+ `.d.ts`,
+  deep-imported, not in the package index): `compilePropShape(def)` → `{ from, zoneKind }` plus the
+  fields that differ from today's bridge (`PROP_SHAPE_DEFAULTS`: ramps `BRIDGE_SLOPE` 2 both ends,
+  height `BRIDGE_HEIGHT` 6, snap 0.5, hole `deckAndRamps`, characters the bridge rule's), throwing
+  a `PropShapeError` with every problem (`propShapeErrors`) for a bad zone kind or zone param, a
+  deck that does not span its zone, a non-positive / non-numeric / zone-length-following length, a
+  snap outside (0, 1], an unknown hole or a malformed solid. The launcher keeps it through a save
+  (`src/lib/server/componentProp.ts`, kind lists imported from `engine-mechanics` / `engine-layout`):
+  malformed solids, characters, preview entries, bands and offsets drop; a save of a prop missing a
+  deck, ramps, snap or known hole is refused (400); a newer build's field inside `prop` or its
+  collider is kept, and a stored prop this build cannot read is put back whole
+  (`componentUnknownFields.ts`). Nothing reads any of it at runtime yet (P2), so every game is
+  untouched. Gates: `pnpm check:prop-shape` (new, 24), `check:save-keeps-unknown-blocks` (prop
+  section, 156 → 169), `pnpm --filter engine-layout build`, `check:svelte` at baseline
+  (engine-layout 290, launcher-api 44).
 - 2026-11-20 — **Invisible Characters creates a component through this save** (character
   pipeline C6b, in review; [status/game-families](game-families.md)). `componentSaveRequest` /
   `componentSaveError` moved to `$lib/componentSave.client.ts`; Characters' *＋ Add* posts a

@@ -1,6 +1,7 @@
 # Arcade prop components — a component that carries its own collision (Salmons' bridge first)
 
-**Status: planned, 2026-11-26. No feature code.** Owner ask of 2026-11-26. Agents:
+**Status: P1 (model and compile) built 2026-11-26, in review; P2–P8 planned.** Owner ask of
+2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
 [status/salmons](../status/salmons.md) (the rules and the runtime) and
@@ -26,6 +27,10 @@ Decided by the owner, not to be re-asked:
 3. **The component window sets depth per part:** which parts draw behind a character and which in
    front. For example, the deck and the railings over a fisherman walking under, and a fisherman
    standing on the deck drawn over the planks.
+4. **`occupied` counts only the characters the prop carries** (§8 Q1): no `under` input.
+5. **Railings may stop a fisherman stepping off the deck's side** (§8 Q3): a prop's `solids`,
+   opt-in. The seed bridge has none.
+6. **The code-drawn bridge is deleted** once the seed def matches it (§8 Q6, P5): no dual path.
 
 Today's bridge is drawn in code (`salmonsArt/river.ts`, sizes shared with the rule through
 `salmonsArt/bridge.ts`). Its collision is two constants and a hole cut in the water
@@ -77,8 +82,9 @@ interface PropCollider {
 	ramps: { near: { length: PropLength }; far: { length: PropLength } };
 	/** How the water under it opens to `characters`: deck + ramps, padded by the body. */
 	hole: 'deckAndRamps' | 'deck' | 'none';
-	/** Optional extra blockers in the deck's own cell frame (a railing post, a gate). The vocabulary
-	 *  is `TileCollide`'s: `solid` from every side, `oneWay` from the side it names. */
+	/** Optional extra blockers in the deck's own cell frame (a railing, a post, a gate). The
+	 *  vocabulary is `TileCollide`'s: `solid` from every side, `oneWay` from the side it names (a
+	 *  side exactly when one-way). Absent `characters` ⇒ the collider's. */
 	solids?: { x: number; y: number; w: number; h: number; collide: 'solid' | 'oneWay';
 		side?: 'below' | 'above' | 'left' | 'right'; characters?: string[] }[];
 }
@@ -91,15 +97,16 @@ type PropDepth =
 	| 'over';   // over every character, the ones aloft on this prop included (an overhead arch)
 // BaseNode gains `propDepth?: PropDepth; propZOffset?: number`; read only inside a `prop` def.
 
-/** The compiled shape: plain JSON, what the server and the generator read. No art, no nodes. */
+/** The compiled shape: plain JSON, what the server and the generator read. No art, no nodes.
+ *  A field is present only when it differs from today's rule (§3). */
 interface PropShape {
 	from: { component: string; version: number };
 	zoneKind: 'bridge';
 	characters?: string[];
-	height: number;           // cells, the default when a level names none
-	snap: number;             // cells
-	ramp: { near: number; far: number };   // cells
-	hole: 'deckAndRamps' | 'deck' | 'none';
+	height?: number;          // cells, the default when a level names none
+	snap?: number;            // cells
+	ramp?: { near: number; far: number };  // cells, both ends when either differs
+	hole?: 'deckAndRamps' | 'deck' | 'none';
 	solids?: PropCollider['solids'];
 }
 // game-config: arcade.online.props?: { [zoneFamily: string]: PropShape }   (e.g. 'bridge#')
@@ -109,6 +116,15 @@ Lengths are cells, measured along the zone. Because of this a generated bridge o
 the same def: the generator places bridges by seed, with a variable deck `gyStart..gyEnd`
 (`salmonsMap.js`). `deck.to` is `{ param: 'length', plus: -1 }`. `deck.height` and the ramps may be
 numbers or params.
+
+As built (P1): the types are in `engine-layout` `types.ts` (`PropSolid`, `PropHole` beside the
+above; `PROP_DEPTHS` the band list). The collider's own lists (`PROP_ZONE_KINDS`, `PROP_HOLES`,
+`PROP_SOLID_COLLIDES`, `PROP_SOLID_SIDES`) are defined once, in `engine-mechanics`
+`propShape.js`, which the launcher's normalizer imports. The compile resolves a param length by
+the param's default. It refuses what the rules cannot play. That is a deck that does not run from
+0 to `{ param: <fromZone.length>, plus: -1 }` (the rule's deck is the zone's), a ramp or height
+that follows the zone's length or is not more than 0, a `plus` on the zone's height, a snap
+outside (0, 1] cell, an unknown hole or zone kind, and a malformed solid.
 
 The deck tiles repeat per cell. The `sorted` band holds a **count-mode repeater** whose `first` /
 `middle` / `last` variants are the near, middle and far deck tiles. This is today's `RepeaterNode`
@@ -132,7 +148,8 @@ Today's constants, all of which the default reproduces:
 The pipeline, server side (the server never loads a component):
 
 1. **Compile** (`engine-mechanics` `propShape.js`, plain JS so the game server, the device and the
-   launcher share one function): `compilePropShape(def.prop) → PropShape`. A field equal to the
+   launcher share one function): `compilePropShape(def) → PropShape` (the def, for its `from`
+   stamp and its params; `propShapeErrors(def)` lists the problems for the editor). A field equal to the
    table's value is **dropped**. A def that reproduces today's bridge therefore compiles to
    `{ from, zoneKind }` only.
 2. **Normalize** (`game-config` `normalizeOnlineProps`, called by `normalizeArcadeOnline`). The
@@ -245,7 +262,8 @@ the 2-cell near slope) has merged.
    *Proof:* new `pnpm check:prop-shape` (root): a def written as today's bridge compiles to
    `{from, zoneKind}`, each non-default field survives, and a bad length is refused.
    `pnpm --filter launcher-api check:save-keeps-unknown-blocks` (a `prop` section).
-   `pnpm --filter engine-layout build`.
+   `pnpm --filter engine-layout build`. **Built 2026-11-26, in review** (detail:
+   [status/component-editor](../status/component-editor.md)).
 2. **P2 — the rules read the shape.** `normalizeOnlineProps`; `salmonsGeometry` writes the rule
    fields and cuts the holes from them; `bridges.deckOf` takes per-end ramps and `snap`.
    *Proof:* `check:prop-shape` §2 (the lift at every eighth of a cell, over the deck and both ramps,
@@ -271,8 +289,14 @@ the 2-cell near slope) has merged.
    cells, and a character with `z > 0` sorts over `sorted` and under `over`.
    `salmons-play.mjs --bridge-component` (new flag) screenshots a fisherman under, on the ramp and on
    the deck, and logs the triggers.
+   **Then delete the code-drawn bridge** (owner, §8 Q6), in the same phase once the parity check
+   passes: the seed component replaces `river.ts`'s bridge drawing, which is deleted, with what of
+   `salmonsArt/bridge.ts` only that drawing used. No dual path is left. The no-component
+   default is the seed `bridgeProp`. `check:prop-depth` and `check:salmons-art` then pin the seed's
+   bands and depths against the deleted code's recorded `Z` values, not against the code.
 6. **P6 — the ship chain.** Zone art `component` source (normalizer + card); compile on config
-   save and Publish; `zoneArtComponentRoots` in the bake and the export; boot registration.
+   save and Publish; `zoneArtComponentRoots` in the bake and the export; boot registration;
+   `loadComponentForGame` strips the editor-only `prop.preview`, as it strips `guides`.
    *Proof:* `pnpm --filter launcher-api check:zone-art` (new sections: the source round-trips, the
    compiled block is written and stamped, a stale pin warns, the def and its art are in the bundle's
    closure), `check:component-links`. Then a real bake + pull of Salmons with the seed copy.
@@ -305,15 +329,19 @@ the 2-cell near slope) has merged.
 
 ## 8. Open questions for the owner
 
-1. Should `occupied` count only the characters the bridge carries (fishermen), or also a salmon
-   or bear passing under (a second input, `under`)?
-2. When the component gets a new version, does `/config` re-pin it automatically on the next save,
-   or only when the author chooses it (the plan's default: the author chooses)?
-3. Should railings be able to stop a fisherman stepping off the deck's side (`solids`)? It is new
-   behaviour, opt-in only, and the default bridge has none.
-4. Should a bear or a salmon ever be stopped by a bridge (a low bridge), or do they always pass
-   under?
-5. Should one level be able to use two bridge looks (a variant per bridge, picked by seed, as zone
-   art variants are), each with its own collider? The plan has one shape per family.
-6. Once the seed def has been checked against the code look, can the code-drawn bridge be deleted
-   (a later parity-checked PR), or does it stay the no-component default for good?
+Answered by the owner on 2026-11-26 unless marked open.
+
+1. **Decided: no.** `occupied` counts only the characters the prop carries (the fishermen). There
+   is no `under` input for a salmon or a bear passing under.
+2. **Open.** When the component gets a new version, does `/config` re-pin it automatically on the
+   next save, or only when the author chooses it? The plan keeps its default: the author chooses.
+3. **Decided: yes.** A prop's `solids` may stop a fisherman stepping off the deck's side (a
+   railing). It is new behaviour and opt-in: the default and seed bridge have none, so parity holds.
+4. **Expressible, not used by the default; owner to confirm.** A bear or a salmon stopped by a low
+   bridge needs no new field: it is a solid whose `characters` name them (`solids[].characters`,
+   the vocabulary of Q3). The seed bridge has none, so they pass under as today.
+5. **Open.** Should one level be able to use two bridge looks (a variant per bridge, picked by
+   seed, as zone art variants are), each with its own collider? The plan keeps one shape per
+   family.
+6. **Decided: delete it.** Once the seed def matches the code look, the code-drawn bridge is
+   deleted, an explicit, parity-checked step of P5 (§7). No dual path is left.
