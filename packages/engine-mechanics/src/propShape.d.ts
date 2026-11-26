@@ -40,6 +40,7 @@ export type PropShapeInput = {
 			ramps: { near: { length: PropShapeLength }; far: { length: PropShapeLength } };
 			hole: string;
 			solids?: readonly PropShapeSolid[];
+			sideExit?: boolean;
 		};
 	};
 };
@@ -58,6 +59,8 @@ export type PropShape = {
 	ramp?: { near: number; far: number };
 	hole?: PropShapeHole;
 	solids?: PropShapeSolid[];
+	/** A body moving across the row is not held on it (present only when on). */
+	sideExit?: true;
 };
 
 export const PROP_SHAPE_DEFAULTS: Readonly<
@@ -69,6 +72,7 @@ export const PROP_SHAPE_DEFAULTS: Readonly<
 			snap: number;
 			ramp: Readonly<{ near: number; far: number }>;
 			hole: PropShapeHole;
+			sideExit: false;
 		}>
 	>
 >;

@@ -1166,8 +1166,50 @@ const deckRules = (game) => {
 			far: rules[i].ramp?.far ?? BRIDGE_SLOPE,
 		},
 		snap: rules[i].snap ?? 0.5,
+		sideExit: rules[i].sideExit === true,
 	}));
 };
+
+/**
+ * Who stands on each bridge (`docs/design/arcade-prop-components.md` §4: a prop's `occupied`
+ * input), from what a room's state says of its players (`x`, `y`, `z`, the character's id): per
+ * bridge zone id, how many of the characters its rule carries are aloft (`z > 0`) with their
+ * centre within the rule's `snap` of the deck's row, over the deck or a ramp. Every bridge of the
+ * game is in the answer, 0 when nobody is on it. The device reads it from the synced state; the
+ * room's own `memo.bridge` is not synced and is not needed.
+ */
+export function bridgeOccupancy(game, players) {
+	const counts = new Map();
+	const decks = deckRules(game);
+	for (const d of decks) counts.set(d.id, 0);
+	for (const p of players) {
+		if (!(p.z > 0)) continue;
+		for (const d of decks) {
+			if (d.characters && !d.characters.includes(p.character)) continue;
+			if (Math.abs(p.y - (d.y + CELL / 2)) > d.snap * CELL) continue;
+			const near = d.x + CELL / 2 - p.x;
+			const far = p.x - (d.x + d.w - CELL / 2);
+			const off = Math.max(0, near, far) / CELL;
+			if (off > (near > far ? d.ramp.near : d.ramp.far)) continue;
+			counts.set(d.id, counts.get(d.id) + 1);
+			break;
+		}
+	}
+	return counts;
+}
+
+/** A prop's `stepOn` / `stepOff` triggers between two {@link bridgeOccupancy} answers: the zones
+ *  whose count went from 0 to more (`on`) and from more to 0 (`off`). */
+export function occupancySteps(before, after) {
+	const on = [];
+	const off = [];
+	for (const [zone, n] of after) {
+		const was = before?.get(zone) ?? 0;
+		if (!was && n) on.push(zone);
+		else if (was && !n) off.push(zone);
+	}
+	return { on, off };
+}
 
 /**
  * A fisherman on a bridge (a zone of `kind: 'bridge'`: a row of cells across the water, as high
@@ -1181,6 +1223,11 @@ const deckRules = (game) => {
  * its own numbers on the zone rule: `ramp: { near, far }` (cells, the `x` end and the `x + w` end,
  * each ramped over its own length) and `snap` (cells either side of the deck's row). A rule
  * without them is today's bridge.
+ *
+ * `sideExit` (owner, 2026-11-26; off unless a prop turns it on): a body on such a deck whose LAST
+ * INPUT moves it across the row (`moveY` ≠ 0: the deck runs along x) is not put back on the row,
+ * so the room's solids (a railing) stop it, and with none it walks off the side and is back on the
+ * ground once it is further than `snap` from the row. Let go, it is put back on the row.
  */
 const bridges = {
 	create(game, api) {
@@ -1200,13 +1247,20 @@ const bridges = {
 			}
 			return undefined;
 		};
+		const exits = decks.filter((d) => d.sideExit);
+		/** A body's last input, across the row or not, where a deck it walks lets it off the side. */
+		const across = (player, input) => {
+			if (exits.some((d) => appliesTo(d, player)))
+				player.memo.bridgeAcross = input.moveY !== 0 ? 1 : 0;
+		};
 		return {
+			...(exits.length ? { input: across } : {}),
 			step(world) {
 				for (const p of world.players) {
 					if (!decks.some((d) => appliesTo(d, p))) continue;
 					const on = p.status === api.STATUS.free ? deckOf(p) : undefined;
 					if (on) {
-						p.body.y = on.deck.y + CELL / 2;
+						if (!on.deck.sideExit || p.memo.bridgeAcross !== 1) p.body.y = on.deck.y + CELL / 2;
 						p.z = on.lift * CELL;
 						p.memo.bridge = 1;
 					} else if (p.memo.bridge === 1) {

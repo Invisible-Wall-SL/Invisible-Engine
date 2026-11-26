@@ -1969,6 +1969,9 @@ export interface PropCollider {
 	hole: PropHole;
 	/** Railings, posts, a gate: extra blockers, opt-in (the default bridge has none). */
 	solids?: PropSolid[];
+	/** A body moving across the row is not put back on it, so `solids` stop it and with none it
+	 *  steps off the side (owner, 2026-11-26). Absent / false ⇒ today's: held on the row. */
+	sideExit?: boolean;
 }
 
 export interface ArcadeProp {

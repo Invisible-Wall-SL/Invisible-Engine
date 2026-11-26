@@ -71,6 +71,8 @@ export type SalmonsGeometry = {
 		ramp?: { near: number; far: number };
 		/** How near a bridge's deck row a body is put on it, cells (a prop's; absent ⇒ ½). */
 		snap?: number;
+		/** A body moving across a bridge's row is not held on it (a prop's; absent ⇒ held). */
+		sideExit?: boolean;
 	}[];
 	spawn: { x: number; y: number };
 	/** By online character id. */

@@ -94,6 +94,7 @@ export function normalizeProp(input: unknown): ArcadeProp | undefined {
 		const solids = c.solids.map(normalizePropSolid).filter((s): s is PropSolid => !!s);
 		if (solids.length) collider.solids = solids;
 	}
+	if (c.sideExit === true) collider.sideExit = true;
 	const prop: ArcadeProp = {
 		zoneKind: input.zoneKind,
 		fromZone:

@@ -231,6 +231,14 @@ const SERVED = {
 		withProps({ 'bridge#': { ...RAMPED, from: { ...RAMPED.from, version: 4 } } }),
 	),
 	arted: ARTED,
+	'exit-off': rawOf(
+		undefined,
+		withProps({ 'bridge#': { from: RAMPED.from, zoneKind: 'bridge', sideExit: false } }),
+	),
+	'side-exit': rawOf(
+		undefined,
+		withProps({ 'bridge#': { from: RAMPED.from, zoneKind: 'bridge', sideExit: true } }),
+	),
 };
 for (const [name, doc] of Object.entries(SERVED))
 	writeFileSync(join(dir, `${name}.json`), JSON.stringify(doc));
@@ -566,7 +574,7 @@ try {
 				const device = generatedOnlineGame(deviceGame(SERVED[name]), Number(seed));
 				assert.equal(levelHash(device.game, device.made), hash, `${name}, ${seed}: the device`);
 			}
-		for (const name of ['restated', 'arted'])
+		for (const name of ['restated', 'arted', 'exit-off'])
 			for (const [seed, hash] of Object.entries(PINNED.published)) {
 				const { sim, said } = await roomOf(name, Number(seed));
 				assert.equal(said.levelHash, hash, `${name}, ${seed}`);
@@ -590,6 +598,9 @@ try {
 			const decided = roomLevelGame(deviceGame(SERVED.ramped), seed, said);
 			assert.ok(!('refused' in decided), `seed ${seed}: refused (${decided.refused})`);
 			assertSame(levelOf(decided.game), levelOf(sim.game), `seed ${seed}`);
+			// The side exit on is another level (its bridges' rules say so).
+			const exiting = await roomOf('side-exit', seed);
+			assert.notEqual(exiting.said.levelHash, plain.said.levelHash, `side exit, seed ${seed}`);
 			// A re-pin of the component with the same collider is the same level.
 			assert.equal((await roomOf('repinned', seed)).said.levelHash, said.levelHash);
 			// The room says the props it played, read again as themselves.

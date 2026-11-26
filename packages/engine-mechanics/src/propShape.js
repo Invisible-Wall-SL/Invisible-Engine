@@ -37,6 +37,7 @@ export const PROP_SHAPE_DEFAULTS = Object.freeze({
 		snap: 0.5,
 		ramp: Object.freeze({ near: BRIDGE_SLOPE, far: BRIDGE_SLOPE }),
 		hole: 'deckAndRamps',
+		sideExit: false,
 	}),
 });
 
@@ -157,6 +158,8 @@ function compile(def) {
 	}
 	if (collider.solids !== undefined && !Array.isArray(collider.solids))
 		fail('The solids are a list.');
+	if (collider.sideExit !== undefined && typeof collider.sideExit !== 'boolean')
+		fail('The side exit is on or off.');
 	const solids = (Array.isArray(collider.solids) ? collider.solids : []).map((s, i) =>
 		solid(s, `Solid ${i + 1}`, fail),
 	);
@@ -170,6 +173,7 @@ function compile(def) {
 	if (near !== defaults.ramp.near || far !== defaults.ramp.far) shape.ramp = { near, far };
 	if (collider.hole !== defaults.hole) shape.hole = collider.hole;
 	if (solids.length) shape.solids = solids;
+	if (collider.sideExit === true) shape.sideExit = true;
 	return { shape, errors };
 }
 
@@ -243,6 +247,7 @@ function readShape(raw) {
 		return solid ? [solid] : [];
 	});
 	if (solids.length) shape.solids = solids;
+	if (raw.sideExit === true) shape.sideExit = true;
 	return shape;
 }
 

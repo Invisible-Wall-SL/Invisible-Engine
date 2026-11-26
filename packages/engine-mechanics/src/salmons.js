@@ -410,7 +410,7 @@ const propOf = (props, id, kind) => {
  *
  * `props` (`arcade.online.props`, by zone family: `docs/design/arcade-prop-components.md` §3) are
  * the colliders of the game's prop components. A bridge's puts its fields on its zone rule
- * (`characters`, `ramp`, `snap`), its `height` on its zone, its `hole` in the water, and each of
+ * (`characters`, `ramp`, `snap`, `sideExit`), its `height` on its zone, its `hole` in the water, and each of
  * its `solids` as a solid zone of its own (`bridge<i>Solid<k>`, in the deck's cells from the
  * zone's corner) for the solid's characters, else the bridge's. With none, a bridge is today's: a shape
  * holds only what differs from it (`compilePropShape`), so the geometry, and `levelHash`, are too.
@@ -489,6 +489,7 @@ export function salmonsGeometry(river, props) {
 			characters: [...characters],
 			...(shape?.ramp ? { ramp: { near: shape.ramp.near, far: shape.ramp.far } } : {}),
 			...(shape?.snap !== undefined ? { snap: shape.snap } : {}),
+			...(shape?.sideExit ? { sideExit: true } : {}),
 		});
 		(shape?.solids ?? []).forEach((s, k) => {
 			const solid = `${id}Solid${k}`;

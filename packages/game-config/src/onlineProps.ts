@@ -33,6 +33,7 @@ export const ONLINE_PROP_DEFAULTS = Object.freeze({
 		snap: 0.5,
 		ramp: Object.freeze({ near: 2, far: 2 }),
 		hole: 'deckAndRamps',
+		sideExit: false,
 	}),
 });
 
@@ -100,6 +101,7 @@ export function normalizePropShape(raw: unknown): PropShape | undefined {
 		return solid ? [solid] : [];
 	});
 	if (solids.length) shape.solids = solids;
+	if (raw.sideExit === true) shape.sideExit = true;
 	return shape;
 }
 

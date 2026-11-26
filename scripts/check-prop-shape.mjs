@@ -47,6 +47,7 @@
 // Run: pnpm check:prop-shape
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
@@ -61,7 +62,11 @@ import {
 	propShapeErrors,
 	readPropShapes,
 } from '../packages/engine-mechanics/src/propShape.js';
-import { BRIDGE_SLOPE } from '../packages/engine-mechanics/src/salmonsRules.js';
+import {
+	BRIDGE_SLOPE,
+	bridgeOccupancy,
+	occupancySteps,
+} from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	SALMONS_MAP,
 	SALMONS_MAP_SEED,
@@ -467,6 +472,8 @@ const river = salmonsMapRiver(SEED);
 const BRIDGE = river.bridges[1];
 const PLANK = BRIDGE.y + CELL / 2;
 const FISHER = { x: 28, y: 44 };
+/** `walkTrace(undefined)`'s hash on the rule before the side exit existed. */
+const TODAYS_WALK = 'e1501b998ee0c84a62485e0754d0b794a96321969693cb5c0dd9dfdb6ead0e0f'; // pragma: allowlist secret (a trace hash)
 
 /** Salmons on the original's level of `SEED`, its config carrying `props` (none: as it ships). */
 const docWith = (props) => {
@@ -893,6 +900,146 @@ check('it is a launcher built-in, not a runtime one, internal, placed by no othe
 	);
 	assert.equal(new Set(BUILTIN_COMPONENTS.map((d) => d.id)).size, BUILTIN_COMPONENTS.length);
 });
+
+// ── §2 the side exit (owner, 2026-11-26: a switch, off unless a prop turns it on) ───────────
+
+/** A fisherman's scripted walk: from the near bank across the deck, weaving across the row (two
+ *  steps down, two up, three straight, all the while along it), then one pushing off the deck's
+ *  side mid-deck. Each step's place and height, to the micro-px. */
+const walkTrace = (props) => {
+	const room = roomWith(props, 'fisherman');
+	const M = MOVE_SCALE;
+	const trace = [];
+	const note = () =>
+		trace.push([room.p.body.x, room.p.body.y, room.p.z].map((v) => Math.round(v * 1e6)));
+	Object.assign(room.p.body, { x: BRIDGE.x - 3 * CELL, y: PLANK });
+	for (let i = 0; i < 300; i++) {
+		const k = i % 7;
+		room.run(1, { moveX: M, moveY: k < 2 ? M : k < 4 ? -M : 0 });
+		note();
+	}
+	Object.assign(room.p.body, { x: BRIDGE.x + BRIDGE.w / 2, y: PLANK });
+	for (let i = 0; i < 60; i++) {
+		room.run(1, { moveX: 0, moveY: M });
+		note();
+	}
+	return trace;
+};
+const traceHash = (trace) => createHash('sha256').update(JSON.stringify(trace)).digest('hex');
+
+check('side exit off: the walk is today’s, step for step', () => {
+	const today = walkTrace(undefined);
+	// Recorded with the rule before the switch existed (ca5763e's `bridges`).
+	assert.equal(traceHash(today), TODAYS_WALK);
+	assert.ok(
+		today.some(([, , z]) => z > 0),
+		'he was on the bridge',
+	);
+	for (const props of [bridgeProps({ sideExit: false }), bridgeProps({})])
+		assert.ok(isDeepStrictEqual(walkTrace(props), today), JSON.stringify(props));
+	assert.deepEqual(compiled({ sideExit: false }), FROM, 'off compiles away');
+	assert.deepEqual(compiled({ sideExit: true }), { ...FROM, sideExit: true });
+	refusedFor(bridge({ sideExit: 'yes' }), /side exit/);
+	assert.deepEqual(normalizeOnlineProps(bridgeProps({ sideExit: false })), bridgeProps({}));
+	assert.deepEqual(readPropShapes(bridgeProps({ sideExit: 1 })), bridgeProps({}));
+	assert.deepEqual(
+		readPropShapes(bridgeProps({ sideExit: true })),
+		bridgeProps({ sideExit: true }),
+	);
+	const rules = levelOf(bridgeProps({ sideExit: true })).online.rules.zones;
+	assert.ok(rules.filter((r) => r.kind === 'bridge').every((r) => r.sideExit === true));
+	assert.ok(levelOf(undefined).online.rules.zones.every((r) => !('sideExit' in r)));
+});
+
+/** A fisherman on the near ramp, a cell and a half before the deck, pushing across the row. */
+const pushOffRamp = (props, steps = 40) => {
+	const room = roomWith(props, 'fisherman');
+	const x = BRIDGE.x - CELL;
+	Object.assign(room.p.body, { x, y: PLANK });
+	const zs = [];
+	for (let i = 0; i < steps; i++) {
+		room.run(1, { moveX: 0, moveY: MOVE_SCALE });
+		zs.push(room.p.z);
+	}
+	return { room, zs };
+};
+
+check('side exit on: a railing stops him at the rail; none, he steps off and lands', () => {
+	// Held: today he never leaves the row, whatever he presses.
+	const held = pushOffRamp(undefined);
+	assert.equal(held.room.p.body.y, PLANK, 'today: put back on the row');
+	assert.ok(held.zs.every((z) => z > 0));
+	// Off the side, no railing: he walks off, and is on the ground once past the snap.
+	const off = pushOffRamp(bridgeProps({ sideExit: true }));
+	assert.ok(off.room.p.body.y > PLANK + CELL, `off the row (${off.room.p.body.y - PLANK})`);
+	assert.equal(off.room.p.z, 0, 'landed');
+	assert.equal(off.room.p.memo.bridge, 0);
+	assert.ok(off.zs[0] > 0, 'on the ramp at first');
+	// A railing along the lower side of the deck and both ramps (a tenth of a cell below his body
+	// on the row), run on past them further than Salmons' slide carries a body round an end.
+	const n = Math.round(BRIDGE.w / CELL);
+	const y = (CELL / 2 + FISHER.y) / CELL + 0.1;
+	const rail = { x: -8, y, w: n + 16, h: 0.2, collide: 'solid' };
+	const railed = pushOffRamp(bridgeProps({ sideExit: true, solids: [rail] }));
+	const stop = BRIDGE.y + rail.y * CELL - FISHER.y;
+	assert.ok(
+		Math.abs(railed.room.p.body.y - stop) < 1e-6,
+		`at the rail (${railed.room.p.body.y - stop})`,
+	);
+	assert.ok(railed.room.p.z > 0, 'still on the ramp');
+	// Let go, he is put back on the row.
+	railed.room.run(1, { moveX: 0, moveY: 0 });
+	assert.equal(railed.room.p.body.y, PLANK);
+	// Along the row (moveY 0) he is held on it as ever.
+	const along = roomWith(bridgeProps({ sideExit: true }), 'fisherman');
+	Object.assign(along.p.body, { x: BRIDGE.x - 3 * CELL, y: PLANK + CELL / 4 });
+	along.run(90, { moveX: MOVE_SCALE, moveY: 0 });
+	assert.equal(along.p.body.y, PLANK);
+});
+
+// ── §4 the prop's inputs from the room's state (`occupied`, `stepOn`, `stepOff`) ──────────────
+
+check(
+	'occupied is who the rule carries, from the synced x y z; a step on and off fire once',
+	() => {
+		for (const props of [undefined, bridgeProps({ ramp: { near: 3, far: 2 }, snap: 0.25 })]) {
+			const room = roomWith(props, 'fisherman');
+			const said = () => [
+				{ x: room.p.body.x, y: room.p.body.y, z: room.p.z, character: 'fisherman' },
+			];
+			Object.assign(room.p.body, { x: BRIDGE.x - 4 * CELL, y: PLANK });
+			let before;
+			const fired = { on: [], off: [] };
+			for (let i = 0; i < 400 && room.p.body.x < BRIDGE.x + BRIDGE.w + 4 * CELL; i++) {
+				room.run(1, { moveX: MOVE_SCALE, moveY: 0 });
+				const now = bridgeOccupancy(room.sim.game, said());
+				const on = room.p.z > 0 && room.p.memo.bridge === 1;
+				assert.equal(now.get('bridge1'), on ? 1 : 0, `step ${i}`);
+				for (const [zone, n] of now) if (zone !== 'bridge1') assert.equal(n, 0, zone);
+				const steps = occupancySteps(before, now);
+				fired.on.push(...steps.on);
+				fired.off.push(...steps.off);
+				before = now;
+			}
+			assert.deepEqual(fired, { on: ['bridge1'], off: ['bridge1'] }, JSON.stringify(props));
+		}
+		// A salmon leaping over the deck is not on it; a fisherman on the ground under it is not either.
+		const game = roomWith(undefined, 'fisherman').sim.game;
+		const mid = { x: BRIDGE.x + BRIDGE.w / 2, y: PLANK };
+		assert.equal(
+			bridgeOccupancy(game, [{ ...mid, z: 300, character: 'salmon' }]).get('bridge1'),
+			0,
+		);
+		assert.equal(
+			bridgeOccupancy(game, [{ ...mid, z: 0, character: 'fisherman' }]).get('bridge1'),
+			0,
+		);
+		assert.equal(
+			bridgeOccupancy(game, [{ ...mid, z: 288, character: 'fisherman' }]).get('bridge1'),
+			1,
+		);
+	},
+);
 
 console.log(
 	process.exitCode ? `check:prop-shape FAILED` : `check:prop-shape: all ${passed} checks pass`,

@@ -2573,6 +2573,60 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Prop components P5: started; the mount is held for two decisions** (agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`).
+  - **Built:** `engine-mechanics` `salmonsRules.js` `bridgeOccupancy(game, players)`. It counts,
+    per bridge zone, the carried characters with `z > 0` within the rule's `snap` of the row over
+    the deck or a ramp (design §4). `occupancySteps(before, after)` gives the `stepOn` / `stepOff`
+    zones. `check:prop-shape` §4 checks that along a walk across the bridge, with today's rule and
+    with near 3 / snap ¼, `occupied` equals the rule's own on-deck state at every step, and that on
+    and off fire once each. Not yet wired into `online.ts`.
+  - **Not built, and why:**
+    1. **The `sorted` band has no declarative home.** The deck tiles must be sorted among the
+       players inside the spawn layer. `river.ts` does that imperatively (`among`), and zone-art
+       nodes (`withZoneArtNodes`) draw in one container under the spawn layer, never among the
+       players. A real `<ComponentInstance>` (machine, timelines) there needs either a
+       `<SpawnLayer>` extension for sorted non-character children or an imperative component
+       renderer in the river. That is an `engine-pixi-svelte` / `invisible-components` choice,
+       not this agent's.
+    2. **The swap cannot keep `check:salmons-art`'s fingerprints.** The fingerprint hashes every
+       fill. The seed is rect placeholders: no plank lines, no pillar shading stripe, a rect deck
+       edge instead of a polygon, and one shimmer phase for the bridge instead of one per cell
+       (P4's own note: "close, not equal"). §8 Q6 deletes the code bridge only "once the seed def
+       matches the code look", so the seed's art needs to reach the code look first (or the owner
+       accepts the placeholder look), before any deletion.
+
+- 2026-11-26 — **Prop components: the side-exit switch, off by default** (owner: "add the
+  side-exit switch off by default"; design §3 "As built (P2)" and §8 Q3, now decided; agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). A bridge's collider takes
+  `sideExit` (`engine-layout` `PropCollider`, the launcher's `componentProp.ts`, `propShape.js`
+  compile and `readPropShapes`, and `game-config` `normalizeOnlineProps` with its mirrored
+  `ONLINE_PROP_DEFAULTS`). False is the default and is dropped everywhere, so no game, the seed
+  `bridgeProp` included, changes.
+  - **The rule.** With the switch on, `salmonsGeometry` writes `sideExit: true` on the zone rule.
+    `bridges` then records each step whether the body's last input moves it across the row
+    (`moveY !== 0`), and while it does it does not put the body back on the row. The room's
+    solids, a railing, stop it; with none it walks off and lands at `z` 0 once past `snap`. With
+    the switch off, `bridges` has no input hook and steps as before.
+  - **The device** predicts the railing as an ordinary solid and does not predict the deck (as
+    since P2). The room corrects the rest.
+  - **Bots:** bot fishermen steer diagonally. Over 6,000 steps on seeds 1, 7 and 9, 99% of their
+    deck steps had `moveY !== 0`. With the switch on they drift off ramp sides. If a game turns it
+    on, a threshold such as `|moveY| > |moveX|` would keep them on the row.
+  - **Gates:**
+    - `check:prop-shape` 42, 2 new:
+      - **Off:** a scripted 360-step walk hashes to the trace recorded on the rule before the
+        switch existed (`e1501b99…`), with and without `sideExit: false`. The default compiles,
+        normalizes and reads away, and a non-boolean is refused.
+      - **On:** pushing across the ramp, he steps off and lands with no railing, and is stopped at
+        the rail with one. Let go, he is back on the row, and walking along it he is held.
+    - `check:room-levels` 19: `sideExit: false` keeps the pinned hashes, and on gives a new one.
+    - Unchanged: `check:online-rules` 40, `check:room-sim` 43, `check:room-bots` 56,
+      `check:room-lobby` 42, `check:salmons-levels` 28; launcher
+      `check:save-keeps-unknown-blocks` 169. `check:svelte --only packages/engine-layout` is at
+      its baseline (290).
+    - Runtime bytes: slot, match-3 and card are identical, arcade +54 B gzip, arcade3d +51 B.
+
 - 2026-11-26 — **Prop components P3: one river on both sides**
   ([arcade-prop-components](../design/arcade-prop-components.md) §3 "One river on both sides", with
   an "As built (P3)" note; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review;

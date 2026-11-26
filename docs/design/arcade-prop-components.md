@@ -196,7 +196,23 @@ As built (P2), where it differs from the steps above:
   the row over the deck or a ramp, the rule puts him back on the row every step (his step is
   about a sixth of a cell). So he cannot step off the side there today, and a side railing changes
   nothing until a smaller snap or a higher speed lets him. A post on the row (stopping him short of
-  the bank) and a low bridge for bears (Q4) work now.
+  the bank) and a low bridge for bears (Q4) work now. Hence the side exit, below.
+- **The side exit** (owner, 2026-11-26: "add the side-exit switch, off by default"). The
+  collider's `sideExit` defaults to false, which is dropped by the compile and both normalizers
+  (`PropShape.sideExit` is present only as `true`). On, the zone rule carries `sideExit: true`,
+  and `bridges` records each step whether the body's last input moves it across the row
+  (`moveY !== 0`: the deck runs along x). While it does, the rule does not put the body back on
+  the row:
+  - the room's solids (a railing) stop it;
+  - with no railing it walks off and is on the ground (`z` 0) once further than `snap` from the
+    row;
+  - with no across input it is held on the row again.
+
+  Off, the rule has no input hook and steps exactly as before: a scripted walk's trace hash is
+  pinned against the rule before the switch existed. The seed `bridgeProp` leaves it off. Bot
+  fishermen steer diagonally, so nearly every step they spend on a deck has `moveY !== 0`. A game
+  that turns the switch on lets its bots drift off the sides of ramps. The device does not predict
+  the deck (P2), so it predicts the railing as an ordinary solid, and the room corrects the rest.
 - **The art still draws 2 and 2.** `salmonsArt/bridge.ts` `slopeEnds` and `BRIDGE.slope` draw
   today's ramps. Until P5 draws the shape, a non-default ramp plays right and is drawn wrong. No
   game has props yet.
@@ -383,6 +399,15 @@ the 2-cell near slope) has merged.
    cells, and a character with `z > 0` sorts over `sorted` and under `over`.
    `salmons-play.mjs --bridge-component` (new flag) screenshots a fisherman under, on the ramp and on
    the deck, and logs the triggers.
+   *Started 2026-11-26:* the inputs' derivation is built and gated. `salmonsRules.js`
+   `bridgeOccupancy(game, players)` gives `occupied` per bridge zone from the synced `x y z`, and
+   `occupancySteps` gives `stepOn` / `stepOff` (`check:prop-shape` §4). The mount is not built,
+   for two reasons recorded in [status/salmons](../status/salmons.md):
+   - The `sorted` band must interleave with the players inside the spawn layer, and no
+     layout-doc path puts a component there.
+   - The seed's placeholder art cannot reproduce the code bridge's fills, so `check:salmons-art`
+     cannot stay identical, and §8 Q6 deletes the code bridge only "once the seed def matches the
+     code look".
    **Then delete the code-drawn bridge** (owner, §8 Q6), in the same phase once the parity check
    passes: the seed component replaces `river.ts`'s bridge drawing, which is deleted, with what of
    `salmonsArt/bridge.ts` only that drawing used. No dual path is left. The no-component
@@ -431,6 +456,9 @@ Answered by the owner on 2026-11-26 unless marked open.
    next save, or only when the author chooses it? The plan keeps its default: the author chooses.
 3. **Decided: yes.** A prop's `solids` may stop a fisherman stepping off the deck's side (a
    railing). It is new behaviour and opt-in: the default and seed bridge have none, so parity holds.
+   Because the per-step snap held him on the row, the railing only matters with the **side exit**.
+   **Decided (owner, 2026-11-26):** a per-shape switch, `sideExit`, off by default (§3 "As built
+   (P2)").
 4. **Expressible, not used by the default; owner to confirm.** A bear or a salmon stopped by a low
    bridge needs no new field: it is a solid whose `characters` name them (`solids[].characters`,
    the vocabulary of Q3). The seed bridge has none, so they pass under as today.
