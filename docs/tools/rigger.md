@@ -1255,9 +1255,21 @@ of the panel. What each step does is the tooltip on the dialog's title.
    the part would be cut short), `right upper arm, right forearm out of the picture` (a joint past
    the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
    the face`, `an arm joint hard to see`, `no face found`, `one hand not found`. Click another frame
-   to use it instead. If the clip has **a kept cut** (✂ on its frame in the strip), the newest opens at
-   once, before the tracking ends, and goes straight to **🦴 Create rig**; picking a frame with a kept
-   cut opens it.
+   to use it instead. A new rig always starts here as the first time — the best frame, its joints as
+   tracked, each part's frame planned, no cut open — even when the clip was cut before.
+   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on its
+     frame in the strip): the picked frame's, else the newest. It opens that cut as it was kept —
+     parts, touch-ups, props and the frames its parts are cut from — at once, before the tracking
+     ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut opens it
+     when picked.
+   - Until you reuse one, nothing kept opens by itself: picking a frame with a kept cut shows the
+     frame, ✂ Cut makes a new cut of it (the kept one stays as it was), and a part taken from
+     another frame is cut there anew.
+   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best frame,
+     no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
+     picked a part's frame; **↶** brings back what it replaced. The cut that was open stays kept,
+     for ↺ Reuse.
+   - **✂ Edit cut** on a frame-made rig opens the cut it was made from (see below).
 2. **Check the joints.** The frame shows what the tracker found: yellow dots on the shoulders,
    elbows, wrists and hips, a cyan dot per hand (drags the whole hand) and a red dot on the face
    (drags the whole face). Drag any it got wrong before cutting.
@@ -1295,8 +1307,8 @@ of the panel. What each step does is the tooltip on the dialog's title.
    that frame's picture and number. A part this frame shows under 0.97 is planned from another frame
    that shows it clearly better — 0.15 more, or three quarters of what this frame lacks (a head turned
    23°, 0.92, moves for a face to the camera) — the nearest frame of those within 0.01 of its best.
-   **✂ Cut** cuts this frame, then takes each such part from its frame (its kept cut, or a cut made
-   for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
+   **✂ Cut** cuts this frame, then takes each such part from its frame (a cut of that frame made in
+   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
    head; a hand stays on this frame unless you pick otherwise (its finger bones are this frame's).
    - **Where each part comes from shows everywhere.** Each frame a part is cut from gets a colour:
      the chip on that part's row is outlined in it, the frame in the strip is framed in it with the
@@ -1372,7 +1384,8 @@ part's frame, the touch-ups and the props). With it open, **✂** in the rig pan
 atlas and source…; hover it for which frame) opens the same dialog on that cut — that cut, even if a
 newer cut of its frame was made since — with its clip fixed. Everything works as when you made it:
 ✂ Re-cut, the brush and the lasso, a part taken from another frame, ＋ / 🗑 props and their bones,
-💾 Keep touch-ups. **🔄 Update rig** takes 🦴 Create rig's place:
+💾 Keep touch-ups. ↺ Start over goes back to the best frame with no cut open, and ↺ Reuse then offers
+the rig's cut again. **🔄 Update rig** takes 🦴 Create rig's place:
 
 - The parts are made again on the rig's other sheet (`<name>_parts` and `<name>_parts_b` take turns),
   so the rig games ship does not change until the update is saved. If another rig was pointed at that
@@ -1417,7 +1430,7 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    its joints guessed again as that side's (a joint you dragged stays where you dragged it on its
    drawing), each prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged
    starts over on its bones. Parts you mapped by hand are asked about first. The setting is kept with
-   the rig's mapping, and this browser remembers it for the sheet.
+   the rig's mapping; a new rig starts with it off.
 2. **The table.** Each part has a region list: change it, or pick **—** to leave the part out (it is
    left out of the rig, as any missing template part). A part marked `*` is one the template's
    controls and clips use: the rig is still made without it, and the report after **🦴 Create rig**
@@ -1470,15 +1483,28 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
    does not map. When a rig cannot be made, the popup says why.
 
-The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
-the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left
-it and the arrangement as you left it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then
-drives it as any rig of the template.
+The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped). 🎥
+Motion then drives the rig as any rig of the template.
+
+**Every new rig starts from scratch.** **＋ New rig → 🗺 From my sheet** always opens on the first
+guess: each part the region its name says, its joints guessed, the worn things suggested as props,
+nothing arranged, ⇄ Swap sides off. This holds even with a rig of the same sheet and template open.
+A mapping made before is offered beside the sheet, never taken by itself:
+
+- **↺ Reuse “name”**: the mapping the open rig was made from (when it is of this sheet and
+  template), every joint where you left it and the arrangement as you left it. 🦴 Create rig then
+  makes a new rig from it.
+- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig.
+- **↺ Start over** (the icon) takes the open mapping back to the first guess, reading the names as ⇄
+  Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
+
+To change the open rig itself, use 🗺 Edit mapping (below).
 
 **Change the rig you made, in place (🗺 Edit mapping → 🔄 Update rig).** A rig made from a sheet has
 **🗺** beside ⟳ source… in the rig panel. It opens the dialog on the rig's own mapping, with its sheet
 fixed (to map another sheet, make a new rig from it). Re-map a part, arrange the parts again, add or
-take off props, then **🔄 Update rig** (in 🦴 Create rig's place):
+take off props (↺ Start over puts the first guess in its place, ↶ the rig's mapping back), then
+**🔄 Update rig** (in 🦴 Create rig's place):
 
 - **What it rebuilds.** The parts are built as Create rig builds them and swapped into the open rig.
 - **What stays.** Its bones (yours too, where you put them), every clip and key, constraints and IK,

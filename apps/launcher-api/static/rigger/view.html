@@ -696,7 +696,7 @@
           style="width:100%;font-size:11px;color:var(--dim);">
         <label style="margin-top:9px;" title="Pick a template above (Half body), then a Flipbook clip: its frames are tracked and scored here, the best is picked, and ✂ Cut splits it into the template's parts and props (glasses, a chain, a watch…), each named as the template names it.">or cut a Flipbook frame</label>
         <button id="newRigFromFrame" style="width:100%;font-size:11px;">🎞 From a Flipbook frame…</button>
-        <label style="margin-top:9px;" title="Pick a template above, then one of this project's sheets drawn your own way: its regions are matched to the template's parts by their names, each part's joints are guessed from its drawing for you to drag where they belong, and 🦴 Create rig fits the template to them, every body part skinned, ready for 🎥 Motion. With a rig made this way open, its mapping opens again here.">or map your own sheet</label>
+        <label style="margin-top:9px;" title="Pick a template above, then one of this project's sheets drawn your own way: its regions are matched to the template's parts by their names, each part's joints are guessed from its drawing for you to drag where they belong, and 🦴 Create rig fits the template to them, every body part skinned, ready for 🎥 Motion. Every new rig starts from the names and the guesses; a mapping made before (the open rig's, or one left in the dialog) is offered there as ↺ Reuse.">or map your own sheet</label>
         <button id="newRigFromSheet" style="width:100%;font-size:11px;">🗺 From my sheet…</button>
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
@@ -960,12 +960,15 @@
   <div id="f2rModal" class="rigModal">
     <div class="modal-box" style="width:min(980px,96vw);max-height:90vh;margin-top:4vh;">
       <div class="modal-head">
-        <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there; ★ on a kept cut takes it now). The stage shows the cut ◧ Assembled: each part drawn from its own frame, outlined in that frame's colour, which the strip and the Parts list use too; ▣ This frame shows the picked frame alone. Click a part's frame chip, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again), and a kept cut opens again with its clip. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there; ★ on a kept cut takes it now). The stage shows the cut ◧ Assembled: each part drawn from its own frame, outlined in that frame's colour, which the strip and the Parts list use too; ▣ This frame shows the picked frame alone. Click a part's frame chip, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again). ＋ New rig always starts from the clip's best frame with no cut open, as the first time: ↺ Reuse opens a cut kept before (the picked frame's, else the newest), and ↺ Start over takes the dialog back to that first guess; ✂ Edit cut in a frame-made rig's panel opens the cut it was made from. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="f2rClose" style="padding:1px 8px;">✕</button>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
         <select id="f2rClip" style="flex:1;min-width:0;" title="A Flipbook clip of this project."></select>
+        <button id="f2rReuse" style="display:none;flex:0 0 auto;"></button>
+        <button id="f2rStartOver" class="f2rIcon" title="↺ Start over: the clip's best frame again, its joints as tracked and each part's frame as planned, with no cut open (✂ Cut makes a fresh one; the cut that was open stays kept, for ↺ Reuse). Asks first when you touched it up and did not 💾 keep it, dragged a joint or picked a part's frame; ↶ brings it back." aria-label="Start over">↺</button>
+        <button id="f2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The cut as it was before ↺ Start over, touch-ups and all." aria-label="Undo start over">↶</button>
         <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
       </div>
       <div id="f2rPickBar" role="status"><span id="f2rPickText" style="flex:1;min-width:0;"></span><button id="f2rPickCancel" class="f2rIcon" style="padding:0 5px;" title="Stop picking (Esc)" aria-label="Stop picking">✕</button></div>
@@ -1006,13 +1009,16 @@
   <div id="s2rModal" class="rigModal">
     <div class="modal-box" style="width:min(1040px,96vw);max-height:90vh;margin-top:4vh;">
       <div class="modal-head">
-        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left: ⇄ Swap sides when your names say the character's own); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left: ⇄ Swap sides when your names say the character's own); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: 🗺 Edit mapping in its panel changes it. ＋ New rig always starts here from the names and the guesses, as the first time: ↺ Reuse opens a mapping made before (the open rig's, or the one you left here), and ↺ Start over takes this one back to the first guess.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="s2rClose" style="padding:1px 8px;">✕</button>
       </div>
       <div style="display:flex;gap:6px;align-items:center;">
         <select id="s2rSheet" style="flex:1;min-width:0;" title="One of this project's sheets or atlases."></select>
-        <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping.">⇄ Swap sides</button></span>
+        <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping; a new rig starts with it off.">⇄ Swap sides</button></span>
+        <span id="s2rReuse" style="display:contents;"></span>
+        <button id="s2rStartOver" class="f2rIcon" title="↺ Start over: the mapping back to the first guess. Every part takes the region its name says (as ⇄ Swap sides reads them), its joints guessed from its drawing, the worn things suggested as props, nothing arranged. Asks first when you changed it; ↶ brings it back." aria-label="Start over">↺</button>
+        <button id="s2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The mapping as it was before ↺ Start over." aria-label="Undo start over">↶</button>
         <input type="text" id="s2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
         <button id="s2rCreate" disabled title="Make the template rig over this sheet, fitted to the joints, and open it.">🦴 Create rig</button>
       </div>
@@ -10156,6 +10162,10 @@ const f2r = {
   busy: false, drag: null, painting: false, gen: 0, saved: [], view: "assembled", sourceCuts: {}, partScores: null,
   // ✂ Edit cut: the rig the open cut was made from ({ dir, stem, job, sources }), or null for a new rig.
   edit: null,
+  // fresh: a new rig's dialog as the first time, where a cut kept before (`kept`, as the clip listed
+  // them) opens only by ↺ Reuse and only the cuts made here (`cutHere`, by job) open or lend parts;
+  // undo: what ↺ Start over replaced.
+  fresh: true, kept: [], cutHere: new Set(), undo: null,
 };
 function f2rDirty(){ return f2r.brushDirty || f2r.propsDirty || f2r.sourcesDirty; }
 
@@ -10186,7 +10196,80 @@ function openFrameToRig(){
   $("#f2rModal").classList.add("open");
   f2rFillClips();
   if (projectClips === null) loadProjectClips().then(f2rFillClips);
+  // A new rig starts as the first time, on the clip still picked: its kept cuts listed again, offered.
+  if (f2r.clip){ f2rFresh(); f2rLoadSaved(f2r.clip, f2r.gen); }
   f2rDraw();
+}
+
+// The first guess: the clip's best frame, its joints as tracked and its parts' frames planned, no cut
+// open, nothing made here yet.
+function f2rFresh(){
+  Object.assign(f2r, { sel: -1, frame: null, plan: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, fresh: true, cutHere: new Set(), undo: null });
+  $("#f2rWhy").textContent = "";
+  const best = f2r.scores ? f2r.scores.best : null;
+  if (best !== null && f2r.track) f2rSelect(best);
+  else { f2rRenderStrip(); f2rRenderCut(); f2rDraw(); }
+}
+
+// A cut that may open or lend a part: any while editing a rig's or once ↺ Reuse opened one, else only
+// those made here.
+function f2rUsable(c){ return !f2r.fresh || f2r.cutHere.has(c.job); }
+
+// ↺ Reuse: the cut kept before for the rig being edited, else for the picked frame, else the newest.
+function f2rReuseOf(){
+  if (!f2r.fresh || !f2r.clip) return null;
+  const k = f2r.kept;
+  return (f2r.edit && k.find((c) => c.job === f2r.edit.job)) || k.find((c) => c.frame === f2r.sel) || k[0] || null;
+}
+function f2rReuseUi(){
+  const b = $("#f2rReuse"), c = f2rReuseOf();
+  b.style.display = c ? "" : "none";
+  b.disabled = f2r.busy;
+  if (c){
+    b.textContent = "↺ Reuse frame " + c.frame + "'s cut";
+    b.title = "Open the cut kept for frame " + c.frame + " of this clip (" + new Date(c.saved).toLocaleString() + "): its parts, touch-ups, props and the frames its parts are cut from, as kept. A new rig starts without it.";
+  }
+  $("#f2rStartOver").disabled = !f2r.clip || f2r.busy;
+  $("#f2rUndoStart").style.display = f2r.undo ? "" : "none";
+  $("#f2rUndoStart").disabled = f2r.busy;
+}
+async function f2rReuse(){
+  const c = f2rReuseOf();
+  if (!c || f2r.busy) return;
+  if ((f2rDirty() || f2r.moved) && !confirm("↺ Reuse opens frame " + c.frame + "'s kept cut in place of this one: what you did not 💾 keep here is dropped. Go on?")) return;
+  f2r.fresh = false;
+  for (const k of f2r.kept) if (!f2r.saved.some((x) => x.job === k.job)) f2r.saved.push(k);
+  await f2rOpenSaved(c);
+}
+
+// ↺ Start over: back to the first guess as one step, which ↶ takes back; the cut that was open stays
+// kept, for ↺ Reuse.
+function f2rStartOver(){
+  if (f2r.busy || !f2r.clip) return;
+  const byHand = !!f2r.plan && Object.values(f2r.plan).some((p) => p.byHand);
+  if ((f2rDirty() || f2r.moved || byHand) && !confirm("↺ Start over drops what you did not 💾 keep here — touch-ups, dragged joints, the frames you picked for parts — and goes back to the clip's best frame, as it was tracked.\n\n↶ brings it back.")) return;
+  const keep = ["sel", "frame", "plan", "labels", "overlay", "frameImg", "moved", "fresh", ...Object.keys(F2R_CLEAN)];
+  const undo = Object.fromEntries(keep.map((k) => [k, f2r[k]]));
+  Object.assign(undo, { cut: f2r.cut && JSON.parse(JSON.stringify(f2r.cut)), cutHere: new Set(f2r.cutHere), why: $("#f2rWhy").textContent });
+  f2rFresh();
+  f2r.undo = undo;
+  f2rNote(f2r.sel >= 0 ? "started over on frame " + f2r.sel + ", the best: ✂ Cut makes a fresh cut" : "started over: pick a frame, then ✂ Cut");
+  f2rRenderStrip(); f2rRenderCut();
+}
+function f2rUndoStartOver(){
+  const u = f2r.undo;
+  if (!u || f2r.busy) return;
+  if ((f2rDirty() || f2r.moved) && !confirm("↶ brings back the cut from before ↺ Start over, dropping what you did since. Go on?")) return;
+  const { why, ...state } = u;
+  Object.assign(f2r, state, { undo: null, composite: null });
+  const cut = f2r.cut;
+  if (cut){
+    f2r.saved = f2r.saved.some((x) => x.job === cut.job) ? f2r.saved.map((x) => (x.job === cut.job ? cut : x)) : [cut, ...f2r.saved];
+    f2rBuildOverlay();
+  }
+  $("#f2rWhy").textContent = why;
+  f2rNote("↶ the cut as it was before ↺ Start over");
+  f2rRenderStrip(); f2rRenderCut(); f2rDraw();
 }
 
 function f2rFillClips(){
@@ -10224,7 +10307,7 @@ function closeFrameToRig(){
 async function f2rPickClip(id){
   const clip = (projectClips || []).find((c) => c.id === id);
   if (f2r.src) f2r.src.close();
-  Object.assign(f2r, { clip, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, saved: [], sourceCuts: {}, partScores: null });
+  Object.assign(f2r, { clip, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, saved: [], sourceCuts: {}, partScores: null, fresh: !f2r.edit, kept: [], cutHere: new Set(), undo: null });
   const gen = ++f2r.gen;
   f2rRenderStrip(); f2rRenderCut(); f2rDraw();
   if (!clip) return;
@@ -10262,12 +10345,10 @@ async function f2rPickClip(id){
     // ✂ Edit cut: the rig's cut opens once it is read; when it is gone, its main frame, to cut again.
     if (f2r.edit && !f2r.edit.missing){ f2rRenderStrip(); return; }
     const main = f2r.edit && frameSrc.doc && frameSrc.doc.clip ? frameSrc.doc.clip.frame : null;
-    const kept = f2r.saved[0];
     f2rNote(best === null ? "no frame of this clip has a body the tracker found"
       : main !== null ? "the cut this rig was made from is gone: ✂ Cut its frame " + main + " again, then 🔄 Update rig"
-      : track.frames.length + " frames scored; " + (kept ? "frame " + kept.frame + " has a kept cut" : "the best is picked"));
+      : track.frames.length + " frames scored; the best is picked" + (f2r.kept.length ? " (↺ Reuse opens a cut kept before)" : ""));
     if (main !== null && main < track.frames.length) f2rSelect(main);
-    else if (kept) f2rSelect(kept.frame);
     else if (best !== null) f2rSelect(best);
     else f2rRenderStrip();
   } catch (e){
@@ -10275,17 +10356,19 @@ async function f2rPickClip(id){
   }
 }
 
-// The clip's kept cuts, newest first: the newest opens at once when nothing is open yet.
+// The clip's kept cuts, newest first (each frame's newest), offered by ↺ Reuse; the ones made here
+// since stay with them.
 async function f2rLoadSaved(clip, gen){
   try {
     const r = await fetch("/api/rigger/from-frame?clipId=" + encodeURIComponent(clip.id));
     if (!r.ok) return;
     const j = await r.json();
     if (gen !== f2r.gen) return;
-    f2r.saved = (j.cuts || []).filter((c) => c.template === f2r.tpl.id);
+    const listed = (j.cuts || []).filter((c) => c.template === f2r.tpl.id);
+    f2r.kept = listed.filter((c) => !f2r.cutHere.has(c.job));
+    f2r.saved = [...f2r.saved.filter((c) => f2r.cutHere.has(c.job)), ...f2r.kept];
     if (f2r.edit){ await f2rLoadEditCuts(clip, gen); return; }
     f2rRenderStrip();
-    if (f2r.saved.length && f2r.sel < 0 && !f2r.busy) await f2rOpenSaved(f2r.saved[0]);
   } catch { /* no kept cuts to offer */ }
 }
 
@@ -10301,6 +10384,7 @@ async function f2rLoadEditCuts(clip, gen){
   const cuts = await Promise.all(jobs.map(one));
   if (gen !== f2r.gen) return;
   for (const c of cuts) if (c && c.template === f2r.tpl.id) f2r.saved = [c, ...f2r.saved.filter((x) => x.frame !== c.frame && x.job !== c.job)];
+  f2r.kept = f2r.saved.slice();
   f2rRenderStrip();
   const mine = cuts[0];
   if (!mine){
@@ -10356,7 +10440,7 @@ function f2rSelect(i){
   const row = f2r.scores.rows[i];
   $("#f2rWhy").textContent = "frame " + i + (row.score === null ? ": no body found" : ": " + row.score.toFixed(2) + (row.reasons.length ? " — " + row.reasons.join("; ") : " — every limb in the picture plane"));
   const kept = f2r.saved.find((c) => c.frame === i);
-  if (kept) f2rOpenSaved(kept);
+  if (kept && f2rUsable(kept)) f2rOpenSaved(kept);
 }
 
 // The strip: each frame, its score and what it gives. A frame a part is cut from carries the parts'
@@ -10366,6 +10450,7 @@ function f2rRenderStrip(){
   const strip = $("#f2rStrip");
   strip.innerHTML = "";
   f2rRenderPickBar();
+  f2rReuseUi();
   if (!f2r.scores) return;
   const lends = f2rLends(), pick = f2r.pickFor, rows = pick ? f2rPartScores() : null;
   const of = (i) => (rows && rows[i] ? rows[i][pick] : null);
@@ -10390,7 +10475,7 @@ function f2rRenderStrip(){
     }
     const b = document.createElement("b");
     const kept = f2r.saved.some((c) => c.frame === i);
-    if (kept) d.title += "\n✂ a kept cut";
+    if (kept) d.title += f2r.saved.some((c) => c.frame === i && f2rUsable(c)) ? "\n✂ a kept cut" : "\n✂ a cut kept before: ↺ Reuse opens it";
     if (parts.length) d.title += "\n◧ the cut takes " + parts.join(", ") + " from this frame";
     if (rows){
       b.textContent = (i === f2r.sel ? "▣ " : "") + (ps ? ps.score.toFixed(2) : "—");
@@ -10804,6 +10889,7 @@ async function f2rCut(){
     if (gen !== f2r.gen || sel !== f2r.sel) return;
     cut.saved = Date.now();
     f2r.saved = [cut, ...f2r.saved.filter((c) => c.frame !== sel)];
+    f2r.cutHere.add(cut.job);
     delete f2r.sourceCuts[cut.job];
     Object.assign(f2r, { cut, labels: f2rLabelsOf(labelsImg), frameImg, overlay: null, moved: false, ...F2R_CLEAN });
     f2rBuildOverlay();
@@ -10847,9 +10933,10 @@ async function f2rTakePartFrom(i){
   try { await f2rSourceFrom(part, i); } finally { f2r.busy = false; f2rRenderStrip(); f2rRenderCut(); }
 }
 
-// Cut `part` from frame i: its kept cut, or one cut for it now. False (and why, in the note) when not.
+// Cut `part` from frame i: its kept cut (one made here, on a new rig), or one cut for it now. False
+// (and why, in the note) when not.
 async function f2rSourceFrom(part, i){
-  let kept = f2r.saved.find((c) => c.frame === i);
+  let kept = f2r.saved.find((c) => c.frame === i && f2rUsable(c));
   if (!kept || !kept.names.includes(part)){
     f2rNote("cutting frame " + i + " for " + part + "…");
     try {
@@ -10861,6 +10948,7 @@ async function f2rSourceFrom(part, i){
       kept = await r.json();
       kept.saved = Date.now();
       f2r.saved = [kept, ...f2r.saved.filter((c) => c.frame !== i)];
+      f2r.cutHere.add(kept.job);
       f2rNote("");
     } catch (e){
       f2rNote("could not cut frame " + i + ": " + (e && e.message ? e.message : e));
@@ -11088,6 +11176,7 @@ function f2rPartRow(part, sw, px){
 }
 
 function f2rRenderCut(){
+  f2rReuseUi();
   $("#f2rCut").textContent = f2r.cut ? (f2r.moved ? "✂ Re-cut (joints moved)" : "✂ Re-cut") : "✂ Cut";
   $("#f2rCut").disabled = f2r.busy;
   $("#f2rSave").disabled = !(f2r.cut && f2rDirty());
@@ -11520,6 +11609,9 @@ function wireFrameToRig(){
   $("#f2rClose").onclick = closeFrameToRig;
   $("#f2rModal").onmousedown = (e) => { if (e.target === $("#f2rModal")) closeFrameToRig(); };
   $("#f2rClip").onchange = () => f2rPickClip($("#f2rClip").value);
+  $("#f2rReuse").onclick = f2rReuse;
+  $("#f2rStartOver").onclick = f2rStartOver;
+  $("#f2rUndoStart").onclick = f2rUndoStartOver;
   $("#f2rCut").onclick = f2rCut;
   $("#f2rSave").onclick = f2rSave;
   $("#f2rCreate").onclick = () => (f2r.edit ? f2rUpdate() : f2rCreate());
@@ -11602,6 +11694,8 @@ const s2r = {
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
   view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
   aview: null, adrag: null, swap: false,
+  // left: { mapping, at } a new rig's mapping closed unmade (↺ Reuse); undo: what ↺ Start over replaced.
+  left: null, undo: null,
 };
 
 function s2rNote(t){ $("#s2rNote").textContent = t || ""; }
@@ -11632,24 +11726,14 @@ async function openSheetToRig(edit){
     o.textContent = sheetSrc.doc.manifestKey.replace(/^.*atlas_manifest_|\.json$/g, "");
     sel.appendChild(o);
     $("#s2rModal").classList.add("open");
-    await s2rLoad(sheetSrc.doc.manifestKey, sheetSrc.doc);
+    await s2rLoad(sheetSrc.doc.manifestKey, sheetSrc.doc, irigStem(selected));
     return;
   }
   s2r.edit = null;
-  // The open rig's own mapping, when it was made from a sheet: it opens again to be changed.
-  let kept = null;
-  if (selected && !s2r.dirty){
-    try {
-      const r = await fetch("/api/rigger/from-sheet?dir=" + encodeURIComponent(selected.dir_b64 || ""));
-      if (r.ok) kept = (await r.json()).sheet;
-    } catch { /* none kept */ }
-  }
   const v = ($("#newRigApply") && $("#newRigApply").value) || "";
-  const id = kept ? kept.template.id : v.startsWith("template:") ? v.slice("template:".length) : s2r.tpl ? s2r.tpl.id : "";
-  const tpl = newRigTemplates.find((t) => t.id === id);
+  const tpl = v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) : null;
   if (!tpl){ $("#newRigNote").textContent = "pick a template above (Half body), then map your sheet to it"; return; }
   $("#newRigNote").textContent = "";
-  const changed = !s2r.tpl || s2r.tpl.id !== tpl.id;
   s2r.tpl = tpl;
   s2rModeUi();
   const sel = $("#s2rSheet");
@@ -11660,14 +11744,71 @@ async function openSheetToRig(edit){
   for (const o of $("#newRigAtlas").options) if (o.value) sel.appendChild(o.cloneNode(true));
   if (!$("#s2rName").value) $("#s2rName").value = ($("#newRigName").value || "").trim();
   $("#s2rModal").classList.add("open");
-  if (kept){
-    await s2rLoad(kept.manifestKey, kept);
-    s2r.from = irigStem(selected);
-  } else if (changed || !s2r.sheetKey) await s2rLoad($("#newRigAtlas").value || "");
-  else { sel.value = s2r.sheetKey; s2rRender(); s2rDraw(); }
+  // A new rig starts as the first time: every part matched by its name, its joints guessed. A mapping
+  // made before is offered (↺ Reuse), never taken.
+  await s2rLoad($("#newRigAtlas").value || "");
 }
 
-function closeSheetToRig(){ $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null; }
+// A new rig's mapping changed by hand and closed without 🦴 Create rig is left for ↺ Reuse.
+function closeSheetToRig(){
+  if (!s2r.edit && s2r.sheet && s2r.dirty && Object.keys(s2r.map).length) s2r.left = { mapping: s2rMapping(), at: Date.now() };
+  $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
+}
+
+// ↺ Reuse: a mapping of this template made before, for the sheet picked (or its own while none is):
+// the one left in this dialog, and the open rig's when it was made from a sheet. Not while 🗺 Edit
+// mapping has the rig's own open.
+function s2rReuseOf(){
+  if (s2r.edit || !s2r.tpl) return [];
+  const fits = (m) => !!m && m.template.id === s2r.tpl.id && (!s2r.sheetKey || m.manifestKey === s2r.sheetKey);
+  const out = [];
+  if (s2r.left && fits(s2r.left.mapping)){
+    const at = new Date(s2r.left.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    out.push({ mapping: s2r.left.mapping, from: null, label: "what you left " + at, tip: "Open the mapping you left in this dialog at " + at + ", closed without 🦴 Create rig: its regions, joints, props, arrangement and ⇄ Swap sides." });
+  }
+  if (rawDoc && selected && fits(sheetSrc.doc)){
+    const stem = irigStem(selected);
+    out.push({ mapping: sheetSrc.doc, from: stem, label: "“" + stem + "”", tip: "Open the mapping “" + stem + "” (the open rig) was made from: its regions, joints, props, arrangement and ⇄ Swap sides, as it keeps them. 🦴 Create rig then makes a new rig from it." });
+  }
+  return out;
+}
+function s2rReuseUi(){
+  const box = $("#s2rReuse");
+  box.innerHTML = "";
+  for (const c of s2rReuseOf()){
+    const b = document.createElement("button");
+    b.textContent = "↺ Reuse " + c.label;
+    b.title = c.tip;
+    b.onclick = () => s2rReuse(c);
+    box.appendChild(b);
+  }
+  $("#s2rStartOver").disabled = !s2r.sheet;
+  $("#s2rUndoStart").style.display = s2r.undo ? "" : "none";
+}
+async function s2rReuse(c){
+  if (s2r.dirty && Object.keys(s2r.map).length && !confirm("↺ Reuse " + c.label + " in place of this mapping? Your changes to this one are dropped.")) return;
+  await s2rLoad(c.mapping.manifestKey, c.mapping, c.from);
+}
+
+// ↺ Start over: the mapping back to the first guess, the sheet's names read as ⇄ Swap sides says; one
+// step, which ↶ takes back.
+function s2rStartOver(){
+  if (!s2r.sheet || !s2r.tpl) return;
+  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
+  s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
+  Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  s2rSuggest();
+  s2rRender(); s2rDraw();
+}
+function s2rUndoStartOver(){
+  const u = s2r.undo;
+  if (!u) return;
+  if (s2r.dirty && !confirm("↶ brings back the mapping from before ↺ Start over, dropping what you changed since. Go on?")) return;
+  Object.assign(s2r, u, { undo: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  s2rSwapUi();
+  s2rNote("↶ the mapping as it was before ↺ Start over");
+  s2rRender(); s2rDraw();
+}
 
 // The dialog as a new rig's (🦴 Create rig) or the open rig's (🗺 Edit mapping → 🔄 Update rig).
 function s2rModeUi(){
@@ -11807,11 +11948,12 @@ async function s2rPickSheet(key){
   await s2rLoad(key);
 }
 
-// The sheet `key`: its regions and page; then `kept` (a rig's mapping) or each part suggested by name.
-async function s2rLoad(key, kept){
+// The sheet `key`: its regions and page; then `kept` (a mapping made before, of the rig `from` or
+// left in the dialog) or each part suggested by name.
+async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: kept ? kept.swapSides === true : s2rSwapKept(key) });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
   s2rSwapUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
@@ -11946,12 +12088,13 @@ function s2rSuggest(){
   for (const part of Object.keys(s2r.map)) if (s2rHead(part)) s2rTrackFace(part);
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
+  s2r.dirty = false;
   s2rNote(Object.keys(got).length
     ? Object.keys(got).length + " of " + names.length + " regions matched by name" + (s2r.props.length ? ", " + s2r.props.length + " worn as props" : "") + ": check each part's region and joints"
     : "no region's name says a part: pick each part's region in the table");
 }
 
-// A rig's kept mapping: every joint as it was placed; a region gone from the sheet is left out.
+// A mapping made before: every joint as it was placed; a region gone from the sheet is left out.
 function s2rKeep(kept){
   const names = new Set(s2r.sheet.regions.map((r) => r.name));
   const gone = [];
@@ -11965,7 +12108,9 @@ function s2rKeep(kept){
   s2r.arrange = placed.length ? Object.fromEntries(placed.map(([p, a]) => [p, { at: [...a.at], turn: a.turn }])) : null;
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
-  s2rNote("the mapping “" + irigStem(selected) + "” was made from: 🦴 Create rig makes a new rig from it" + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
+  const what = s2r.edit ? "“" + s2r.from + "”'s mapping: 🔄 Update rig rebuilds it from your changes"
+    : (s2r.from ? "the mapping “" + s2r.from + "” was made from" : "the mapping you left") + ": 🦴 Create rig makes a new rig from it";
+  s2rNote(what + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
 }
 
 function s2rAddProp(region, host, name){
@@ -12013,11 +12158,7 @@ function s2rMapping(){
 // its joints guessed again (a joint dragged by hand stays on the drawing it was dragged on); a part
 // mapped by hand moves to the other side too when the author says so; a prop rides the drawing it is
 // worn on to the part that now draws it; a part whose drawing changed starts over on its bones in
-// ◧ Arranged. Remembered per sheet in this browser, and kept in the mapping (`swapSides`).
-const S2R_SWAP_KEY = "rigger.s2rSwapSides:";
-function s2rSwapKept(key){
-  try { return !!key && localStorage.getItem(S2R_SWAP_KEY + key) === "1"; } catch { return false; }
-}
+// ◧ Arranged. Kept in the mapping (`swapSides`); a new rig starts with it off.
 function s2rSwapUi(){
   const b = $("#s2rSwapSides"); if (!b) return;
   b.classList.toggle("active", s2r.swap);
@@ -12027,7 +12168,6 @@ function s2rToggleSwap(){
   const RM = window.RiggerMotion, was = s2r.swap, now = !was;
   s2r.swap = now;
   s2rSwapUi();
-  try { if (s2r.sheetKey) now ? localStorage.setItem(S2R_SWAP_KEY + s2r.sheetKey, "1") : localStorage.removeItem(S2R_SWAP_KEY + s2r.sheetKey); } catch { /* not kept */ }
   if (!s2r.sheet || !s2r.tpl) return;
   const parts = s2r.tpl.parts.map((p) => p.name);
   const names = s2r.sheet.regions.map((r) => r.name);
@@ -12094,6 +12234,7 @@ function s2rToggleSwap(){
 function s2rRender(){
   const has = !!s2r.sheet;
   $("#s2rCreate").disabled = !has || !Object.keys(s2r.map).length;
+  s2rReuseUi();
   const strip = $("#s2rRegions");
   strip.innerHTML = "";
   if (has) for (const r of s2r.sheet.regions){
@@ -12662,7 +12803,7 @@ async function s2rCreate(){
     const j = await r.json();
     closeSheetToRig();
     $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#s2rName").value = "";
-    s2r.dirty = false;
+    s2r.dirty = false; s2r.left = null;
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
@@ -12685,7 +12826,7 @@ function reportSheetRig(name, label, mapping, j){
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not mapped (left out): " + rest.length + ".\n\n" : "") +
-    "The mapping is kept with the rig: with it open, ＋ New rig → 🗺 From my sheet opens it again.",
+    "The mapping is kept with the rig: 🗺 Edit mapping in its panel changes it, and while it is open ＋ New rig → 🗺 From my sheet offers it (↺ Reuse) for another rig.",
     "Rig made from your sheet");
 }
 
@@ -12694,6 +12835,8 @@ function wireSheetToRig(){
   $("#s2rModal").onmousedown = (e) => { if (e.target === $("#s2rModal")) closeSheetToRig(); };
   $("#s2rSheet").onchange = () => s2rPickSheet($("#s2rSheet").value);
   $("#s2rSwapSides").onclick = s2rToggleSwap;
+  $("#s2rStartOver").onclick = s2rStartOver;
+  $("#s2rUndoStart").onclick = s2rUndoStartOver;
   $("#s2rCreate").onclick = () => (s2r.edit ? s2rUpdate() : s2rCreate());
   $("#s2rGuess").onclick = () => {
     if (!s2r.sel || !s2r.sel.part) return;
