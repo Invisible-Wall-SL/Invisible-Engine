@@ -49,6 +49,7 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [0012](DECISIONS/0012-game-repair-runs.md) | Game repair runs | approved |
 | [0013](DECISIONS/0013-pipeline-bug-fix-runs.md) | Pipeline bug fix runs ("Start fix") | approved |
 | [0014](DECISIONS/0014-fix-runs-ask-before-they-decide.md) | Fix runs ask before they decide, and say what they did | approved |
+| [0015](DECISIONS/0015-resolve-merge-conflicts.md) | Resolve a merge conflict from Pipeline Changes | proposed |
 
 ### Mockups
 
