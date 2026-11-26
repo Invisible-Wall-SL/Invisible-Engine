@@ -63,20 +63,25 @@ export type Dispatched =
 	| { kind: 'unknown' };
 
 /**
- * Dispatch the workflow on `main` with ONE input, the run's id — inputs are public, so never the
- * bug's number or text. GitHub answers 200 with the new run's id when asked for it
+ * Dispatch the workflow on `main` with two inputs, the run's id and its mode (`diagnose` or
+ * `build`; the job trusts the brief's mode and fails when the two disagree) — inputs are public, so
+ * never the bug's number or text. GitHub answers 200 with the new run's id when asked for it
  * (`return_run_details`), else 204; either way the run's `run-name` lets it be found later. A
  * GitHub that does not know `return_run_details` (a 422 naming it) is asked once more without.
  * Only a definitive 4xx refuses the run; a timeout, a network error or a 5xx may still have started
  * one, so the run stays `dispatched` for the backstop to find or give up on.
  */
-export async function dispatchFixRun(app: GithubApp, id: string): Promise<Dispatched> {
+export async function dispatchFixRun(
+	app: GithubApp,
+	id: string,
+	mode: FixRunMode,
+): Promise<Dispatched> {
 	const send = (details: boolean) =>
 		app.fetch(`/repos/${repo()}/actions/workflows/${FIX_RUN_WORKFLOW}/dispatches`, {
 			method: 'POST',
 			body: JSON.stringify({
 				ref: 'main',
-				inputs: { fix_run: id },
+				inputs: { fix_run: id, mode },
 				...(details ? { return_run_details: true } : {}),
 			}),
 		});
