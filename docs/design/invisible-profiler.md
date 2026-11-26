@@ -155,6 +155,41 @@ JS ms per frame — not fps: fps on a shared runner swings about 2× run to run.
 current-games harness already runs headless Chrome (`.github/workflows/current-games.yml`,
 `scripts/playtest/online-play.mjs`). Real phones from an online service are "Cloud phones" below (P7).
 
+### 7. Phase sets per game kind (P8)
+
+**Decision (2026-11-26):** a reading is split into the phases of its game's family, not the
+slot's for every game. The probe reports `kind` (the config's family: `slot`, `arcade`, `match3`,
+`card`) from `perf: 8`, and the launcher reads the phase set off it:
+
+| Set | Phases | What decides a frame's phase |
+|---|---|---|
+| slot (every family but arcade, and every `perf: 7` reading) | `idle`, `spinning`, `round` | a reel moving; else the game's xstate state |
+| arcade | `menu`, `play` | the runtime's own tick (`apps/lines/src/game/arcadePerf.ts`): `play` while the local loop moves a body or the online room's `state.phase` is `running`; else `menu` (title, lobby, countdown, win screen) |
+
+Why: an arcade game never spins, so every frame of the owner's first Salmons reading
+(2026-11-26) landed in `idle` and its findings named no arcade cause. Why no third arcade phase:
+the only clean split was a body count, and the count means different things on the two arcade
+paths (the broad phase's 64 bodies offline, the players a device is sent online); the findings
+read bodies per frame directly instead (cost per body). A slot reading is byte-for-byte what it
+was (`perfStats.fixture.ts` hashes one against its pre-P8 recording); only `perf` and `kind` are
+new on it.
+
+An arcade reading also counts, per frame, what the sim and the room did — fixed steps, catch-up
+frames, dropped sim time, sim ms, bodies, pairs tested, spawns, looks, camera px, and online the
+room's states, their bytes, the time their WebSocket task took and how late each arrived against
+the room's own clock — and its spikes have arcade causes (`sim catch-up`, `sim`, `spawn burst`,
+`tilemap/upload`, `state patch`). Budgets apply per phase as before: `menu` takes idle's studio
+lines and `play` spinning's (by analogy, not an owner number). The rules gain sim catch-up, spawn
+churn, cost per body and patch jitter, owned by the arcade kind's agent.
+
+**The 30 fps cap needs the work too.** `capped30` (a browser cap, e.g. iOS Low Power Mode) used
+to read the intervals alone. A game whose every frame takes longer than a 60 Hz frame also runs
+at exactly 30 fps on a 60 Hz display (each frame waits a second vsync), and the owner's Salmons
+reading on a Galaxy S24 Ultra did (~25 ms of main thread a frame; the same day's BrowserStack Live
+Android phones read their real 60 and 90 Hz on another game, so Live does not cap). From `perf: 8`
+a cap also needs the frames' median main-thread time under 0.75 of a 60 Hz frame; the launcher
+applies the same test to a `perf: 7` reading's means. A capped reading is never an fps failure.
+
 ## The page
 
 Four tabs on one project (the project selector the tools already share), each a set of foldable
@@ -192,6 +227,9 @@ Each step is one PR, usable on its own.
   its counts beside the phones' fps.
 - **P7 — Cloud phones.** The same script on the real-device service's phones ("Cloud phones" below): calibration
   against an owned phone first, then the device matrix on demand and nightly per live game.
+- **P8 — Arcade phases.** Phase sets per game kind (§7): `perf: 8` with `kind`, `menu` / `play`,
+  the arcade counts and spike causes, the launcher's arcade columns, budgets and rules. Then the
+  network block (heavy transfers, per-resource sizes) in its own step.
 
 ## Decisions (owner, 2026-11-16)
 

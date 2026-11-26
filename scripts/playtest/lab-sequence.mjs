@@ -24,10 +24,17 @@
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// An arcade game's reading (`perf: 8`, `kind: 'arcade'`) has `menu` and `play` in place of the
+// slot's phases; it plays no rounds, so its frames only need counting at boot.
 const PHASES = `(() => {
 	if (typeof window.__IE_PERF__ !== 'function') return null;
 	const r = JSON.parse(window.__IE_PERF__());
-	return { idle: r.idle?.frames ?? 0, spinning: r.spinning?.frames ?? 0, round: r.round?.frames ?? 0 };
+	return {
+		idle: r.idle?.frames ?? 0,
+		spinning: r.spinning?.frames ?? 0,
+		round: r.round?.frames ?? 0,
+		free: (r.menu?.frames ?? 0) + (r.play?.frames ?? 0),
+	};
 })()`;
 
 export const LAB_DEFAULTS = {
@@ -61,7 +68,7 @@ export async function playLabSequence(page, options = {}) {
 			throw new LabRunError(`the runtime fell back to stale data: ${JSON.stringify(stale)}`);
 		}
 		const p = await phases().catch(() => null);
-		if (p && p.idle + p.spinning + p.round > 0) break;
+		if (p && p.idle + p.spinning + p.round + p.free > 0) break;
 		if (Date.now() - booted > o.bootMs) throw new LabRunError('the probe never reported a frame');
 		await sleep(o.pollMs);
 	}

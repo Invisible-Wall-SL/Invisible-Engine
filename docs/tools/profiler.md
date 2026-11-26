@@ -13,7 +13,8 @@ bug, and **Compare** puts any two readings side by side.
 
 The game already measures itself: open any published game with `?perf=1` and a small readout at
 the top shows its frame rate, and opens into the full reading (frame times while idle, spinning and
-during a round's wins, the GPU, draw calls, textures). Until now that reading travelled by hand,
+during a round's wins — or, for an arcade game, in its menus and while the field plays — the GPU,
+draw calls, textures). Until now that reading travelled by hand,
 with **Copy** and a paste into a chat. The Profiler opens the game with a **capture session**, so
 the readout gets a **Send** button and the reading goes straight to the project's list.
 
@@ -57,7 +58,9 @@ the readout gets a **Send** button and the reading goes straight to the project'
 4. Scan a QR code with the phone's camera (or send yourself the copied link). The game opens with
    the readout at the top. Tap the readout to open it: under the figures are **Copy**, **Send** and
    **Reset**.
-5. Play: let the game idle a while, spin, and play through some wins. Then send the reading:
+5. Play: let the game idle a while, spin, and play through some wins. For an arcade game, stay a
+   little in its menu or lobby, then play the field for a minute or more (the readout's header
+   shows **play** fps once it counts). Then send the reading:
    - **Send** posts the reading as it stands. The readout says "sent", or "not sent: `<reason>`".
    - **Reset** sends the reading on its own before clearing it (if it has frames not sent yet), so
      you can Reset between tests and each one is kept. The readout then says "sent (auto)".
@@ -165,7 +168,17 @@ refuses forcing today, so that step is skipped.
      and features with the reels at rest, three figures each: **fps**, **p95** (95 % of frames
      took less than this many ms) and **>33** (frames that took over 33 ms, the hitches you see).
      `–` means the reading has no frames in that phase.
-   - **Draws**: draw calls a frame while spinning (while idle if the reading never spun).
+   - **Menu**, **Play**: the same three figures for an arcade game, in its menus (title, lobby,
+     countdown, win screen) and while its field plays (online: while the room's round runs). The
+     table shows the phase groups the listed readings have: a slot project only Idle, Spinning and
+     Round, an arcade project Menu and Play, and both while older readings of an arcade game are
+     still listed (a reading from before the arcade phases puts all its frames under Idle).
+   - A **30 cap** tag after the time: the browser held the reading to 30 fps (iOS Low Power Mode,
+     a battery saver) while its frames had room for 60. Its fps and p95 are not judged against the
+     budgets. A game whose frames are too busy for 60 also runs at exactly 30 fps on a 60 Hz screen;
+     that is not a cap, and it is judged.
+   - **Draws**: draw calls a frame while spinning (while idle if the reading never spun); for an
+     arcade game, while it plays (in its menus if it never played).
    - **Tex MB**: the textures in GPU memory.
    - **Keep**: see below.
    - **JSON**: downloads the full reading as the game sent it, with every figure the readout has.
@@ -236,8 +249,9 @@ refuses forcing today, so that step is skipped.
     - **Device**: the class (`phone`, `desktop`) and the GPU under it (hover for the full name).
     - **Readings**: how many readings the group holds.
     - **Verdict**: `pass`, `warn`, `fail` or `not enough data` — the worst of the row's cells.
-    - **Idle**, **Spinning**, **Round**: **fps** and **p95** (the median over the group's
-      readings) and **>33** (hitches, added up over the readings).
+    - **Idle**, **Spinning**, **Round** (an arcade game's **Menu** and **Play**): **fps** and
+      **p95** (the median over the group's readings) and **>33** (hitches, added up over the
+      readings). A device is judged only on its readings' own phases.
     - **Draws** and **GPU MB**: the median draw calls a frame and texture memory.
 16. A cell is coloured by the project's budget: green pass, orange warn, red fail, grey when there
     is not enough data or no budget for it. Hover a cell for its verdict and the warn and fail
@@ -248,7 +262,8 @@ refuses forcing today, so that step is skipped.
     - Readings taken with a test switch (**Particles off** and the others) are left out: they
       measure what a feature costs, not the game players get. So are lab runs (their fps is a
       shared runner's, not a device's) and readings whose device class the game did not name. A
-      line under the table says how many were left out.
+      reading with the **30 cap** tag counts for draws and GPU MB but not for fps and p95. Lines
+      under the table say how many were left out, and how many were at a 30 fps cap.
 17. Click a device's name to open its readings **build by build**, newest first, in a card under
     the table: each build (or the build number the game stamped, when no build record matches)
     with its readings judged the same way. Click the name again to close it.
@@ -282,11 +297,31 @@ refuses forcing today, so that step is skipped.
       build is past its budget line, judged exactly as the **Devices** tab judges it.
     - **GPU- or CPU-bound**: for a device missing its fps budget, which side of the frame to cut —
       our JS (CPU-bound) or not our JS (the GPU or the browser). It names the side, not a saving.
+      Our JS is weighed against the frame the screen gives (16.7 ms at 60 Hz), not against the
+      frame the game managed: when our JS alone is longer, it is CPU-bound, and every frame waits a
+      second refresh (a steady 30 fps on a 60 Hz screen).
     - **Feature cost**: what Particles, Element FX passes or Antialiasing cost on a device, in fps
       and draws a frame, shown when switching it off buys at least 2 fps or 10 % of the draws.
     - **Spikes by cause**: the frames over the spike line while a round plays (spinning, or wins
-      with the reels at rest), counted by their likely cause (first use, particles, rigs, page JS,
-      garbage collection, outside the game…). Spikes at idle are left out.
+      with the reels at rest) or an arcade game's field plays, counted by their likely cause (first
+      use, particles, rigs, page JS, garbage collection, outside the game…). An arcade game's spikes
+      have causes of their own: **sim catch-up** (the sim ran several steps at once after a long
+      frame), **sim** (one step took the frame), **spawn burst** (many bodies spawned or despawned),
+      **tilemap/upload** (texture data uploaded while the camera moved: the next ground coming into
+      view) and **state patch** (the room's messages took the frame). Spikes at idle and in an
+      arcade game's menus are left out.
+    - **Sim catch-up** (arcade): the share of play frames that ran more than one fixed sim step,
+      with the steps a frame, the time in them, and the time the sim dropped (motion slowed). It
+      says when the frame rate is below the sim's rate, so every frame catches up.
+    - **Spawn churn** (arcade): bodies spawned and despawned a play frame, and the most in one
+      frame — pool them rather than make and destroy them.
+    - **Cost per body** (arcade): the sim's time a body a step, and what it would cost at the most
+      bodies seen against a 60 Hz frame.
+    - **Patch / jitter stutter** (online arcade games): the room's states arriving later than the
+      room's own clock says — what moves stutters while the fps holds — with the room's bytes a
+      second and the time its messages take a frame.
+    - The four arcade rules name no saving (`unmeasured`) and are owned by the arcade games'
+      agent (`arcade-games`).
     - **Textures**: a device's texture memory over its GPU budget (the saving is what its five
       largest textures hold); KTX2 art a device fell back to WebP/PNG for; and pages over 4096 px on
       a side in a game's newest build, which many phones cannot load (those two say `unmeasured`:
@@ -344,7 +379,9 @@ them, so a project with many old readings shows its full list after a few visits
     or open one from a finding's evidence. Until both are picked it reads "Pick two readings — or
     open one from a finding's evidence."
 27. The table shows, per phase, **fps**, **p95 ms**, **> 33 ms** and **frames**; then, for idle and
-    spinning, what a frame did — draws, passes, uploads, GL calls and JS ms; then **texture MB**.
+    spinning (an arcade game's menu and play), what a frame did — draws, passes, uploads, GL calls
+    and JS ms, and for an arcade game its sim steps, sim ms, bodies, room states, their bytes and
+    the time its messages took; then **texture MB**.
     Each row has A, B and **B − A**: green when B is better, red when it is worse (frames is not
     coloured). `—` means a reading has no figure there.
 28. It is a difference, not a verdict: two devices differ for reasons no build caused. With a lab
@@ -356,17 +393,19 @@ them, so a project with many old readings shows its full list after a few visits
 
 29. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
     **Phone**, **Tablet**, **Desktop** and **Every device** (shipped size). Each row is one metric
-    (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Shipped size**.
+    (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Shipped size**. The
+    phases are the project's game kind's: Idle, Spinning and Round for a slot, Menu and Play for an
+    arcade game (plus any other phase the project has its own line for).
     - **Warn** and **Fail** are the project's lines, filled in with the line in force. For fps,
       below the line is bad (`<`); for the others, above it (`>`). A blank line is not checked.
     - **Studio default** shows the studio's line beside it, and a `project` tag when this project
       has its own.
 30. The studio defaults:
 
-    | Device        | Metric                 | Warn     | Fail     |
-    | ------------- | ---------------------- | -------- | -------- |
-    | Phone, tablet | fps idle               | < 58     | < 55     |
-    | Phone, tablet | fps spinning, round    | < 55     | < 50     |
+    | Device        | Metric                    | Warn     | Fail     |
+    | ------------- | ------------------------- | -------- | -------- |
+    | Phone, tablet | fps idle, menu            | < 58     | < 55     |
+    | Phone, tablet | fps spinning, round, play | < 55     | < 50     |
     | Phone, tablet | p95 frame, every phase | > 20 ms  | > 25 ms  |
     | Phone, tablet | GPU memory             | > 120 MB | > 150 MB |
     | Desktop       | fps, every phase       | < 58     | < 55     |
@@ -374,7 +413,9 @@ them, so a project with many old readings shows its full list after a few visits
     | Every device  | Shipped size           | > 20 MB  | > 25 MB  |
 
     "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
-    Draws a frame and desktop GPU memory have no default; set one if your project wants it.
+    Draws a frame and desktop GPU memory have no default; set one if your project wants it. An
+    arcade game's **menu** takes idle's lines and its **play** spinning's — a studio default by
+    analogy, not an owner number; change them here if your game needs others.
 
 31. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
     you typed. A value out of range, or a warn line on the wrong side of the fail line, is refused
@@ -390,7 +431,8 @@ them, so a project with many old readings shows its full list after a few visits
 ## Known limitations / TODOs
 
 The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Devices and
-budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug") and P6 ("Lab runs") are done.
+budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug"), P6 ("Lab runs") and P8 ("Arcade
+phases") are done.
 Planned in [the design](../design/invisible-profiler.md), not built yet:
 
 - **Scripted cloud phones** (P7), parked: they need a BrowserStack Automate plan. Cloud phones
@@ -404,8 +446,11 @@ Today:
   newest 500 readings.
 - A reading cannot be deleted by hand; untick **Keep** and the clean-up removes it once it is past
   15 days.
-- Only readings from a game whose readout reports `perf: 7` are read. A reading from a newer or
-  older readout is refused with its version.
+- Only readings from a game whose readout reports `perf: 7` or `perf: 8` are read. A reading from
+  a newer or older readout is refused with its version. A `perf: 7` reading names no game kind, so
+  it is read in the slot's phases even from an arcade game (its frames are all **Idle**).
+- An arcade game is read in two phases, **Menu** and **Play**. A 3D arcade game counts its play
+  frames but not yet its sim, bodies or room states.
 - Purging a project deletes its readings, build records and budgets with it. A duplicated
   project starts with no readings or builds, and on the studio budgets: its overrides are not
   copied.
@@ -429,5 +474,6 @@ Today:
   resolved when the finding drops out. When the bug is deleted, the readings and builds it cited
   stay ticked **Keep**; untick them by hand to put them back on the 15-day clock.
 - Lab runs are nightly and on demand, not yet after each Publish. They cover only the idle and
-  spinning phases (no forced feature on an online game's player mock), and a game that ships its own
+  spinning phases (an arcade game's lab run only sits in its menu), with no forced feature on an
+  online game's player mock, and a game that ships its own
   built bundle (not the shared runtime) is not run.

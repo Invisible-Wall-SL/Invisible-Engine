@@ -21,7 +21,10 @@ project's readings and builds give a ranked list of what to cut — severity, a 
 readings side by side. Step **P5 "File as bug" built 2026-11-18**: each finding opens Bug Reports'
 own form filled in — a game or a pipeline bug, its area from the owner — once per finding, and the
 readings and builds it cites are kept while the bug exists. **P7 parked 2026-11-25**: the owner
-tests cloud phones by hand on BrowserStack Live, through an ordinary capture session.
+tests cloud phones by hand on BrowserStack Live, through an ordinary capture session. Step **P8
+"Arcade phases" built 2026-11-26** (in review): an arcade game's reading (`perf: 8`, `kind:
+'arcade'`) is split into `menu` and `play` with what its sim and room did per frame, and the
+launcher shows, budgets and judges it so; a slot reading is unchanged.
 
 ## Current state
 
@@ -312,6 +315,11 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Open items / next
 
+0. **P8 — next: network monitoring** (heavy transfers, per-resource sizes), its own session after
+   P8 merges: a `network` block in the report (the name is free), the HUD's and the launcher's
+   view of it. P8 itself is unverified on a real phone until the owner takes a fresh `?perf=1`
+   Salmons capture after the merge's runtime release. A 3D arcade game's reading
+   (`arcade3d` runtime) counts its play frames only, no sim or room counts.
 1. **P6 tolerance across games.** Measured on one game on CI (above); widen or narrow
    `LAB_TOLERANCE` as the first nightlies of the other games come in. The
    forced-feature step is skipped online: a published game's player mock refuses `/force` (an

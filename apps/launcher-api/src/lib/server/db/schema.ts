@@ -27,6 +27,7 @@ import type {
 } from '$lib/bugFixRuns';
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
+import type { ArcadePhaseSummaries } from '$lib/profiler';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
 import type { BuildFacts, ReportFacts } from '$lib/profilerFindings/facts';
 import type { PerfCounts } from '$lib/profilerLab';
@@ -1354,6 +1355,12 @@ export const perfReports = pgTable(
 		idleFrames: integer('idle_frames').notNull().default(0),
 		spinFrames: integer('spin_frames').notNull().default(0),
 		roundFrames: integer('round_frames').notNull().default(0),
+		/** The family the probe named (`perf: 8`: slot, arcade, match3, card); null for `perf: 7`. */
+		gameKind: text('game_kind'),
+		/** An arcade reading's menu / play summaries (the slot columns above stay empty); null for a slot. */
+		arcadePhases: jsonb('arcade_phases').$type<ArcadePhaseSummaries>(),
+		/** A browser's 30 fps cap (`profiler.ts` `capped30`): fps and p95 are not judged. */
+		capped30: boolean('capped30').notNull().default(false),
 		drawsMean: doublePrecision('draws_mean'),
 		jsMs: doublePrecision('js_ms'),
 		textureMb: doublePrecision('texture_mb'),
