@@ -194,6 +194,14 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-26 — **"Show all win lines at once" no longer carries the lines into a bonus.** Owner
+  bug: with the switch on, the trigger spin's paying lines and amounts stayed over the whole bonus
+  game. In that mode `WinLine.svelte` ignores a per-win `winLineHide`, and the only `all` clears were
+  the next spin's and the resting cycle's. The mode layer (`stateModes.svelte.ts` `present`) now
+  broadcasts `winLineHide { all: true }` on every `enter` transition, before the flow's intro: one
+  seam for free spins, Hold and Win and bonus modes, coded or flow-driven. The toast, win dim and
+  recorded wins are left alone (a flow rides the free-spin award on the toast; the per-spin pop
+  reads the wins).
 - 2026-11-26 — **Styled payline** (owner-approved, from a mockup: a flaming line with a white-hot
   core, red glow, a lens flare at the moving tip, embers and banknotes spawning along it). New
   sparse `winLine.line` fields, all absent ⇒ the line draws, mounts and sounds as before:
