@@ -4,7 +4,7 @@ import { BRIDGE_PROP_DEF } from '../propComponents';
 import type { PropZone } from '../propPieces';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
-import type { CinematicDoc } from '../types';
+import type { CinematicDoc, ComponentDef } from '../types';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
 import { aloftDepth, aloftLift } from './bridge';
@@ -98,12 +98,13 @@ export type SalmonsArt = {
 	 *  loading phrases), their buttons acting through `host`. */
 	screens: (host: SalmonsScreenHost) => SalmonsScreens;
 	/** Publish the room's bridges (`bridge<i>` zones of `game`) for spawn layer `layer`, drawn by
-	 *  the seed `bridgeProp`, on the river's raised ground, before the river is drawn; the prop
+	 *  `def` (the zone art's prop component), else the seed `bridgeProp`, on the river's raised ground, before the river is drawn; the prop
 	 *  built-ins are registered once a page, `projectTimelines` (the project's) after theirs. */
 	bridges: (
 		game: BridgeGame & { zones: readonly PropZone[] },
 		layer: string,
 		projectTimelines: readonly CinematicDoc[],
+		def?: ComponentDef,
 	) => SalmonsBridges;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
@@ -203,8 +204,8 @@ export async function loadSalmonsArt(
 				{ golden: textures.region('salmon_golden'), pink: textures.region('salmon_pink') },
 				host,
 			),
-		bridges: (game, layer, projectTimelines) =>
-			showSalmonsBridges(BRIDGE_PROP_DEF, game, layer, (y) => elevation.at(y), projectTimelines),
+		bridges: (game, layer, projectTimelines, def = BRIDGE_PROP_DEF) =>
+			showSalmonsBridges(def, game, layer, (y) => elevation.at(y), projectTimelines),
 		regions: () => drawn?.regions() ?? {},
 		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,

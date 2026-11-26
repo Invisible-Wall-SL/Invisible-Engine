@@ -162,7 +162,7 @@ import {
 } from '../editor-scenes';
 import { arcadePerf } from './arcadePerf';
 import { typingInto } from './flowKeys';
-import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
+import { zoneArtDrawsRig, zonePropOf, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
 import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
@@ -947,7 +947,12 @@ async function enterRoom(
 				current.art = art;
 				fieldArt = art.rivers;
 				// Before the river is drawn: it draws the water and behind pieces published here.
-				current.bridges = art.bridges(current.game, current.game.online.layer, bakedCinematics());
+				current.bridges = art.bridges(
+					current.game,
+					current.game.online.layer,
+					bakedCinematics(),
+					zonePropOf('bridge#'),
+				);
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
 				for (const [id, mount] of current.screens.mounts) setFieldArt(id, mount);

@@ -134,3 +134,16 @@ export function withOnlineProps<G extends object | undefined>(game: G, rawDoc: u
 	if (!props || !game || !('online' in game) || !isObject(game.online)) return game;
 	return { ...game, online: { ...game.online, props } };
 }
+
+/**
+ * The launcher's carry: the NORMALIZED config `doc` with the prop colliders of `rawDoc` put back on
+ * its `arcade.online.props`. Returns `doc` itself when `rawDoc` has none or `doc` is not an online
+ * game; neither argument is changed.
+ */
+export function withProps<T>(doc: T, rawDoc: unknown): T {
+	const props = onlinePropsOf(rawDoc);
+	const arcade = isObject(doc) ? doc.arcade : undefined;
+	const online = isObject(arcade) ? arcade.online : undefined;
+	if (!props || !isObject(arcade) || !isObject(online)) return doc;
+	return { ...doc, arcade: { ...arcade, online: { ...online, props } } } as T;
+}

@@ -447,6 +447,22 @@ has no family control at all. Three more families exist
       "(not in this rig)". There is no preview of the rig on the card. A family drawn with a rig on
       more than 100 zones of the level shown (Salmons' 318 sandbanks) shows an amber warning: as
       many rigs on screen cost a phone several milliseconds a frame.
+    - **Component** (a zone family only, never a variant or scenery) lists the project's prop
+      components of the family's kind: a `bridge#` row offers the bridge props, made with **Save a
+      copy** of the seed bridge in the Components side of `/editor`. It is greyed out, with the
+      reason, when the project has none. Picking one pins it at its latest version, shown as
+      **v2** beside it. **Open** goes to it in `/editor`. When the component has a newer version,
+      the row says so in amber and offers **Use v3**: the game plays the pinned version until you
+      choose. **Collider** shows what the room plays for the family. That is the component's
+      collider at the pinned version, compiled when you save (`arcade.online.props`), with the
+      fields equal to today's bridge left out ("today's rule" when none differ). Before the first
+      save it reads "compiled on save". Hover it for what it is. A component draws every zone of
+      the family itself, so the row has no **＋ Variant** and no **Scale**. Saving warns, against
+      the row:
+      - of a component that is missing, not of the family's kind, or whose collider cannot be
+        played (the family then plays today's rule);
+      - of a newer version;
+      - of a collider pasted in Raw JSON for a family no component draws (it is dropped).
   - **＋ Variant** adds a picture, a copy of the first, to change (at most 8). Each zone draws one
     of the pictures, chosen by the room's seed and the zone, the same on every device. A variant's
     **Remove variant** takes it out. Setting the first picture to **Default** moves the first

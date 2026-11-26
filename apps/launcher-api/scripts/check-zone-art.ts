@@ -1383,5 +1383,214 @@ mock.module('pixi-svelte', { namedExports: { getRigLoadScale: () => 1 } });
 	);
 }
 
+// 13. A prop component as a zone family's picture (`docs/design/arcade-prop-components.md` §6, P6):
+// the source, the compile on save, the card, and rule 8.
+{
+	const { compileZoneArtProps } = await import('../src/lib/server/zoneArtProps.ts');
+	const { zoneArtPropSeeds } = await import('../src/lib/server/zoneArtPropSeeds.ts');
+	const { loadComponentForGame } = await import('../src/lib/server/componentStorage.ts');
+	const { projectComponentKey, projectComponentVersionKey } =
+		await import('../src/lib/server/projectPaths.ts');
+	const { BRIDGE_PROP_DEF } =
+		await import('../../../packages/engine-layout/src/lib/propComponents.ts');
+	const { withProps, validateZoneArt, zoneArtComponentRoots } = gc;
+	const COMPONENT = { kind: 'component', component: 'myBridge', version: 2 } as const;
+	const bridgeArt = { 'bridge#': { source: COMPONENT, placement: 'stamp' } };
+
+	// 13.1 The source.
+	eq(
+		'13. a component is a zone family’s picture, pinned at its version',
+		normalizeZoneArt(bridgeArt),
+		bridgeArt,
+	);
+	eq(
+		'13. … never scenery, never a variant, never without a whole version',
+		normalizeZoneArt({
+			'@trees': { source: COMPONENT, placement: 'stamp' },
+			'rock#': {
+				source: { kind: 'sprite', region: ROCK },
+				variants: [COMPONENT],
+				placement: 'stamp',
+			},
+			'bridge#': { source: { ...COMPONENT, version: 1.5 }, placement: 'stamp' },
+		}),
+		{ 'rock#': { source: { kind: 'sprite', region: ROCK }, placement: 'stamp' } },
+	);
+	eq(
+		'13. … a component’s family keeps no variant and stamps nothing (the game’s art places it)',
+		[
+			normalizeZoneArt({
+				'bridge#': {
+					source: COMPONENT,
+					variants: [{ kind: 'sprite', region: ROCK }],
+					placement: 'stamp',
+				},
+			}),
+			zoneArtStamps([{ id: 'bridge0', x: 0, y: 0, w: 96, h: 48 }], bridgeArt, 1),
+		],
+		[bridgeArt, []],
+	);
+	eq(
+		'13. … the roots the save compiles and the bundle ships',
+		zoneArtComponentRoots({ arcade: { zoneArt: bridgeArt } }),
+		[{ family: 'bridge#', component: 'myBridge', version: 2 }],
+	);
+	ok(
+		'13. … the validator says when a component is a variant or scenery',
+		validateZoneArt({
+			arcade: {
+				online: { generator: 'salmonsMap' },
+				zoneArt: {
+					'@trees': { source: COMPONENT, placement: 'stamp' },
+					'rock#': {
+						source: { kind: 'sprite', region: ROCK },
+						variants: [COMPONENT],
+						placement: 'stamp',
+					},
+				},
+			},
+		}).filter((i) => /component draws a whole zone family/.test(i.message)).length === 2,
+	);
+
+	// 13.2 The compile on save, with a stub store of the project's defs.
+	const salmonsDoc = (zoneArt: unknown, props?: unknown) => {
+		const raw = salmonsRaw() as { arcade: { zoneArt?: unknown; online: { props?: unknown } } };
+		raw.arcade.zoneArt = zoneArt;
+		if (props) raw.arcade.online.props = props;
+		return prepareGameConfigDoc(raw).doc;
+	};
+	const copyOf = (version: number, ramps = { near: { length: 2 }, far: { length: 2 } }) => ({
+		...structuredClone(BRIDGE_PROP_DEF),
+		id: 'myBridge',
+		version,
+		internal: false,
+		scope: 'project' as const,
+		prop: {
+			...structuredClone(BRIDGE_PROP_DEF.prop!),
+			collider: { ...structuredClone(BRIDGE_PROP_DEF.prop!.collider), ramps },
+		},
+	});
+	const store = (defs: ReturnType<typeof copyOf>[]) => async (id: string, version?: number) =>
+		version === undefined
+			? defs.filter((d) => d.id === id).at(-1)
+			: defs.find((d) => d.id === id && d.version === version);
+	const ramped = copyOf(2, { near: { length: 3 }, far: { length: 2 } });
+	const compiled = await compileZoneArtProps(salmonsDoc(bridgeArt), store([ramped]));
+	eq(
+		'13. the save compiles the pinned component’s collider into arcade.online.props, stamped',
+		[compiled.doc.arcade?.online?.props, compiled.warnings],
+		[
+			{
+				'bridge#': {
+					from: { component: 'myBridge', version: 2 },
+					zoneKind: 'bridge',
+					ramp: { near: 3, far: 2 },
+				},
+			},
+			[],
+		],
+	);
+	eq(
+		'13. … a seed copy compiles to today’s bridge: its stamp alone',
+		(await compileZoneArtProps(salmonsDoc(bridgeArt), store([copyOf(2)]))).doc.arcade?.online
+			?.props,
+		{ 'bridge#': { from: { component: 'myBridge', version: 2 }, zoneKind: 'bridge' } },
+	);
+	const stale = await compileZoneArtProps(salmonsDoc(bridgeArt), store([ramped, copyOf(3)]));
+	ok(
+		'13. a stale pin warns and still plays the pinned version',
+		stale.warnings.some((w) => /newer version \(v3\)/.test(w.message)) &&
+			stale.doc.arcade?.online?.props?.['bridge#']?.from.version === 2,
+		JSON.stringify(stale.warnings),
+	);
+	const missing = await compileZoneArtProps(salmonsDoc(bridgeArt), store([]));
+	ok(
+		'13. a missing component warns and adds no collider',
+		missing.warnings.some((w) => /is not in this project/.test(w.message)) &&
+			!missing.doc.arcade?.online?.props,
+	);
+	const pasted = await compileZoneArtProps(
+		salmonsDoc(undefined, {
+			'bridge#': { from: { component: 'x', version: 1 }, zoneKind: 'bridge', snap: 0.25 },
+		}),
+		store([]),
+	);
+	ok(
+		'13. a collider no component draws is dropped, and said',
+		!pasted.doc.arcade?.online?.props &&
+			pasted.warnings.some((w) => /No component draws bridge#/.test(w.message)),
+	);
+	const carried = compiled.doc;
+	eq(
+		'13. the props are carried on load and paste (withProps, applyPasted)',
+		[
+			withProps(normalizeGameConfigDoc(carried), carried)?.arcade?.online?.props,
+			applyPasted(structuredClone(carried))?.arcade?.online?.props,
+			prepareGameConfigDoc(structuredClone(carried)).doc.arcade?.online?.props,
+		],
+		Array(3).fill(compiled.doc.arcade?.online?.props),
+	);
+
+	// 13.3 The card.
+	const propsList = [
+		{ id: 'myBridge', name: 'My bridge', version: 3, zoneKind: 'bridge' },
+		{ id: 'myLog', name: 'My log', version: 1, zoneKind: 'log' },
+	];
+	eq(
+		'13. the card lists the project’s props of the family’s kind',
+		cardEdits.zoneArtPropsFor('bridge#', propsList).map((p) => p.id),
+		['myBridge'],
+	);
+	eq(
+		'13. … picks one at its latest, notes a newer version, shows the compiled collider',
+		[
+			cardEdits.componentSourceOf(propsList[0]),
+			cardEdits.zoneArtPinNote(COMPONENT, propsList),
+			cardEdits.zoneArtPinNote({ ...COMPONENT, version: 3 }, propsList),
+			cardEdits.compiledPropText(compiled.doc, 'bridge#'),
+		],
+		[
+			{ kind: 'component', component: 'myBridge', version: 3 },
+			'v3 is newer: this game plays v2 until you choose it.',
+			'',
+			'{"ramp":{"near":3,"far":2}}',
+		],
+	);
+	const edited = structuredClone(compiled.doc);
+	cardEdits.setZoneArtSource(edited, 'rock#', 0, { kind: 'sprite', region: ROCK });
+	cardEdits.setZoneArtSource(edited, 'bridge#', 0, cardEdits.componentSourceOf(propsList[0]));
+	eq(
+		'13. … a re-pin is the author’s choice: the card writes it, the save compiles it',
+		edited.arcade?.zoneArt?.['bridge#']?.source,
+		{ kind: 'component', component: 'myBridge', version: 3 },
+	);
+
+	// 13.4 Rule 8: the def at its pin, its pieces and its art are in the bundle's closure, and a game
+	// is never handed the editor-only preview.
+	const project = 'salmons_zone';
+	put(projectComponentKey(project, 'myBridge'), copyOf(3));
+	put(projectComponentVersionKey(project, 'myBridge', 2), ramped);
+	const seeds = await zoneArtPropSeeds(compiled.doc, (id, version) =>
+		loadComponentForGame(id, project, version),
+	);
+	ok(
+		'13. the closure is seeded with the component and its pieces, and ships the pinned def',
+		seeds.ids.includes('myBridge') &&
+			['bridgePropWater', 'bridgePropPillar', 'bridgePropDeckMiddle', 'bridgePropSlope'].every(
+				(id) => seeds.ids.includes(id),
+			) &&
+			seeds.pinned.length === 1 &&
+			seeds.pinned[0].version === 2,
+		JSON.stringify(seeds.ids),
+	);
+	ok(
+		'13. … without its editor-only preview',
+		!!ramped.prop?.preview && !seeds.pinned[0].prop?.preview && !!seeds.pinned[0].prop?.collider,
+	);
+	put(gameConfigDocKey(CLIENT, project), compiled.doc);
+	const shippedProps = await exportEditorArt(CLIENT, project);
+	ok('13. the export walks it with the rest (no art of its own to ship)', !!shippedProps);
+}
+
 console.log(`check:zone-art — ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

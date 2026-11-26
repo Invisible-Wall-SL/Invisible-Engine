@@ -60,7 +60,7 @@
 	import PagedRows from './PagedRows.svelte';
 	import SnapshotRows from './SnapshotRows.svelte';
 	import ZoneArtSection from './ZoneArtSection.svelte';
-	import { NO_RIGS, type ZoneArtRigs } from './zoneArtDoc';
+	import { NO_RIGS, type ZoneArtProp, type ZoneArtRigs } from './zoneArtDoc';
 	import ZoneMap from './ZoneMap.svelte';
 	import { MAX_SEED } from '$lib/editor/generatedLevelCore';
 	import {
@@ -91,6 +91,7 @@
 		pickSheets = [],
 		clips = [],
 		rigs = NO_RIGS,
+		props = [],
 	}: {
 		doc: GameConfigDoc;
 		/** The symbols the strips deal — what a collect goal can name. */
@@ -105,6 +106,8 @@
 		clips?: { id: string; name: string; assetKey: string; firstFrame: string }[];
 		/** The project's rigs a zone family may be drawn with, and their animations. */
 		rigs?: ZoneArtRigs;
+		/** The project's prop components a zone family may be drawn with. */
+		props?: readonly ZoneArtProp[];
 	} = $props();
 
 	const FAMILY_LABELS: Record<ConfigFamily, string> = {
@@ -715,6 +718,8 @@
 			{pickSheets}
 			{clips}
 			{rigs}
+			{props}
+			{projectKey}
 			{issuesFor}
 		/>
 	{/if}

@@ -110,6 +110,17 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-26 — **Prop components P6 (arcade side): the ship chain** (agent `arcade-games`;
+  detail: [status/salmons](salmons.md)).
+  - A project prop def is drawn when the config's zone art names it. It ships in the bundle's
+    closure: the pinned def, its pieces, and the latest. `loadComponentForGame` strips
+    `prop.preview`, as it strips `guides`.
+  - The prop built-ins (the seed and its pieces) left `BUILTIN_COMPONENTS` / `BUILTIN_TIMELINES`
+    for the launcher's library, `builtinLibrary.ts` (`BUILTIN_LIBRARY_COMPONENTS` /
+    `_TIMELINES`). `componentStorage.ts` and the component editor's timeline lists read the
+    library, so **Save a copy** of the seed works as before. A runtime gets the prop built-ins only
+    with the Salmons art.
+
 - 2026-11-26 — **Prop components P5b (arcade side): the seed bridge drawn in the game** (agent
   `arcade-games`; detail: [status/salmons](salmons.md)). `<SpawnProps>` looks for its layer's
   instance container each frame until it is found. Its first look runs before `<ProjectedLayer>`

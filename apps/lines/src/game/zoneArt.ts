@@ -1,4 +1,10 @@
-import { registerBoundComponents, resolveFlipbook, type LayoutDoc } from 'engine-layout';
+import {
+	registerBoundComponents,
+	resolveComponent,
+	resolveFlipbook,
+	type ComponentDef,
+	type LayoutDoc,
+} from 'engine-layout';
 import { ZONE_ART_RIG, withZoneArtNodes } from 'engine-layout/zone-art';
 import {
 	normalizeGameConfigDoc,
@@ -37,6 +43,18 @@ export function zoneStampsOf(zones: readonly ArcadeZone[], seed: number | string
  *  built-in scenery. */
 export const zoneSceneryOf = (key: ZoneArtScenery): ZoneArt | undefined =>
 	zoneArtOf(bakedGameConfig())?.[key];
+
+/**
+ * The prop component the config's zone art draws `family` with (`docs/design/arcade-prop-components.md`
+ * §6: Salmons' `bridge#`), at its pinned version, as the bundle registered it; none ⇒ the game's
+ * seed prop.
+ */
+export function zonePropOf(family: string): ComponentDef | undefined {
+	const source = zoneArtOf(bakedGameConfig())?.[family]?.source;
+	if (source?.kind !== 'component') return undefined;
+	const def = resolveComponent(source.component, source.version).def;
+	return def?.prop ? def : undefined;
+}
 
 /** Whether the config's zone art names a rig: only then is the rig drawing loaded. */
 export const zoneArtDrawsRig = (): boolean => zoneArtNamesRig(zoneArtOf(bakedGameConfig()));

@@ -2,8 +2,9 @@
 
 **Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26; P3 (one
 river on both sides) built 2026-11-26; P4 (the seed def) built 2026-11-26; P5's mount and the
-seed's code look built 2026-11-26; P5 built 2026-11-26, in review (the river draws the seed, the
-inputs are fed, the code-drawn bridge is deleted); P6–P8 planned; other obstacles (§9) planned after P8.** Owner ask of
+seed's code look built 2026-11-26; P5 built 2026-11-26 (the river draws the seed, the inputs
+are fed, the code-drawn bridge is deleted); P6 (the ship chain) built 2026-11-26, in review;
+P7–P8 planned; other obstacles (§9) planned after P8.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -507,6 +508,35 @@ the 2-cell near slope) has merged.
    *Proof:* `pnpm --filter launcher-api check:zone-art` (new sections: the source round-trips, the
    compiled block is written and stamped, a stale pin warns, the def and its art are in the bundle's
    closure), `check:component-links`. Then a real bake + pull of Salmons with the seed copy.
+   **Built 2026-11-26, in review.** As built, mirroring #1931's rig source:
+   - **Source.** `game-config` `zoneArt.ts` gains `ZoneArtComponent`
+     `{ kind: 'component', component, version }`. It is a zone family's source only: a variant or
+     scenery drops it, and the validator says so. `zoneArtPropKind(family)` gives the kind
+     (`bridge#` ⇒ `bridge`). `zoneArtComponentRoots(rawDoc)` lists the components, and
+     `zoneArtStamps` never stamps one.
+   - **Compile.** `apps/launcher-api` `zoneArtProps.ts` `compileZoneArtProps(doc, load)` runs in
+     `saveGameConfigDoc`, so every save writes `arcade.online.props`. That covers `/config`, the
+     backups restore, the scaffold and the add-on imports. The props belong to the zone art: a
+     family no component draws loses its pasted collider, and the save says so. Publish ships the
+     saved config, and a pin is a fixed version, so Publish does not compile again. Load and paste
+     carry the block (`withProps` in `gameConfigStorage.ts` `withStoredBlocks` and in `pageDoc.ts`
+     `applyPasted`).
+   - **Card.** Zone art's **Component** choice (`ZoneArtSection.svelte`, `zoneArtDoc.ts`
+     `zoneArtPropsFor` / `componentSourceOf` / `zoneArtPinNote` / `compiledPropText`). The page
+     sends the project's non-internal prop defs (`+page.server.ts` `props`).
+   - **Ship.** `zoneArtPropSeeds.ts` seeds the closure in `runtimeBundle` and `editorArtExport`
+     with each component and the ids its pinned def names. The bundle also ships the pinned def
+     beside the latest, as a pinned instance's version. `loadComponentForGame` strips
+     `prop.preview`.
+   - **Boot.** A baked def is registered as every baked def is (`registerBakedComponents`).
+   - **Runtime.** `apps/lines` `game/zoneArt.ts` `zonePropOf('bridge#')` resolves the pinned def
+     from the registry. `online.ts` hands it to the art's `bridges`, which falls back to the seed.
+   - **Not done.**
+     - The `/config` level preview (`config/zones.ts`) still draws the generator's bridges without
+       their props' ramps, as it draws no collision.
+     - A real bake and pull need R2 and the network: not run here.
+     - No playbook plays a project component in the game yet. The runtime path is the seed's, with
+       the def swapped.
 7. **P7 — the editor.** See the bullets below.
    *Proof:* new `pnpm --filter launcher-api check:component-prop-editor` (pure edits: the collider
    handles, the depth fold, the locked inputs), `check:component-state-machine-editor`,

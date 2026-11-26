@@ -101,7 +101,15 @@ export async function loadComponentForGame(
 	version?: number,
 ): Promise<ComponentDef | undefined> {
 	const def = await loadComponent(id, projectKey, version);
-	return def && withoutEditorGuides(def);
+	return def && withoutPropPreview(withoutEditorGuides(def));
+}
+
+/** A def without its prop's `preview` (the params the editor's canvas previews at): editor-only,
+ *  as `guides` are, so a game never ships it. */
+function withoutPropPreview(def: ComponentDef): ComponentDef {
+	if (!def.prop?.preview) return def;
+	const { preview: _, ...prop } = def.prop;
+	return { ...def, prop };
 }
 
 /**

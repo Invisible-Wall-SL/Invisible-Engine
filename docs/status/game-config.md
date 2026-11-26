@@ -790,6 +790,22 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-26 — **Zone art takes a prop component** (agent `arcade-games`; branch
+  `claude/bold-cannon-3a8unw`, in review; prop components P6,
+  [arcade-prop-components](../design/arcade-prop-components.md) §6).
+  - **`zoneArt.ts`.** `ZoneArtComponent` `{ kind: 'component', component, version }`: a zone
+    family's only picture, never a variant or scenery (the validator says so). Also
+    `zoneArtPropKind` and `zoneArtComponentRoots`. `zoneArtStamps` stamps no component.
+  - **`onlineProps.ts`.** `withProps(doc, raw)`, the launcher's carry, now in
+    `gameConfigStorage.ts` `withStoredBlocks` and in `pageDoc.ts` `applyPasted`.
+  - **The save compiles** each component's collider at its pin (`zoneArtProps.ts`
+    `compileZoneArtProps`, in `saveGameConfigDoc`) into `arcade.online.props`. It warns of a
+    missing or wrong-kind component, a newer version, and a pasted collider no component draws.
+  - **The card.** Zone art's **Component** choice: the project's props of the family's kind, the
+    pin, **Use vN**, **Open**, and the compiled **Collider**. The page sends `props`.
+  - **Gates:** `check:zone-art` 147, `check:game-config-family` 580. The detail is in
+    [status/salmons](salmons.md).
+
 - 2026-11-26 — **`arcade.online.props`: a prop's collider, carried** (agent `arcade-games`; branch
   `claude/bold-cannon-3a8unw`, in review; prop components P2,
   [arcade-prop-components](../design/arcade-prop-components.md) §3). New `src/onlineProps.ts`:

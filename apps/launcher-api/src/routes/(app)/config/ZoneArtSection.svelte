@@ -12,11 +12,15 @@
 		type ZoneArtSource,
 	} from 'game-config';
 	import RigSelect from '$lib/characters/RigSelect.svelte';
+	import { resolve } from '$app/paths';
+	import { componentsHref } from '$lib/componentLinks';
 	import CardArt from '../cards/CardArt.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		addZoneArtVariant,
 		clipThumbRef,
+		compiledPropText,
+		componentSourceOf,
 		removeZoneArt,
 		rigCrowdWarning,
 		rigLooped,
@@ -26,9 +30,12 @@
 		setZoneArtSource,
 		shownZoneArtRows,
 		zoneArtDefault,
+		zoneArtPinNote,
+		zoneArtPropsFor,
 		zoneArtRigNames,
 		zoneArtRows,
 		zoneArtSceneryRows,
+		type ZoneArtProp,
 		type ZoneArtRigs,
 	} from './zoneArtDoc';
 	import type { SalmonsCodeDrawn } from './zoneArtBuiltIn';
@@ -51,6 +58,8 @@
 		pickSheets,
 		clips,
 		rigs,
+		props = [],
+		projectKey = '',
 		issuesFor,
 	}: {
 		doc: GameConfigDoc;
@@ -61,6 +70,10 @@
 		pickSheets: { key: string; name: string }[];
 		clips: Clip[];
 		rigs: ZoneArtRigs;
+		/** The project's prop components (defs with a `prop` block), by zone kind. */
+		props?: readonly ZoneArtProp[];
+		/** For the link to a component in the Scene Editor. */
+		projectKey?: string;
 		issuesFor: (prefix: string) => GameConfigIssue[];
 	} = $props();
 
@@ -76,11 +89,19 @@
 		['sprite', 'Sheet frame'],
 		['flipbook', 'Flipbook clip'],
 		['rig', 'Rig'],
+		['component', 'Component'],
 	] as const;
 
-	/** Why a row's "Drawn with" cannot be `kind`, or `''` when it can. */
-	function refusal(kind: string, family: string): string {
+	/** Why picture `index` of a row's "Drawn with" cannot be `kind`, or `''` when it can. */
+	function refusal(kind: string, family: string, index = 0): string {
 		if (kind === 'flipbook' && !clips.length) return 'This project has no Flipbook clips yet';
+		if (kind === 'component') {
+			if (!zoneArtTakesRig(family)) return 'Scenery cannot be a component';
+			if (index) return 'A component draws the whole family: it is never a variant';
+			return zoneArtPropsFor(family, props).length
+				? ''
+				: `This project has no ${family.replace(/#/g, '')} prop components yet`;
+		}
 		if (kind !== 'rig') return '';
 		if (!zoneArtTakesRig(family))
 			return 'Trees cannot be a rig: about 430 rigs cost a phone several milliseconds a frame. Use a frame or a clip.';
@@ -92,6 +113,11 @@
 		if (kind === was?.kind) return was;
 		if (kind === 'flipbook' && clips[0]) return { kind: 'flipbook', clip: clips[0].id };
 		return undefined;
+	}
+	/** The first prop component of `family`'s zone kind, pinned at its latest version. */
+	function firstComponent(family: string): ZoneArtSource | undefined {
+		const prop = zoneArtPropsFor(family, props)[0];
+		return prop && componentSourceOf(prop);
 	}
 	/** A picture still to be completed, shown in its row until it is: a sprite with no frame yet,
 	 *  or a rig with no animation of it picked yet. */
@@ -114,7 +140,14 @@
 			return;
 		}
 		clearPending(family, index);
-		setZoneArtSource(doc, family, index, sourceOfKind(kind, was));
+		setZoneArtSource(
+			doc,
+			family,
+			index,
+			kind === 'component' && was?.kind !== 'component'
+				? firstComponent(family)
+				: sourceOfKind(kind, was),
+		);
 	}
 	function pickRegion(family: string, index: number, region: string) {
 		clearPending(family, index);
@@ -191,7 +224,7 @@
 			onchange={(e) => pickKind(family, index, source, e.currentTarget.value)}
 		>
 			{#each KINDS as [value, label] (value)}
-				{@const refused = value === source?.kind ? '' : refusal(value, family)}
+				{@const refused = value === source?.kind ? '' : refusal(value, family, index)}
 				<option {value} disabled={!!refused} title={refused}
 					>{index && !value ? 'Remove variant' : label}</option
 				>
@@ -244,6 +277,50 @@
 				/></label
 			>
 			{#if thumb}<span class="thumb"><CardArt value={thumb} size={40} /></span>{/if}
+		{:else if source?.kind === 'component'}
+			{@const choices = zoneArtPropsFor(family, props)}
+			{@const note = zoneArtPinNote(source, props)}
+			{@const latest = choices.find((p) => p.id === source.component)}
+			{@const compiled = compiledPropText(doc, family)}
+			<select
+				value={source.component}
+				aria-label="Component"
+				onchange={(e) => {
+					const picked = choices.find((p) => p.id === e.currentTarget.value);
+					if (picked) setZoneArtSource(doc, family, index, componentSourceOf(picked));
+				}}
+			>
+				{#if !latest}
+					<option value={source.component}>{source.component} (not in this project)</option>
+				{/if}
+				{#each choices as p (p.id)}
+					<option value={p.id}>{p.name}</option>
+				{/each}
+			</select>
+			<span class="pin">v{source.version}</span>
+			{#if latest && latest.version > source.version}
+				<button
+					class="small"
+					onclick={() => setZoneArtSource(doc, family, index, componentSourceOf(latest))}
+					>Use v{latest.version}</button
+				>
+			{/if}
+			<a
+				class="small"
+				href="{resolve('/editor')}?{componentsHref(
+					source.component,
+					new URLSearchParams({ project: projectKey }),
+				).split('?')[1]}">Open</a
+			>
+			<span class="inline"
+				>Collider <code>{compiled || 'compiled on save'}</code>
+				<InfoTip
+					>What the room plays for this family: the component's collider at the pinned version,
+					compiled when the config is saved (arcade.online.props). Fields equal to today's bridge
+					are left out. Edit it in the component, then choose the new version here.</InfoTip
+				></span
+			>
+			{#if note}<p class="inline-issue warning">{note}</p>{/if}
 		{:else if kind === 'rig'}
 			{@const stored = source?.kind === 'rig' ? source : undefined}
 			{@const rig = waiting?.kind === 'rig' ? waiting.rig : (stored?.rig ?? '')}
@@ -295,12 +372,12 @@
 		{#each art?.variants ?? [] as variant, i (i)}
 			{@render picture(key, i + 1, variant)}
 		{/each}
-		{#if art && (art.variants?.length ?? 0) < ZONE_ART_LIMITS.variants}
+		{#if art && art.source.kind !== 'component' && (art.variants?.length ?? 0) < ZONE_ART_LIMITS.variants}
 			<button class="small" onclick={() => addZoneArtVariant(doc, key)}>＋ Variant</button>
 		{/if}
 	</td>
 	<td
-		>{#if art}<input
+		>{#if art && art.source.kind !== 'component'}<input
 				type="number"
 				step="0.1"
 				min={ZONE_ART_LIMITS.scale.min}
@@ -325,11 +402,13 @@
 		<p>
 			What each zone family is drawn with: a frame of one of the project's sheets, a Flipbook clip
 			or one of the project's rigs playing one of its animations, stamped on every zone of the
-			family, fitted inside it and centred, times its scale. Variants are more pictures: each zone
-			draws one of them, chosen by the room's seed, the same on every device. A family with nothing
-			chosen draws as it does today. Under Scenery, what the river places on no zone (Salmons'
-			trees), chosen the same way. The art is for the eye only: it changes no rule and no level, and
-			ships with the game like any art it names.
+			family, fitted inside it and centred, times its scale. Or a prop component of the family's
+			kind (a bridge), which draws each zone itself and brings its collider: the room plays the
+			collider of the version chosen here. Variants are more pictures: each zone draws one of them,
+			chosen by the room's seed, the same on every device. A family with nothing chosen draws as it
+			does today. Under Scenery, what the river places on no zone (Salmons' trees), chosen the same
+			way. The art is for the eye only: it changes no rule and no level, and ships with the game
+			like any art it names.
 		</p>
 	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
@@ -413,6 +492,10 @@
 </SectionCard>
 
 <style>
+	.pin {
+		opacity: 0.7;
+		font-size: 12px;
+	}
 	.panel {
 		min-width: 0;
 		margin: 0 0 12px;

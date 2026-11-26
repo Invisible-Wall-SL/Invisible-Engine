@@ -13,6 +13,7 @@ import {
 	withCharacterSheets,
 	withLevelsShape,
 	withOnlineCarry,
+	withProps,
 	withSlide,
 	withTouchSchemes,
 	withZoneArt,
@@ -20,12 +21,14 @@ import {
 	type GameConfigDoc,
 	type GameConfigIssue,
 } from 'game-config';
+import { loadComponent } from './componentStorage';
 import { putDocWithBackup, type BackupMode } from './docBackups';
 import { gameConfig3dBlocksOf, gameConfig3dErrors, withGameConfig3dBlocks } from './gameConfig3d';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
 import { gameConfigDocBackupTarget, gameConfigDocKey } from './projectPaths';
 import { forgetProjectIsView3d } from './view3d';
 import { ConflictError, getObjectTextWithEtag } from './r2';
+import { compileZoneArtProps } from './zoneArtProps';
 
 /**
  * Invisible Game Config doc — the per-project GAME MATH CONTRACT (symbol dictionary + paytable,
@@ -127,17 +130,21 @@ export function prepareGameConfigDoc(input: unknown): {
 
 /** `doc`, normalized from `raw`, with the blocks of `raw` the normalizer drops put back: the 3D
  *  blocks, the character sheets, the touch control schemes, the rules' `carry` and `stains`, the
- *  slide, the levels' shape and the zone art. `doc` itself when `raw` has none. */
+ *  slide, the levels' shape, the zone art and the prop colliders. `doc` itself when `raw` has
+ *  none. */
 const withStoredBlocks = (
 	doc: GameConfigDoc,
 	raw: unknown,
 	blocks = gameConfig3dBlocksOf(raw),
 ): GameConfigDoc =>
-	withZoneArt(
-		withLevelsShape(
-			withSlide(
-				withOnlineCarry(
-					withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw),
+	withProps(
+		withZoneArt(
+			withLevelsShape(
+				withSlide(
+					withOnlineCarry(
+						withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw),
+						raw,
+					),
 					raw,
 				),
 				raw,
@@ -293,7 +300,13 @@ export async function saveGameConfigDoc(
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
 ): Promise<{ doc: GameConfigDoc; etag: string | null; warnings: GameConfigIssue[] }> {
-	const { doc, warnings } = prepareGameConfigDoc(input);
+	const prepared = prepareGameConfigDoc(input);
+	// The zone art's prop components, compiled at their pinned versions (`zoneArtProps.ts`).
+	const compiled = await compileZoneArtProps(prepared.doc, (id, version) =>
+		loadComponent(id, projectKey, version),
+	);
+	const doc = compiled.doc;
+	const warnings = [...prepared.warnings, ...compiled.warnings];
 	const stamped: GameConfigDoc = { ...doc, updatedAt: new Date().toISOString() };
 	const etag = await putDocWithBackup(
 		gameConfigDocBackupTarget(clientKey, projectKey),

@@ -2626,6 +2626,36 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Prop components P6: the ship chain** (design §6, §7 P6 "As built"; agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). A Salmons project now draws its
+  bridges with its own prop component, and the room plays that component's collider.
+  - **How.** `/config` → Zone art → `bridge#` → **Drawn with: Component** picks a project bridge
+    prop at its latest version ([tools/game-config](../tools/game-config.md)). The save compiles
+    its collider into `arcade.online.props['bridge#']`, stamped. The bundle and the art export
+    ship the pinned def and its pieces. The game resolves the pinned def from the registry and
+    draws the bridges with it (`zonePropOf('bridge#')`), and the room plays the compiled
+    collider. With no component the seed draws and today's rule plays, as before.
+  - **Gates.**
+    - `check:zone-art` 147 (17 new in §13): the source round-trips and is never a variant or
+      scenery; the compile writes the block, stamped; a seed copy compiles to the stamp alone; a
+      stale pin warns and plays the pinned version; a missing component and a pasted orphan
+      collider warn; the props are carried on load, paste and save; the card's list, pin, note
+      and collider text; the closure holds the component, its pieces and the pinned def without
+      its preview.
+    - `check:room-levels` 20: a saved component with a 3-cell near ramp gives P2's ramped
+      fingerprint, and a seed copy keeps today's.
+    - Unchanged: `check:component-links` 71, `check:save-keeps-unknown-blocks` 170,
+      `check:game-config-family` 580, `check:salmons-export` 39, `check:prop-shape` 43,
+      `check:prop-depth` 26, `check:salmons-art` 50, `check:salmons-levels` 28.
+    - `check:svelte` is at its baseline for `apps/launcher-api` (44), `apps/lines` (145) and
+      `packages/engine-layout` (290). Lint is clean.
+  - **Bytes** (five `--out` builds, against the step-1 commit merged with main): lines, match-3
+    and card are identical. Arcade's main bundle is +145 B gzip and arcade3d's +124 B, the other
+    chunks ±1 B.
+  - **Not done.** A real bake and pull of Salmons with a seed copy need R2 and the network, so they
+    were not run here. No playbook plays a project component in the game yet. The `/config` level
+    preview draws no props.
+
 - 2026-11-26 — **Prop components: the prop defs out of the arcade main bundle** (owner: "move it
   out of the bundle"; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). P5b's
   +4.3 kB came from `builtinComponents.ts` / `builtinTimelines.ts` importing the prop built-ins.

@@ -677,6 +677,56 @@ try {
 		},
 	);
 
+	await check(
+		'a saved prop component: its collider is the level (P6), a seed copy keeps it',
+		async () => {
+			const { compileZoneArtProps } =
+				await import('../apps/launcher-api/src/lib/server/zoneArtProps.ts');
+			const { BRIDGE_PROP_DEF } =
+				await import('../packages/engine-layout/src/lib/propComponents.ts');
+			const copy = (ramps) => ({
+				...structuredClone(BRIDGE_PROP_DEF),
+				id: 'myBridge',
+				version: 2,
+				prop: {
+					...structuredClone(BRIDGE_PROP_DEF.prop),
+					collider: { ...structuredClone(BRIDGE_PROP_DEF.prop.collider), ramps },
+				},
+			});
+			const saved = async (def) => {
+				const raw = rawOf(undefined);
+				raw.arcade.zoneArt = {
+					'bridge#': {
+						source: { kind: 'component', component: 'myBridge', version: 2 },
+						placement: 'stamp',
+					},
+				};
+				const doc = normalizeGameConfigDoc(raw);
+				const carried = {
+					...doc,
+					arcade: { ...doc.arcade, online: { ...doc.arcade.online }, zoneArt: raw.arcade.zoneArt },
+				};
+				return (await compileZoneArtProps(carried, async () => def)).doc;
+			};
+			const seed = 7;
+			const plain = (await roomOf('published', seed)).said.levelHash;
+			const hashOf = (doc) => {
+				const { game, made } = generatedOnlineGame(deviceGame(doc), seed);
+				return levelHash(game, made);
+			};
+			const seedCopy = await saved(copy({ near: { length: 2 }, far: { length: 2 } }));
+			assert.equal(hashOf(seedCopy), plain, 'a seed copy plays today’s bridge');
+			const ramped = await saved(copy({ near: { length: 3 }, far: { length: 2 } }));
+			assert.deepEqual(ramped.arcade.online.props['bridge#'].ramp, { near: 3, far: 2 });
+			assert.notEqual(hashOf(ramped), plain, 'a ramp of 3 is another level');
+			assert.equal(
+				hashOf(ramped),
+				(await roomOf('ramped', seed)).said.levelHash,
+				'the same as P2’s',
+			);
+		},
+	);
+
 	// --- 3. What must not change ------------------------------------------------------------------
 
 	await check(
