@@ -1,12 +1,18 @@
 /**
- * RENDER QUALITY: how many pixels a frame draws, lowered only on a device that measurably cannot
- * hold its frame rate, and only as far as that helps (the model is Babylon's SceneOptimizer and
- * drei's PerformanceMonitor). Every device starts at the full level (`renderTier.ts`).
+ * RENDER QUALITY: how many pixels a frame draws and which effects it draws, lowered only on a
+ * device that measurably cannot hold its frame rate, and only as far as that helps (the model is
+ * Babylon's SceneOptimizer and drei's PerformanceMonitor). Every device starts at the full level
+ * (`renderTier.ts`).
  *
  * THE LADDER ({@link qualityLadder}): the pixel ratio up to 2, then 1.75, then 1.5, then 1.5
- * without MSAA; never below 1. A level the device's pixel ratio makes equal to the one above is
- * left out, so a pixel ratio of 1.5 has two levels. The MSAA step exists only where the back
- * buffer carries the MSAA, which can change between frames ({@link backBufferMsaa}).
+ * without MSAA, then 1.25 and 1 (still without MSAA); never below 1. Its last level is 1 with the
+ * effects lowered: the stage's post FX left out (`setStagePostFxSuppressed`) and the particle
+ * budget capped at {@link LOW_EFFECTS_PARTICLES} (`capParticleBudget`), both given back when the
+ * level rises. Both are handed in by whoever installs it ({@link RenderQualityEffects}), so this
+ * module stays free of Pixi values. A level the device's pixel ratio makes equal to the one above
+ * is left out, so a pixel ratio of 1.5 has five levels where the MSAA can switch and four where it
+ * cannot. The MSAA step exists only where the back buffer carries the MSAA, which can change
+ * between frames ({@link backBufferMsaa}).
  *
  * WHAT IS MEASURED ({@link createRenderQualityController}): the interval of each frame while a
  * round plays and the page is visible, except the 30 frames after the page is shown or the level
@@ -27,12 +33,23 @@
  * or the mean frame interval fell by 20% or more (14 → 30 fps still has every frame slow).
  * Dipping under the 10% that started it is not enough: a device just over the line (the Nothing
  * Phone (1), 13% at 17.8 ms, 2026-11-10) dips under it by chance and kept 1.75 at 18.4 ms.
- * Otherwise the old level comes back at the next quiet moment and stepping down stops for the
- * session (pixels are not what costs). A kept level that is still slow may step down again. Thirty
- * good windows in a row (under 1% slow) below the top level try one level up; if that goes slow
- * within two windows it steps back, and that level is never tried again. At most 6 switches a
- * session, and a step that starts a trial is taken only while its revert still fits. Every trial's
- * verdict, with what started it and what the level measured, is kept for the readout.
+ * Otherwise the old level comes back at the next quiet moment. A kept level that is still slow may
+ * step down again.
+ *
+ * THE SECOND CHANCE: a step down that did not help says pixels are not what costs, so it is not
+ * the end. Four slow windows in a row after the revert (twice the evidence a first step needs: a
+ * device that recovered never gets there) step straight to the last level, the effects one, as a
+ * trial of its own, with the same verdict. If that does not help either, or if the step that did
+ * not help was already to the last level, stepping down stops for the session. One second chance a
+ * session. The game's controller has it ({@link installRenderQuality}); `engine-3d`, which walks
+ * its own ladder with this controller, does not ({@link RenderQualityOptions}): there the first
+ * step down that does not help stops stepping down.
+ *
+ * Thirty good windows in a row (under 1% slow) below the top level try one level up; if that goes
+ * slow within two windows it steps back, and that level is never tried again. At most 12 switches a
+ * session (6 without the second chance), and a step that starts a trial is taken only while its
+ * revert still fits. Every trial's verdict, with what started it and what the level measured, is
+ * kept for the readout.
  *
  * Configured by the game ({@link configureRenderQuality}); the tools never configure it, so `/fx`,
  * the editors and previews never adapt. A deterministic render and a `?render=` pin never install
@@ -67,6 +84,8 @@ export const QUALITY_RULES = {
 	quietFrames: 20,
 	/** Slow windows in a row that step down. */
 	slowWindows: 2,
+	/** Slow windows in a row, after a step down that did not help, that take the second chance. */
+	retrySlowWindows: 4,
 	/** Windows a trial runs before its verdict. */
 	trialWindows: 2,
 	/** A step down is also kept when the mean frame interval fell by at least this share. */
@@ -75,20 +94,33 @@ export const QUALITY_RULES = {
 	goodWindowShare: 0.01,
 	/** Good windows in a row that try one level up. */
 	goodWindows: 30,
-	/** Switches in a session. */
-	maxSwitches: 6,
+	/** Switches in a session, with the second chance (the game's ladder). */
+	maxSwitches: 12,
+	/** Switches in a session without it (`engine-3d`'s ladder walks this controller too). */
+	maxSwitchesSingleTry: 6,
 } as const;
+
+/** The particle budget's cap at the last level (`particleBudget.ts`, floor 0.25). */
+export const LOW_EFFECTS_PARTICLES = 0.5;
 
 export interface QualityLevel {
 	resolution: number;
 	msaa: boolean;
+	/** The stage's post FX are drawn (false: left out of the stage's filters). Absent: drawn. */
+	postFx?: boolean;
+	/** The particle budget's cap at this level: 1 leaves it to the tier and the budget. Absent: 1. */
+	particleCap?: number;
 }
 
 export type RenderQualityMode = 'adaptive' | RenderTier;
 
-/** `slow` steps down, `no gain` reverts a step down, `headroom` steps up, `slow again` reverts
- *  the step up. */
-export type QualitySwitchReason = 'slow' | 'no gain' | 'headroom' | 'slow again';
+/** `slow` steps down, `second chance` steps down to the last level after a step down that did not
+ *  help, `no gain` reverts a step down, `headroom` steps up, `slow again` reverts the step up. */
+export type QualitySwitchReason = 'slow' | 'second chance' | 'no gain' | 'headroom' | 'slow again';
+
+/** Where the session's one second chance is: not needed yet, waiting for its slow windows, or
+ *  taken. */
+export type QualitySecondChance = 'unused' | 'waiting' | 'taken';
 
 /** A window's slow share (to 0.01) and mean frame interval (ms to 0.1), as the readout shows them. */
 export interface QualityMeasure {
@@ -120,8 +152,13 @@ export interface RenderQualitySnapshot {
 	mode: RenderQualityMode;
 	level: { index: number } & QualityLevel;
 	levels: number;
-	/** A step down did not help and was reverted: no more steps down this session. */
+	/**
+	 * No more steps down this session: steps down that did not help used up the second chance, or,
+	 * where the controller has none (`engine-3d`'s single try), one step down did not help.
+	 */
 	downStopped: boolean;
+	/** Absent where the controller has none (a fixed level, `engine-3d`). */
+	secondChance?: QualitySecondChance;
 	history: QualitySwitch[];
 	trials: QualityTrial[];
 }
@@ -149,15 +186,24 @@ export function qualityLadder(
 	{ msaa, msaaSwitchable }: { msaa: boolean; msaaSwitchable: boolean },
 ): QualityLevel[] {
 	const ratio = Math.max(Number.isFinite(dpr) ? dpr : 1, 1);
+	const lowMsaa = msaa && !msaaSwitchable;
+	const full = { postFx: true, particleCap: 1 };
 	const steps: QualityLevel[] = [
-		{ resolution: Math.min(ratio, 2), msaa },
-		{ resolution: Math.min(ratio, 1.75), msaa },
-		{ resolution: Math.min(ratio, 1.5), msaa },
-		{ resolution: Math.min(ratio, 1.5), msaa: msaa && !msaaSwitchable },
+		{ resolution: Math.min(ratio, 2), msaa, ...full },
+		{ resolution: Math.min(ratio, 1.75), msaa, ...full },
+		{ resolution: Math.min(ratio, 1.5), msaa, ...full },
+		{ resolution: Math.min(ratio, 1.5), msaa: lowMsaa, ...full },
+		{ resolution: Math.min(ratio, 1.25), msaa: lowMsaa, ...full },
+		{ resolution: 1, msaa: lowMsaa, ...full },
+		{ resolution: 1, msaa: lowMsaa, postFx: false, particleCap: LOW_EFFECTS_PARTICLES },
 	];
 	return steps.filter(
 		(level, i) =>
-			i === 0 || level.resolution !== steps[i - 1].resolution || level.msaa !== steps[i - 1].msaa,
+			i === 0 ||
+			level.resolution !== steps[i - 1].resolution ||
+			level.msaa !== steps[i - 1].msaa ||
+			level.postFx !== steps[i - 1].postFx ||
+			level.particleCap !== steps[i - 1].particleCap,
 	);
 }
 
@@ -175,10 +221,21 @@ const meanStats = (windows: readonly WindowStats[]): WindowStats => ({
 const quantile = (sorted: readonly number[], q: number): number =>
 	sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 
+export interface RenderQualityOptions {
+	/**
+	 * A step down that did not help leaves one more try, straight to the last level (THE SECOND
+	 * CHANCE), and the session may switch {@link QUALITY_RULES}`.maxSwitches` times. Without it the
+	 * first step down that does not help stops stepping down, within `maxSwitchesSingleTry`.
+	 */
+	secondChance?: boolean;
+}
+
 export function createRenderQualityController(
 	ladder: readonly QualityLevel[],
+	{ secondChance: retries = false }: RenderQualityOptions = {},
 ): RenderQualityController {
 	const rules = QUALITY_RULES;
+	const maxSwitches = retries ? rules.maxSwitches : rules.maxSwitchesSingleTry;
 	let level = 0;
 	let elapsedMs = 0;
 	let settle = 0;
@@ -187,6 +244,8 @@ export function createRenderQualityController(
 	let slowRun: WindowStats[] = [];
 	let goodRun = 0;
 	let downStopped = false;
+	let secondChance: QualitySecondChance = 'unused';
+	const last = ladder.length - 1;
 	let lastUncappedMs = -Infinity;
 	const upFailed = new Set<number>();
 	let trial: Trial | undefined;
@@ -199,7 +258,7 @@ export function createRenderQualityController(
 		frameMs: Math.round(stats.meanMs * 10) / 10,
 	});
 
-	const room = (switches: number) => history.length + switches <= rules.maxSwitches;
+	const room = (switches: number) => history.length + switches <= maxSwitches;
 
 	const verdict = (current: Trial, after: WindowStats, kept: boolean) => {
 		trials.push({
@@ -230,7 +289,9 @@ export function createRenderQualityController(
 			after.share <= current.baseline.share / 2 ||
 			after.meanMs <= current.baseline.meanMs * (1 - rules.trialIntervalGain);
 		if (!helped) {
-			downStopped = true;
+			// The second chance is for a step that left the last level untried.
+			if (retries && secondChance === 'unused' && level < last) secondChance = 'waiting';
+			else downStopped = true;
 			if (room(1)) pending = { to: current.from, reason: 'no gain', stats: after };
 		}
 		verdict(current, after, helped);
@@ -242,14 +303,15 @@ export function createRenderQualityController(
 		if (trial) return judgeTrial(trial, stats, slow);
 		if (slow) {
 			goodRun = 0;
-			slowRun = [...slowRun, stats].slice(-rules.slowWindows);
-			if (
-				slowRun.length === rules.slowWindows &&
-				!downStopped &&
-				level < ladder.length - 1 &&
-				room(2)
-			)
-				pending = { to: level + 1, reason: 'slow', stats: meanStats(slowRun) };
+			const retry = secondChance === 'waiting';
+			const needed = retry ? rules.retrySlowWindows : rules.slowWindows;
+			slowRun = [...slowRun, stats].slice(-needed);
+			if (slowRun.length === needed && !downStopped && level < last && room(2)) {
+				pending = retry
+					? { to: last, reason: 'second chance', stats: meanStats(slowRun) }
+					: { to: level + 1, reason: 'slow', stats: meanStats(slowRun) };
+				if (retry) secondChance = 'taken';
+			}
 			return;
 		}
 		slowRun = [];
@@ -284,7 +346,7 @@ export function createRenderQualityController(
 			...measure(stats),
 		});
 		trial =
-			reason === 'slow' || reason === 'headroom'
+			reason === 'slow' || reason === 'second chance' || reason === 'headroom'
 				? { up: reason === 'headroom', from: level, baseline: stats, windows: [] }
 				: undefined;
 		level = to;
@@ -314,6 +376,7 @@ export function createRenderQualityController(
 			level: { index: level, ...ladder[level] },
 			levels: ladder.length,
 			downStopped,
+			...(retries ? { secondChance } : {}),
 			history: history.map((entry) => ({ ...entry })),
 			trials: trials.map((entry) => ({
 				...entry,
@@ -385,12 +448,29 @@ export function configureRenderQuality(next: QualityConfig): () => void {
 export const renderQualitySnapshot = (): RenderQualitySnapshot | undefined => readout?.();
 
 /**
+ * The effects the last level lowers, handed in by whoever installs the ladder, so this module never
+ * imports a Pixi value (`engine-3d` pins it in Node). `<InitialiseApplication>` passes the stage's
+ * `setStagePostFxSuppressed` and `capParticleBudget`.
+ */
+export interface RenderQualityEffects {
+	/** Leave the stage's post FX out (`true`) or put them back (`false`). */
+	suppressPostFx: (suppressed: boolean) => void;
+	/** Cap the particle budget at `cap`, or lift the cap with 1. */
+	capParticles: (cap: number) => void;
+}
+
+/**
  * Start measuring `app` as the game configured it. `<InitialiseApplication>` calls it once the
- * renderer exists, with the tier and MSAA it created the renderer with. Returns the teardown.
+ * renderer exists, with the tier and MSAA it created the renderer with and the effects the last
+ * level lowers (without them that level draws as the one above). Returns the teardown.
  */
 export function installRenderQuality(
 	app: Application,
-	{ tier, msaa }: { tier: RenderTier; msaa: boolean },
+	{
+		tier,
+		msaa,
+		effects: lower,
+	}: { tier: RenderTier; msaa: boolean; effects?: RenderQualityEffects },
 ): () => void {
 	const settings = config;
 	if (!settings) return () => {};
@@ -399,14 +479,26 @@ export function installRenderQuality(
 	const start: QualityLevel = {
 		resolution: renderer.resolution,
 		msaa: msaaSwitch ? msaaSwitch.on() : msaa,
+		postFx: true,
+		particleCap: 1,
 	};
 	let snapshot: () => RenderQualitySnapshot;
 	let release = () => {};
 	if (settings.adaptive) {
 		const controller = createRenderQualityController(
 			qualityLadder(start.resolution, { msaa: start.msaa, msaaSwitchable: !!msaaSwitch }),
+			{ secondChance: true },
 		);
 		const { measuring, quiet } = settings;
+		// The effects as the levels so far left them: full until a level lowers them.
+		let effects = { postFx: true, particleCap: 1 };
+		const setEffects = (next: QualityLevel) => {
+			const postFx = next.postFx !== false;
+			const particleCap = next.particleCap ?? 1;
+			if (postFx !== effects.postFx) lower?.suppressPostFx(!postFx);
+			if (particleCap !== effects.particleCap) lower?.capParticles(particleCap);
+			effects = { postFx, particleCap };
+		};
 		const onTick = (ticker: Ticker) => {
 			const next = controller.frame(ticker.elapsedMS, {
 				measuring: measuring(),
@@ -416,6 +508,7 @@ export function installRenderQuality(
 			if (!next) return;
 			if (renderer.resolution !== next.resolution) renderer.resolution = next.resolution;
 			if (msaaSwitch && msaaSwitch.on() !== next.msaa) msaaSwitch.set(next.msaa);
+			setEffects(next);
 		};
 		const onVisibility = () => controller.visibilityChanged();
 		app.ticker.add(onTick);
@@ -424,6 +517,7 @@ export function installRenderQuality(
 		release = () => {
 			app.ticker?.remove(onTick);
 			document.removeEventListener('visibilitychange', onVisibility);
+			setEffects({ ...start, postFx: true, particleCap: 1 });
 		};
 	} else {
 		const fixed: RenderQualitySnapshot = {
