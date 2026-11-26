@@ -16,6 +16,9 @@ import { SUB } from '$lib/server/projectPaths';
 export const DEPLOY_CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
 	'Access-Control-Allow-Methods': 'GET, OPTIONS',
+	// The `?perf=1` probe reads each file's size off Resource Timing, which a cross-origin response
+	// hides without this. It exposes nothing `*` CORS does not already let the page read.
+	'Timing-Allow-Origin': '*',
 };
 
 const EXT_CONTENT_TYPES: Record<string, string> = {
