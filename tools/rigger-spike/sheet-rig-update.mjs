@@ -22,6 +22,10 @@
 //  - handedit: the torso's mesh reads as edited (and only it), may be kept (it draws the region it
 //    drew), is kept when asked and replaced when not;
 //  - finite: the updated rig passes the `.irig` save check and every clip poses finite;
+//  - custom: a ＋ Custom part added (named freely, not prop_) gets its bone and slot as a prop does;
+//  - layers: a reorder in Setup's slots stays through the update while the 🗺 Layers list is unchanged
+//    (or opened from the rig's own order); a changed list orders the slots it lists, every other slot
+//    and every draw-order key's drawing kept;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig-update.mjs [--only <guard>]
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -51,6 +55,7 @@ async function load(mutate = []) {
 			contents: [
 				"export * from './server/rigSheetUpdate.ts';",
 				"export * from './server/rigSheetFit.ts';",
+				"export { sheetLayerList } from './rigSheetMap.ts';",
 				"export * from './server/rigTemplates.ts';",
 				"export { attachmentHash } from './server/rigFrameUpdate.ts';",
 				"export { irigDocProblem } from './server/riggerIrig.ts';",
@@ -532,6 +537,147 @@ const GUARDS = {
 		log(`${Object.keys(doc.animations).length} clips posed finite`);
 		return good;
 	},
+
+	/**
+	 * 🗺 Layers: a reorder in Setup's slots stays through 🔄 Update rig while the Layers list is
+	 * unchanged, or opened from the rig's own order as 🗺 Edit mapping opens it; a changed list orders
+	 * the slots it lists, every other slot and every draw-order key's drawing kept.
+	 */
+	layers(M, log) {
+		let good = true;
+		const t = M.HALF_BODY;
+		const base = baseMapping(M);
+		const made = create(M, base);
+		const drawn = new Set(
+			M.sheetLayerList(
+				t.slots.map((s) => s.name),
+				(p) => slotOf(M, p),
+				base,
+			),
+		);
+		// The author's reorder in Setup's slots: the watch under its forearm; and a clip of theirs with
+		// a draw-order key drawing the left hand in front of everything.
+		const before = clone(made);
+		const watch = before.slots.splice(
+			before.slots.findIndex((s) => s.name === 'prop_wrist_r'),
+			1,
+		)[0];
+		before.slots.splice(
+			before.slots.findIndex((s) => s.name === 'lower_arm_r'),
+			0,
+			watch,
+		);
+		const hand = before.slots.findIndex((s) => s.name === 'hand_l');
+		before.animations.layered = {
+			drawOrder: [
+				{ time: 0.5, offsets: [{ slot: 'hand_l', offset: before.slots.length - 1 - hand }] },
+			],
+		};
+		const setup = (doc) => doc.slots.map((s) => s.name);
+		const keyed = (doc) =>
+			posed(M, doc, 'layered', 0.6)
+				.drawOrder.map((s) => s.data.name)
+				.join();
+		const update = (mapping) => {
+			const r = M.updateSheetRig({
+				template: t,
+				regions: REGIONS,
+				was: base,
+				mapping,
+				current: before,
+			});
+			if (!r.ok) throw new Error(r.problem);
+			return r.value;
+		};
+		const same = update(clone(base));
+		good =
+			ok(
+				'layers: a Setup reorder kept through 🔄 Update rig while the Layers list is unchanged',
+				setup(same.doc).join() === setup(before).join() && same.report.layered.length === 0,
+				setup(same.doc).join(' '),
+			) && good;
+		const fromRig = setup(before)
+			.filter((n) => drawn.has(n))
+			.reverse();
+		const opened = update({ ...clone(base), layers: fromRig });
+		good =
+			ok(
+				"layers: the list opened from the rig's own order keeps it",
+				setup(opened.doc).join() === setup(before).join(),
+				setup(opened.doc).join(' '),
+			) && good;
+		const own = [...fromRig];
+		own.splice(own.indexOf('prop_chain'), 1);
+		own.splice(own.indexOf('torso') + 1, 0, 'prop_chain');
+		const changed = update({ ...clone(base), layers: own });
+		const after = setup(changed.doc);
+		good =
+			ok(
+				'layers: a changed list orders the slots it lists (the chain behind the torso)',
+				after
+					.filter((n) => drawn.has(n))
+					.reverse()
+					.join() === own.join() && changed.report.layered.includes('prop_chain'),
+				after.join(' '),
+			) && good;
+		const others = (list) =>
+			JSON.stringify(list.map((n, i) => [n, i]).filter(([n]) => !drawn.has(n)));
+		good =
+			ok(
+				'layers: every slot it does not list keeps its place',
+				others(after) === others(setup(before)),
+			) && good;
+		good =
+			ok(
+				"layers: the author's draw-order key still draws what it drew",
+				keyed(changed.doc) === keyed(before) && keyed(before) !== setup(before).join(),
+				`${keyed(changed.doc)}\n        ${keyed(before)}`,
+			) && good;
+		log(`${drawn.size} layers; the chain moved behind the torso, the key's drawing kept`);
+		return good;
+	},
+
+	/** ＋ Custom part added by 🗺 Edit mapping: 🔄 Update rig gives it its bone and slot, as a prop. */
+	custom(M, log) {
+		const base = baseMapping(M);
+		const made = create(M, base);
+		const torso = base.parts.torso;
+		const mapping = {
+			...clone(base),
+			props: [
+				...clone(base.props),
+				{
+					name: 'tail',
+					region: 'shadow_blob',
+					host: 'torso',
+					bone: 'spine',
+					at: torso.joints.hips,
+					custom: true,
+				},
+			],
+		};
+		const r = M.updateSheetRig({
+			template: M.HALF_BODY,
+			regions: REGIONS,
+			was: base,
+			mapping,
+			current: clone(made),
+		});
+		if (!r.ok) return ok('custom: the update runs', false, r.problem);
+		const { doc, report } = r.value;
+		const bone = doc.bones.find((b) => b.name === 'tail');
+		const slot = doc.slots.find((s) => s.name === 'tail');
+		const good = ok(
+			'custom: 🔄 Update rig gives a custom part its bone under the bone picked and its slot',
+			report.added.includes('tail') &&
+				bone?.parent === 'spine' &&
+				slot?.bone === 'tail' &&
+				doc.skins[0].attachments.tail?.tail?.path === 'shadow_blob',
+			JSON.stringify({ added: report.added, bone, slot }),
+		);
+		log(`added ${report.added.join(', ')}`);
+		return good;
+	},
 };
 
 const ONLY = process.argv.includes('--only')
@@ -598,6 +744,39 @@ const MUTANTS = [
 		],
 	],
 	[
+		'layers',
+		"a Setup reorder lost to the mapping's order on every update",
+		[
+			UPD,
+			'if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {',
+			'if (true) {',
+		],
+	],
+	[
+		'layers',
+		'a changed Layers list never applied',
+		[
+			UPD,
+			'if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {',
+			'if (false) {',
+		],
+	],
+	[
+		'layers',
+		'the list applied back to front',
+		[UPD, '\t\t).reverse();\n\t\tconst slots', '\t\t);\n\t\tconst slots'],
+	],
+	['layers', "a draw-order key's drawing not kept", [UPD, '\t\t\tback();\n', '']],
+	[
+		'custom',
+		'a custom part (not prop_) never given its bone and slot',
+		[
+			'rigFrameUpdate.ts',
+			"const isProp = (name: string) => name.startsWith('prop_') || named.has(name);",
+			"const isProp = (name: string) => name.startsWith('prop_');",
+		],
+	],
+	[
 		'handedit',
 		'a hand-edited mesh never kept',
 		[
@@ -607,7 +786,10 @@ const MUTANTS = [
 		],
 	],
 ];
-const SOURCES = { [UPD]: join(SERVER, UPD) };
+const SOURCES = {
+	[UPD]: join(SERVER, UPD),
+	'rigFrameUpdate.ts': join(SERVER, 'rigFrameUpdate.ts'),
+};
 for (const [guard, what, mutation] of MUTANTS) {
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {

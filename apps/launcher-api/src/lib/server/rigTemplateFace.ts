@@ -59,6 +59,19 @@ const browBend = (s: 'l' | 'r'): RigTemplateBend => ({
 		{ bone: `brow_out_${s}`, at: [s === 'l' ? 0 : 1, 0.5] },
 	],
 });
+/**
+ * A lip drawn on its own (a jointed mouth): bent on the mouth's two corners, at its outer ends, and
+ * on its own bone in its middle, so Smile, Stretch and the lip controls shape it as they do a mouth
+ * image.
+ */
+const lipBend = (lip: 'lip_upper' | 'lip_lower'): RigTemplateBend => ({
+	grid: [7, 3],
+	bones: [
+		{ bone: 'mouth_corner_l', at: [0, lip === 'lip_upper' ? 0.75 : 0.25] },
+		{ bone: 'mouth_corner_r', at: [1, lip === 'lip_upper' ? 0.75 : 0.25] },
+		{ bone: lip, at: [0.5, 0.5] },
+	],
+});
 /** Every mouth image bends on its two corners and both lips. */
 const MOUTH_BEND: RigTemplateBend = {
 	grid: [7, 5],
@@ -122,6 +135,7 @@ export function faceBlock(head: string, depth: FaceDepth): FaceBlock {
 			{ name: `mouth_corner_${s}`, parent: 'face', x: 40 * k, y: -50 },
 		]),
 		{ name: 'lip_upper', parent: 'face', x: 0, y: -36 },
+		{ name: 'teeth_upper', parent: 'face', x: 0, y: -46, optional: true },
 		{ name: 'jaw', parent: 'face', x: 0, y: -50 },
 		{ name: 'lip_lower', parent: 'jaw', x: 0, y: -14 },
 	];
@@ -135,6 +149,13 @@ export function faceBlock(head: string, depth: FaceDepth): FaceBlock {
 		...sides((s) => [{ name: `brow_${s}`, bone: `brow_${s}`, setup: `brow_${s}_neutral` }]),
 		{ name: 'nose', bone: 'nose', setup: 'nose' },
 		{ name: 'mouth', bone: 'jaw', setup: 'mouth_rest' },
+		// A jointed mouth, drawn as its parts: the tongue and the lower teeth ride the jaw, the upper
+		// teeth the skull, each lip its own bone. Made only when a part is drawn in them.
+		{ name: 'tongue', bone: 'jaw', setup: 'tongue', optional: true },
+		{ name: 'teeth_lower', bone: 'jaw', setup: 'teeth_lower', optional: true },
+		{ name: 'teeth_upper', bone: 'teeth_upper', setup: 'teeth_upper', optional: true },
+		{ name: 'lip_lower', bone: 'lip_lower', setup: 'lip_lower', optional: true },
+		{ name: 'lip_upper', bone: 'lip_upper', setup: 'lip_upper', optional: true },
 	];
 	const parts: RigTemplatePart[] = [
 		...sides((s) => [part(`cheek_${s}`, `cheek_${s}`, [70, 50])]),
@@ -156,6 +177,11 @@ export function faceBlock(head: string, depth: FaceDepth): FaceBlock {
 		...MOUTH_SHAPES.map((m) =>
 			part(`mouth_${m}`, 'mouth', [90, 60], m === 'A' || m === 'O', MOUTH_BEND),
 		),
+		part('tongue', 'tongue', [50, 30]),
+		part('teeth_lower', 'teeth_lower', [80, 18]),
+		part('teeth_upper', 'teeth_upper', [84, 20]),
+		part('lip_lower', 'lip_lower', [96, 30], false, lipBend('lip_lower')),
+		part('lip_upper', 'lip_upper', [100, 28], false, lipBend('lip_upper')),
 	];
 	const both = (bone: (s: 'l' | 'r') => string, prop: RigTemplateDrive['prop'], per: number) =>
 		sides<RigTemplateDrive>((s, k) => [{ bone: bone(s), prop, per: prop === 'x' ? per * k : per }]);
