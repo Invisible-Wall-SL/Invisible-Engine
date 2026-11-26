@@ -2,31 +2,40 @@
  * ZONE ART (`docs/design/zone-art.md`, Game Config `arcade.zoneArt`): what an arcade game's zone
  * families are drawn with, from `/config` to the room. This holds:
  *
- *  1. the schema: a sheet's frame and a Flipbook clip are kept as authored; a rig source, a `fill`
- *     or `edge` placement, a frame that names no sheet, a blank clip are dropped, as are a scale of
- *     1, an fps out of range and variants past the limit. It is CARRIED: the normalizer every
- *     runtime carries drops it (so no other runtime's bytes move), the launcher's save and Raw
- *     JSON's Apply put it back normalized, and the runtime reads the stored map;
+ *  1. the schema: a sheet's frame, a Flipbook clip and a rig (its animation, played once or looped)
+ *     are kept as authored; a rig that names no rig or no animation, a `fill` or `edge` placement,
+ *     a frame that names no sheet, a blank clip are dropped, as are a scale of 1, an fps out of
+ *     range and variants past the limit. It is CARRIED: the normalizer every runtime carries drops
+ *     it (so no other runtime's bytes move), the launcher's save and Raw JSON's Apply put it back
+ *     normalized, and the runtime reads the stored map;
  *  2. the family is the Zones chips' group (`zoneFamilyOf` is what `/config` groups by), and the
- *     picture a zone draws is chosen by the seed and the zone alone, the same on every device;
+ *     picture a zone draws is chosen by the seed and the zone alone, the same on every device; so
+ *     is where a zone's rig starts, and neighbouring zones' rigs start apart;
  *  3. the stamps: one per zone of a family with an entry, its box the zone's grown about its centre
- *     by the scale; none for an empty or absent map;
- *  4. the validator: a family no stored zone has is warned of; a generated game is not judged;
+ *     by the scale, a rig's with its start; none for an empty or absent map;
+ *  4. the validator: a family no stored zone has is warned of; a generated game is not judged; a
+ *     rig picture that names no rig or no animation is warned of;
  *  5. COSMETIC: a Salmons room made by the game server's own read of a config with zone art plays
  *     the same level, levels and fingerprint as without, and a device with zone art adopts nothing
  *     and is never refused; the game a room plays is the same game;
  *  6. a PLAIN arcade game (no generator): its stamps are layout nodes in one container under its
  *     play field's spawn layer, with the layer's transform; a sprite keeps its frame's ratio and a
- *     clip with a Bounds box its own; no zone art, or no such layer, leaves the doc as it was;
+ *     clip with a Bounds box its own; a rig is a container bound to the one component the runtime
+ *     registers for it, handed its picture, its start and its box; no zone art, or no such layer,
+ *     leaves the doc as it was;
  *  7. the Zone art card's rows and edits (`zoneArtDoc.ts`): a Salmons level's rule-only families
  *     are hidden unless asked; a pick writes a stamp; a variant, a scale, a cleared picture and
- *     the bin all store what the normalizer keeps, and the last one leaves no field behind;
+ *     the bin all store what the normalizer keeps, and the last one leaves no field behind; a rig
+ *     picked keeps its animation on another rig that has it and asks for one otherwise, its loop
+ *     is stored only when off, the rigs it names are the ones whose animations are read, and a
+ *     family drawn as a rig on more than 100 zones is warned of;
  *  8. rule 8: the REAL `exportEditorArt` and `collectPlayedClipIds` over an in-memory R2 ship the
- *     sheet of a frame and the clip (and its sheet) named ONLY by zone art, for a plain game and
- *     for Salmons, and name the frame in the index's `characterArt` (what the boot keeps loaded by);
- *     a sheet and a clip nothing names do not; without zone art none of them does, and an empty
- *     map exports exactly what a config without the field exports. Salmons' trees' art (`@trees`)
- *     ships the same way, with no code of its own;
+ *     sheet of a frame, the clip (and its sheet) and the rig (its skeleton, atlas and page) named
+ *     ONLY by zone art, for a plain game and for Salmons, and name the frame and the rig in the
+ *     index's `characterArt` (what the boot keeps loaded by); a sheet, a clip and a rig nothing
+ *     names do not; without zone art none of them does, and an empty map exports exactly what a
+ *     config without the field exports. Salmons' trees' art (`@trees`) ships the same way, with no
+ *     code of its own;
  *  9. the card's Default line: Salmons' built-in pictures from the project's sheets, its trees too;
  * 10. SCENERY (`ZONE_ART_SCENERY`, `@trees`): a reserved key in the same map, kept by the
  *     normalizer, the save and Raw JSON as a family's entry is; no zone's family (`@` is in no
@@ -34,7 +43,18 @@
  *     of in a Salmons config, and in a game with no generator warned of as scenery, never as a
  *     family no zone has; each tree's picture is picked by the seed and its cell alone; the card
  *     lists a Trees row for a Salmons generator only (and a stale one where an entry is left), not
- *     as a zone family, and its edits store what the normalizer keeps.
+ *     as a zone family, and its edits store what the normalizer keeps;
+ * 11. SCENERY IS NEVER A RIG (`zoneArtTakesRig`): Salmons' ~430 trees as as many rigs are too
+ *     heavy for a phone (`docs/design/zone-art.md` §3). A rig picture of `@trees` is dropped by the
+ *     normalizer, warned of, refused by the card, never stamped and never shipped; a zone family
+ *     takes one;
+ * 12. THE RIG DRAWING (`engine-layout/zone-art-rig`), over a real rig: a picture is one `RigView`
+ *     in a container whose origin is the middle of the rig's Bounds box and which measures as that
+ *     box; it starts at its phase of its animation when looped (from its start when played once),
+ *     moves on by the time it is given (no more than a tenth of a second at once), and draws
+ *     nothing for an animation the rig lacks; a plain game's mount fits it inside the stamp's box
+ *     (its ratio kept), moves it on with the app's ticker and lets it all go; a rig not loaded
+ *     mounts nothing.
  *
  * Run: pnpm --filter launcher-api check:zone-art
  */
@@ -126,9 +146,13 @@ const {
 	sceneryArtSourceFor,
 	shapedOnlineGame,
 	withOnlineSlide,
+	zoneArtArtNames,
 	zoneArtClipRoots,
 	zoneArtOf,
+	zoneArtPhaseFor,
+	zoneArtRigRoots,
 	zoneArtSourceFor,
+	zoneArtTakesRig,
 	zoneArtStamps,
 	zoneArtStillRoots,
 	zoneFamilyOf,
@@ -141,7 +165,7 @@ const { SALMONS_MAP_SEED, salmonsMapRiver } =
 	await import('../../../packages/engine-mechanics/src/salmonsMap.js');
 const { createConfigSource } = await import('../../../services/game-server/src/configSource.ts');
 const { createRoomSim } = await import('../../../services/game-server/src/roomSim.ts');
-const { ZONE_ART_NODE, withZoneArtNodes } =
+const { ZONE_ART_NODE, ZONE_ART_RIG, withZoneArtNodes } =
 	await import('../../../packages/engine-layout/src/lib/zoneArtNodes.ts');
 const { zoneGroups, generatedZones } = await import('../src/routes/(app)/config/zones.ts');
 const cardEdits = await import('../src/routes/(app)/config/zoneArtDoc.ts');
@@ -205,9 +229,33 @@ eq(
 	},
 );
 eq(
-	'1. a rig, a fill or edge placement, an unscoped frame and a blank clip are dropped',
+	'1. a rig, played once or looped, is kept as authored, as a source and as a variant',
 	normalizeZoneArt({
-		a: { source: { kind: 'rig', rig: 'R_Rock', animation: 'idle' }, placement: 'stamp' },
+		'rock#': {
+			source: { kind: 'rig', rig: ' R_Rock ', animation: 'idle', loop: false },
+			variants: [
+				{ kind: 'rig', rig: 'R_Rock', animation: 'sway', loop: true },
+				{ kind: 'sprite', region: ROCK },
+			],
+			placement: 'stamp',
+		},
+	}),
+	{
+		'rock#': {
+			source: { kind: 'rig', rig: 'R_Rock', animation: 'idle', loop: false },
+			variants: [
+				{ kind: 'rig', rig: 'R_Rock', animation: 'sway' },
+				{ kind: 'sprite', region: ROCK },
+			],
+			placement: 'stamp',
+		},
+	},
+);
+eq(
+	'1. a rig with no animation or no rig, a fill or edge placement, an unscoped frame and a blank clip are dropped',
+	normalizeZoneArt({
+		a: { source: { kind: 'rig', rig: 'R_Rock', animation: ' ' }, placement: 'stamp' },
+		g: { source: { kind: 'rig', animation: 'idle' }, placement: 'stamp' },
 		b: { source: { kind: 'sprite', region: ROCK }, placement: 'fill' },
 		c: { source: { kind: 'sprite', region: ROCK }, placement: 'edge' },
 		d: { source: { kind: 'sprite', region: 'boulder' }, placement: 'stamp' },
@@ -245,6 +293,7 @@ const PLAIN: GameConfigDoc = {
 		],
 	},
 } as unknown as GameConfigDoc;
+const RIG_SOURCE = { kind: 'rig', rig: 'R_Rock', animation: 'idle' } as const;
 const PLAIN_ART = {
 	'rock#': { source: { kind: 'sprite', region: ROCK }, placement: 'stamp', scale: 2 },
 	pond: { source: { kind: 'flipbook', clip: 'pond_ripple' }, placement: 'stamp' },
@@ -316,6 +365,28 @@ ok(
 		!isDeepStrictEqual(picks(7), picks(8)),
 );
 
+{
+	const rocks = Array.from({ length: 24 }, (_, i) => `rock${i}`);
+	const phases = (seed: number) => rocks.map((id) => zoneArtPhaseFor(id, seed));
+	ok(
+		'2. where a zone’s rig starts is the seed’s and the zone’s alone, 0 to 1, the same every time',
+		isDeepStrictEqual(phases(7), phases(7)) &&
+			phases(7).every((p) => p >= 0 && p < 1) &&
+			!isDeepStrictEqual(phases(7), phases(8)),
+	);
+	const steps = phases(7)
+		.slice(1)
+		.map((p, i) => Math.abs(p - phases(7)[i]));
+	// An unmixed FNV-1a moves rock0 … rock23 by about 0.004 a step: lockstep. Uniform starts are a
+	// third of a cycle apart on average.
+	ok(
+		'2. … and neighbouring zones’ rigs start apart: rock0 … rock23 spread over the cycle',
+		Math.max(...phases(7)) - Math.min(...phases(7)) > 0.8 &&
+			steps.reduce((sum, d) => sum + d, 0) / steps.length > 0.2,
+		JSON.stringify(phases(7).map((p) => p.toFixed(3))),
+	);
+}
+
 // 3. The stamps.
 const plainArt = normalizeZoneArt(PLAIN_ART);
 eq(
@@ -355,6 +426,27 @@ eq(
 	],
 );
 eq('3. no map, no stamp', zoneArtStamps(PLAIN.arcade!.zones!, undefined, 0), []);
+eq(
+	'3. a rig’s stamp carries where it starts, by the seed and its zone',
+	zoneArtStamps(
+		PLAIN.arcade!.zones!,
+		normalizeZoneArt({ pond: { source: RIG_SOURCE, placement: 'stamp' } }),
+		7,
+	),
+	[
+		{
+			zone: 'pond',
+			family: 'pond',
+			source: RIG_SOURCE,
+			scale: 1,
+			x: 600,
+			y: 500,
+			w: 200,
+			h: 100,
+			phase: zoneArtPhaseFor('pond', 7),
+		},
+	],
+);
 
 // 4. The validator.
 const issuesOf = (doc: GameConfigDoc) =>
@@ -370,6 +462,32 @@ eq(
 	).map((i) => [i.severity, i.path]),
 	[['warning', 'arcade.zoneArt.tree#']],
 );
+eq(
+	'4. a rig picture that names no animation, or no rig, is warned of: it is not drawn',
+	issuesOf(
+		withArt(PLAIN, {
+			'rock#': {
+				source: RIG_SOURCE,
+				variants: [
+					{ kind: 'rig', rig: 'R_Rock' },
+					{ kind: 'rig', animation: 'idle' },
+				],
+				placement: 'stamp',
+			},
+		}),
+	).map((i) => [i.severity, i.path, i.message.includes('not drawn')]),
+	[
+		['warning', 'arcade.zoneArt.rock#.variants.0', true],
+		['warning', 'arcade.zoneArt.rock#.variants.1', true],
+	],
+);
+eq(
+	'4. … also where it was the entry’s only picture, so the entry is gone',
+	issuesOf(
+		withArt(PLAIN, { pond: { source: { kind: 'rig', rig: 'R_Pond' }, placement: 'stamp' } }),
+	).map((i) => i.path),
+	['arcade.zoneArt.pond.source'],
+);
 
 // 5. Cosmetic: the game server's own read, with and without zone art.
 const salmonsRaw = (): GameConfigDoc =>
@@ -379,10 +497,13 @@ const salmonsRaw = (): GameConfigDoc =>
 const SALMONS_ART = {
 	'rock#': {
 		source: { kind: 'sprite', region: ROCK },
-		variants: [{ kind: 'flipbook', clip: 'rock_spin' }],
+		variants: [{ kind: 'flipbook', clip: 'rock_spin' }, RIG_SOURCE],
 		placement: 'stamp',
 	},
-	'whirlpool#': { source: { kind: 'flipbook', clip: 'swirl' }, placement: 'stamp' },
+	'whirlpool#': {
+		source: { kind: 'rig', rig: 'R_Pool', animation: 'spin', loop: false },
+		placement: 'stamp',
+	},
 	'sandbank#': { source: { kind: 'sprite', region: `${SHEET}::sand` }, placement: 'stamp' },
 	'@trees': {
 		source: { kind: 'sprite', region: `${SHEET}::pine` },
@@ -518,6 +639,43 @@ ok(
 	withZoneArtNodes(LAYOUT, plainStamps, { layer: 'nowhere' }) === LAYOUT,
 );
 ok('6. drawn once: a second pass leaves it', withZoneArtNodes(drawn, plainStamps, {}) === drawn);
+{
+	const rigStamps = zoneArtStamps(
+		PLAIN.arcade!.zones!,
+		normalizeZoneArt({ 'rock#': { source: RIG_SOURCE, placement: 'stamp', scale: 2 } }),
+		0,
+	);
+	const rigNodes = (
+		withZoneArtNodes(LAYOUT, rigStamps, {}).scenes[1].nodes[1] as unknown as {
+			children: unknown[];
+		}
+	).children;
+	eq(
+		'6. a rig stamp is a container bound to the runtime’s rig component: its picture, its start and its box',
+		rigNodes[0],
+		{
+			id: `${ZONE_ART_NODE}:rock1`,
+			x: 140,
+			y: 120,
+			anchor: { x: 0.5, y: 0.5 },
+			locked: true,
+			kind: 'container',
+			children: [],
+			bind: {
+				component: ZONE_ART_RIG,
+				props: { source: RIG_SOURCE, phase: zoneArtPhaseFor('rock1', 0), w: 160, h: 80 },
+			},
+		},
+	);
+	ok(
+		'6. … each with its own start',
+		rigNodes.length === 2 &&
+			isDeepStrictEqual(
+				rigNodes.map((n) => (n as { bind: { props: { phase: number } } }).bind.props.phase),
+				['rock1', 'rock2'].map((id) => zoneArtPhaseFor(id, 0)),
+			),
+	);
+}
 
 // 7. The Zone art card.
 const salmonsLevel = generatedZones(salmonsRaw(), 'salmonsMap', 7);
@@ -583,6 +741,93 @@ eq(
 	[zoneArtStillRoots(withArt(PLAIN, PLAIN_ART)), zoneArtClipRoots(withArt(PLAIN, PLAIN_ART))],
 	[[{ assetKey: SHEET, region: 'boulder' }], ['pond_ripple']],
 );
+{
+	const rigCard = structuredClone(PLAIN);
+	cardEdits.setZoneArtSource(
+		rigCard,
+		'rock#',
+		0,
+		cardEdits.rigSourceOf(undefined, 'R_Rock', 'idle'),
+	);
+	cardEdits.addZoneArtVariant(rigCard, 'rock#');
+	const looped = rigCard.arcade?.zoneArt?.['rock#'];
+	cardEdits.setZoneArtSource(
+		rigCard,
+		'rock#',
+		1,
+		cardEdits.rigLooped({ kind: 'rig', rig: 'R_Moss', animation: 'grow' }, false),
+	);
+	eq(
+		'7. a rig picked writes a stamp, looped unless its loop is turned off',
+		rigCard.arcade?.zoneArt,
+		{
+			'rock#': {
+				source: RIG_SOURCE,
+				variants: [{ kind: 'rig', rig: 'R_Moss', animation: 'grow', loop: false }],
+				placement: 'stamp',
+			},
+		},
+	);
+	ok(
+		'7. … a variant added is a copy of its rig, and the loop turned back on stores nothing',
+		isDeepStrictEqual(looped?.variants, [RIG_SOURCE]) &&
+			isDeepStrictEqual(cardEdits.rigLooped({ ...RIG_SOURCE, loop: false }, true), RIG_SOURCE),
+	);
+	eq(
+		'7. another rig keeps the animation when it has one of that name, and asks for one otherwise',
+		[
+			cardEdits.rigPicked(RIG_SOURCE, 'R_Boulder', ['sway', 'idle']),
+			cardEdits.rigPicked({ ...RIG_SOURCE, loop: false }, 'R_Boulder', ['idle']),
+			cardEdits.rigPicked(RIG_SOURCE, 'R_Boulder', ['sway']),
+			cardEdits.rigPicked(RIG_SOURCE, 'R_Boulder', undefined),
+			cardEdits.rigPicked(RIG_SOURCE, 'R_Rock', undefined),
+			cardEdits.rigPicked({ kind: 'sprite', region: ROCK }, 'R_Rock', ['idle']),
+		],
+		[
+			{ kind: 'rig', rig: 'R_Boulder', animation: 'idle' },
+			{ kind: 'rig', rig: 'R_Boulder', animation: 'idle', loop: false },
+			undefined,
+			undefined,
+			RIG_SOURCE,
+			undefined,
+		],
+	);
+	eq(
+		'7. an animation picked keeps the picture’s loop; the rigs whose animations the card reads',
+		[
+			cardEdits.rigSourceOf({ ...RIG_SOURCE, loop: false }, 'R_Boulder', 'sway'),
+			cardEdits.rigSourceOf({ kind: 'sprite', region: ROCK }, 'R_Boulder', 'sway'),
+			cardEdits.zoneArtRigNames(rigCard),
+			cardEdits.zoneArtRigNames(PLAIN),
+		],
+		[
+			{ kind: 'rig', rig: 'R_Boulder', animation: 'sway', loop: false },
+			{ kind: 'rig', rig: 'R_Boulder', animation: 'sway' },
+			['R_Rock', 'R_Moss'],
+			[],
+		],
+	);
+	eq(
+		'7. a family drawn as a rig on more than 100 zones is warned of; a frame or 100 rigs are not',
+		[
+			cardEdits.rigCrowdWarning(318, rigCard.arcade?.zoneArt?.['rock#']).startsWith('318 zones'),
+			cardEdits.rigCrowdWarning(cardEdits.ZONE_ART_RIG_CROWD, rigCard.arcade?.zoneArt?.['rock#']),
+			cardEdits.rigCrowdWarning(318, normalizeZoneArt(PLAIN_ART)?.['rock#']),
+			cardEdits.rigCrowdWarning(318, undefined),
+		],
+		[true, '', '', ''],
+	);
+	cardEdits.removeZoneArt(rigCard, 'rock#');
+	ok('7. the bin leaves no field behind', isDeepStrictEqual(rigCard, PLAIN));
+	eq(
+		'7. the rig roots of the ship chain, and the names the boot keeps loaded: frames, then rigs',
+		[zoneArtRigRoots(withArt(PLAIN, SALMONS_ART)), zoneArtArtNames(withArt(PLAIN, SALMONS_ART))],
+		[
+			['R_Rock', 'R_Pool'],
+			[ROCK, `${SHEET}::sand`, `${SHEET}::pine`, 'R_Rock', 'R_Pool'],
+		],
+	);
+}
 
 // 8. Rule 8, through the real exporter.
 const CLIENT = 'invisible_wall';
@@ -603,6 +848,24 @@ const sheetIn = (project: string, stem: string, frame: string) => {
 };
 const clipIn = (project: string, id: string, sheet: string, frame: string) =>
 	put(clipDocKey(CLIENT, project, id), { id, name: id, assetKey: sheet, frames: [frame] });
+const RIG_OF_MOSS = { kind: 'rig', rig: 'R_Moss', animation: 'grow' } as const;
+/** A project's rigs as the Rigger stores them: each bundle's skeleton, atlas and page, listed. */
+const rigsIn = (project: string, names: string[]) => {
+	for (const name of names) {
+		const folder = `${SUB.spines(CLIENT, project)}/${name}`;
+		put(`${folder}/${name}.atlas`, `${name}.webp\nsize: 8,8\nbone\n  bounds: 0,0,8,8\n`);
+		put(`${folder}/${name}.json`, { skeleton: { spine: '4.2' } });
+		put(`${folder}/${name}.webp`, 'x');
+	}
+	put(`${SUB.spines(CLIENT, project)}/skeletons.json`, {
+		skeletons: names.map((name) => ({
+			folder: name,
+			name,
+			atlas_file: `${name}.atlas`,
+			skeleton_file: `${name}.json`,
+		})),
+	});
+};
 
 for (const [project, base] of [
 	['plain', PLAIN],
@@ -617,10 +880,15 @@ for (const [project, base] of [
 	clipIn(project, 'pond_ripple', ripple, 'ripple_0');
 	clipIn(project, 'leaf_fall', otherClip, 'leaf_0');
 	clipIn(project, 'tree_sway', sway, 'sway_0');
+	rigsIn(project, ['R_Moss', 'R_Unnamed', 'R_Pine']);
 	put(editorDocKey(CLIENT, project), LAYOUT);
 	const salmons = project !== 'plain';
 	const art = {
-		'rock#': { source: { kind: 'sprite', region: `${rocks}::boulder` }, placement: 'stamp' },
+		'rock#': {
+			source: { kind: 'sprite', region: `${rocks}::boulder` },
+			variants: [{ kind: 'rig', rig: 'R_Moss', animation: 'grow' }],
+			placement: 'stamp',
+		},
 		[salmons ? 'whirlpool#' : 'pond']: {
 			source: { kind: 'flipbook', clip: 'pond_ripple' },
 			placement: 'stamp',
@@ -667,11 +935,33 @@ for (const [project, base] of [
 		JSON.stringify(index.missing),
 	);
 	ok(`8. ${project}: a sheet nothing names does not ship`, !shipped(other) && !shipped(otherClip));
+	// A rig ships as a character sheet's does (`exportRigBundle`): its skeleton and atlas under
+	// `deploy/editor-art/<name>/`, its page in the shared `deploy/_pages/` store the atlas names.
+	const rigShipped = (name: string, of = index) => {
+		const entry = of.spines.find((r) => r.key === name);
+		const atlas = entry && bucket.get(`${SUB.deploy(CLIENT, project)}/${entry.atlas}`)?.text;
+		const page = atlas?.split('\n')[0].trim() ?? '';
+		return (
+			!!entry &&
+			bucket.has(`${SUB.deploy(CLIENT, project)}/${entry.skeleton}`) &&
+			page.startsWith('../../_pages/') &&
+			bucket.has(`${SUB.deploy(CLIENT, project)}/${page.slice('../../'.length)}`)
+		);
+	};
 	ok(
-		`8. ${project}: the index names the frame (and the trees’), so the game's boot keeps its sheet loaded`,
+		`8. ${project}: the rig zone art names ships under its name: its skeleton, atlas and page under deploy/editor-art/`,
+		rigShipped('R_Moss'),
+		JSON.stringify(index.spines),
+	);
+	ok(
+		`8. ${project}: a rig nothing names does not`,
+		!index.spines.some((r) => r.key === 'R_Unnamed'),
+	);
+	ok(
+		`8. ${project}: the index names the frame (and the trees’) and the rig, so the game's boot keeps them loaded`,
 		isDeepStrictEqual(
 			index.characterArt,
-			salmons ? [`${rocks}::boulder`, `${pines}::pine`] : [`${rocks}::boulder`],
+			salmons ? [`${rocks}::boulder`, `${pines}::pine`, 'R_Moss'] : [`${rocks}::boulder`, 'R_Moss'],
 		),
 		JSON.stringify(index.characterArt),
 	);
@@ -687,6 +977,7 @@ for (const [project, base] of [
 	ok(
 		`8. ${project}: without zone art no sheet of it ships, no clip is played, nothing is named`,
 		without.characterArt === undefined &&
+			!without.spines.length &&
 			!without.sheets.some((s) => [rocks, ripple, pines, sway].includes(s.key)) &&
 			!!playedWithout &&
 			!playedWithout.has('pond_ripple') &&
@@ -706,7 +997,31 @@ for (const [project, base] of [
 				!playedTrees.has('pond_ripple'),
 			JSON.stringify([treesOnly.sheets.map((s) => s.key), treesOnly.characterArt]),
 		);
+		config({
+			'@trees': {
+				source: { kind: 'sprite', region: `${pines}::pine` },
+				variants: [{ kind: 'rig', rig: 'R_Pine', animation: 'sway' }],
+				placement: 'stamp',
+			},
+		});
+		const treeRig = await exportEditorArt(CLIENT, project);
+		ok(
+			`8. ${project}: a rig named for the trees is not shipped (scenery is never a rig): its frame is`,
+			!treeRig.spines.some((r) => r.key === 'R_Pine') &&
+				isDeepStrictEqual(treeRig.characterArt, [`${pines}::pine`]),
+			JSON.stringify([treeRig.spines, treeRig.characterArt]),
+		);
 	}
+	config({ [salmons ? 'whirlpool#' : 'pond']: { source: RIG_OF_MOSS, placement: 'stamp' } });
+	const rigOnly = await exportEditorArt(CLIENT, project);
+	ok(
+		`8. ${project}: a rig alone ships, named for the boot, and no sheet of zone art does`,
+		rigShipped('R_Moss', rigOnly) &&
+			rigOnly.spines.length === 1 &&
+			isDeepStrictEqual(rigOnly.characterArt, ['R_Moss']) &&
+			!rigOnly.sheets.some((s) => [rocks, ripple, pines, sway].includes(s.key)),
+		JSON.stringify([rigOnly.spines, rigOnly.characterArt]),
+	);
 	config({});
 	const empty = await exportEditorArt(CLIENT, project);
 	ok(
@@ -909,6 +1224,162 @@ for (const [project, base] of [
 			zoneArtClipRoots(withArt(PLAIN, {})),
 		],
 		[undefined, [], []],
+	);
+}
+
+// 11. Scenery is never a rig.
+{
+	const TREE_RIG = { kind: 'rig', rig: 'R_Pine', animation: 'sway' } as const;
+	const PINE = { kind: 'sprite', region: `${SHEET}::pine` } as const;
+	eq(
+		'11. a zone family takes a rig; scenery does not',
+		[zoneArtTakesRig('rock#'), zoneArtTakesRig('pond'), ...ZONE_ART_SCENERY.map(zoneArtTakesRig)],
+		[true, true, ...ZONE_ART_SCENERY.map(() => false)],
+	);
+	eq(
+		'11. the normalizer drops a rig of the trees, as their source (the entry with it) or a variant',
+		[
+			normalizeZoneArt({ '@trees': { source: TREE_RIG, placement: 'stamp' } }),
+			normalizeZoneArt({ '@trees': { source: PINE, variants: [TREE_RIG], placement: 'stamp' } }),
+		],
+		[undefined, { '@trees': { source: PINE, placement: 'stamp' } }],
+	);
+	const salmonsRig = withArt(salmonsRaw(), {
+		'@trees': { source: PINE, variants: [TREE_RIG], placement: 'stamp' },
+		'rock#': { source: RIG_SOURCE, placement: 'stamp' },
+	});
+	const savedRig = prepareGameConfigDoc(salmonsRig);
+	eq(
+		'11. a Salmons save keeps the rocks’ rig and drops the trees’, warning of it',
+		[
+			savedRig.doc.arcade?.zoneArt,
+			savedRig.warnings
+				.filter((i) => i.path.startsWith('arcade.zoneArt'))
+				.map((i) => [i.path, i.message.includes('not drawn with a rig')]),
+		],
+		[
+			{
+				'@trees': { source: PINE, placement: 'stamp' },
+				'rock#': { source: RIG_SOURCE, placement: 'stamp' },
+			},
+			[['arcade.zoneArt.@trees.variants.0', true]],
+		],
+	);
+	const card = structuredClone(salmonsRaw());
+	cardEdits.setZoneArtSource(card, '@trees', 0, TREE_RIG);
+	ok('11. the card cannot store a rig for the trees', !card.arcade?.zoneArt);
+	ok(
+		'11. a rig is drawn on no tree: the river is handed none (`zoneArtOf` drops it)',
+		isDeepStrictEqual(zoneArtOf(savedRig.doc)?.['@trees'], { source: PINE, placement: 'stamp' }),
+	);
+}
+
+// 12. The rig drawing, over a real rig. The rig runtime reads `pixi-svelte` for the scale a rig was
+// loaded at: 1 here, the rig made in place.
+mock.module('pixi-svelte', { namedExports: { getRigLoadScale: () => 1 } });
+{
+	const RIG = await import('engine-rig/pixi');
+	const { Container, TextureSource } = await import('pixi.js');
+	const { createZoneRig, zoneRigDataOf, zoneRigMount } =
+		await import('../../../packages/engine-layout/src/lib/zoneArtRig.ts');
+	const { BLINK_RIG } = await import('../../../scripts/playtest/fixtures/zoneRigStubs.mjs');
+	/** The blink rig (cyan, then yellow half way through each second), its Bounds box `header`. */
+	const blinkData = (header: object) => {
+		const atlas = new RIG.TextureAtlas(['blink.png', ...BLINK_RIG.atlas, ''].join('\n'));
+		atlas.pages[0].setTexture(
+			RIG.RigPageTexture.from(new TextureSource({ width: 128, height: 32 })),
+		);
+		return new RIG.SkeletonJson(new RIG.AtlasAttachmentLoader(atlas)).readSkeletonData({
+			...BLINK_RIG.skeleton,
+			skeleton: { spine: '4.2.0', ...header },
+		});
+	};
+	const data = blinkData({ x: -10, y: -8, width: 40, height: 80 });
+	const BLINK = { kind: 'rig', rig: 'blink', animation: 'blink' } as const;
+	const shows = (rig: NonNullable<ReturnType<typeof createZoneRig>>) =>
+		(rig.view.children[0] as InstanceType<typeof RIG.RigView>).skeleton.slots[0].getAttachment()
+			?.name;
+	const late = createZoneRig(data, BLINK, 0.75)!;
+	const early = createZoneRig(data, BLINK, 0.25)!;
+	const once = createZoneRig(data, { ...BLINK, loop: false }, 0.75)!;
+	const inner = late.view.children[0];
+	eq(
+		'12. a picture: its rig in a container at the middle of its Bounds box, measured as that box',
+		[
+			late.w,
+			late.h,
+			[inner instanceof RIG.RigView, inner.x, inner.y],
+			[late.view.boundsArea?.x, late.view.boundsArea?.y],
+			[late.view.getLocalBounds().width, late.view.getLocalBounds().height],
+		],
+		[40, 80, [true, -10, 32], [-20, -40], [40, 80]],
+	);
+	eq(
+		'12. it starts at its phase when looped, posed at once; played once, from its start',
+		[late.drawn().time, shows(late), early.drawn().time, shows(early), once.drawn()],
+		[0.75, 'yellow', 0.25, 'cyan', { rig: 'blink', animation: 'blink', loop: false, time: 0 }],
+	);
+	late.update(100);
+	early.update(10_000);
+	ok(
+		'12. it moves on by the time given, no more than a tenth of a second at once',
+		Math.abs(late.drawn().time - 0.85) < 1e-9 && Math.abs(early.drawn().time - 0.35) < 1e-9,
+		JSON.stringify([late.drawn(), early.drawn()]),
+	);
+	const centred = createZoneRig(blinkData({ width: 64, height: 32 }), BLINK)!;
+	eq(
+		'12. a header box with no corner is centred on the rig; an animation it lacks draws nothing',
+		[
+			[centred.view.children[0].x, centred.view.children[0].y, centred.w, centred.h],
+			createZoneRig(data, { ...BLINK, animation: 'gone' }),
+		],
+		[[0, 0, 64, 32], undefined],
+	);
+	eq(
+		'12. a rig loaded under its bundle name is found; a texture or nothing is not',
+		[
+			zoneRigDataOf({ blink: data }, 'blink') === data,
+			zoneRigDataOf({ blink: { width: 1 } }, 'blink'),
+			zoneRigDataOf(undefined, 'blink'),
+			zoneRigDataOf({}, 'toString'),
+		],
+		[true, undefined, undefined, undefined],
+	);
+	const ticks: ((ticker: { deltaMS: number }) => void)[] = [];
+	const app = {
+		ticker: {
+			add: (fn: (ticker: { deltaMS: number }) => void) => ticks.push(fn),
+			remove: (fn: (ticker: { deltaMS: number }) => void) => ticks.splice(ticks.indexOf(fn), 1),
+		},
+	};
+	const into = new Container();
+	const stamp = { source: BLINK, phase: 0.5, w: 200, h: 140 };
+	const teardown = zoneRigMount(stamp, () => ({ blink: data }))(into, app as never);
+	const mounted = into.children[0];
+	const before = (mounted.children[0] as InstanceType<typeof RIG.RigView>).state.getCurrent(
+		0,
+	)!.trackTime;
+	for (const tick of [...ticks]) tick({ deltaMS: 50 });
+	const after = (mounted.children[0] as InstanceType<typeof RIG.RigView>).state.getCurrent(
+		0,
+	)!.trackTime;
+	eq(
+		'12. a plain game’s stamp: fitted inside its box, ratio kept, moved on by the app’s ticker',
+		[
+			into.children.length,
+			mounted.scale.x,
+			mounted.scale.y,
+			ticks.length,
+			+(after - before).toFixed(9),
+		],
+		[1, 1.75, 1.75, 1, 0.05],
+	);
+	teardown();
+	const empty = new Container();
+	zoneRigMount(stamp, () => ({}))(empty, app as never)();
+	ok(
+		'12. … let go with its mount; a rig not loaded mounts nothing',
+		ticks.length === 0 && mounted.destroyed && into.children.length === 0 && !empty.children.length,
 	);
 }
 

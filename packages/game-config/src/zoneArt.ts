@@ -10,10 +10,11 @@ import type { GameConfigIssue } from './validate';
  * Cosmetic: no rule, no room and no fingerprint reads it (a device and its room agree on a level
  * whatever art it is drawn with). A family with no entry draws exactly as it did without one.
  *
- * Phase 1 draws a STAMP: one picture per zone, fitted inside the zone (its own ratio kept) and
- * centred on it, times `scale`; its picture a project sheet's frame or an Invisible Flipbook clip.
- * A rig source and the `fill` / `edge` placements are the next phase: {@link normalizeZoneArt}
- * drops them.
+ * It draws a STAMP: one picture per zone, fitted inside the zone (its own ratio kept) and centred
+ * on it, times `scale`; its picture a project sheet's frame, an Invisible Flipbook clip or (for a
+ * zone family, not scenery: {@link zoneArtTakesRig}) one of the project's rigs playing one of its
+ * animations. The `fill` / `edge` placements are the next phase: {@link normalizeZoneArt} drops
+ * them.
  *
  * CARRIED, NOT NORMALIZED (as `arcade.online.slide` and the touch schemes are): the config's
  * normalizer drops the field, the launcher's save puts the normalized map back ({@link withZoneArt}),
@@ -28,9 +29,17 @@ export type ZoneArtSprite = { kind: 'sprite'; region: string };
 /** An Invisible Flipbook clip by id, looped; `fps` overrides the clip's own. */
 export type ZoneArtFlipbook = { kind: 'flipbook'; clip: string; fps?: number };
 
-export type ZoneArtSource = ZoneArtSprite | ZoneArtFlipbook;
+/**
+ * One of the project's rigs (`.irig`, Invisible Rigger) by its bundle name, as a character sheet's
+ * rig source names it, playing one of its animations from a start the seed picks per zone
+ * ({@link zoneArtPhaseFor}); looped unless `loop` is `false` (a one-shot plays once, from its
+ * start, and holds its last pose).
+ */
+export type ZoneArtRig = { kind: 'rig'; rig: string; animation: string; loop?: false };
 
-export const ZONE_ART_SOURCE_KINDS = Object.freeze(['sprite', 'flipbook'] as const);
+export type ZoneArtSource = ZoneArtSprite | ZoneArtFlipbook | ZoneArtRig;
+
+export const ZONE_ART_SOURCE_KINDS = Object.freeze(['sprite', 'flipbook', 'rig'] as const);
 
 export const ZONE_ART_PLACEMENTS = Object.freeze(['stamp'] as const);
 
@@ -79,7 +88,16 @@ const isFrameRef = (ref: string): boolean => {
 	return at > 0 && at + 2 < ref.length;
 };
 
-export function normalizeZoneArtSource(raw: unknown): ZoneArtSource | undefined {
+/**
+ * Whether the pieces of map key `key` may be drawn with a rig: a zone family's may, a scenery
+ * key's may not. Salmons draws about 430 trees, and as many rigs cost a phone several milliseconds
+ * a frame and a freeze to make (`docs/design/zone-art.md` §3), where a frame or a clip costs next
+ * to nothing.
+ */
+export const zoneArtTakesRig = (key: string): boolean => !isZoneArtScenery(key.trim());
+
+/** One picture, or `undefined` when it cannot be drawn; a rig only where `rig` allows one. */
+export function normalizeZoneArtSource(raw: unknown, rig = true): ZoneArtSource | undefined {
 	if (!isObject(raw)) return undefined;
 	if (raw.kind === 'sprite') {
 		const region = text(raw.region);
@@ -94,18 +112,28 @@ export function normalizeZoneArtSource(raw: unknown): ZoneArtSource | undefined 
 		if (fps !== undefined && fps >= min && fps <= max) source.fps = fps;
 		return source;
 	}
+	if (raw.kind === 'rig' && rig) {
+		const name = text(raw.rig);
+		const animation = text(raw.animation);
+		if (!name || !animation) return undefined;
+		const source: ZoneArtRig = { kind: 'rig', rig: name, animation };
+		if (raw.loop === false) source.loop = false;
+		return source;
+	}
 	return undefined;
 }
 
-export function normalizeZoneArtEntry(raw: unknown): ZoneArt | undefined {
+/** The entry of map key `key` ({@link zoneArtTakesRig}), or `undefined` when it draws nothing. */
+export function normalizeZoneArtEntry(raw: unknown, key = ''): ZoneArt | undefined {
 	if (!isObject(raw)) return undefined;
-	const source = normalizeZoneArtSource(raw.source);
+	const rig = zoneArtTakesRig(key);
+	const source = normalizeZoneArtSource(raw.source, rig);
 	const placement = ZONE_ART_PLACEMENTS.find((p) => p === raw.placement);
 	if (!source || !placement) return undefined;
 	const art: ZoneArt = { source, placement };
 	const variants = Array.isArray(raw.variants)
 		? raw.variants
-				.map(normalizeZoneArtSource)
+				.map((variant: unknown) => normalizeZoneArtSource(variant, rig))
 				.filter((v): v is ZoneArtSource => v !== undefined)
 				.slice(0, ZONE_ART_LIMITS.variants)
 		: [];
@@ -124,7 +152,7 @@ export function normalizeZoneArt(raw: unknown): ZoneArtMap | undefined {
 		const family = key.trim();
 		if (!family || family in out) continue;
 		if (Object.keys(out).length >= ZONE_ART_LIMITS.families) break;
-		const art = normalizeZoneArtEntry(entry);
+		const art = normalizeZoneArtEntry(entry, family);
 		if (art) out[family] = art;
 	}
 	return Object.keys(out).length ? out : undefined;
@@ -159,8 +187,27 @@ export const sceneryArtSourceFor = (
 	seed: number | string,
 ): ZoneArtSource => zoneArtSourceFor(art, `${c},${r}`, seed);
 
+/** `h` with every bit mixed into every other (murmur3's finalizer): an FNV-1a's high bits barely
+ *  move between two ids that differ in their last digit (`rock1`, `rock2`). */
+function mixed(h: number): number {
+	h ^= h >>> 16;
+	h = Math.imul(h, 0x85ebca6b);
+	h ^= h >>> 13;
+	h = Math.imul(h, 0xc2b2ae35);
+	h ^= h >>> 16;
+	return h >>> 0;
+}
+
+/**
+ * Where in its animation zone `zoneId`'s rig starts in a room seeded `seed`, 0 to 1 of its length:
+ * by the seed and the zone alone (another hash than the picture's, mixed), so neighbouring rigs do
+ * not play in lockstep and every device starts each at the same point.
+ */
+export const zoneArtPhaseFor = (zoneId: string, seed: number | string): number =>
+	mixed(hash(`${seed}\u0001${zoneId}`)) / 0x1_0000_0000;
+
 /** One zone's stamp: the picture, and the box it is fitted in (world px, top-left and size): the
- *  zone's grown about its centre by `scale`. */
+ *  zone's grown about its centre by `scale`. A rig's has the start of its animation (`phase`). */
 export type ZoneStamp = {
 	zone: string;
 	family: string;
@@ -170,6 +217,7 @@ export type ZoneStamp = {
 	y: number;
 	w: number;
 	h: number;
+	phase?: number;
 };
 
 /**
@@ -192,15 +240,17 @@ export function zoneArtStamps(
 		const scale = art.scale ?? 1;
 		const w = zone.w * scale;
 		const h = zone.h * scale;
+		const source = zoneArtSourceFor(art, zone.id, seed);
 		stamps.push({
 			zone: zone.id,
 			family,
-			source: zoneArtSourceFor(art, zone.id, seed),
+			source,
 			scale,
 			x: zone.x + (zone.w - w) / 2,
 			y: zone.y + (zone.h - h) / 2,
 			w,
 			h,
+			...(source.kind === 'rig' ? { phase: zoneArtPhaseFor(zone.id, seed) } : {}),
 		});
 	}
 	return stamps;
@@ -247,12 +297,31 @@ export function zoneArtStillRoots(rawDoc: unknown): { assetKey: string; region: 
 }
 
 /**
- * The frames a RAW config's zone art names, as the scoped names a published bundle lists them by
- * (`characterArt`, beside a character sheet's): the runtime's normalizer drops zone art, so
- * without them its boot would leave their sheets unloaded as art nothing names.
+ * The rigs a RAW config's zone art names, for the ship chain (rule 8), by bundle name: what
+ * `editorArtExport` ships as it ships a character sheet's rigs (`characterSheetRigRoots`), though
+ * no scene places them. Distinct, in authored order.
  */
-export const zoneArtArtNames = (rawDoc: unknown): string[] =>
-	zoneArtStillRoots(rawDoc).map((still) => `${still.assetKey}::${still.region}`);
+export function zoneArtRigRoots(rawDoc: unknown): string[] {
+	const out: string[] = [];
+	for (const source of sourcesOf(zoneArtOf(rawDoc)))
+		if (source.kind === 'rig' && !out.includes(source.rig)) out.push(source.rig);
+	return out;
+}
+
+/**
+ * The art a RAW config's zone art names, as the names a published bundle lists it by
+ * (`characterArt`, beside a character sheet's): each frame scoped (`<sheet>::<frame>`), then each
+ * rig's bundle name. The runtime's normalizer drops zone art, so without them its boot would leave
+ * their sheets and rigs unloaded as art nothing names.
+ */
+export const zoneArtArtNames = (rawDoc: unknown): string[] => [
+	...zoneArtStillRoots(rawDoc).map((still) => `${still.assetKey}::${still.region}`),
+	...zoneArtRigRoots(rawDoc),
+];
+
+/** Whether `map` names a rig anywhere: only then does the runtime load the rig drawing. */
+export const zoneArtNamesRig = (map: ZoneArtMap | undefined): boolean =>
+	sourcesOf(map).some((source) => source.kind === 'rig');
 
 /** The clips a RAW config's zone art names, for the ship chain: `clipReachability` counts each as
  *  played. Distinct, in authored order. */
@@ -263,28 +332,70 @@ export function zoneArtClipRoots(rawDoc: unknown): string[] {
 	return out;
 }
 
+/** A raw rig picture's issue: one that names no rig or no animation, or that a scenery key
+ *  names ({@link zoneArtTakesRig}), is dropped, so not drawn. */
+function rigPictureIssues(raw: unknown): GameConfigIssue[] {
+	if (!isObject(raw)) return [];
+	const issues: GameConfigIssue[] = [];
+	for (const [key, entry] of Object.entries(raw)) {
+		if (!isObject(entry)) continue;
+		const variants = Array.isArray(entry.variants) ? entry.variants : [];
+		const pictures: [string, unknown][] = [
+			['source', entry.source],
+			...variants.map((v: unknown, i): [string, unknown] => [`variants.${i}`, v]),
+		];
+		for (const [at, picture] of pictures) {
+			if (!isObject(picture) || picture.kind !== 'rig') continue;
+			if (!zoneArtTakesRig(key)) {
+				issues.push({
+					severity: 'warning',
+					path: `arcade.zoneArt.${key.trim()}.${at}`,
+					message: `"${key.trim()}" is not drawn with a rig (as many rigs as pieces are too heavy for a phone), so this picture is not drawn: pick a sheet frame or a Flipbook clip.`,
+				});
+				continue;
+			}
+			const missing = [
+				...(text(picture.rig) ? [] : ['rig']),
+				...(text(picture.animation) ? [] : ['animation']),
+			];
+			if (missing.length)
+				issues.push({
+					severity: 'warning',
+					path: `arcade.zoneArt.${key.trim()}.${at}`,
+					message: `A rig picture names no ${missing.join(' and no ')}, so it is not drawn: name one of the project's rigs and one of its animations.`,
+				});
+		}
+	}
+	return issues;
+}
+
 /**
- * What is wrong with a config's zone art: a family none of its stored zones has draws nothing, and
- * scenery draws nothing in a game with no generator (only a generator's own art places it). A
- * game whose generator makes its zones is not checked here (its families are its generator's;
- * `/config` lists them from the level a seed makes).
+ * What is wrong with a config's zone art: a rig picture that names no rig or no animation, or that
+ * scenery names, is not drawn (the normalizer drops it); a family none of its stored zones has
+ * draws nothing, and scenery draws nothing in a game with no generator (only a generator's own art
+ * places it). A game whose generator makes its zones is not checked for its families here (they
+ * are its generator's; `/config` lists them from the level a seed makes).
  */
 export function validateZoneArt(rawDoc: unknown): GameConfigIssue[] {
-	const map = zoneArtOf(rawDoc);
 	const arcade = arcadeOf(rawDoc);
+	const rigs = rigPictureIssues(arcade?.zoneArt);
+	const map = zoneArtOf(rawDoc);
 	const online = isObject(arcade?.online) ? arcade.online : undefined;
-	if (!map || online?.generator) return [];
+	if (!map || online?.generator) return rigs;
 	const zones = Array.isArray(arcade?.zones) ? arcade.zones : [];
 	const families = new Set(
 		zones.flatMap((z) => (isObject(z) && typeof z.id === 'string' ? [zoneFamilyOf(z.id)] : [])),
 	);
-	return Object.keys(map)
-		.filter((key) => isZoneArtScenery(key) || !families.has(key))
-		.map((key) => ({
-			severity: 'warning' as const,
-			path: `arcade.zoneArt.${key}`,
-			message: isZoneArtScenery(key)
-				? `"${key}" is scenery a generator's art places, and this game has no generator, so it is never drawn.`
-				: `No zone of arcade.zones is of the family "${key}", so its art is never drawn.`,
-		}));
+	return [
+		...rigs,
+		...Object.keys(map)
+			.filter((key) => isZoneArtScenery(key) || !families.has(key))
+			.map((key) => ({
+				severity: 'warning' as const,
+				path: `arcade.zoneArt.${key}`,
+				message: isZoneArtScenery(key)
+					? `"${key}" is scenery a generator's art places, and this game has no generator, so it is never drawn.`
+					: `No zone of arcade.zones is of the family "${key}", so its art is never drawn.`,
+			})),
+	];
 }

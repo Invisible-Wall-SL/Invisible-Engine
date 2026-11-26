@@ -10,6 +10,7 @@ import {
 	zoneFamilyOf,
 	type GameConfigDoc,
 	type ZoneArt,
+	type ZoneArtRig,
 	type ZoneArtScenery,
 	type ZoneArtSource,
 } from 'game-config';
@@ -167,6 +168,81 @@ export function removeZoneArt(doc: GameConfigDoc, family: string): void {
 	const map = copy(doc);
 	delete map[family];
 	store(doc, map);
+}
+
+/**
+ * The project's rigs as the card offers them: the list a character sheet's rig picker shows (the
+ * project's own, then the shared library's), and each rig's animations as the page reads them
+ * (`/api/editor/rig/meta`, which the Game Config grant reads), asked for once per rig.
+ */
+export type ZoneArtRigs = {
+	list: readonly { name: string; shared: boolean }[];
+	/** A rig's animations once read; `undefined` while it is being read, or not asked yet. */
+	animationsOf: (rig: string) => readonly string[] | undefined;
+	/** Read a rig's animations, once. */
+	read: (rig: string) => void;
+};
+
+/** A project with no rigs, or a page that offers none. */
+export const NO_RIGS: ZoneArtRigs = Object.freeze({
+	list: [],
+	animationsOf: () => undefined,
+	read: () => {},
+});
+
+/** Every rig the config's zone art names, each once: whose animations the card reads. */
+export function zoneArtRigNames(doc: GameConfigDoc): string[] {
+	const names = Object.values(doc.arcade?.zoneArt ?? {}).flatMap((art) =>
+		[art.source, ...(art.variants ?? [])].flatMap((s) => (s.kind === 'rig' ? [s.rig] : [])),
+	);
+	return [...new Set(names)];
+}
+
+/** A rig picture of `rig` playing `animation`, played once when `was` was a rig played once. */
+export const rigSourceOf = (
+	was: ZoneArtSource | undefined,
+	rig: string,
+	animation: string,
+): ZoneArtRig =>
+	was?.kind === 'rig' && was.loop === false
+		? { kind: 'rig', rig, animation, loop: false }
+		: { kind: 'rig', rig, animation };
+
+/**
+ * What picking `rig` in a rig picture's rig select makes of the picture `was`: the same animation
+ * on the new rig when that rig is read and has it, else `undefined`, and the card asks for an
+ * animation of the new rig before anything is stored.
+ */
+export function rigPicked(
+	was: ZoneArtSource | undefined,
+	rig: string,
+	animations: readonly string[] | undefined,
+): ZoneArtRig | undefined {
+	if (was?.kind !== 'rig') return undefined;
+	if (was.rig === rig) return was;
+	return animations?.includes(was.animation) ? { ...was, rig } : undefined;
+}
+
+/** `source` looped (the default, not stored) or played once. */
+export function rigLooped(source: ZoneArtRig, loop: boolean): ZoneArtRig {
+	const { loop: _, ...looped } = source;
+	return loop ? looped : { ...looped, loop: false };
+}
+
+/**
+ * How many zones of one family a rig may draw before the card warns. 430 rigs on one screen cost
+ * about 2.4 ms a frame on a desktop core and several times that on a phone (`docs/design/zone-art.md`
+ * §3): a hundred is a fraction of a phone's frame. Scenery is never a rig (`zoneArtTakesRig`).
+ */
+export const ZONE_ART_RIG_CROWD = 100;
+
+/** The card's warning for a family drawn with a rig on more than {@link ZONE_ART_RIG_CROWD} zones of
+ *  the level shown; `''` otherwise. */
+export function rigCrowdWarning(count: number, art: ZoneArt | undefined): string {
+	const rig = !!art && [art.source, ...(art.variants ?? [])].some((s) => s.kind === 'rig');
+	return rig && count > ZONE_ART_RIG_CROWD
+		? `${count} zones drawn as rigs: as many on screen cost a phone several milliseconds a frame. A frame or a clip costs next to nothing.`
+		: '';
 }
 
 /** A clip's first frame as a scoped ref (`<sheet>::<frame>`), for its thumbnail. */
