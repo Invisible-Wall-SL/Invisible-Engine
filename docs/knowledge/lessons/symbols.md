@@ -7,6 +7,16 @@ overwriting a newer save (#821):
 [launcher.md](launcher.md#a-manual-save-overwrote-a-colleagues-newer-save). Held coin labels
 drawing black (#963): [hold-and-win](../families/hold-and-win.md#known-failure-modes).
 
+### All-at-once win lines stayed on screen through the bonus game
+- **Symptom:** with "Show all win lines at once" on, a trigger spin's lines and amounts stayed
+  over the whole bonus (seen on a Hold and Win bonus).
+- **Cause:** that mode ignores a per-win `winLineHide`; only `all` clears wipe the set, and none
+  ran between the trigger spin and the bonus. The default one-line mode hid them per win.
+- **Fix:** `stateModes.svelte.ts` `present` broadcasts `winLineHide { all: true }` on every mode
+  `enter`, before the flow's intro.
+- **Guard:** none; check any new "stay up" presentation against the mode-enter seam.
+- **PR:** not recorded (2026-11-26) · source: `docs/status/symbols.md`
+
 ### Art set on a symbol state that never plays
 - **Symptom:** a Hold and Win project showed 17 state columns per row; art set on most of them
   shipped but never showed (a token's Win, a coin's Post-win).

@@ -88,6 +88,9 @@ export const stateModes = createModeController({
 			transition.kind === 'exit' && potsStayFull()
 				? holdPotsForDrain(potsThatStarted(transition.mode))
 				: undefined;
+		// The trigger spin's win lines go as the bonus comes on screen. With "show all win lines at
+		// once" only an `all` hide clears them, and the next clear of that kind is the next spin's.
+		if (transition.kind === 'enter') eventEmitter.broadcast({ type: 'winLineHide', all: true });
 		try {
 			await flowPresenter?.(transition);
 			presentCoded(transition);
