@@ -269,6 +269,7 @@ fake('lib/server/bugFixRunsStore.ts', {
 			reason: null,
 			secondBug: null,
 			diagnosis: null,
+			explanation: null,
 			spendUsd: null,
 			resultAt: null,
 			createdAt: at,
@@ -350,6 +351,7 @@ fake('lib/server/bugFixRunsStore.ts', {
 			summary: end.summary ?? null,
 			secondBug: end.secondBug ?? null,
 			diagnosis: end.diagnosis ?? null,
+			explanation: end.explanation ?? null,
 			prNumber: end.prNumber ?? null,
 			branch: end.branch ?? null,
 			finishedAt: tick(),
@@ -1214,7 +1216,7 @@ const firstRequest = newRequest();
 const first = await start(FIXER, 1, firstRequest);
 const R1 = runView(first).id;
 check(
-	'start: 201; a 10-hex id; main read, then ONE dispatch with ONE input; bound to the run GitHub named',
+	'start: 201; a 10-hex id; main read, then ONE dispatch with the run id and its mode; bound to the run GitHub named',
 	[
 		first.status,
 		/^[0-9a-f]{10}$/.test(R1),
@@ -1228,7 +1230,7 @@ check(
 		201,
 		true,
 		['GET /git/ref/heads/main', 'POST /actions/workflows/bug-fix.yml/dispatches'],
-		{ ref: 'main', inputs: { fix_run: R1 }, return_run_details: true },
+		{ ref: 'main', inputs: { fix_run: R1, mode: 'diagnose' }, return_run_details: true },
 		BASE,
 		9001,
 		'dispatched',
@@ -1389,8 +1391,8 @@ check(
 	],
 	[
 		[
-			{ ref: 'main', inputs: { fix_run: R2 }, return_run_details: true },
-			{ ref: 'main', inputs: { fix_run: R2 } },
+			{ ref: 'main', inputs: { fix_run: R2, mode: 'diagnose' }, return_run_details: true },
+			{ ref: 'main', inputs: { fix_run: R2, mode: 'diagnose' } },
 		],
 		'dispatched',
 		null,
@@ -1614,11 +1616,68 @@ check(
 /** Clear of the Actions run ids the tests pick by hand (9001–9999): a live run holding one of
  *  those makes a later bind of it refused. */
 let ghSeq = 20_000;
-/** A live, bound run on `bug` for a result test. */
+const SEED_DIAGNOSIS = {
+	reported: 'The bones come out in a different order.',
+	cause: 'The order is kept in a set.',
+	evidence: 'a Set in the exporter',
+	kind: 'defect' as const,
+	options: [
+		{
+			id: 'A' as const,
+			name: 'Keep the order',
+			change: 'Keep the bones in the order they were made.',
+			cost: 'a small change',
+			risk: 'none for current games',
+			player: 'nothing visible',
+		},
+		{
+			id: 'B' as const,
+			name: 'Sort by name',
+			change: 'Sort the bones by name.',
+			cost: 'small',
+			risk: 'old files reorder',
+			player: 'a different order',
+		},
+	],
+	recommendation: { option: 'A' as const, why: 'It keeps what people made.' },
+};
+/** A live, bound run on `bug` for a result test: a build of option A of a seeded diagnosis, unless
+ *  `over` says otherwise (a diagnose run, or a legacy build with no decision). */
 function liveRun(bug = 1, over: Partial<BugFixRun> = {}): { id: string; gh: number } {
+	const decided = (over.mode ?? 'build') === 'build' && !('chosenOption' in over);
+	const parent = decided
+		? seedRun(bug, {
+				mode: 'diagnose',
+				status: 'diagnosed',
+				outcome: 'diagnosed',
+				diagnosis: SEED_DIAGNOSIS,
+				ghRunId: null,
+				finishedAt: tick(),
+			})
+		: null;
+	return seedRun(
+		bug,
+		decided && parent
+			? {
+					parentRunId: parent.id,
+					chosenOption: {
+						optionId: 'A',
+						name: 'Keep the order',
+						change: 'Keep the bones in the order they were made.',
+						note: 'Please keep it small.',
+						decidedBy: 'Fia',
+						decidedAt: '2026-11-26T10:00:00.000Z',
+					},
+					...over,
+				}
+			: over,
+	);
+}
+
+function seedRun(bug: number, over: Partial<BugFixRun>): { id: string; gh: number } {
 	const at = tick();
 	const id = (0x1000000000 + runs.length).toString(16).slice(-10);
-	const ghRunId = ++ghSeq;
+	const ghRunId = over.ghRunId ?? ++ghSeq;
 	runs.push({
 		id,
 		bugNumber: bug,
@@ -1634,6 +1693,7 @@ function liveRun(bug = 1, over: Partial<BugFixRun> = {}): { id: string; gh: numb
 		secondBug: null,
 		diagnosis: null,
 		chosenOption: null,
+		explanation: null,
 		parentRunId: null,
 		spendUsd: null,
 		startedById: FIXER.id,
@@ -1685,6 +1745,10 @@ const good = (over: Record<string, unknown> = {}) => ({
 	title: 'Keep the bone order',
 	scope: 'launcher',
 	summary: 'Sorted the bones by index.',
+	changed: 'Bones now stay in the order the artist made them.',
+	howToCheck:
+		'1. Open Invisible Rigger.\n2. Load a rig and save it.\n3. Reload it: the order is unchanged.',
+	risks: 'Old saved rigs may show their bones in a different order the first time.',
 	lesson:
 		'- Area: rigger\n- Symptom: bones reorder\n- Cause: a Set\n- Fix: an array\n- Guard: check:rigger',
 	gates: [{ command: 'pnpm --filter launcher-api check:rigger', ok: true }],
@@ -2657,6 +2721,7 @@ const opened = await result(
 		title: 'Keep the bone order (BUG-7)',
 		scope: 'Launcher',
 		summary: longSummary,
+		changed: 'Bones keep their order (also BUG-7, thanks @octocat).',
 		lesson: '- Area: rigger',
 		files: [
 			file(ORDER, ORDER_FIXED),
@@ -2835,7 +2900,7 @@ await result(
 	good({
 		// Cut at 120 code points, the title ends at `bug-120`: a reference, were it not unlinked after.
 		title: `Fix\u200b the [skip ci] order\u202e ${'x'.repeat(96)} bug-1200000000`,
-		summary:
+		changed:
 			'Done for <Month> 2026. <!-- steer the reviewer --> <img src=x onerror=alert(1)> x://@user #12://y GH-12 https://github.com/@octocat [ci skip] Fixes https://github.com/Invisible-Wall-SL/Invisible-Engine/issues/12 and https://github.com/o/r/pull/3/files',
 		lesson: '- Area: launcher [skip [skip ci]ci]',
 	}),
@@ -2894,6 +2959,288 @@ check(
 	],
 	[true, false],
 );
+
+// ── Results: a build explains its change, or nothing ships (ADR-0014 §2) ──────
+{
+	const HEADINGS = /^## .+$/gm;
+	check(
+		'the PR body: the fixed headings, in order, each filled from the run’s own records',
+		[
+			pr.body.match(HEADINGS),
+			pr.body.includes('## What you reported\nThe bones come out in a different order.\n'),
+			pr.body.includes('## What was wrong\nThe order is kept in a set.\n'),
+			pr.body.includes(
+				'## The option you chose\n**A — Keep the order**\n\nKeep the bones in the order they were made.\n\nChosen by `Fia` on 2026-11-26 10:00 UTC.\n\nTheir note: Please keep it small.\n',
+			),
+			pr.body.includes(
+				'## What changed\nBones keep their order (also bug #\u20607, thanks @\u2060octocat).\n',
+			),
+			pr.body.includes('## What else was possible\n- B — Sort by name: Sort the bones by name.\n'),
+			pr.body.includes(
+				'## How to check it yourself\n1. Open Invisible Rigger.\n2. Load a rig and save it.\n3. Reload it: the order is unchanged.\n',
+			),
+			pr.body.includes('## Risks\nOld saved rigs may show their bones in a different order'),
+			pr.body.indexOf('## Risks') < pr.body.indexOf('**Gates run**') &&
+				pr.body.indexOf('**Gates run**') < pr.body.indexOf('## Lesson') &&
+				pr.body.indexOf('## Lesson') < pr.body.indexOf('Started by'),
+		],
+		[
+			[
+				'## What you reported',
+				'## What was wrong',
+				'## The option you chose',
+				'## What changed',
+				'## What else was possible',
+				'## How to check it yourself',
+				'## Risks',
+				'## Lesson',
+			],
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+		],
+	);
+	check(
+		'a fix: the explanation is kept on the run, and the run’s view carries it (plain text)',
+		[
+			runOf(fixRun.id).explanation,
+			runOf(fixRun.id).chosenOption?.optionId,
+			shared.fixRunView(runOf(fixRun.id), REPO, true).explanation,
+		],
+		[
+			{
+				changed: 'Bones keep their order (also bug #\u20607, thanks @\u2060octocat).',
+				howToCheck:
+					'1. Open Invisible Rigger.\n2. Load a rig and save it.\n3. Reload it: the order is unchanged.',
+				risks: 'Old saved rigs may show their bones in a different order the first time.',
+			},
+			'A',
+			{
+				changed: 'Bones keep their order (also bug #\u20607, thanks @\u2060octocat).',
+				howToCheck:
+					'1. Open Invisible Rigger.\n2. Load a rig and save it.\n3. Reload it: the order is unchanged.',
+				risks: 'Old saved rigs may show their bones in a different order the first time.',
+			},
+		],
+	);
+
+	const unexplainedBodies: [string, Record<string, unknown>][] = [
+		['no changed', { changed: undefined }],
+		['an empty howToCheck', { howToCheck: '' }],
+		['a risks of only spaces', { risks: '  \n ' }],
+		['a changed that is only a comment', { changed: '<!-- nothing --> [skip ci]' }],
+		['a howToCheck that is not text', { howToCheck: ['step'] }],
+	];
+	const unexplained: unknown[] = [];
+	for (const [, over] of unexplainedBodies) {
+		const r = liveRun(1);
+		gh.calls.length = 0;
+		const a = await result(r.id, r.gh, good(over));
+		unexplained.push([
+			a.status,
+			a.status === 200 ? [runOf(r.id).status, runOf(r.id).outcome, runOf(r.id).reason] : null,
+			a.status === 200 ? runOf(r.id).explanation : null,
+			gh.calls.some((c) => c.method !== 'GET'),
+		]);
+	}
+	const noFixExplained = [
+		'no_fix',
+		'needs_person',
+		'The run did not explain its change; nothing was opened.',
+	];
+	check(
+		'result: a fix missing any of what changed, how to check it and the risks — or with one empty once cleaned — ends no_fix needs_person with the launcher’s sentence, nothing opened, nothing stored (a field that is not text is a 400)',
+		unexplained,
+		[
+			[200, noFixExplained, null, false],
+			[200, noFixExplained, null, false],
+			[200, noFixExplained, null, false],
+			[200, noFixExplained, null, false],
+			[400, null, null, false],
+		],
+	);
+	const second = liveRun(1);
+	const secondAnswer = await result(
+		second.id,
+		second.gh,
+		good({
+			outcome: 'second_area',
+			risks: '',
+			secondBug: { area: 'engine', title: 't', evidence: 'e' },
+		}),
+	);
+	check(
+		'result: second_area with files needs the explanation too',
+		[secondAnswer.body.status, runOf(second.id).reason],
+		['no_fix', noFixExplained[2]],
+	);
+	const noted = liveRun(1, { startedById: 'u-fixer' });
+	const notExplained = await result(
+		noted.id,
+		noted.gh,
+		good({ outcome: 'needs_person', changed: '', files: [] }),
+	);
+	check(
+		'result: a run that ends needs_person needs no explanation',
+		[notExplained.body.status, runOf(noted.id).reason],
+		['no_fix', null],
+	);
+
+	const legacy = liveRun(1, { chosenOption: null });
+	gh.calls.length = 0;
+	const legacyAnswer = await result(legacy.id, legacy.gh, good());
+	check(
+		'result: a build with no recorded decision (a row from before ADR-0014) ends no_fix with a sentence, and is not published',
+		[
+			legacyAnswer.body.status,
+			runOf(legacy.id).outcome,
+			runOf(legacy.id).reason,
+			gh.calls.some((c) => c.method !== 'GET'),
+		],
+		['no_fix', 'needs_person', 'This build has no recorded decision; nothing was opened.', false],
+	);
+
+	// One option only: nothing else was possible, and no such heading.
+	const lone = seedRun(1, {
+		mode: 'diagnose',
+		status: 'diagnosed',
+		outcome: 'diagnosed',
+		diagnosis: { ...SEED_DIAGNOSIS, options: [SEED_DIAGNOSIS.options[0]] },
+	});
+	const loneBuild = seedRun(1, {
+		parentRunId: lone.id,
+		chosenOption: {
+			optionId: 'A',
+			name: 'Keep the order',
+			change: 'Keep the bones in the order they were made.',
+			note: null,
+			decidedBy: 'Fia',
+			decidedAt: 'not a date',
+		},
+	});
+	await result(loneBuild.id, loneBuild.gh, good());
+	const lonePr = gh.pulls.at(-1)!;
+	check(
+		'the PR body: no "What else was possible" when the diagnosis had no other option; no note line without a note; no time for a stamp that is not a date',
+		[
+			lonePr.body.includes('What else was possible'),
+			lonePr.body.includes('Their note'),
+			lonePr.body.includes('Chosen by `Fia`.\n'),
+			lonePr.body.match(HEADINGS)?.length,
+		],
+		[false, false, true, 7],
+	);
+
+	// What it publishes is held to the summary's rules: secrets, and the bug's project or client.
+	const dirty: unknown[] = [];
+	for (const over of [
+		{ howToCheck: `Use the key ${'sk-ant-' + 'api03-' + 'a'.repeat(36)} to log in.` },
+		{ risks: 'It could affect Acme Games Ltd.' },
+		{ changed: 'It fixes the Thermopylae Saga rig.' },
+	]) {
+		const r = liveRun(1);
+		gh.calls.length = 0;
+		const a = await result(r.id, r.gh, good(over));
+		dirty.push([a.body.status, runOf(r.id).reason, gh.calls.some((c) => c.method !== 'GET')]);
+	}
+	const noted2 = liveRun(1, {
+		parentRunId: lone.id,
+		chosenOption: {
+			optionId: 'A',
+			name: 'Keep the order',
+			change: 'Keep the bones in the order they were made.',
+			note: 'This is for Acme Games Ltd.',
+			decidedBy: 'Fia',
+			decidedAt: '2026-11-26T10:00:00.000Z',
+		},
+	});
+	dirty.push([(await result(noted2.id, noted2.gh, good())).body.status, runOf(noted2.id).reason]);
+	check(
+		'result: a secret or the bug’s project or client in the explanation or the person’s note → refused in the launcher’s words, nothing opened',
+		dirty,
+		[
+			[
+				'no_fix',
+				'The change was refused (secret scan: an sk-ant- string in the explanation).',
+				false,
+			],
+			[
+				'no_fix',
+				"The change was refused (privacy: the explanation names the bug's project or client).",
+				false,
+			],
+			[
+				'no_fix',
+				"The change was refused (privacy: the explanation names the bug's project or client).",
+				false,
+			],
+			[
+				'no_fix',
+				"The change was refused (privacy: the decision names the bug's project or client).",
+			],
+		],
+	);
+
+	// The body stays inside GitHub's 65,536 characters at every field's cap.
+	const wide = (c: string) => c.repeat(3000);
+	const fat = seedRun(1, {
+		mode: 'diagnose',
+		status: 'diagnosed',
+		outcome: 'diagnosed',
+		diagnosis: {
+			...SEED_DIAGNOSIS,
+			reported: wide('t'),
+			cause: wide('u'),
+			options: (['A', 'B', 'C', 'D'] as const).map((id) => ({
+				id,
+				name: wide('n').slice(0, 120),
+				change: wide('x'),
+				cost: 'c',
+				risk: 'r',
+				player: 'p',
+			})),
+		},
+	});
+	const fatBuild = seedRun(1, {
+		parentRunId: fat.id,
+		chosenOption: {
+			optionId: 'B',
+			name: wide('n').slice(0, 120),
+			change: wide('x'),
+			note: 'n'.repeat(1000),
+			decidedBy: 'Fia',
+			decidedAt: '2026-11-26T10:00:00.000Z',
+		},
+	});
+	const fatAnswer = await result(
+		fatBuild.id,
+		fatBuild.gh,
+		good({
+			changed: wide('q'),
+			howToCheck: wide('w'),
+			risks: wide('z'),
+			lesson: 'l'.repeat(4000),
+			gates: Array.from({ length: 50 }, (_, i) => ({
+				command: `g${i}`.padEnd(300, 'g'),
+				ok: true,
+			})),
+		}),
+	);
+	check(
+		'the PR body at every cap: a four-option diagnosis, three 3,000-character sections, 50 gates, a 4,000-character lesson — within 65,536 characters, and opened',
+		[
+			fatAnswer.body.status,
+			gh.pulls.at(-1)!.body.length <= 65_536,
+			gh.pulls.at(-1)!.body.length > 40_000,
+		],
+		['pr_opened', true, true],
+	);
+}
 
 // ── Results: the claim is a lease; GitHub writes are retried ──────────────────
 const fresh = liveRun(7, { resultAt: new Date(Date.now() - 30_000) });
@@ -3449,6 +3796,80 @@ reports.forgetBugSync();
 await reports.syncBugLinks(app);
 check('backstop: it rides on the link sync', runOf(viaSync).status, 'failed');
 
+// A run-name carries the mode now; one dispatched under the bare name (before ADR-0014 card 14B)
+// still binds, in the backstop, at first contact and when Stop looks for its Actions run.
+{
+	const at = clock;
+	const named = (id: string, mode: string) => `Fix run ${id} · ${mode}`;
+	const newBuild = mk(1, null, { createdAt: new Date(at) });
+	const newDiagnose = mk(2, null, {
+		mode: 'diagnose',
+		chosenOption: null,
+		createdAt: new Date(at),
+	});
+	const oldDiagnose = mk(3, null, {
+		mode: 'diagnose',
+		chosenOption: null,
+		createdAt: new Date(at),
+	});
+	const crossed = mk(4, null, { createdAt: new Date(at) });
+	const another = mk(5, null, { createdAt: new Date(at) });
+	gh.listed = [
+		ghRun(9810, newBuild, {
+			display_title: named(newBuild, 'build'),
+			created_at: new Date(at).toISOString(),
+		}),
+		ghRun(9811, newDiagnose, {
+			display_title: named(newDiagnose, 'diagnose'),
+			created_at: new Date(at).toISOString(),
+		}),
+		ghRun(9812, oldDiagnose, { created_at: new Date(at).toISOString() }),
+		ghRun(9813, crossed, {
+			display_title: named(crossed, 'diagnose'),
+			created_at: new Date(at).toISOString(),
+		}),
+		ghRun(9814, another, {
+			display_title: `Fix run ${another} · build and more`,
+			created_at: new Date(at).toISOString(),
+		}),
+	];
+	await actions.backstopFixRuns(app, at + 5 * MIN);
+	check(
+		'backstop: an Actions run titled "Fix run <id> · <mode>" binds its run, and so does the bare "Fix run <id>" of a run dispatched before the mode was named; another mode, or more words, do not',
+		[newBuild, newDiagnose, oldDiagnose, crossed, another].map((id) => runOf(id).ghRunId),
+		[9810, 9811, 9812, null, null],
+	);
+	for (const id of [newBuild, newDiagnose, oldDiagnose, crossed, another])
+		runOf(id).status = 'failed';
+	gh.listed = null;
+	const first = liveRun(6, { ghRunId: null, status: 'dispatched' });
+	const second = liveRun(7, {
+		mode: 'diagnose',
+		chosenOption: null,
+		ghRunId: null,
+		status: 'dispatched',
+	});
+	gh.runs.set(9820, ghRun(9820, first.id, { display_title: named(first.id, 'build') }));
+	gh.runs.set(9821, ghRun(9821, second.id, { display_title: named(second.id, 'build') }));
+	const bound = await brief(first.id, token({ run_id: '9820' }));
+	const wrongMode = await brief(second.id, token({ run_id: '9821' }));
+	gh.runs.set(9821, ghRun(9821, second.id, { display_title: named(second.id, 'diagnose') }));
+	const rightMode = await brief(second.id, token({ run_id: '9821' }));
+	check(
+		'binding: at first contact the title "Fix run <id> · <mode>" must carry the run’s own mode',
+		[
+			bound.status,
+			wrongMode.status,
+			rightMode.status,
+			runOf(first.id).ghRunId,
+			runOf(second.id).ghRunId,
+		],
+		[200, 403, 200, 9820, 9821],
+	);
+	runOf(first.id).status = 'failed';
+	runOf(second.id).status = 'failed';
+}
+
 // ── The activity, in words ────────────────────────────────────────────────────
 const line = (actor: string, data: Record<string, unknown>, auto = false) =>
 	`${actor} ${view.eventText({ id: 1, kind: 'fix_run', actor, auto, at: '', data })}`;
@@ -3576,6 +3997,7 @@ const RUN = {
 	mode: 'build',
 	diagnosis: null,
 	chosenOption: null,
+	explanation: null,
 	parentRunId: null,
 	status: 'running',
 	outcome: null,
@@ -3872,9 +4294,12 @@ db.links.push({
 	updatedAt: tick(),
 });
 const liveBug = addBug({ sentAt: tick() }).number;
-liveRun(liveBug);
+liveRun(liveBug, { chosenOption: null });
 const endedBug = addBug({ sentAt: tick() }).number;
-Object.assign(runOf(liveRun(endedBug).id), { status: 'no_fix', outcome: 'not_reproduced' });
+Object.assign(runOf(liveRun(endedBug, { chosenOption: null }).id), {
+	status: 'no_fix',
+	outcome: 'not_reproduced',
+});
 settings.maxLive = 5;
 const seen = async (user: TestUser, n: number) => {
 	const a = await call(bugRoute.GET, { user, params: { number: String(n) } });
@@ -4035,7 +4460,7 @@ check(
 	const alone = addBug({ kind: 'game', projectKey: 'borut', area: 'wins' }).number;
 	escalations.set(gameBug, { toBug: piped, toStatus: 'open' });
 	const none = await call(bugRoute.GET, { user: DEV, params: { number: String(gameBug) } });
-	const run = liveRun(piped);
+	const run = liveRun(piped, { chosenOption: null });
 	runOf(run.id).summary = 'Secret client words';
 	runOf(run.id).reason = 'a reason';
 	runOf(run.id).secondBug = { area: 'rigger', title: 't', evidence: 'e' };
@@ -4141,7 +4566,7 @@ check(
 	const started = await start(FIXER, 8);
 	const startedRun = started.body.run as { id: string; mode: string; status: string };
 	check(
-		'adr-0014 start: Start fix starts a diagnose run, dispatched with the run id alone',
+		'adr-0014 start: Start fix starts a diagnose run, dispatched with the run id and its mode',
 		[
 			started.status,
 			startedRun.mode,
@@ -4159,7 +4584,7 @@ check(
 			'diagnose',
 			null,
 			null,
-			{ fix_run: startedRun.id },
+			{ fix_run: startedRun.id, mode: 'diagnose' },
 			{ run: startedRun.id, status: 'dispatched', mode: 'diagnose' },
 		],
 	);
@@ -4395,7 +4820,7 @@ check(
 	);
 
 	// `diagnosed` from a build run is an outcome the launcher does not know.
-	const aBuild = liveRun(9);
+	const aBuild = liveRun(9, { chosenOption: null });
 	const fromBuild = await result(
 		aBuild.id,
 		aBuild.gh,
@@ -4454,7 +4879,7 @@ check(
 			'build',
 			diagnosed,
 			BASE,
-			{ fix_run: buildRun.id },
+			{ fix_run: buildRun.id, mode: 'build' },
 			true,
 		],
 	);
@@ -4527,7 +4952,7 @@ check(
 	settings.budget = 9;
 	settings.diagnoseBudget = 3;
 	const diagnoseLive = liveRun(9, { mode: 'diagnose', status: 'dispatched' });
-	const buildLive = liveRun(1, { status: 'dispatched' });
+	const buildLive = liveRun(1, { status: 'dispatched', chosenOption: null });
 	const [diagnoseBrief, buildBrief2] = [
 		await brief(diagnoseLive.id, token({ run_id: String(diagnoseLive.gh) })),
 		await brief(buildLive.id, token({ run_id: String(buildLive.gh) })),
@@ -4600,11 +5025,11 @@ check(
 	);
 
 	// The start refusals, for a build.
-	const live9 = liveRun(9);
+	const live9 = liveRun(9, { chosenOption: null });
 	const busy = await buildAs(FIXER, 9, other.id, pick('A'));
 	runOf(live9.id).status = 'cancelled';
 	settings.maxLive = 1;
-	const holding = liveRun(2);
+	const holding = liveRun(2, { chosenOption: null });
 	const tooMany = await buildAs(FIXER, 9, other.id, pick('A'));
 	runOf(holding.id).status = 'cancelled';
 	settings.maxLive = 2;

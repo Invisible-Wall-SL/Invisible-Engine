@@ -3,10 +3,12 @@
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
 	import type { MergeResult } from '$lib/server/pipelineMerge';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import AgentEvalSection from './AgentEvalSection.svelte';
 	import Pill from './Pill.svelte';
 	import ScreenCompare from './ScreenCompare.svelte';
 	import {
+		FIX_NOT_RECORDED_TEXT,
 		MERGE_RETRY_TEXT,
 		NO_CHECKS_TEXT,
 		apiErrorText,
@@ -15,6 +17,7 @@
 		blockedReason,
 		check1Summary,
 		check2Summary,
+		fixApprovalState,
 		imagesArtifactId,
 		jobWord,
 		lapsedApprovals,
@@ -98,6 +101,7 @@
 	const statusUrl = $derived(safeHref(harness.status?.url));
 	const bar = $derived(mergeBar(detail, canMerge, blocker?.byHand ?? false));
 	const draftBar = $derived(readyBar(detail, canMerge));
+	const fix = $derived(fixApprovalState(detail, now));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -249,6 +253,33 @@
 			{#if blocked.url}<a href={blocked.url} target="_blank" rel="external noopener">Details ↗</a
 				>{/if}
 		</div>
+	{/if}
+
+	{#if fix}
+		<SectionCard scope="pipeline" id="fix-approving" title="What you're approving">
+			{#snippet info()}A fix run built this change from an option a person picked on the bug.{/snippet}
+			{#snippet actions()}
+				<!-- A query on another route: `resolve()` cannot carry one. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a class="bug-link" href={fix.bugHref}>Open {fix.bugRef}</a>
+			{/snippet}
+			<dl class="fix">
+				{#each fix.rows as row (row.label)}
+					<dt>{row.label}</dt>
+					<dd class:dim={row.text === null}>{row.text ?? FIX_NOT_RECORDED_TEXT}</dd>
+				{/each}
+				{#if fix.others.length}
+					<dt>What else was possible</dt>
+					<dd>
+						<details>
+							<summary>{fix.others.length} other {plural(fix.others.length, 'option')}</summary>
+							{#each fix.others as line (line)}<p>{line}</p>{/each}
+						</details>
+					</dd>
+				{/if}
+			</dl>
+			{#if fix.blocked}<p class="fix-blocked" role="alert">{fix.blocked}</p>{/if}
+		</SectionCard>
 	{/if}
 
 	<section class="card" aria-label="Change summary">
@@ -754,6 +785,40 @@
 		color: #9fd9c2;
 	}
 
+	.fix {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 8px 16px;
+		margin: 0;
+	}
+	.fix dt {
+		font-size: 12px;
+		font-weight: 700;
+		color: #9a9aa6;
+	}
+	.fix dd {
+		margin: 0;
+		font-size: 13px;
+		color: #c9c9d1;
+		white-space: pre-line;
+		overflow-wrap: anywhere;
+	}
+	.fix dd.dim {
+		color: #8a8a96;
+	}
+	.fix summary {
+		cursor: pointer;
+		color: #9a9aa6;
+	}
+	.fix-blocked {
+		margin-top: 10px;
+		font-weight: 600;
+		color: #ff9d9d;
+	}
+	.bug-link {
+		font-size: 12px;
+		color: #8fb4ff;
+	}
 	.why {
 		display: flex;
 		align-items: flex-start;

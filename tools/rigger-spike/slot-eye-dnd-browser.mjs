@@ -132,6 +132,8 @@ const HELPERS = `(() => {
 			return { x: Math.round(r.left + v.x / dpr), y: Math.round(r.top + cv.clientHeight - v.y / dpr) };
 		},
 		names() { return rawDoc.slots.map((s) => s.name); },
+		// The slot rows top to bottom: the front first.
+		shown() { return [...document.querySelectorAll("#slotList .trow[data-slot]")].map((r) => r.dataset.slot); },
 		row(name) { return [...document.querySelectorAll("#slotList .trow[data-slot]")].find((r) => r.dataset.slot === name); },
 		// The centre of a part of a slot's row (".slotGrip", ".slotEye", or the row at a fraction of its height).
 		at(name, part, fy) {
@@ -142,6 +144,13 @@ const HELPERS = `(() => {
 			return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height * (fy == null ? 0.5 : fy)) };
 		},
 		y(name, fy) { const r = this.row(name).getBoundingClientRect(); return Math.round(r.top + r.height * fy); },
+		// A drag's two ends, measured once both rows are in view (the target centred, off the scrolling edges).
+		pair(src, to, fy) {
+			const a = this.row(src), b = this.row(to);
+			b.scrollIntoView({ block: "center" }); a.scrollIntoView({ block: "nearest" });
+			const g = a.querySelector(".slotGrip").getBoundingClientRect(), r = b.getBoundingClientRect();
+			return [{ x: Math.round(g.left + g.width / 2), y: Math.round(g.top + g.height / 2) }, { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height * fy) }];
+		},
 		hidden() { return [...slotEyeHidden()].sort(); },
 		drawn: null, lit: 0, grab: false,
 		steps() { return rigHist.past.length; },
@@ -175,6 +184,7 @@ const HELPERS = `(() => {
 	return true;
 })()`;
 const T = (expr) => evaluate(`__t.${expr}`);
+const pair = (src, to) => T(`pair(${q(src)}, ${q(to)}, 0.25)`);
 const lit = async () => { await evaluate('__t.grab = true'); await frames(3); return T('lit'); };
 
 async function openW() {
@@ -360,25 +370,25 @@ async function suite(quiet) {
 	await step('6. a drag on ⋮⋮ moves a slot, as ONE undo step, writing what ↑ ↓ write', async () => {
 		await setMode('setup');
 		await evaluate('selectSlot(null); true');
-		const before = await T('names()'), keys0 = await T('order("wild_dynamite")');
+		const before = await T('shown()'), keys0 = await T('order("wild_dynamite")');
 		const src = before[3], to = before[8];
 		const s0 = await T('steps()');
 		let lines = null;
-		await drag('mouse', await T(`at(${q(src)}, ".slotGrip")`), { x: (await T(`at(${q(to)})`)).x, y: await T(`y(${q(to)}, 0.25)`) }, {
+		await drag('mouse', ...(await pair(src, to)), {
 			during: async () => { lines = await evaluate('[...document.querySelectorAll("#slotList .drop-before, #slotList .drop-after")].map((r) => r.dataset.slot)'); },
 		});
-		const after = await T('names()');
+		const after = await T('shown()');
 		const want = [...before.slice(0, 3), ...before.slice(4, 8), src, ...before.slice(8)];
 		ok('the drop line shows one place, above the row under the pointer', same(lines, [to]), q(lines));
 		ok(`"${src}" lands just before "${to}"`, same(after, want), q(after.slice(0, 10)));
-		ok('the stage draws it there', same(await evaluate('skeleton.drawOrder.map((s) => s.data.name)'), want));
+		ok('the stage draws it there (the top row in front)', same(await evaluate('skeleton.drawOrder.map((s) => s.data.name)'), want.slice().reverse()));
 		ok('one undo step', (await T('steps()')) === s0 + 1, q({ s0, s: await T('steps()') }));
 		ok('the clip’s draw-order keys draw what they drew', same(await T('order("wild_dynamite")'), keys0), q(await T('order("wild_dynamite")')));
 		await evaluate('rigUndo(); true');
 		await frames(2);
-		ok('one undo puts it back', same(await T('names()'), before));
+		ok('one undo puts it back', same(await T('shown()'), before));
 		// One place down by drag and by ↓ write the same rig.
-		await drag('mouse', await T(`at(${q(before[5])}, ".slotGrip")`), { x: (await T(`at(${q(before[7])})`)).x, y: await T(`y(${q(before[7])}, 0.25)`) });
+		await drag('mouse', ...(await pair(before[5], before[7])));
 		const byDrag = await evaluate('JSON.stringify(rawDoc)');
 		await evaluate('rigUndo(); true');
 		await frames(2);
@@ -387,37 +397,37 @@ async function suite(quiet) {
 		ok('a slot dragged one place down is the rig ↓ makes', (await evaluate('JSON.stringify(rawDoc)')) === byDrag);
 		await evaluate('rigUndo(); true');
 		await frames(2);
-		ok('(undone)', same(await T('names()'), before));
+		ok('(undone)', same(await T('shown()'), before));
 		const s1 = await T('steps()');
 		const tap = await T(`at(${q(before[6])}, ".slotGrip")`);
 		await drag('mouse', tap, { x: tap.x + 1, y: tap.y + 2 }); // a tap jitters, a pen's most of all
-		ok('a press on ⋮⋮ that hardly moves selects the row and moves nothing', (await evaluate('selSlot')) === before[6] && same(await T('names()'), before) && (await T('steps()')) === s1, q({ sel: await evaluate('selSlot') }));
+		ok('a press on ⋮⋮ that hardly moves selects the row and moves nothing', (await evaluate('selSlot')) === before[6] && same(await T('shown()'), before) && (await T('steps()')) === s1, q({ sel: await evaluate('selSlot') }));
 		const g = await T(`at(${q(before[2])}, ".slotGrip")`);
 		await drag('mouse', g, { x: g.x, y: await T(`y(${q(before[9])}, 0.25)`) }, { during: () => key('Escape', 'Escape', 27, 0) });
-		ok('Esc during a drag cancels it', same(await T('names()'), before) && (await T('steps()')) === s1);
+		ok('Esc during a drag cancels it', same(await T('shown()'), before) && (await T('steps()')) === s1);
 	});
 
 	await step('7. the Shift / Ctrl selection drags as a block', async () => {
-		const before = await T('names()');
+		const before = await T('shown()');
 		await click(await T(`at(${q(before[10])}, ".slotName")`));
 		await click(await T(`at(${q(before[12])}, ".slotName")`), { modifiers: MOD.shift });
 		await click(await T(`at(${q(before[15])}, ".slotName")`), { modifiers: MOD.ctrl });
 		const block = [before[10], before[11], before[12], before[15]];
 		const s0 = await T('steps()');
-		await drag('mouse', await T(`at(${q(before[11])}, ".slotGrip")`), { x: (await T(`at(${q(before[4])})`)).x, y: await T(`y(${q(before[4])}, 0.25)`) });
+		await drag('mouse', ...(await pair(before[11], before[4])));
 		const want = [...before.slice(0, 4), ...block, ...before.slice(4).filter((n) => !block.includes(n))];
-		ok('the four land together before the row under the pointer, in their order', same(await T('names()'), want), q((await T('names()')).slice(0, 12)));
+		ok('the four land together before the row under the pointer, in their order', same(await T('shown()'), want), q((await T('shown()')).slice(0, 12)));
 		ok('one undo step', (await T('steps()')) === s0 + 1);
 		await evaluate('rigUndo(); true');
 		await frames(2);
-		ok('one undo puts them all back', same(await T('names()'), before));
+		ok('one undo puts them all back', same(await T('shown()'), before));
 		await evaluate('selectSlot(null); true');
 	});
 
 	await step('8. the list scrolls while a row is held near its edge', async () => {
 		await evaluate('document.getElementById("outline").style.flex = "0 0 320px"; true');
 		await frames(2);
-		const before = await T('names()');
+		const before = await T('shown()');
 		const src = before[30];
 		await evaluate(`__t.row(${q(src)}).scrollIntoView({ block: "center" }); true`);
 		await frames(1);
@@ -429,7 +439,7 @@ async function suite(quiet) {
 		await drag('mouse', g, { x: g.x, y: edge }, { during: held });
 		const top1 = await evaluate('document.getElementById("outline").scrollTop');
 		ok('the list scrolled up', top1 < top0 - 100, q({ top0, top1 }));
-		ok(`"${src}" was carried up past the rows that were out of sight, to the back`, (await T('names()')).indexOf(src) === 0, (await T('names()')).indexOf(src));
+		ok(`"${src}" was carried up past the rows that were out of sight, to the top: the front`, (await T('shown()')).indexOf(src) === 0 && (await T('names()')).indexOf(src) === before.length - 1, (await T('shown()')).indexOf(src));
 		await evaluate('rigUndo(); document.getElementById("outline").style.flex = ""; true');
 		await frames(2);
 	});
@@ -437,10 +447,10 @@ async function suite(quiet) {
 	await step('9. the pen tip and the pen as a mouse drag a row as the mouse does', async () => {
 		ok('⋮⋮ says touch-action:none', (await evaluate('getComputedStyle(document.querySelector("#slotList .slotGrip")).touchAction')) === 'none');
 		for (const how of ['tip', 'pen']) {
-			const before = await T('names()'), s0 = await T('steps()');
-			await drag(how, await T(`at(${q(before[1])}, ".slotGrip")`), { x: (await T(`at(${q(before[6])})`)).x, y: await T(`y(${q(before[6])}, 0.25)`) });
+			const before = await T('shown()'), s0 = await T('steps()');
+			await drag(how, ...(await pair(before[1], before[6])));
 			const want = [before[0], ...before.slice(2, 6), before[1], ...before.slice(6)];
-			ok(`the ${how === 'tip' ? 'pen tip (touch)' : 'pen (as a mouse)'} moves it, one undo step`, same(await T('names()'), want) && (await T('steps()')) === s0 + 1, q((await T('names()')).slice(0, 8)));
+			ok(`the ${how === 'tip' ? 'pen tip (touch)' : 'pen (as a mouse)'} moves it, one undo step`, same(await T('shown()'), want) && (await T('steps()')) === s0 + 1, q((await T('shown()')).slice(0, 8)));
 			await evaluate('rigUndo(); true');
 			await frames(2);
 		}
@@ -478,7 +488,7 @@ async function suite(quiet) {
 
 const MUTANTS = [
 	['the eye draws every slot', 'const off = set && set.size ? skeleton.slots.filter((s) => set.has(s.data.name)) : [];', 'const off = [];'],
-	['the attachment is not put back after the draw', 'try { draw(); } finally { off.forEach((s, i) => { s.attachment = kept[i]; }); }', 'draw();'],
+	['the attachment is not put back after the draw', '    off.forEach((s, i) => { s.attachment = kept[i]; });\n', ''],
 	['a hidden slot is still picked', 'const eyeOff = slotEyeOffSel();', 'const eyeOff = false;'],
 	['the hidden set is kept in the rig', '  storeSlotEye();\n  refreshSlotEyes();', '  storeSlotEye();\n  if (rawDoc) rawDoc.slotEye = [...set];\n  refreshSlotEyes();'],
 	['the eye is not remembered', '  storeSlotEye();\n  refreshSlotEyes();', '  refreshSlotEyes();'],
@@ -488,9 +498,9 @@ const MUTANTS = [
 	['a swap’s hidden slots get no group eye', '    add(ch.label, "The slots “" + ch.label + "” hides while it shows a drawn pose", ch.hides.map((h) => h.slot));', '    void ch;'],
 	['an eye hides only its own row', 'names = sel.includes(name) ? sel : [name];\n  setSlotEye', 'names = [name];\n  setSlotEye'],
 	['the drop lands a row late', 'if (d.y < r.top + r.height / 2){ ins = i; break; }', 'if (d.y < r.top){ ins = i; break; }'],
-	['a drag moves one slot of the selection', 'names: sel.includes(name) ? sel : [name], x:', 'names: [name], x:'],
+	['a drag moves one slot of the selection', 'names: folder || sel.includes(name) ? sel : [name], folder:', 'names: folder ? sel : [name], folder:'],
 	// The same final order, reached one slot at a time (each before the row the block was dropped on).
-	['a block drop is a step per slot', 'if (d.moved && d.ins != null) historyStep(() => applySlotOrder(slotOrderDrop(setupSlotNames(), d.names, d.ins)));', 'if (d.moved && d.ins != null){ const t = setupSlotNames()[d.ins]; for (const n of d.names) historyStep(() => { const now = setupSlotNames(); return applySlotOrder(slotOrderDrop(now, [n], t === undefined ? now.length : now.indexOf(t))); }); }'],
+	['a block drop is a step per slot', '    applySlotFolderPlan(slotFolderDrop(names, folders, slotListRows(names, folders, slotFoldersShut()), d.names, d.folder, d.ins));', '    for (const n of d.names) applySlotFolderPlan(slotFolderDrop(setupSlotNames(), folders, slotListRows(setupSlotNames(), folders, slotFoldersShut()), [n], d.folder, d.ins));'],
 	['the drop drops the draw-order keys', 'changeSlotsKeepingDrawOrder(rawDoc, () => { rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n))); });', 'rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n)));'],
 	['the list does not scroll', '    d.raf = requestAnimationFrame(slotDragScroll);', ''],
 	['the grip lets the browser pan', 'cursor:grab; touch-action:none;', 'cursor:grab;'],
@@ -498,7 +508,7 @@ const MUTANTS = [
 	['the grip takes the mouse only', 'if (e.button !== 0 || !e.isPrimary ||', 'if (e.pointerType !== "mouse" || e.button !== 0 || !e.isPrimary ||'],
 	['a press on the grip drags at once', 'if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;', ''],
 	['Shift does not reach the front', '(fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1)', '(fwd ? 1 : -1)'],
-	['the keys reorder in Animate too', 'if (!(e.ctrlKey || e.metaKey) || !editMode || !rawDoc || cineMode) return;', 'if (!(e.ctrlKey || e.metaKey) || !rawDoc || cineMode) return;'],
+	['the keys reorder in Animate too', 'makeSlotFolder(); return; }\n  if (!editMode) return;', 'makeSlotFolder(); return; }'],
 ];
 
 let code;
