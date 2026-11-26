@@ -320,8 +320,10 @@ export async function saveRig(
 	// A clip whose baked parts match no bake of it was changed in 2D (a re-bake follows anyway: its
 	// parts no longer match the record).
 	for (const c of Object.keys(clips)) {
-		const rec = s0?.clips?.[c]?.baked;
-		if (!rec) continue;
+		const baked = s0?.clips?.[c]?.baked;
+		if (!baked) continue;
+		// Its draw order is the bake's only while the rig's depth order was on when it baked.
+		const rec = { ...baked, order: s0?.depthOrder !== false };
 		const incoming = bakedParts(save.doc, c, rec, followers);
 		const h = hashOf(incoming);
 		if (h === rec.hash || rec.earlier?.includes(h)) continue;
@@ -392,7 +394,7 @@ export async function saveRig(
 		const c = p.clip.name;
 		const rec = clips[c].baked;
 		const input = hashOf({ rig, clip: p.clip });
-		const scope = { bones: p.owned, slots: p.slots };
+		const scope = { bones: p.owned, slots: p.slots, order: s1.depthOrder !== false };
 		const current =
 			rec !== undefined &&
 			rec.input === input &&

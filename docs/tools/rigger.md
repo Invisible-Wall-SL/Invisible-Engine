@@ -417,6 +417,10 @@ Hover its header for a summary.
   the folder and its slots as a block (dropped inside another folder, it lands just above that
   folder). Each drop is one undo step. Every draw-order key keeps the order it was keyed with. The
   mouse, a pen and a finger all drag it. **Esc** cancels a drag.
+- **Key the draw order in Animate by dragging the ⋮⋮ grip**: the slot (or the selection) is drawn
+  just in front of the row you drop it above, from the order at the playhead, as a draw-order key
+  there (one undo step); the setup order stays. On a 3D clip this works when the rig's draw order is
+  **↕ as keyed** (🧊, below); by depth, the clip's draw order is the bake's and the drag says so.
 - **↑ / ↓** on a row move it one place to the front (up) or the back (down), each one undo step:
   - a slot in no folder passes the next slot, or a whole folder;
   - a slot in a folder moves among the folder's slots; at the folder's edge, ↑ or ↓ takes it out of
@@ -1005,6 +1009,18 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   rig turns is fixed once you save.
   On a 3D rig the box beside it is the bake's **tolerance** in rig units (empty = 0.45; hover it),
   and **🧊 Turn 3D off** keeps every 3D clip as baked, as a plain 2D clip (undo brings it back).
+  Next to it, the 3D clips' **draw order**:
+  - **↕ by depth** (the default): the bake draws the nearer part over the farther one — a hand
+    behind the back goes under the torso, a hand reaching forward over the other arm. The body (the
+    torso, pelvis, neck and head) is read at its back face, so an arm at its side, a little behind
+    its middle, stays over it. The number beside it is the **hysteresis** in rig units: how much
+    nearer a part must come before it is drawn over another, so a tracker's jitter never flickers
+    it. A capture import sets it, and the body's depth, at the rig's scale (about 4 cm of the
+    performer) where you have not.
+  - **🔒** opens the **locks**: pairs kept whatever the depths say (the watch always over the
+    forearm, a hand always over the body). Pick the two slots, **＋**; **✕** removes one.
+  - **↕ as keyed**: the bake keys no draw order, and each 3D clip keeps the one you key (drag a
+    slot in Animate, or the dopesheet's draw-order menu).
   Making a rig 3D changes no clip: they stay 2D until you make one 3D.
 - **The clip's settings** (Animate) — **🧊 3D from this clip** makes the open clip 3D: it keeps its
   keys (it plays exactly as before) and its bones can now turn in 3D. A 3D clip shows **🧊 3D clip ·
@@ -1018,8 +1034,8 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   tilt. In **Setup**, a 3D rig's bone has a **depth** field too.
 - **The dopesheet** lists each bone's keys as you made them — not the bake's — with **3D turn** and
   **depth** rows under **sel**; drag, Alt-drag, delete and easing work as on any key. The draw order
-  and a drawing slot's image keys are the bake's, so they are not listed (and keying them is
-  refused with a hint).
+  (with **↕ by depth**) and a drawing slot's image keys are the bake's, so keying them is refused
+  with a hint; with **↕ as keyed** the draw order is yours.
 - **The Graph view** draws a 3D bone's turn as three curves — **rotation 3D**, **tilt** and
   **twist** — and its **depth** (the legend lists them only for a bone that has them). Drag a point
   up or down to change that angle at its key (the others stay as drawn), sideways to move the key;
