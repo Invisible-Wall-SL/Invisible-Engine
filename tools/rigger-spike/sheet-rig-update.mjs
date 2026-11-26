@@ -22,9 +22,11 @@
 //  - handedit: the torso's mesh reads as edited (and only it), may be kept (it draws the region it
 //    drew), is kept when asked and replaced when not;
 //  - finite: the updated rig passes the `.irig` save check and every clip poses finite;
+//  - custom: a ＋ Custom part added (named freely, not prop_) gets its bone and slot as a prop does;
 //  - layers: a reorder in Setup's slots stays through the update while the 🗺 Layers list is unchanged
-//    (or opened from the rig's own order); a changed list orders the slots it lists, every other slot
-//    and every draw-order key's drawing kept;
+//    (or opened from the rig's own order, even an arm Setup drew behind the head, which the Arm depth
+//    control would refuse from the list); a changed list orders the slots it lists, every other slot
+//    and every draw-order key's drawing kept, and is held to the depth controls;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig-update.mjs [--only <guard>]
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -539,8 +541,9 @@ const GUARDS = {
 
 	/**
 	 * 🗺 Layers: a reorder in Setup's slots stays through 🔄 Update rig while the Layers list is
-	 * unchanged, or opened from the rig's own order as 🗺 Edit mapping opens it; a changed list orders
-	 * the slots it lists, every other slot and every draw-order key's drawing kept.
+	 * unchanged, or opened from the rig's own order as 🗺 Edit mapping opens it (one a depth control
+	 * would refuse from the list too); a changed list orders the slots it lists, every other slot and
+	 * every draw-order key's drawing kept, and meets the depth controls.
 	 */
 	layers(M, log) {
 		let good = true;
@@ -632,7 +635,191 @@ const GUARDS = {
 				keyed(changed.doc) === keyed(before) && keyed(before) !== setup(before).join(),
 				`${keyed(changed.doc)}\n        ${keyed(before)}`,
 			) && good;
+		// Setup's slots against a depth control: the left upper arm dragged behind the head, which the
+		// Arm depth control steps it behind. 🗺 Edit mapping opens that order, and 🔄 Update rig keeps it;
+		// a list then changed to move a slot meets the control.
+		const armBack = clone(before);
+		const arm = armBack.slots.splice(
+			armBack.slots.findIndex((s) => s.name === 'upper_arm_l'),
+			1,
+		)[0];
+		armBack.slots.splice(
+			armBack.slots.findIndex((s) => s.name === 'head'),
+			0,
+			arm,
+		);
+		const armList = setup(armBack)
+			.filter((n) => drawn.has(n))
+			.reverse();
+		const armUpdate = (layers) =>
+			M.updateSheetRig({
+				template: t,
+				regions: REGIONS,
+				was: base,
+				mapping: { ...clone(base), layers },
+				current: armBack,
+			});
+		const armKept = armUpdate(armList);
+		good =
+			ok(
+				"layers: Setup's arm behind the head kept through 🔄 Update rig, not refused by the depth control",
+				armKept.ok && setup(armKept.value.doc).join() === setup(armBack).join(),
+				armKept.ok ? setup(armKept.value.doc).join(' ') : armKept.problem,
+			) && good;
+		const armMoved = [...armList];
+		armMoved.splice(armMoved.indexOf('prop_chain'), 1);
+		armMoved.splice(armMoved.indexOf('torso') + 1, 0, 'prop_chain');
+		const armRefused = armUpdate(armMoved);
+		good =
+			ok(
+				'layers: a changed list that leaves the arm behind the head refused, naming the depth control',
+				!armRefused.ok &&
+					/the Layers draw "upper_arm_l" behind "head"/.test(armRefused.problem) &&
+					/depth/i.test(armRefused.problem),
+				armRefused.ok ? 'updated' : armRefused.problem,
+			) && good;
+		// The same rig with a prop worn anew, which the list then draws behind the torso: it moves no slot
+		// the rig had, so the update is not held to the controls, and the badge goes where it says.
+		const worn = clone(base);
+		worn.props.push({
+			name: 'prop_badge',
+			region: 'shadow_blob',
+			host: 'torso',
+			bone: boneOfSlot(M, 'torso'),
+			at: [worn.parts.torso.joints.hips[0], worn.parts.torso.joints.hips[1] * 0.6],
+		});
+		const wornList = M.sheetLayerList(
+			t.slots.map((s) => s.name),
+			(p) => slotOf(M, p),
+			{ ...worn, layers: armList },
+		);
+		wornList.splice(wornList.indexOf('prop_badge'), 1);
+		wornList.splice(wornList.indexOf('torso') + 1, 0, 'prop_badge');
+		const wornKept = M.updateSheetRig({
+			template: t,
+			regions: REGIONS,
+			was: base,
+			mapping: { ...worn, layers: wornList },
+			current: armBack,
+		});
+		const had = new Set(setup(armBack));
+		good =
+			ok(
+				"layers: a prop worn anew on that rig and drawn behind the torso updates it, the slots it had in Setup's order",
+				wornKept.ok &&
+					setup(wornKept.value.doc)
+						.filter((n) => had.has(n))
+						.join() === setup(armBack).join() &&
+					setup(wornKept.value.doc).indexOf('prop_badge') + 1 ===
+						setup(wornKept.value.doc).indexOf('torso'),
+				wornKept.ok ? setup(wornKept.value.doc).join(' ') : wornKept.problem,
+			) && good;
+		// A slot the list does not name (a finger) drawn behind the head in Setup: a changed list is
+		// judged on the order the update applies, so the finger the control steps meets it too.
+		const finger = clone(before);
+		const pinky = finger.slots.splice(
+			finger.slots.findIndex((s) => s.name === 'pinky_1_l'),
+			1,
+		)[0];
+		finger.slots.splice(
+			finger.slots.findIndex((s) => s.name === 'head'),
+			0,
+			pinky,
+		);
+		const fingerRefused = M.updateSheetRig({
+			template: t,
+			regions: REGIONS,
+			was: base,
+			mapping: { ...clone(base), layers: own },
+			current: finger,
+		});
+		good =
+			ok(
+				"layers: a changed list judged on the order the update applies (a finger Setup drew behind the head), worded for Setup's slots",
+				!fingerRefused.ok &&
+					/^Setup's slots draw "pinky_1_l" behind "head"/.test(fingerRefused.problem) &&
+					/fix the order in Setup's slots/.test(fingerRefused.problem),
+				fingerRefused.ok ? 'updated' : fingerRefused.problem,
+			) && good;
+		// A prop worn anew on the left forearm, which the list draws behind the head: a slot new to the
+		// rig that the Arm depth control steps, so it meets the control as 🦴 Create rig's would.
+		const onArm = clone(base);
+		const fore = onArm.parts.lower_arm_l;
+		onArm.props.push({
+			name: 'prop_band',
+			region: 'shadow_blob',
+			host: 'lower_arm_l',
+			bone: boneOfSlot(M, 'lower_arm_l'),
+			at: fore.joints[Object.keys(fore.joints)[0]],
+		});
+		const bandList = M.sheetLayerList(
+			t.slots.map((s) => s.name),
+			(p) => slotOf(M, p),
+			{ ...onArm, layers: fromRig },
+		);
+		bandList.splice(bandList.indexOf('prop_band'), 1);
+		bandList.splice(bandList.indexOf('head') + 1, 0, 'prop_band');
+		const bandMapping = { ...onArm, layers: bandList };
+		const bandRefused = M.updateSheetRig({
+			template: t,
+			regions: REGIONS,
+			was: base,
+			mapping: bandMapping,
+			current: before,
+		});
+		const bandCreate = M.sheetRig(t, REGIONS, bandMapping);
+		good =
+			ok(
+				'layers: a prop worn anew on an arm, drawn behind the head, refused as 🦴 Create rig refuses it',
+				!bandRefused.ok &&
+					/the Layers draw "prop_band" behind "head"/.test(bandRefused.problem) &&
+					!bandCreate.ok &&
+					/behind "head"/.test(bandCreate.problem),
+				bandRefused.ok ? 'updated' : bandRefused.problem,
+			) && good;
 		log(`${drawn.size} layers; the chain moved behind the torso, the key's drawing kept`);
+		return good;
+	},
+
+	/** ＋ Custom part added by 🗺 Edit mapping: 🔄 Update rig gives it its bone and slot, as a prop. */
+	custom(M, log) {
+		const base = baseMapping(M);
+		const made = create(M, base);
+		const torso = base.parts.torso;
+		const mapping = {
+			...clone(base),
+			props: [
+				...clone(base.props),
+				{
+					name: 'tail',
+					region: 'shadow_blob',
+					host: 'torso',
+					bone: 'spine',
+					at: torso.joints.hips,
+					custom: true,
+				},
+			],
+		};
+		const r = M.updateSheetRig({
+			template: M.HALF_BODY,
+			regions: REGIONS,
+			was: base,
+			mapping,
+			current: clone(made),
+		});
+		if (!r.ok) return ok('custom: the update runs', false, r.problem);
+		const { doc, report } = r.value;
+		const bone = doc.bones.find((b) => b.name === 'tail');
+		const slot = doc.slots.find((s) => s.name === 'tail');
+		const good = ok(
+			'custom: 🔄 Update rig gives a custom part its bone under the bone picked and its slot',
+			report.added.includes('tail') &&
+				bone?.parent === 'spine' &&
+				slot?.bone === 'tail' &&
+				doc.skins[0].attachments.tail?.tail?.path === 'shadow_blob',
+			JSON.stringify({ added: report.added, bone, slot }),
+		);
+		log(`added ${report.added.join(', ')}`);
 		return good;
 	},
 };
@@ -653,6 +840,7 @@ if (ONLY || process.argv.includes('--no-mutants')) {
 
 console.log('\n=== mutants of the shipped code: each must turn its check red');
 const UPD = 'rigSheetUpdate.ts';
+const FIT = 'rigSheetFit.ts';
 const MUTANTS = [
 	[
 		'kept',
@@ -721,9 +909,61 @@ const MUTANTS = [
 	[
 		'layers',
 		'the list applied back to front',
-		[UPD, '\t\t).reverse();\n\t\tconst slots', '\t\t);\n\t\tconst slots'],
+		[FIT, '\t\tm,\n\t).reverse();\n}', '\t\tm,\n\t);\n}'],
 	],
 	['layers', "a draw-order key's drawing not kept", [UPD, '\t\t\tback();\n', '']],
+	[
+		'layers',
+		"Setup's order held to the depth controls on every update",
+		[
+			UPD,
+			'const fitted = sheetRig(t, regions, m, { fitLayers: false });',
+			'const fitted = sheetRig(t, regions, m);',
+		],
+	],
+	[
+		'layers',
+		'a changed list never held to the depth controls',
+		[UPD, '\t\t\tif (against) return { ok: false, problem: against };\n', ''],
+	],
+	[
+		'layers',
+		'a list held to the controls though it moves no slot the rig had',
+		[FIT, 'return want.some((n) => !have.has(n) && stepped.has(n));', 'return true;'],
+	],
+	[
+		'layers',
+		'a list that moves a slot the rig had never held to the controls',
+		[FIT, '\tif (inDrawOrder(had, want).some((n, i) => n !== had[i])) return true;\n', ''],
+	],
+	[
+		'layers',
+		'a slot new to the rig, in a depth control, never held to it',
+		[FIT, 'return want.some((n) => !have.has(n) && stepped.has(n));', 'return false;'],
+	],
+	[
+		'layers',
+		"a slot Setup put wrong worded as the Layers'",
+		[FIT, 'return listed && !listed.has(back)', 'return false'],
+	],
+	[
+		'layers',
+		"a list judged on the template's order, not the one the update applies",
+		[
+			UPD,
+			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, now, new Set(want));',
+			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, want, new Set(want));',
+		],
+	],
+	[
+		'custom',
+		'a custom part (not prop_) never given its bone and slot',
+		[
+			'rigFrameUpdate.ts',
+			"const isProp = (name: string) => name.startsWith('prop_') || named.has(name);",
+			"const isProp = (name: string) => name.startsWith('prop_');",
+		],
+	],
 	[
 		'handedit',
 		'a hand-edited mesh never kept',
@@ -734,7 +974,11 @@ const MUTANTS = [
 		],
 	],
 ];
-const SOURCES = { [UPD]: join(SERVER, UPD) };
+const SOURCES = {
+	[UPD]: join(SERVER, UPD),
+	[FIT]: join(SERVER, FIT),
+	'rigFrameUpdate.ts': join(SERVER, 'rigFrameUpdate.ts'),
+};
 for (const [guard, what, mutation] of MUTANTS) {
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {

@@ -92,6 +92,20 @@ Mouth shapes are image swaps, not deforms: they read clearly at slot-game sizes 
 at runtime. The set is the common animation mouth chart, so audio lip-sync (§5.2) maps onto it
 directly.
 
+**A jointed mouth (as built 2026-11-26, Bust with face and Half body; optional parts, so no new
+version).** A sheet may draw the mouth as its parts instead of as shapes. The face block has
+optional slots for them just in front of `mouth`, back → front: `tongue` and `teeth_lower` on
+`jaw`, `teeth_upper` on its own optional bone `teeth_upper` (under `face`, at the mouth: the skull's
+row does not move with the jaw), `lip_lower` on `lip_lower` and `lip_upper` on `lip_upper` (the
+bones that were already there). The lips bend on the mouth's corners at their outer ends and on
+their own bone in the middle (`lipBend`), as a mouth image does, so Jaw open, Smile, Stretch and the
+lip controls move a jointed mouth with no new control; Talk, lip-sync and 🎥 Motion key the jaw,
+corners and lips alone when a rig has no mouth image (`faceDrawnMouth`). An optional slot or bone
+(`RigTemplateSlot.optional`, `RigTemplateBone.optional`) is made only when the art draws in it
+(`templateMade`, applied by `templateRig` before anything is weighted), so a rig drawing none of
+them, and every frame-made rig, is the rig it was. With mouth shapes and parts both mapped the
+shapes win: the parts are made with their slots empty (`TemplateArt.hidden`).
+
 ### 3.3 The face mesh
 
 `head` becomes a mesh weighted to `head` and `face`. Turning `face` a few degrees with its children

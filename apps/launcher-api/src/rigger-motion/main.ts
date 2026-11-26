@@ -34,6 +34,7 @@ import { bestPartFrames, scoreFrames, scoreParts } from '../lib/rigFrameScore';
 import {
 	SHEET_JOINTS,
 	SHEET_JOINT_LABELS,
+	customName,
 	faceJoints,
 	guessSheetJoints,
 	mirroredName,
@@ -476,6 +477,7 @@ const api = {
 	suggestSheetMap,
 	suggestProp,
 	propName,
+	customName,
 	mirroredName,
 	guessSheetJoints,
 	faceJoints,

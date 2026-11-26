@@ -222,6 +222,8 @@ export const FIT_BEND_GRID: [number, number] = [3, 32];
 /** A prop's placeholder size, until its art is attached. */
 const PROP_SIZE: [number, number] = [64, 64];
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/** The slots a fit's `order` (a sheet mapping's layers) may list: every template slot and prop. */
+export const MAX_LAYERS = 256;
 /** How far a fitted bone may turn off its template direction (float noise, not a turn). */
 const TURN_EPS = 2e-4;
 /** The longest a fitted bone may be (px): past it the world sums overflow to Infinity. */
@@ -247,11 +249,18 @@ export function controlTarget(name: string): string | null {
 	return `${at}_${m[2]}`;
 }
 
-/** The template's `face` bone and every bone under it (the face block, rig-templates §4). */
-export function faceBones(bones: readonly RigTemplateBone[]): Set<string> {
+/**
+ * The template's `face` bone and every bone under it (the face block, rig-templates §4): an optional
+ * one (a jointed mouth's upper teeth) only when `optional` names it, or is true for every one.
+ */
+export function faceBones(
+	bones: readonly RigTemplateBone[],
+	optional: ReadonlySet<string> | true = new Set(),
+): Set<string> {
 	const out = new Set<string>();
 	for (const b of bones)
-		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent))) out.add(b.name);
+		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent)))
+			if (!b.optional || optional === true || optional.has(b.name)) out.add(b.name);
 	return out;
 }
 
@@ -367,11 +376,11 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 	if (raw.order !== undefined) {
 		if (
 			!Array.isArray(raw.order) ||
-			raw.order.length > 256 ||
+			raw.order.length > MAX_LAYERS ||
 			!raw.order.every((n) => typeof n === 'string' && NAME.test(n)) ||
 			new Set(raw.order).size !== raw.order.length
 		)
-			return no('`order` is a list of up to 256 slot names, back to front, each once');
+			return no(`\`order\` is a list of up to ${MAX_LAYERS} slot names, back to front, each once`);
 		fit.order = [...(raw.order as string[])];
 	}
 	if (raw.bends !== undefined) {
@@ -540,7 +549,7 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 			return `it places "${name}" at no length, or past ${MAX_FIT_LENGTH} px`;
 	}
 	if (fit.features) {
-		const under = faceBones(t.bones);
+		const under = faceBones(t.bones, true);
 		for (const [name, f] of Object.entries(fit.features.at)) {
 			if (!under.has(name) || name === 'face')
 				return `it places a feature "${name}" that is not a bone under the template's face`;

@@ -1679,12 +1679,42 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
 - **The depth controls win.** Arm depth moves an arm from in front of the head and the torso to just
   behind them, so an order drawing the arm behind either at setup is refused, naming the control
   (`layersAgainstDepth`); the page shows the launcher's word under the list.
-- **🔄 Update rig** applies the list only when it changed since the kept mapping (`updateSheetRig`,
-  report `layered`), through `frameRigUpdate`'s `keepDrawOrders`, so every draw-order key keeps
-  drawing what it drew. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in
-  Setup's slots survives an update that does not touch the list.
+- **🔄 Update rig** applies the list only when it changed since the kept mapping and moves a slot
+  of the merged rig (`updateSheetRig`, report `layered`), through `frameRigUpdate`'s
+  `keepDrawOrders`, so every draw-order key keeps drawing what it drew. The edited mapping is built
+  in the template's order and the list applied to the merged rig, so a rig whose Setup drew an arm
+  behind the head (which the list could not ask for) still updates. The order applied is held to the
+  depth controls (`slotsAgainstDepth`) as `layersJudged` says: when the list moves a slot the open
+  rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
+  worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
+  slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
+  survives an update that does not touch the list; its preview sends the open rig (`rig`) and is
+  judged by the same `layersJudged`, else draws the list unjudged.
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
+
+### 13.1f A jointed mouth and ＋ Custom part (2026-11-26)
+
+The owner: "In our sheet we have specific facial bones that don't exist in our template: the teeth,
+the lower lip and the upper lip, instead of different mouth shapes."
+
+- **The template's optional mouth parts** (rig-templates §3.2 "A jointed mouth"): `lip_upper`,
+  `lip_lower`, `teeth_upper`, `teeth_lower`, `tongue` in the face block, each a one-pivot part here
+  (`sheetKind` → `pivot`), the lips bent on the corners and their own bones. `templateMade` drops the
+  optional slots and the `teeth_upper` bone a rig does not draw, before any mesh is weighted (weighted
+  vertices name bones by index), and `sheetPreview` reports the same bones. The face's features
+  (`frameFace` / `apartFace`) place an optional bone only when a mapped part rides it
+  (`faceBones(…, optional)`), so a frame-made rig's fit — and the request it sends atlas-tool — is as
+  it was.
+- **Names** (`rigSheetMap.ts`): `lip`, `teeth` and `tongue` are kinds of part and meaningful words;
+  `labio`, `tooth` / `diente(s)`, `lengua`, `superior` / `inferior`, `arriba` / `abajo` read as
+  theirs; `teeth` with no row is the upper row. `lips` stays the whole mouth (a mouth shape).
+- **Shapes win**: a mapping drawing both a part in the `mouth` slot and a jointed part makes the
+  jointed parts with empty slots (`TemplateArt.hidden`, `SheetRig.hidden`, the create's report).
+- **＋ Custom part** is a prop by another name (`SheetProp.custom`, `CUSTOM_NAME`, `customName`): a
+  new bone of its own under the template bone the author picks, placed on a part's drawing as a prop
+  is, in Layers. 🔄 Update rig treats a custom part as the prop it is (`frameRigUpdate` takes the
+  props the input names, not only `prop_…`).
 
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
@@ -1750,6 +1780,18 @@ under the list; sent with the create and the rig drawn so; ↺ Reuse brings it b
 sheet's prop slot; 🗺 Edit mapping opens the rig's own order; Ctrl+] in the dialog never moves the
 rig's slots; 🔄 Update rig keeps Setup's order; 12 page mutants).
 
+Jointed mouth and custom parts (§13.1f): `sheet-mouth.mjs` `mouth` (the names; no jointed slot or
+`teeth_upper` bone on a rig without them; each part on its region and slot; the lips meshes; Jaw open
+drops the lower lip's middle, the lower teeth and the tongue by the jaw's move and the upper ones not
+at all; Smile left lifts both lips at that corner only; a face capture's jawOpen opens it as 🎥
+Motion keys it; shapes and parts both mapped, the parts' slots empty; the upper teeth's bone placed
+with the drawn face only where drawn; Layers order; 11 mutants) and `custom` (read back, its own bone
+under the bone picked, in Layers, its name, bad names refused; 3 mutants) — a gate of its own, so
+`sheet-rig.mjs` stays inside `check:all`'s five minutes; `sheet-rig-update.mjs` `custom` (🔄 Update rig gives a custom part its bone and slot; 1
+mutant); `check:rig-templates` keys each control over the made rig's own slots;
+`sheet-rig-browser.mjs` (the Face group's jointed rows and tooltip, ＋🦴, the launcher drawing them,
+the report; 5 page mutants, `--only-mutants` to run a subset).
+
 ### 13.4 Owed
 
 - Not verified on the authed page against R2: verified in Chromium on the shipped page with the API
@@ -1764,3 +1806,6 @@ rig's slots; 🔄 Update rig keeps Setup's order; 12 page mutants).
   import's 40° turn leaves the head's skin); a ¾ or profile head is still its drawing by angle.
 - Not reproduced on the owner's real `S_NellyAnimTest` (production reads refused in auto mode): on
   their shape only.
+- A capture's clipping (2026-11-26) was the 2.5D bake's draw order, not the sheet's meshes: fixed in
+  [rig-2p5d §4.5 "As built for captures"](rig-2p5d.md) (the body's depth, the hysteresis at the
+  rig's scale, locks, ↕ as keyed). A joint's overlap is the artist's drawing: nothing tears there.

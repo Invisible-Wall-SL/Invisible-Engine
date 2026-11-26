@@ -268,7 +268,10 @@ const GUARDS = {
 				drawnOrder(skel.drawOrder.map((s) => s.data.name)).join() === own.join(),
 			) && good;
 		const ref = JSON.stringify({ id: t.id, version: t.version, fit: layered.sr.fit });
-		const reopened = M.sidecarTemplate(t, ref).slots.map((s) => s.name);
+		const made = new Set(slots.map((s) => s.name));
+		const reopened = M.sidecarTemplate(t, ref)
+			.slots.map((s) => s.name)
+			.filter((n) => made.has(n));
 		good =
 			ok(
 				"layers: the fit kept in template.json reopens in the author's order",
@@ -436,8 +439,8 @@ const MUTANTS = [
 		'the layers sent to the fit back to front, not front to back',
 		[
 			FIT,
-			'...(m.layers ? { order: [...m.layers].reverse() } : {}),',
-			'...(m.layers ? { order: [...m.layers] } : {}),',
+			'...(m.layers && fitLayers ? { order: [...m.layers].reverse() } : {}),',
+			'...(m.layers && fitLayers ? { order: [...m.layers] } : {}),',
 		],
 	],
 	['layers', 'the layers not kept in sheet.json', [FIT, '...(layers ? { layers } : {}),', '']],

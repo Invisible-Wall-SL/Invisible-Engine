@@ -668,9 +668,8 @@ Below the board glow is the **Win lines** section: the in-game winning-payline o
 **line** — the stroke traced across each winning payline — with its own **global** on/off
 toggle. The stamped win amount is the **separate** section right below it (see [Win amount
 text](#win-amount-text)), so the two are authored independently: turn Win lines off and Win
-amount text on to announce the amount with no line drawn under it, or the reverse. Both are
-pure config (no asset, no preview). The toggle is **On by default**; when it's on the line
-controls appear:
+amount text on to announce the amount with no line drawn under it, or the reverse. Neither has
+a preview. The toggle is **On by default**; when it's on the line controls appear:
 
 **Use payline colour from config** on/off (default **On**); **Colour**;
 **Thickness** (a fraction of the symbol size); **Glow** on/off and its **Glow colour**;
@@ -691,8 +690,43 @@ in its own payline colour, and they all stay on screen until the next spin; the 
 celebrate one win at a time underneath them. Set the delay to 0s to have every line appear in
 the same frame.
 
-A **Reset line style** button clears the line style back to the game's coded defaults while
-leaving every on/off state — and the amount text — alone.
+#### Payline style
+
+A foldable **Payline style** card under the line controls dresses the line (hover its title for
+what it is; every field has its own ⓘ). Everything in it is **off until set**, and a project
+that sets nothing draws exactly the line it always did, silently. Its ↺ icon resets only this
+card.
+
+- **Hot core** on/off and its **Core colour** (default white once on) — a thinner stroke on top
+  of the line, for a white-hot centre. A value that is not a hex colour is dropped on save.
+- **Additive glow** on/off (needs **Glow** on) — the glow adds light to the board instead of
+  laying over it.
+- **Tail opacity** and **Tail width** (100% = no fade) — how opaque and how thick the line is
+  where it starts, rising to full at its tip, so the tip is the hottest point.
+- **Tip** — None, **Sprite** (an atlas frame, the same frame picker as the cells), **Flipbook**
+  (a clip) or **Effect** (an Invisible FX effect), riding the line's moving head. Picking a kind
+  shows "Pick the asset to apply this tip." until its asset is chosen. Then **Size (× a cell)**,
+  **Turn with the line** (art drawn pointing right), **Additive**, and **When the line is drawn**:
+  **Stay at the end**, **Fade out**, or **Burst and go** (removed, playing the optional **Burst
+  effect** at the end point).
+- **Trail** — up to 4 Invisible FX effects played while the line draws, emitting from the moving
+  tip. Each particle stays where it was born and lives out its life; emission stops when the line
+  is drawn and everything clears with the line. Add one from **＋ Add a trail effect…**, remove it
+  with its bin. It plays only with **Animated draw** on (the card says so otherwise).
+- **Sound** — **While it draws** (once as an animated line starts drawing, a whoosh) and **When
+  it lands** (once as the line is drawn complete, an impact), picked from the project's sound
+  library plus the engine's own sounds. The draw sound needs **Animated draw** on. Both play on a
+  line's first show only: the resting win cycle's replays redraw the line (tip and trail included)
+  silently, and a line cleared before it finished drawing plays no impact.
+
+Tip, trail, tail fade and draw sound apply to an ordinary payline (a traced path), not to the
+per-reel / per-cell bars of a ways or cluster win. With **Show all win lines at once** on, every
+line gets its own tip, trail and sounds. A skipped (slammed) round draws each line complete at
+once: no trail, no draw or impact sound, a staying tip sits at the end, and a fading or bursting
+tip is simply gone.
+
+A **Reset line style** button clears the line style — the payline style included — back to the
+game's coded defaults while leaving every on/off state, and the amount text, alone.
 
 ### Win amount text
 
@@ -755,8 +789,11 @@ payline option; `line.useConfigColor` carries the config-colour toggle (default 
 the OFF override persists). The game applies its coded defaults for every field the
 bundle omits, so a project that never opens this section is byte-identical to before and
 the overlay stays on with its default gold line. On export/bake the config is passed
-straight through to `bundle.symbols.winLine` (omitted when untouched) — there is no asset
-work; the chosen text font travels via the normal font pipeline.
+straight through to `bundle.symbols.winLine` (omitted when untouched); the chosen text font
+travels via the normal font pipeline. What the payline style names ships on the existing paths: a
+sprite tip's atlas with the symbol art, a flipbook tip's clip with the project's clips, the tip,
+burst and trail effects with the effects (kept even when no scene places them), and the sounds
+with the sound library.
 
 The win-line renderer lives in the **shared engine** (ported 2026-07-14), so every
 `runtime:lines` game — including the `apps/lines` reference — draws it from this config via

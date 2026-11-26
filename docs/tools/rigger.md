@@ -417,6 +417,10 @@ Hover its header for a summary.
   the folder and its slots as a block (dropped inside another folder, it lands just above that
   folder). Each drop is one undo step. Every draw-order key keeps the order it was keyed with. The
   mouse, a pen and a finger all drag it. **Esc** cancels a drag.
+- **Key the draw order in Animate by dragging the ⋮⋮ grip**: the slot (or the selection) is drawn
+  just in front of the row you drop it above, from the order at the playhead, as a draw-order key
+  there (one undo step); the setup order stays. On a 3D clip this works when the rig's draw order is
+  **↕ as keyed** (🧊, below); by depth, the clip's draw order is the bake's and the drag says so.
 - **↑ / ↓** on a row move it one place to the front (up) or the back (down), each one undo step:
   - a slot in no folder passes the next slot, or a whole folder;
   - a slot in a folder moves among the folder's slots; at the folder's edge, ↑ or ↓ takes it out of
@@ -1005,6 +1009,18 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   rig turns is fixed once you save.
   On a 3D rig the box beside it is the bake's **tolerance** in rig units (empty = 0.45; hover it),
   and **🧊 Turn 3D off** keeps every 3D clip as baked, as a plain 2D clip (undo brings it back).
+  Next to it, the 3D clips' **draw order**:
+  - **↕ by depth** (the default): the bake draws the nearer part over the farther one — a hand
+    behind the back goes under the torso, a hand reaching forward over the other arm. The body (the
+    torso, pelvis, neck and head) is read at its back face, so an arm at its side, a little behind
+    its middle, stays over it. The number beside it is the **hysteresis** in rig units: how much
+    nearer a part must come before it is drawn over another, so a tracker's jitter never flickers
+    it. A capture import sets it, and the body's depth, at the rig's scale (about 4 cm of the
+    performer) where you have not.
+  - **🔒** opens the **locks**: pairs kept whatever the depths say (the watch always over the
+    forearm, a hand always over the body). Pick the two slots, **＋**; **✕** removes one.
+  - **↕ as keyed**: the bake keys no draw order, and each 3D clip keeps the one you key (drag a
+    slot in Animate, or the dopesheet's draw-order menu).
   Making a rig 3D changes no clip: they stay 2D until you make one 3D.
 - **The clip's settings** (Animate) — **🧊 3D from this clip** makes the open clip 3D: it keeps its
   keys (it plays exactly as before) and its bones can now turn in 3D. A 3D clip shows **🧊 3D clip ·
@@ -1018,8 +1034,8 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   tilt. In **Setup**, a 3D rig's bone has a **depth** field too.
 - **The dopesheet** lists each bone's keys as you made them — not the bake's — with **3D turn** and
   **depth** rows under **sel**; drag, Alt-drag, delete and easing work as on any key. The draw order
-  and a drawing slot's image keys are the bake's, so they are not listed (and keying them is
-  refused with a hint).
+  (with **↕ by depth**) and a drawing slot's image keys are the bake's, so keying them is refused
+  with a hint; with **↕ as keyed** the draw order is yours.
 - **The Graph view** draws a 3D bone's turn as three curves — **rotation 3D**, **tilt** and
   **twist** — and its **depth** (the legend lists them only for a bone that has them). Drag a point
   up or down to change that angle at its key (the others stay as drawn), sideways to move the key;
@@ -1545,6 +1561,19 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
    that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just
    over its part (a watch over the hand's fingers).
+   **＋🦴 Custom part** (the second button on an unmapped region's thumbnail) is for a drawing the
+   template has no part for — a hood, a tail, an extra layer. It gets a bone of its own under the
+   template bone you pick, is named from its region (`…_0008_HoodBack` → `hood_back`; rename it in
+   the **Custom parts** list), drawn on the part picked and dragged there like a prop, and has its
+   own row in Layers. The template's own bones stay as they are.
+   **A jointed mouth.** A mouth drawn as its parts maps to the Face group's `lip_upper`,
+   `lip_lower`, `teeth_upper`, `teeth_lower` and `tongue` (names such as `UpperLip`, `LowerLip`,
+   `Teeth`, `TeethTop`, `TeethBottom`, `Tongue`, `LabioSuperior` are matched; `Teeth` alone is the
+   upper row). Jaw open drops the lower lip, the lower teeth and the tongue; Smile and Stretch bend
+   both lips at their corners; Upper / Lower lip lift and press them; Talk, lip-sync and 🎥 Motion
+   move it as they do a mouth drawn on the head. Map the mouth shapes or the parts: with both, the
+   shapes win (the Mouth control swaps them) and the parts are made with their slots empty, which the
+   report says. A rig drawing none of these has none of their slots.
 5. **◧ Arranged** (above the stage; **▭ One part** goes back). Every mapped part and prop is drawn
    put together, where the rig puts it, with its bones over it: at first each drawing turned onto
    its bones at rest. Drag a part into the character as you drew it — its first joint snaps to the
@@ -1566,7 +1595,8 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
    draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
    list: the template's arm-depth control moves the arm from in front of them to behind them, so
-   it must start in front. The order is kept with the rig's mapping.
+   it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
+   draw what they drew, so a new order shows at setup and in the clips that key no draw order.
 7. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
    template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
@@ -1597,8 +1627,8 @@ A mapping made before is offered beside the sheet, never taken by itself:
 - **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig (closed
   right after ↺ Start over, the mapping Start over replaced). Only the last one you left is
   remembered, and it is offered only on its own sheet and template.
-- **↺ Start over** (the icon) takes the open mapping back to the first guess, reading the names as ⇄
-  Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
+- **↺ Start over** (the icon) takes the open mapping back to the first guess (the Layers too),
+  reading the names as ⇄ Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
 
 To change the open rig itself, use 🗺 Edit mapping (below).
 
@@ -1615,8 +1645,12 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   yourself: then yours stays and the report says so.
 - **The layers.** The Layers list opens as the rig draws its slots now, a reorder in Setup's
   **Slots** included (a sheet's props are slots of their own there, so their **⋮⋮** drags them too).
-  The rig keeps its own order unless you change the list here; then the slots it lists take its
-  order, and each draw-order key you made still draws what it drew.
+  The rig keeps its own order unless you change the list here — even an arm you drew behind the
+  head in Setup, which the list itself would refuse. Change the list and the slots it lists take its
+  order, held to the arm-depth controls as a new rig's is; each draw-order key you made still draws
+  what it drew, so the new order shows at setup and in the clips that key no draw order.
+  Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
+  refused, with why under the list, until you fix that order too (in the list, or in Setup).
 - **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
   taken off goes with the keys on its bone, and you are shown those keys before anything changes.
 - **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone

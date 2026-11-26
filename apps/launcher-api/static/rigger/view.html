@@ -254,6 +254,7 @@
   #s2rRegions .f2rThumb i { font-style:normal; font-size:9px; color:var(--accent2); max-width:64px; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; }
   #s2rRegions .f2rThumb button { position:absolute; top:2px; right:2px; padding:0 3px; font-size:10px; line-height:1.2; }
+  #s2rRegions .f2rThumb button.s2rCustomAdd { top:auto; bottom:22px; }
   #s2rArrange { cursor:grab; }
   #s2rJoints { display:flex; flex-wrap:wrap; gap:2px 8px; font-size:11px; color:var(--dim); min-height:14px; }
   #s2rJoints span { cursor:help; }
@@ -1105,7 +1106,7 @@
           <div id="s2rParts"></div>
           <div id="s2rProps"></div>
           <details class="wsSec" id="s2rLayersSec" open>
-            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays).">Layers</summary>
+            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays). A clip's draw-order keys still draw what they drew, so a new order shows at setup and in the clips that key no draw order.">Layers</summary>
             <div id="s2rLayers"></div>
           </details>
         </div>
@@ -3553,8 +3554,70 @@ function rig3dControl(){
       historyStep(() => { if (Number.isFinite(v) && v > 0) rig3d.doc.tolerance = v; else delete rig3d.doc.tolerance; markDirty(); });
     };
     wrap.appendChild(tol);
+    wrap.append(...rig3dOrderControls());
   }
   return wrap;
+}
+// The draw order of the 3D clips (rig-2p5d §4.5): by depth (nearer drawn over farther, a body read at
+// its back face, past the hysteresis, the 🔒 locks kept), or as keyed by hand (the bake keys none).
+function rig3dOrderControls(){
+  const css = "background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:2px 4px;font-size:11px;";
+  const ord = document.createElement("select");
+  ord.id = "rig3dOrder"; ord.style.cssText = css;
+  for (const [v, t] of [["depth", "↕ by depth"], ["keyed", "↕ as keyed"]]){ const o = document.createElement("option"); o.value = v; o.textContent = t; ord.appendChild(o); }
+  ord.value = rig3d.doc.depthOrder === false ? "keyed" : "depth";
+  ord.title = "Draw order in the 3D clips. By depth: the bake draws the nearer part over the farther one (a hand behind the back goes under the torso; an arm at the body's side stays over it, the body read at its back face), past the hysteresis beside, and keeping your 🔒 locks. As keyed: the bake keys none, and each clip keeps the draw order you key — drag a slot in Animate to key it at the playhead. Changing it bakes the clips again.";
+  ord.onchange = () => { historyStep(() => { if (ord.value === "keyed") rig3d.doc.depthOrder = false; else delete rig3d.doc.depthOrder; markDirty(); }); renderAnimSection(); };
+  const hy = document.createElement("input");
+  hy.id = "rig3dHyst"; hy.type = "number"; hy.step = "1"; hy.min = "0"; hy.placeholder = "6";
+  hy.value = rig3d.doc.hysteresis ?? "";
+  hy.style.cssText = "width:52px;" + css;
+  hy.title = "Hysteresis, rig units: how much nearer a part must come than another before it is drawn over it, so a tracker's jitter never flickers it (a capture import sets about 4 cm of the performer). Changing it bakes the clips again.";
+  hy.onchange = () => {
+    const v = parseFloat(hy.value);
+    historyStep(() => { if (Number.isFinite(v) && v >= 0) rig3d.doc.hysteresis = v; else delete rig3d.doc.hysteresis; markDirty(); });
+  };
+  const lk = document.createElement("button");
+  lk.id = "rig3dLocks"; lk.className = "ctlIcon"; lk.style.cssText = css;
+  lk.textContent = "🔒 " + ((rig3d.doc.locks || []).length || "");
+  lk.title = "Locks: pairs the depth order keeps whatever the depths say (the watch always over the forearm, a hand always over the body). Click to add or remove one.";
+  lk.setAttribute("aria-label", "Draw-order locks");
+  lk.onclick = openOrderLocks;
+  return [ord, hy, lk];
+}
+// 🔒 The draw-order locks: each pair [front, back] the bake keeps, whatever the depths say.
+function openOrderLocks(){
+  if (!rawDoc || !rig3d.doc) return;
+  closeCurveMenu();
+  const m = document.createElement("div"); m.id = "curveMenu";
+  m.style.cssText = "position:fixed;right:18px;top:80px;z-index:90;width:280px;max-height:60vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);";
+  const hd = document.createElement("div"); hd.textContent = "🔒 Draw-order locks"; hd.title = "The 3D clips' depth order keeps each pair: the first drawn over the second at every time."; hd.style.cssText = "padding:8px 10px;font-weight:600;font-size:12px;border-bottom:1px solid var(--line);"; m.appendChild(hd);
+  const list = document.createElement("div"); list.id = "orderLocks"; list.style.cssText = "flex:1;overflow:auto;padding:4px;"; m.appendChild(list);
+  const names = rawDoc.slots.map((x) => x.name);
+  const set = (locks) => { historyStep(() => { if (locks.length) rig3d.doc.locks = locks; else delete rig3d.doc.locks; markDirty(); }); draw(); renderAnimSection(); };
+  const draw = () => {
+    list.innerHTML = "";
+    (rig3d.doc.locks || []).forEach(([front, back], i) => {
+      const row = document.createElement("div"); row.className = "orderLock"; row.style.cssText = "display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;";
+      const t = document.createElement("span"); t.style.flex = "1"; t.textContent = front + " over " + back;
+      const del = document.createElement("button"); del.className = "ctlIcon"; del.textContent = "✕"; del.title = "Remove the lock"; del.setAttribute("aria-label", "Remove the lock " + front + " over " + back);
+      del.onclick = () => set(rig3d.doc.locks.filter((_, k) => k !== i));
+      row.append(t, del); list.appendChild(row);
+    });
+  };
+  draw();
+  const foot = document.createElement("div"); foot.style.cssText = "display:flex;gap:4px;padding:8px;border-top:1px solid var(--line);align-items:center;";
+  const pick = (id, label) => { const sel = document.createElement("select"); sel.id = id; sel.title = label; sel.setAttribute("aria-label", label); sel.style.cssText = "flex:1;min-width:0;"; for (const n of names){ const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); } return sel; };
+  const front = pick("orderLockFront", "Drawn over"), back = pick("orderLockBack", "…this one");
+  const add = document.createElement("button"); add.id = "orderLockAdd"; add.textContent = "＋"; add.title = "Lock the first over the second";
+  add.onclick = () => {
+    const f = front.value, k = back.value, locks = (rig3d.doc.locks || []).filter(([a, c]) => !(a === k && c === f));
+    if (f === k || locks.some(([a, c]) => a === f && c === k)) return;
+    set([...locks, [f, k]]);
+  };
+  const close = document.createElement("button"); close.textContent = "✕"; close.onclick = closeCurveMenu;
+  foot.append(front, document.createTextNode("over"), back, add, close); m.appendChild(foot);
+  document.body.appendChild(m);
 }
 async function make3dRig(turnaround){
   if (!rawDoc || rig3d.doc || !selected) return;
@@ -12239,7 +12302,7 @@ function wireFrameToRig(){
 // every body part skinned, and keeps the mapping in the rig's `sheet.json`, which opens here again
 // while that rig is open (GET /api/rigger/from-sheet).
 const S2R_JOINT_COLOURS = ["#ffe600", "#00e5ff", "#ff3df5", "#3dff8b"];
-const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw)/;
+const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw|teeth|tongue)/;
 const S2R_FINGER = /^(thumb|index|middle|ring|pinky)_\d_[lr]$/;
 // map: part → { region, joints, placed (joints dragged by hand), face? }; sel: { part } | { prop } |
 // { region }; faces: part → "busy" | "found" | "none"; from: the rig whose mapping this is.
@@ -12315,6 +12378,7 @@ function closeSheetToRig(){
   // Closed on ↺ Start over's first guess: the mapping it replaced is the one left.
   else if (!s2r.edit && s2r.sheet && !s2r.dirty && u && u.dirty && Object.keys(u.map).length) s2r.left = { mapping: s2rMapping(u), at: Date.now() };
   $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
+  s2rLayerDragEnd();
 }
 
 // ↺ Reuse: a mapping of this template made before, for the sheet picked (or its own while none is):
@@ -12356,7 +12420,7 @@ async function s2rReuse(c){
 // step, which ↶ takes back.
 function s2rStartOver(){
   if (!s2r.sheet || !s2r.tpl) return;
-  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
+  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props, the arrangement and the Layers go back to the first guess.\n\n↶ brings them back.")) return;
   s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
   Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
   // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
@@ -12682,16 +12746,16 @@ function s2rKeep(kept){
   s2rNote(what + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
 }
 
-function s2rAddProp(region, host, name){
+function s2rAddProp(region, host, name, custom){
   const hosts = Object.keys(s2r.map);
   const on = s2r.map[host] ? host : hosts.includes("torso") ? "torso" : hosts[0];
   if (!on){ s2rNote("map a part first: a prop is worn on one"); return; }
   const taken = new Set([...s2r.tpl.parts.map((p) => p.name), ...s2r.tpl.bones.map((b) => b.name), ...s2r.props.map((p) => p.name)]);
-  const base = (name || window.RiggerMotion.propName(region)).slice(0, 42);
+  const base = (name || (custom ? window.RiggerMotion.customName(region) : window.RiggerMotion.propName(region))).slice(0, custom ? 37 : 42);
   let n = base;
-  for (let k = 2; taken.has(n); k++) n = base.slice(0, 42) + "_" + k;
+  for (let k = 2; taken.has(n); k++) n = base + "_" + k;
   const hc = s2rCanvas(s2r.map[on].region);
-  s2r.props.push({ name: n, region, host: on, bone: s2rPart(on).bone, at: [hc.width / 2, hc.height / 2] });
+  s2r.props.push({ name: n, region, host: on, bone: s2rPart(on).bone, at: [hc.width / 2, hc.height / 2], ...(custom ? { custom: true } : {}) });
   s2r.sel = { prop: s2r.props.length - 1 };
   s2r.dirty = true;
 }
@@ -12717,7 +12781,7 @@ function s2rMapping(st = s2r){
   for (const [part, m] of Object.entries(st.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
     sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
-    props: st.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
+    props: st.props.map(({ name, region, host, bone, at, turn: t, custom }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}), ...(custom ? { custom: true } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
     ...(st.swap ? { swapSides: true } : {}),
     ...s2rLayersOut(st),
@@ -12813,7 +12877,7 @@ function s2rRender(){
     const prop = s2r.props.find((p) => p.region === r.name);
     const d = document.createElement("div");
     d.className = "f2rThumb" + (s2rSelRegion() === r.name ? " sel" : "");
-    d.title = r.name + (parts.length ? " → " + parts.join(", ") : prop ? " → " + prop.name + " (a prop on " + prop.host + ")" : ": not mapped");
+    d.title = r.name + (parts.length ? " → " + parts.join(", ") : prop ? " → " + prop.name + (prop.custom ? " (a custom part on " : " (a prop on ") + prop.host + ")" : ": not mapped");
     const cv = document.createElement("canvas");
     cv.width = 56; cv.height = 56;
     s2rThumb(cv, r.name);
@@ -12827,7 +12891,13 @@ function s2rRender(){
       add.textContent = "＋"; add.title = "Wear it as a prop on the part picked";
       add.setAttribute("aria-label", "Wear " + r.name + " as a prop");
       add.onclick = (e) => { e.stopPropagation(); s2rAddProp(r.name, s2rSelHost()); s2rRender(); s2rDraw(); };
+      const own = document.createElement("button");
+      own.textContent = "＋🦴"; own.className = "s2rCustomAdd";
+      own.title = "＋ Custom part: a drawing the template has no part for (a hood, a tail, an extra layer). It gets a bone of its own under the bone you pick, drawn on the part picked, and a row in Layers";
+      own.setAttribute("aria-label", "Map " + r.name + " as a custom part");
+      own.onclick = (e) => { e.stopPropagation(); s2rAddProp(r.name, s2rSelHost(), null, true); s2rRender(); s2rDraw(); };
       d.appendChild(add);
+      d.appendChild(own);
     }
     d.onclick = () => {
       s2r.sel = parts.length ? { part: parts[0] } : prop ? { prop: s2r.props.indexOf(prop) } : { region: r.name };
@@ -12847,7 +12917,7 @@ function s2rRender(){
   ];
   const tips = {
     "Body": "The template's body parts, each on its bones. * the template's controls and clips use it: the rig is still made without it, and its report lists it.",
-    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone; a brow or a mouth bends on its bones from where it is drawn. A face drawn on the head moves without them when the tracker finds it. * as above: used by the controls and clips, listed when left out.",
+    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone; a brow or a mouth bends on its bones from where it is drawn. A face drawn on the head moves without them when the tracker finds it. * as above: used by the controls and clips, listed when left out. A mouth drawn as its parts (lip_upper, lip_lower, teeth_upper, teeth_lower, tongue) is a jointed mouth: Jaw open drops the lower lip, lower teeth and tongue, Smile and Stretch bend both lips at their corners, Upper / Lower lip lift and press them, and Talk, lip-sync and 🎥 Motion move it as they do a mouth drawn on the head. Map the mouth shapes or the parts: with both, the shapes win (the Mouth control swaps them) and the parts are made with their slots empty, for you to show.",
     "More drawings (hand poses, angles)": "Drawings that take a part's place: a hand pose, the head or the torso by angle. Each sits in its main part's slot and bends as it does.",
     "Fingers": "Finger segments drawn apart, each on its own bone. A whole hand drawn as one is the hand above.",
   };
@@ -12906,12 +12976,20 @@ function s2rRenderProps(){
   const box = $("#s2rProps");
   box.innerHTML = "";
   if (!s2r.sheet || !s2r.tpl) return;
+  s2rRenderPropList(box, false);
+  s2rRenderPropList(box, true);
+}
+// Props (`custom` false) or custom parts: a custom part is a prop by another name, named freely, on a
+// bone of its own under the bone picked.
+function s2rRenderPropList(box, custom){
   const head = document.createElement("div");
   head.className = "f2rRow";
-  head.title = "Regions worn on a part: each hangs from a bone of its own where it sits on that part's drawing, drawn just over it. ＋ on a region's thumbnail adds one; click one, then drag it on its part.";
-  head.innerHTML = "<b>Props</b>";
+  head.title = custom
+    ? "Drawings the template has no part for, each a new bone of its own under the bone you pick (the template's own bones stay as they are), drawn on the part you pick and placed by dragging it there, ordered in Layers. ＋🦴 on an unmapped region's thumbnail adds one."
+    : "Regions worn on a part: each hangs from a bone of its own where it sits on that part's drawing, drawn just over it. ＋ on a region's thumbnail adds one; click one, then drag it on its part.";
+  head.innerHTML = custom ? "<b>Custom parts</b>" : "<b>Props</b>";
   const c = document.createElement("span");
-  c.className = "pill"; c.textContent = String(s2r.props.length);
+  c.className = "pill"; c.textContent = String(s2r.props.filter((p) => !!p.custom === custom).length);
   head.appendChild(c);
   box.appendChild(head);
   const regions = s2r.sheet.regions.map((r) => r.name);
@@ -12928,19 +13006,22 @@ function s2rRenderProps(){
     return s;
   };
   s2r.props.forEach((p, i) => {
+    if (!!p.custom !== custom) return;
     const d = document.createElement("div");
-    d.className = "f2rRow part s2rRow prop" + (s2r.sel && s2r.sel.prop === i ? " pick" : "");
+    d.className = "f2rRow part s2rRow prop" + (custom ? " custom" : "") + (s2r.sel && s2r.sel.prop === i ? " pick" : "");
+    d.dataset.prop = p.name;
     const name = document.createElement("input");
-    name.type = "text"; name.value = p.name; name.title = "Its name: prop_ and up to 40 lowercase letters, digits or _";
-    name.setAttribute("aria-label", "Prop name");
+    name.type = "text"; name.value = p.name;
+    name.title = custom ? "Its name, its bone's and its slot's: a lowercase letter, then up to 40 lowercase letters, digits or _" : "Its name: prop_ and up to 40 lowercase letters, digits or _";
+    name.setAttribute("aria-label", custom ? "Custom part name" : "Prop name");
     name.onclick = (e) => e.stopPropagation();
     name.onchange = () => {
       const v = name.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
-      p.name = /^prop_/.test(v) ? v.slice(0, 45) : ("prop_" + v).slice(0, 45);
+      p.name = custom ? (/^[a-z]/.test(v) ? v : "part_" + v).slice(0, 41) : /^prop_/.test(v) ? v.slice(0, 45) : ("prop_" + v).slice(0, 45);
       s2r.dirty = true; s2rRender();
     };
     const del = document.createElement("button");
-    del.className = "f2rIcon"; del.textContent = "🗑"; del.title = "Remove the prop (its region stays on the sheet)";
+    del.className = "f2rIcon"; del.textContent = "🗑"; del.title = custom ? "Remove the custom part (its region stays on the sheet)" : "Remove the prop (its region stays on the sheet)";
     del.setAttribute("aria-label", "Remove " + p.name);
     del.onclick = (e) => { e.stopPropagation(); s2r.props.splice(i, 1); s2r.sel = null; s2r.dirty = true; s2rRender(); s2rDraw(); };
     d.append(
@@ -12951,7 +13032,7 @@ function s2rRenderProps(){
         const hc = s2rCanvas(s2r.map[v].region);
         p.at = [hc.width / 2, hc.height / 2];
       }),
-      select("The bone it hangs from", bones, p.bone, (v) => { p.bone = v; }),
+      select(custom ? "The template bone its own bone hangs from" : "The bone it hangs from", bones, p.bone, (v) => { p.bone = v; }),
       del,
     );
     d.onclick = () => { s2r.sel = { prop: i }; s2rRender(); s2rDraw(); };
@@ -13269,6 +13350,13 @@ function s2rArrangeItems(){
 }
 const s2rIsSel = (it) => !!s2r.sel && (it.part ? s2r.sel.part === it.part : s2r.sel.prop === it.prop);
 
+// 🗺 Edit mapping: the open rig, so the launcher judges the Layers as 🔄 Update rig will
+// (rigSheetFit.ts layersJudged): Setup's own order warns of nothing a change here does not touch.
+function s2rPreviewRig(){
+  if (!s2r.edit || !rawDoc) return {};
+  const layers = sheetSrc.doc && sheetSrc.doc.layers;
+  return { rig: { slots: rawDoc.slots.map((s) => s.name), ...(layers ? { layers } : {}) } };
+}
 // The rig as the launcher fits it, again once the mapping has changed (a beat after the last change).
 function s2rRequestPreview(){
   clearTimeout(s2r.ptimer);
@@ -13279,7 +13367,7 @@ async function s2rPreview(){
   const gen = ++s2r.pgen;
   try {
     const r = await fetch("/api/rigger/from-sheet/preview", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping() }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping(), ...s2rPreviewRig() }),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const p = await r.json();
@@ -13574,10 +13662,12 @@ function reportSheetRig(name, label, mapping, j){
   const scale = j.sheet && j.sheet.scale ? j.sheet.scale.toFixed(3) : "?";
   showAlert(
     "“" + name + "” is " + s2r.tpl.label + " over the sheet " + label + ": " + parts + " parts on their bones (" + scale + " rig units a sheet pixel)" +
-    (mapping.props.length ? ", " + mapping.props.length + " props on bones of their own" : "") +
+    (mapping.props.some((p) => !p.custom) ? ", " + mapping.props.filter((p) => !p.custom).length + " props on bones of their own" : "") +
+    (mapping.props.some((p) => p.custom) ? ", custom parts on bones of their own: " + mapping.props.filter((p) => p.custom).map((p) => p.name + " (under " + p.bone + ")").join(", ") : "") +
     ". Each drawing keeps its drawn proportions on its own bone (the torso bends at its waist and shoulders, a drawn face with the face's bones), so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
     (mapping.arrange ? "Bound as the parts were arranged (◧ Arranged): that pose is its clip “frame”.\n\n" : "") +
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
+    (j.sheet && j.sheet.hidden && j.sheet.hidden.length ? "The mouth is mapped both as shapes and as its parts: the shapes win (the Mouth control swaps them); " + j.sheet.hidden.join(", ") + " are made with their slots empty, for you to show.\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not mapped (left out): " + rest.length + ".\n\n" : "") +
     "The mapping is kept with the rig: 🗺 Edit mapping in its panel changes it, and while it is open ＋ New rig → 🗺 From my sheet offers it (↺ Reuse) for another rig.",
@@ -15645,6 +15735,7 @@ function slotGrip(title, down){
 // A slot row's grip and eye, before its name.
 function decorateSlotRow(row, name){
   if (editMode) row.appendChild(slotGrip("Drag to another place in the draw order (with the Shift / Ctrl selection, as a block)", (e) => startSlotDrag(e, name)));
+  else if (animMode && curAnim) row.appendChild(slotGrip("Drag to key the draw order at the playhead: the slot (or the selection) drawn in front of the row you drop it above", (e) => startSlotDrag(e, name)));
   const eye = ctlIcon("👁", "", (e) => toggleSlotEye(name, e.altKey));
   eye.classList.add("slotEye");
   eye.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotEye(name, true); };
@@ -15731,7 +15822,7 @@ function clickSlotRow(name, e){
 let slotDrag = null; // { id, names, x, y, moved, ins, sc, raf, at } while a grip is held
 const SLOT_DRAG_EDGE = 28;
 function startSlotDrag(e, name, folder){
-  if (e.button !== 0 || !e.isPrimary || !rawDoc || !editMode || slotDrag) return;
+  if (e.button !== 0 || !e.isPrimary || !rawDoc || !(editMode || (animMode && curAnim)) || slotDrag) return;
   e.preventDefault(); e.stopPropagation();
   const sel = folder ? slotFolders()[folder] : selectedSlotNames();
   let sc = $("#slotList");
@@ -15803,9 +15894,24 @@ function slotDragUp(e){
   if (!slotDrag || e.pointerId !== slotDrag.id) return;
   const d = endSlotDrag();
   if (d.moved && d.ins != null){
+    if (!editMode) return keySlotDrop(d);
     const names = setupSlotNames(), folders = slotFolders();
     applySlotFolderPlan(slotFolderDrop(names, folders, slotListRows(names, folders, slotFoldersShut()), d.names, d.folder, d.ins));
   }
+}
+// Animate: the dragged slots drawn just in front of the slot row they were dropped above (at the back
+// below the last), from the draw order at the playhead, keyed there (one undo step).
+function keySlotDrop(d){
+  const rows = [...document.querySelectorAll("#slotList .trow[data-slot], #slotList .trow[data-folder]")];
+  const under = rows.slice(d.ins).find((r) => r.dataset.slot && !d.names.includes(r.dataset.slot));
+  const names = skeletonData.slots.map((x) => x.name);
+  const now = resolveDrawOrder(animTime).map((i) => names[i]);
+  const rest = now.filter((n) => !d.names.includes(n)), moving = now.filter((n) => d.names.includes(n));
+  const at = under ? rest.indexOf(under.dataset.slot) + 1 : 0;
+  const order = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+  if (order.join() === now.join()) return;
+  historyStep(() => { keyDrawOrder(animTime, order.map((n) => names.indexOf(n))); });
+  renderTimeline();
 }
 function slotDragCancel(e){ if (slotDrag && e.pointerId === slotDrag.id) endSlotDrag(); }
 function slotDragKey(e){ if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); endSlotDrag(); } }
@@ -20967,7 +21073,7 @@ function resolveDrawOrder(t){
 // Write a draw-order key: order[drawPos] = setup slot index → minimal rig offsets.
 function keyDrawOrder(time, order){
   if (!rawDoc || !curAnim) return;
-  if (clip3d(curAnim)){ $("#hint").textContent = "🧊 a 3D clip's draw order comes from its bones' depths — its bake keys it"; return; }
+  if (clip3d(curAnim) && rig3d.doc.depthOrder !== false){ $("#hint").textContent = "🧊 this 3D clip's draw order comes from depth (its bake keys it): 🔒 lock a pair, or set ↕ as keyed in 🧊 3D to key it yourself"; return; }
   const n = order.length, drawPosOf = new Array(n);
   for (let pos = 0; pos < n; pos++) drawPosOf[order[pos]] = pos;
   const offsets = [];

@@ -183,6 +183,50 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **🔄 Update rig no longer refused by Setup's own order (the #1942 review).** Live on
+  `main` since #1948 (which stacked on #1942's Layers code) and fixed by #1942: a rig whose Setup
+  drew `upper_arm_l` behind `head` could not be updated after any 🗺 Edit mapping change:
+  the Layers list opens from the rig's slots, goes out as `layers`, and the edited mapping's build
+  held it to the Arm depth control. `updateSheetRig` now builds both mappings in the template's order
+  (`sheetRig` `fitLayers: false`), applies the list to the merged rig only when it changed since the
+  kept mapping AND moves a slot, and holds the order it applies to the depth controls
+  (`slotsAgainstDepth`, on the merged order, so a finger Setup drew behind the head counts) as
+  `layersJudged` says: when the list moves a slot the open rig had, or draws a slot new to it that a
+  depth control steps (a prop worn anew on an arm, refused behind the head as 🦴 Create rig refuses
+  it); a prop worn elsewhere (a badge on the torso) is not judged — so the server keeps the rig's
+  order for any client, and a changed list still meets the control. A slot drawn wrong that the
+  list does not name is worded for Setup's slots ("fix the order in Setup's slots, or leave the
+  Layers as opened"). The dialog's preview sends the open rig (`rig: { slots, layers }`) and
+  `sheetPreview` judges with the same `layersJudged` (on the rig's order with the list applied, then
+  the list itself), else draws the list unjudged in its order, so ◧ Arranged draws what the rig
+  draws and warns of what the update would refuse. Also: one `MAX_LAYERS` (256,
+  `rigTemplateFit.ts`) for `parseRigFit` and `parseSheetMapping`; ↺ Start over's confirm names the
+  Layers; ✕ mid-drag ends the Layers drag (`s2rLayerDragEnd`); the Layers tooltip and the guide say a
+  clip's draw-order keys still draw what they drew, so a new order shows at setup and in clips that
+  key none. `sheet-rig-browser.mjs` gave Setup's ⋮⋮ drag room: the rig panel left the slot list's
+  scroller 9 px tall, so the grip sat in the drag's auto-scroll edge and the drop landed rows off
+  (65/67 every run); it now drags in a 2000 px-tall viewport and checks both points clear the edge
+  first. Guards: `sheet-rig-update.mjs` 163/163 (5 checks, 7 mutants new; each check failed on the
+  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 75/75, 59/59 page mutants (3
+  new; 2 Layers mutants re-anchored on `s2rMapping(st)`'s text, where #1941 had left them
+  unplanted). ⏳ Not live-verified.
+
+- 2026-11-26 — **🗺 From my sheet: a Layers list (#1942; on `main` first with #1948, stacked on
+  it).** The owner could not set which added
+  shape sits in front of which at setup. The dialog's side panel lists every slot the mapping draws
+  in (each mapped part's, each prop's), front at the top: the template's order, each prop over its
+  part (or behind it where the Photoshop layer names say); ⋮⋮ drags a row (mouse, pen, finger),
+  Ctrl+] / [ steps the picked one, Shift all the way; ◧ Arranged draws the new order at once. Kept as
+  `SheetMapping.layers` (sent only while it differs from the template's), carried as `RigFit.order`
+  (`inDrawOrder` in `rigSlotOrder.ts`, ridden by `template.json`); 3D draw-order layers keep their
+  longest run together (`layersTogether`); an order against a depth control (an arm behind the head
+  or the torso) is refused, naming it, and shown under the list. The page and the launcher share one
+  order (`rigSheetMap.ts` `sheetSlotOrder` / `sheetPropPlaces` / `sheetLayerList`, bundled in
+  `vendor/rigger-motion.js`). 🗺 Edit mapping opens the list from the rig's slots; 🔄 Update rig
+  applies it only when changed, through `keepDrawOrders`. A sheet's prop is a real slot, so Setup's ⋮⋮
+  drags it. Design [frame-to-rig §13.1e](../design/frame-to-rig.md). Guards: `sheet-rig.mjs`
+  `layers`, `sheet-rig-update.mjs` `layers`, `sheet-rig-browser.mjs`. ⏳ Not live-verified.
+
 - 2026-11-26 — **＋ New rig starts from scratch (#1927), and its review fixes (#1941, merged).**
   (#1927) 🗺 From my sheet and 🎞 From a Flipbook frame open on the first guess, not the open rig's
   `sheet.json`, the dialog's last state or the clip's newest kept cut; ⇄ Swap sides is no longer
