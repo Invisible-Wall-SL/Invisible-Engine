@@ -7,11 +7,12 @@ import type { RequestHandler } from './$types';
  *
  *   POST /api/pipeline/fix-runs/<id>/result   Authorization: Bearer <GitHub OIDC token>
  *        Content-Type: application/json [Content-Encoding: gzip]   body: FixRunResultBody
- *        → { fixRun, status, outcome, prNumber, spendUsd }
+ *        → { fixRun, status, outcome, prNumber, spendUsd, bugUrl }
  *
  * Authorised as the brief is. The spend is recorded first (once per model), then the first result
  * of a live run is accepted — a second is 409 and opens nothing. The answer carries no reason and
- * no run text: the job's log is public, the bug page is where the reason is read.
+ * no run text: the job's log is public, the bug page (`bugUrl`) is where the reason is read.
+ * A diagnose run (ADR-0014) ends `diagnosed` with its options, or `no_fix`; it opens no pull request.
  */
 export const POST: RequestHandler = async ({ params, request }) =>
 	json(await acceptFixRunResult(request, params.id), { headers: { 'cache-control': 'no-store' } });

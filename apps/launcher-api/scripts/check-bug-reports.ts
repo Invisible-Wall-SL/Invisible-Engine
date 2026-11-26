@@ -681,6 +681,11 @@ check(
 		[listed(kindType).includes('fix_run'), listed(kindCheck).includes('fix_run'), listed(kindType)],
 		[true, true, listed(kindCheck)],
 	);
+	check(
+		'the fix_decision event kind (ADR-0014) is in BugEventKind and in the events CHECK',
+		[listed(kindType).includes('fix_decision'), listed(kindCheck).includes('fix_decision')],
+		[true, true],
+	);
 }
 const stageOf = (id: string) => roles.stageOfTool(id)?.id;
 check(
@@ -861,6 +866,16 @@ check(
 		true,
 		['reported'],
 	],
+);
+check(
+	'report: a bug with no fix runs has no diagnosis to build — latestDiagnosis null, canBuild false (ADR-0014)',
+	[
+		created.body.canBuild,
+		(created.body.fix as Json).latestDiagnosis,
+		(created.body.fix as Json).canBuild,
+		created.body.fixRuns,
+	],
+	[false, null, false, []],
 );
 const secret = await report(ADMIN, {
 	title: 'Secret project crash',

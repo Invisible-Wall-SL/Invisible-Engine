@@ -1,4 +1,5 @@
 import {
+	type AnyPgColumn,
 	bigint,
 	bigserial,
 	boolean,
@@ -15,7 +16,14 @@ import {
 	uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRuns';
+import type {
+	FixRunChoice,
+	FixRunDiagnosis,
+	FixRunMode,
+	FixRunOutcome,
+	FixRunSecondBug,
+	FixRunStatus,
+} from '$lib/bugFixRuns';
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
@@ -1075,7 +1083,8 @@ export type BugEventKind =
 	| 'unlinked'
 	| 'escalated'
 	| 'repair'
-	| 'fix_run';
+	| 'fix_run'
+	| 'fix_decision';
 
 /**
  * A bug's activity, append-only: who did what and when. `actor_id` is null for what the launcher
@@ -1098,7 +1107,7 @@ export const bugReportEvents = pgTable(
 		index('bug_report_events_bug_idx').on(table.bugNumber, table.id),
 		check(
 			'bug_report_events_kind_check',
-			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked', 'escalated', 'repair', 'fix_run')`,
+			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked', 'escalated', 'repair', 'fix_run', 'fix_decision')`,
 		),
 	],
 );
@@ -1164,6 +1173,10 @@ export const bugReportRelations = pgTable(
  * `reason` is the launcher's sentence for how it ended. `result_at` is set when a result is
  * accepted, before its pull request is made: the claim that lets only the first result in and
  * keeps the backstop off a run mid-commit. `started_by` is a snapshot, like a reporter.
+ *
+ * ADR-0014: a run is a `diagnose` run (changes no file; ends `diagnosed` with its options in
+ * `diagnosis`) or a `build` run (a row from before the ADR is one). A build comes from a person
+ * choosing an option of a diagnose run: `parent_run_id` is that run and `chosen_option` the choice.
  */
 export const bugFixRuns = pgTable(
 	'bug_fix_runs',
@@ -1172,6 +1185,7 @@ export const bugFixRuns = pgTable(
 		bugNumber: integer('bug_number')
 			.notNull()
 			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		mode: text('mode').$type<FixRunMode>().notNull().default('build'),
 		status: text('status').$type<FixRunStatus>().notNull().default('dispatched'),
 		outcome: text('outcome').$type<FixRunOutcome>(),
 		/** Main's commit when the run was dispatched: the job checks it out, the change sits on it. */
@@ -1182,6 +1196,9 @@ export const bugFixRuns = pgTable(
 		summary: text('summary'),
 		reason: text('reason'),
 		secondBug: jsonb('second_bug').$type<FixRunSecondBug>(),
+		diagnosis: jsonb('diagnosis').$type<FixRunDiagnosis>(),
+		chosenOption: jsonb('chosen_option').$type<FixRunChoice>(),
+		parentRunId: text('parent_run_id').references((): AnyPgColumn => bugFixRuns.id),
 		/** What the run's result reported, priced; 0 for a run that ended before its brief (it never ran
 		 *  Claude Code); null while none was reported ("spend unknown"). */
 		spendUsd: doublePrecision('spend_usd'),
@@ -1202,11 +1219,12 @@ export const bugFixRuns = pgTable(
 		index('bug_fix_runs_bug_idx').on(table.bugNumber, table.createdAt),
 		check(
 			'bug_fix_runs_status_check',
-			sql`${table.status} in ('dispatched', 'running', 'pr_opened', 'no_fix', 'failed', 'cancelled')`,
+			sql`${table.status} in ('dispatched', 'running', 'diagnosed', 'pr_opened', 'no_fix', 'failed', 'cancelled')`,
 		),
+		check('bug_fix_runs_mode_check', sql`${table.mode} in ('diagnose', 'build')`),
 		check(
 			'bug_fix_runs_outcome_check',
-			sql`${table.outcome} is null or ${table.outcome} in ('fixed', 'not_reproduced', 'needs_person', 'second_area')`,
+			sql`${table.outcome} is null or ${table.outcome} in ('fixed', 'not_reproduced', 'needs_person', 'second_area', 'diagnosed')`,
 		),
 	],
 );

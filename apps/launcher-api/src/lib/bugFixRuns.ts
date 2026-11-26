@@ -16,6 +16,7 @@ import { bugRef, type BugStatus } from '$lib/bugReports';
 export const FIX_RUN_STATUSES = [
 	'dispatched',
 	'running',
+	'diagnosed',
 	'pr_opened',
 	'no_fix',
 	'failed',
@@ -32,12 +33,83 @@ export const LIVE_FIX_RUN_STATUSES = [
 export const isLiveFixRun = (status: FixRunStatus): boolean =>
 	(LIVE_FIX_RUN_STATUSES as readonly string[]).includes(status);
 
-/** What the run concluded, in its own words; `second_area` names a cause outside its area. */
-export const FIX_RUN_OUTCOMES = ['fixed', 'not_reproduced', 'needs_person', 'second_area'] as const;
+/**
+ * What the run concluded, in its own words; `second_area` names a cause outside its area, and
+ * `diagnosed` is a diagnose run that offers options (ADR-0014): never a build run's.
+ */
+export const FIX_RUN_OUTCOMES = [
+	'fixed',
+	'not_reproduced',
+	'needs_person',
+	'second_area',
+	'diagnosed',
+] as const;
 export type FixRunOutcome = (typeof FIX_RUN_OUTCOMES)[number];
 
 export const isFixRunOutcome = (v: unknown): v is FixRunOutcome =>
 	typeof v === 'string' && (FIX_RUN_OUTCOMES as readonly string[]).includes(v);
+
+/**
+ * A run diagnoses or builds (ADR-0014). Start fix always starts a `diagnose` run: it reproduces the
+ * bug and changes no file. A person picks one of its options, which starts a `build` run that may
+ * implement only that option. A row from before ADR-0014 is a build.
+ */
+export const FIX_RUN_MODES = ['diagnose', 'build'] as const;
+export type FixRunMode = (typeof FIX_RUN_MODES)[number];
+
+export const isFixRunMode = (v: unknown): v is FixRunMode =>
+	typeof v === 'string' && (FIX_RUN_MODES as readonly string[]).includes(v);
+
+export const FIX_OPTION_IDS = ['A', 'B', 'C', 'D'] as const;
+export type FixOptionId = (typeof FIX_OPTION_IDS)[number];
+
+export const isFixOptionId = (v: unknown): v is FixOptionId =>
+	typeof v === 'string' && (FIX_OPTION_IDS as readonly string[]).includes(v);
+
+/** One way to settle the bug, as a diagnose run offers it; plain words, never markup. */
+export interface FixRunOption {
+	id: FixOptionId;
+	name: string;
+	/** What it would change, in plain words. */
+	change: string;
+	/** The work involved. */
+	cost: string;
+	/** The risk to current games and tools. */
+	risk: string;
+	/** What the player would notice. */
+	player: string;
+}
+
+/**
+ * What a diagnose run reports (ADR-0014 §1): the run's own untrusted text, cleaned like `summary`
+ * (`cleanText`, directives and private names out) and shown as plain text. `kind` is `defect` when
+ * the code does something wrong and one fix is right, `decision` when reasonable people could pick
+ * differently. One to four options with unique ids, in order.
+ */
+export interface FixRunDiagnosis {
+	reported: string;
+	cause: string;
+	evidence: string;
+	kind: 'defect' | 'decision';
+	options: FixRunOption[];
+	recommendation: { option: FixOptionId; why: string };
+}
+
+/** The option a person chose for a build run, and who chose it and when. */
+export interface FixRunChoice {
+	optionId: FixOptionId;
+	name: string;
+	change: string;
+	note: string | null;
+	decidedBy: string;
+	decidedAt: string;
+}
+
+/** What is kept of a diagnosis's text, in code points. */
+export const DIAGNOSIS_CAPS = { name: 120, why: 1_000, text: 3_000, total: 16_000 } as const;
+export const MAX_OPTIONS = 4;
+/** A person's note on the option they choose. */
+export const MAX_BUILD_NOTE = 1_000;
 
 /** A second bug the run proposes; stored on the run, never filed by it (a triager files it). */
 export interface FixRunSecondBug {
@@ -77,8 +149,13 @@ export const fixRunSpendId = (id: string): string => `fix:${id}`;
 // ── Starting one ──────────────────────────────────────────────────────────────
 
 /** Why Start fix is refused (each a 409 with this code), in the order they are checked. */
-export type FixRunRefusal =
+export type StartRefusal =
 	'bug_closed' | 'pr_open' | 'fix_run_live' | 'too_many_fix_runs' | 'fix_budget_spent';
+
+/** Why building an option is refused, beyond what refuses a start (ADR-0014 §1). */
+export type BuildRefusal = 'not_diagnosed' | 'stale_diagnosis' | 'no_such_option';
+
+export type FixRunRefusal = StartRefusal | BuildRefusal;
 
 /** What the start refusals read: the bug, its links and runs, every live run, and the month. */
 export interface StartFacts {
@@ -95,13 +172,59 @@ export interface StartFacts {
 	monthlyCapUsd: number;
 }
 
-export function startRefusal(f: StartFacts): FixRunRefusal | null {
+export function startRefusal(f: StartFacts): StartRefusal | null {
 	if (f.status !== 'open' && f.status !== 'working') return 'bug_closed';
 	if (f.openPr !== null) return 'pr_open';
 	if (f.liveRun !== null) return 'fix_run_live';
 	if (f.liveTotal >= f.maxLive) return 'too_many_fix_runs';
 	if (f.monthSpendUsd >= f.monthlyCapUsd) return 'fix_budget_spent';
 	return null;
+}
+
+/** The run a build is asked to come from, as the refusals read it. */
+export interface BuildParent {
+	id: string;
+	bugNumber: number;
+	mode: FixRunMode;
+	status: FixRunStatus;
+	diagnosis: FixRunDiagnosis | null;
+}
+
+/**
+ * The first reason `optionId` cannot be built from `parent` on bug `number`: the run is not a
+ * finished diagnose run of this bug, a newer diagnose run of the bug exists (`latestDiagnoseId`),
+ * or the diagnosis has no such option. Checked before the start refusals.
+ */
+export function buildRefusal(
+	number: number,
+	parent: BuildParent | null,
+	latestDiagnoseId: string | null,
+	optionId: unknown,
+): BuildRefusal | null {
+	if (
+		!parent ||
+		parent.bugNumber !== number ||
+		parent.mode !== 'diagnose' ||
+		parent.status !== 'diagnosed' ||
+		!parent.diagnosis
+	) {
+		return 'not_diagnosed';
+	}
+	if (latestDiagnoseId !== parent.id) return 'stale_diagnosis';
+	if (!parent.diagnosis.options.some((o) => o.id === optionId)) return 'no_such_option';
+	return null;
+}
+
+/**
+ * The bug's current diagnosis: its newest diagnose run, when that one ended `diagnosed`. A newer
+ * diagnose run that is live, failed or found nothing makes an older diagnosis stale. `runs` are
+ * newest first.
+ */
+export function latestDiagnosisOf<T extends { mode: FixRunMode; status: FixRunStatus }>(
+	runs: T[],
+): T | null {
+	const newest = runs.find((r) => r.mode === 'diagnose');
+	return newest?.status === 'diagnosed' ? newest : null;
 }
 
 /** The first instant of `nowMs`'s calendar month in UTC: the monthly ceiling's window. */
@@ -120,10 +243,26 @@ export interface FixFacts {
 	may: boolean;
 	ready: boolean;
 	refusal: { code: FixRunRefusal; message: string } | null;
+	/**
+	 * The bug's current diagnosis (`latestDiagnosisOf`): the newest `diagnosed` diagnose run, null
+	 * when a newer diagnose run exists or there is none. Everyone who sees the bug sees it.
+	 */
+	latestDiagnosis: FixRunView | null;
+	/**
+	 * The viewer may build one of its options now: `may`, `ready`, no start refusal, and a current
+	 * diagnosis. A bug with a live run, an open pull request or a closed status has none.
+	 */
+	canBuild: boolean;
 }
 
 /** A page where nothing can be started: a game bug, or a viewer without the pair. */
-export const NO_FIX: FixFacts = { may: false, ready: false, refusal: null };
+export const NO_FIX: FixFacts = {
+	may: false,
+	ready: false,
+	refusal: null,
+	latestDiagnosis: null,
+	canBuild: false,
+};
 
 const usd = (n: number): string => `$${n.toFixed(2)}`;
 
@@ -139,6 +278,12 @@ export function refusalMessage(code: FixRunRefusal, number: number, f: StartFact
 			return `${f.liveTotal} fix run${f.liveTotal === 1 ? ' is' : 's are'} going already, the most at once (Admin › Settings). Start this one when one ends.`;
 		case 'fix_budget_spent':
 			return `Fix runs have spent ${usd(f.monthSpendUsd)} of this month's ${usd(f.monthlyCapUsd)} (Admin › Settings). New fix runs start next month.`;
+		case 'not_diagnosed':
+			return `That is not a finished diagnosis of ${bugRef(number)}.`;
+		case 'stale_diagnosis':
+			return `${bugRef(number)} has a newer diagnosis. Choose from that one.`;
+		case 'no_such_option':
+			return 'That diagnosis has no such option.';
 	}
 }
 
@@ -158,6 +303,8 @@ export const FIX_RUN_REASONS = {
 	stoppedMidPr: 'The launcher stopped while opening the pull request.',
 	launcherFailed: 'The launcher failed while opening the pull request.',
 	bugClosed: 'The bug was closed while the run was going.',
+	diagnoseChangedFiles: 'A diagnose run changed files; nothing was kept.',
+	noDiagnosis: 'The run did not explain its diagnosis.',
 } as const;
 
 /** A stored reason is at most this many characters: GitHub's messages can run long. */
@@ -222,6 +369,8 @@ export interface FixRunResultBody {
 	lesson: string;
 	gates: { command: string; ok: boolean }[];
 	secondBug?: FixRunSecondBug;
+	/** A diagnose run's outcome `diagnosed` carries it; a build run's never does. */
+	diagnosis?: FixRunDiagnosis;
 	files: FixRunFile[];
 	usage: FixRunUsage[];
 }
@@ -231,6 +380,7 @@ export interface FixRunResultBody {
 /** The fields of a stored run a page's view is made from (`bug_fix_runs`). */
 export interface FixRunRecord {
 	id: string;
+	mode: FixRunMode;
 	status: FixRunStatus;
 	outcome: FixRunOutcome | null;
 	ghRunId: number | null;
@@ -239,6 +389,9 @@ export interface FixRunRecord {
 	reason: string | null;
 	summary: string | null;
 	secondBug: FixRunSecondBug | null;
+	diagnosis: FixRunDiagnosis | null;
+	chosenOption: FixRunChoice | null;
+	parentRunId: string | null;
 	spendUsd: number | null;
 	startedBy: string;
 	resultAt: Date | null;
@@ -249,6 +402,8 @@ export interface FixRunRecord {
 /** One fix run as a bug page shows it. The run's words are text, never HTML. */
 export interface FixRunView {
 	id: string;
+	/** `diagnose` or `build`; an event of a run from before ADR-0014 names no mode, and is a build. */
+	mode: FixRunMode;
 	status: FixRunStatus;
 	outcome: FixRunOutcome | null;
 	prNumber: number | null;
@@ -258,6 +413,12 @@ export interface FixRunView {
 	reason: string | null;
 	summary: string | null;
 	secondBug: FixRunSecondBug | null;
+	/** A diagnose run that ended `diagnosed`: its options and recommendation. Plain text. */
+	diagnosis: FixRunDiagnosis | null;
+	/** A build run: the option a person chose, who and when, and their note. */
+	chosenOption: FixRunChoice | null;
+	/** A build run: the diagnose run it came from. */
+	parentRunId: string | null;
 	/** Null: no result reported, so the spend is unknown. */
 	spendUsd: number | null;
 	startedBy: string;
@@ -271,6 +432,7 @@ export function fixRunView(run: FixRunRecord, repo: string, mayAct: boolean): Fi
 	const github = `https://github.com/${repo}`;
 	return {
 		id: run.id,
+		mode: run.mode,
 		status: run.status,
 		outcome: run.outcome,
 		prNumber: run.prNumber,
@@ -280,6 +442,9 @@ export function fixRunView(run: FixRunRecord, repo: string, mayAct: boolean): Fi
 		reason: run.reason,
 		summary: run.summary,
 		secondBug: run.secondBug,
+		diagnosis: run.diagnosis,
+		chosenOption: run.chosenOption,
+		parentRunId: run.parentRunId,
 		spendUsd: run.spendUsd,
 		startedBy: run.startedBy,
 		createdAt: run.createdAt.toISOString(),

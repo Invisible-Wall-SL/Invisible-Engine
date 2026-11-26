@@ -42,13 +42,16 @@ export const DIRECTOR_PENDING_MOCKUP_DAYS_MAX = 365;
 /**
  * Settings keys for fix runs on pipeline bugs (ADR-0013). Launcher-only: the launcher hands the
  * per-run cap to the job with its brief, and refuses a start past the other two.
- *  - `PIPELINE_FIX_BUDGET_USD`: one run's cap, bounded like a Director run's;
+ *  - `PIPELINE_FIX_BUDGET_USD`: one build run's cap, bounded like a Director run's;
+ *  - `PIPELINE_DIAGNOSE_BUDGET_USD`: one diagnose run's cap (ADR-0014), bounded the same way;
  *  - `PIPELINE_FIX_MONTHLY_USD`: the calendar month's (UTC) ceiling on fix-run spend — it refuses
  *    new starts, never stops a live run;
  *  - `PIPELINE_FIX_MAX_LIVE`: how many runs may be live at once, over every bug.
  */
 export const PIPELINE_FIX_BUDGET_KEY = 'PIPELINE_FIX_BUDGET_USD';
 export const PIPELINE_FIX_BUDGET_DEFAULT_USD = 15;
+export const PIPELINE_DIAGNOSE_BUDGET_KEY = 'PIPELINE_DIAGNOSE_BUDGET_USD';
+export const PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD = 5;
 export const PIPELINE_FIX_MONTHLY_KEY = 'PIPELINE_FIX_MONTHLY_USD';
 export const PIPELINE_FIX_MONTHLY_DEFAULT_USD = 150;
 export const PIPELINE_FIX_MONTHLY_MIN_USD = 1;
@@ -255,6 +258,15 @@ export function getPipelineFixBudget(): Promise<number> {
 		PIPELINE_FIX_BUDGET_KEY,
 		(raw) => budgetFromSetting(raw, PIPELINE_FIX_BUDGET_DEFAULT_USD),
 		PIPELINE_FIX_BUDGET_DEFAULT_USD,
+	);
+}
+
+/** One diagnose run's cap in USD ({@link PIPELINE_DIAGNOSE_BUDGET_KEY}), clamped the same way. */
+export function getPipelineDiagnoseBudget(): Promise<number> {
+	return fixRunSetting(
+		PIPELINE_DIAGNOSE_BUDGET_KEY,
+		(raw) => budgetFromSetting(raw, PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD),
+		PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD,
 	);
 }
 

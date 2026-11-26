@@ -109,6 +109,27 @@ server module, routes, page components, triage, screenshots, the pull-request li
     `tsx` runs through its loader in the sandbox (`tsx-shim.mjs`). Step 5 refuses a change that
     copies the brief or a screenshot. Proved on the pinned CLI with a scripted fake model
     (`bug-fix-proof.yml`, `prove-cli.mjs`); pinned offline by `pnpm check:bug-fix-workflow`.
+  - **Diagnose, then build (ADR-0014, card 14A server side; the UI is the next card).** **Start fix**
+    always starts a **diagnose** run: it triages and reproduces, changes no file and ends
+    `diagnosed` with a `diagnosis` (what was reported, the cause and evidence, `defect` or
+    `decision`, one to four options with cost, risk and what the player notices, and a
+    recommendation). A person with the pair picks an option with
+    `POST /api/bugs/<n>/fix-runs/<diagnoseRunId>/build { optionId, note?, requestId }`, which stores
+    a **build** run (`parent_run_id`, `chosen_option`) and a `fix_decision` event in one transaction
+    and dispatches it. A build implements only that option and ends `needs_person` when it cannot.
+    There is no auto-build. Refusals: Start's, plus `not_diagnosed`, `stale_diagnosis` (a newer
+    diagnose run exists) and `no_such_option`. A diagnose run that leaves a file ends `no_fix`
+    `needs_person` ("A diagnose run changed files; nothing was kept."); one with no whole diagnosis
+    ends `no_fix` ("The run did not explain its diagnosis."). Caps: `PIPELINE_DIAGNOSE_BUDGET_USD`
+    ($5, Admin › Settings) for a diagnose run, `PIPELINE_FIX_BUDGET_USD` for a build; both count
+    toward the month. The brief carries `mode`, and for a build the `decision` and the parent
+    `diagnosis`; `collect.mjs` writes them as `decision.md` / `diagnosis.md` and renders the prompt
+    for the mode (`coordinator.md` holds both, between `<!-- mode: … -->` markers). Page data:
+    every fix run carries `mode`, `diagnosis`, `chosenOption`, `parentRunId`; `FixFacts` (and
+    `FixTab.byBug`) carry `latestDiagnosis` and `canBuild`. **Left (14B/14C):** the required
+    plain-language sections of a build's PR, the Pipeline Changes card, the Mark-ready check against
+    the decision, the UI, and the run's display name (`Fix run <id>` is still pinned by the
+    launcher's binding).
   - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
     One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).
     `reason` holds the launcher's own sentence and `summary` the run's words. `result_at` is the
@@ -226,6 +247,21 @@ server module, routes, page components, triage, screenshots, the pull-request li
    live runs have now exercised that SQL, but a two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-26 — **Fix runs diagnose before they build (ADR-0014 card 14A, server, prompt and
+  workflow side).** Migration `0048_fix_run_diagnose`: `bug_fix_runs.mode` (default `build`),
+  `diagnosis`, `chosen_option`, `parent_run_id`; status and outcome `diagnosed`; the
+  `fix_decision` event kind. `startFixRun` starts a diagnose run, `buildFixRun` (new route
+  `…/fix-runs/<id>/build`) a build; `settleDiagnosis` stores or refuses the diagnosis (readDiagnosis,
+  cleanDiagnosis, caps 120/1000/3000, 16000 in all, secret and privacy scans, files refused).
+  `PIPELINE_DIAGNOSE_BUDGET_USD` ($5). The result answer gains `bugUrl`, which `collect.mjs` adds to
+  its one log line when it is the launcher's own `/bugs?bug=<n>`. `check:bug-fix-workflow` gains the
+  `diagnose-mode` rule (outcomes, statuses, caps and the two sentences pinned prompt ↔ launcher) and
+  a mutant per word; `check:bug-fix-runs` and `check:bug-reports` cover the new paths (155 and 144
+  checks). `prove-cli.mjs` is unchanged: its run.json names no mode, which is a build.
+  **Open:** `fixView.ts` (a status switch lacks `diagnosed`) and `pipeline/BugsPanel.svelte` (its
+  fallback `FixFacts` lacks `latestDiagnosis`, `canBuild`) show as two new svelte-check errors until
+  the UI card lands.
 
 - 2026-11-11 — **The CLI proof's Edit control moved off a file the deny list now refuses.**
   `prove-cli.mjs`'s positive control (a source file a fix run may edit) was
