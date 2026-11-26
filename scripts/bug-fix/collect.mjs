@@ -574,13 +574,21 @@ function readPlain(workspaceReal, path, limit) {
 	}
 }
 
-/** A changed file's text, which must be UTF-8. */
-function textOf(bytes) {
+/** A path as this job may print it: the log is public and reads `::` commands, so only a plain
+ *  printable-ASCII path is shown. */
+const shown = (path) => (/^[!-~]{1,300}$/.test(path) ? path : 'a path outside printable ASCII');
+
+/** A changed file's text, which must be UTF-8 with no NUL: a NUL means a binary file. */
+function textOf(bytes, path) {
+	let text;
 	try {
-		return decoder.decode(bytes);
+		text = decoder.decode(bytes);
 	} catch {
-		return fail('A changed file is not UTF-8 text.');
+		return fail(`A changed file is not UTF-8 text: ${shown(path)}.`);
 	}
+	if (text.includes('\u0000'))
+		fail(`A changed file holds a NUL byte (a binary file): ${shown(path)}.`);
+	return text;
 }
 
 /**
@@ -618,7 +626,7 @@ export function collectChange(main, workspace) {
 		files.push({
 			path,
 			...(after.mode !== mode ? { mode: after.mode } : {}),
-			content: textOf(after.bytes),
+			content: textOf(after.bytes, path),
 		});
 	}
 	const known = new Set(tracked.map((t) => t.path));
@@ -646,7 +654,7 @@ export function collectChange(main, workspace) {
 		files.push({
 			path,
 			...(after.mode === '100755' ? { mode: '100755' } : {}),
-			content: textOf(after.bytes),
+			content: textOf(after.bytes, path),
 		});
 	}
 	return files.sort((a, b) => (a.path < b.path ? -1 : 1));

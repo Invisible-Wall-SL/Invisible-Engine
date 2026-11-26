@@ -50,7 +50,9 @@ function switchOf(r: PerfReportListItem): string | null {
 }
 
 const drawsOf = (r: PerfReportListItem, phase: string): number | null =>
-	phase === 'idle' || phase === 'spinning' ? (r.counts?.[phase]?.draws ?? null) : null;
+	phase === 'idle' || phase === 'spinning' || phase === 'menu' || phase === 'play'
+		? (r.counts?.[phase]?.draws ?? null)
+		: null;
 
 export const featureCost: Rule = (ctx) => {
 	const out: Finding[] = [];

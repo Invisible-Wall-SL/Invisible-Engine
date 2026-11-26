@@ -15,11 +15,16 @@
  * or inserted and removed 300 DOM nodes or more, is `churn` (just under either, not), unless
  * particles or rigs lead its JS; heavy churn under 40% of the interval is not; the reason names the
  * totals and the kind most of it was. Spikes count in their phase, a round's apart.
+ * Arcade: the sim leading the JS is `sim catch-up` over several steps and `sim` over one (under
+ * 40% of the JS, not named); 12 bodies spawned and despawned is a `spawn burst` before churn (11 is
+ * not); texture data under first use's line while the camera moved is `tilemap/upload` (camera
+ * still, not); room messages over 40% of the interval counted by the frame itself are a `state
+ * patch` (counted by the frame before, not); a slot frame is classified as before; records keep the
+ * arcade counts; an arcade recorder counts `menu` and `play` and flags a play record.
  */
 
-import type { FrameWork } from 'pixi-svelte';
-
 import {
+	PHASE_SETS,
 	SPIKE_RULES,
 	classifySpike,
 	compactFrame,
@@ -28,6 +33,7 @@ import {
 	spikeThresholdMs,
 	stateLabel,
 	topCause,
+	type PerfFrameWork,
 } from './perfSpikes';
 import { createPerfStats } from './perfStats';
 
@@ -40,7 +46,7 @@ const check = (label: string, ok: boolean, detail = ''): void => {
 	}
 };
 
-const work = (over: Partial<FrameWork> = {}): FrameWork => ({
+const work = (over: Partial<PerfFrameWork> = {}): PerfFrameWork => ({
 	calls: 200,
 	draws: 40,
 	vertices: 4000,
@@ -139,7 +145,7 @@ const drive = (ms: number, count: number, tail: number[]) => {
 }
 
 console.log('causes');
-const cause = (intervalMs: number, prev: FrameWork, cur?: FrameWork, heapDropMb?: number) =>
+const cause = (intervalMs: number, prev: PerfFrameWork, cur?: PerfFrameWork, heapDropMb?: number) =>
 	classifySpike({ intervalMs, prev, cur, heapDropMb });
 {
 	const c = cause(80, work({ compiles: 3 }));
@@ -212,7 +218,7 @@ console.log('records');
 		s.records.length === 1 && s.records[0].cause === 'particles' && !s.records[0].cur,
 		JSON.stringify(s.records),
 	);
-	check('…and counts in the summary already', s.causes.spinning.particles === 1);
+	check('…and counts in the summary already', s.causes.spinning?.particles === 1);
 	rec.work(work({ particleMs: 0.3 }));
 	s = rec.snapshot(41.7);
 	check(
@@ -220,7 +226,7 @@ console.log('records');
 		s.records[0].cur?.particleMs === 0.3 && s.records[0].prev.particles === 3200,
 		JSON.stringify(s.records[0]),
 	);
-	check('a spinning spike counts under spinning', s.causes.spinning.particles === 1);
+	check('a spinning spike counts under spinning', s.causes.spinning?.particles === 1);
 
 	const quiet = createSpikeRecorder();
 	quiet.work(light);
@@ -247,8 +253,8 @@ console.log('records');
 	}
 	rec.work(light);
 	const s = rec.snapshot(41.7);
-	const total = Object.values(s.causes.idle).reduce((a, b) => a + (b ?? 0), 0);
-	const spun = Object.values(s.causes.spinning).reduce((a, b) => a + (b ?? 0), 0);
+	const total = Object.values(s.causes.idle ?? {}).reduce((a, b) => a + (b ?? 0), 0);
+	const spun = Object.values(s.causes.spinning ?? {}).reduce((a, b) => a + (b ?? 0), 0);
 	check(
 		`only the latest ${SPIKE_RULES.keep} records are kept`,
 		s.records.length === 30 && s.records[0].at === 10,
@@ -312,7 +318,7 @@ console.log('churn');
 {
 	// 80 ms; JS 64 (80%): page 50 outside the tick, tick 14 (render 6).
 	const js = { lateMs: 40, tickMs: 14, renderMs: 6, afterMs: 5, jsMs: 64 };
-	const built = (created: number, destroyed: number, over: Partial<FrameWork> = {}) =>
+	const built = (created: number, destroyed: number, over: Partial<PerfFrameWork> = {}) =>
 		work({
 			...js,
 			created,
@@ -374,9 +380,9 @@ console.log('phases');
 	const s = rec.snapshot(41.7);
 	check(
 		'a spike counts in its phase, a round apart from idle and spinning',
-		s.causes.round['outside the game'] === 1 &&
-			s.causes.spinning['outside the game'] === 1 &&
-			s.causes.idle['outside the game'] === 1,
+		s.causes.round?.['outside the game'] === 1 &&
+			s.causes.spinning?.['outside the game'] === 1 &&
+			s.causes.idle?.['outside the game'] === 1,
 		JSON.stringify(s.causes),
 	);
 	check(
@@ -385,6 +391,104 @@ console.log('phases');
 		JSON.stringify(s.records.map((r) => [r.spin, r.round])),
 	);
 	check('the most common cause counts every phase', topCause(s.causes)?.[1] === 3);
+}
+
+console.log('arcade causes');
+{
+	const at = (prev: PerfFrameWork, cur?: PerfFrameWork, intervalMs = 100) =>
+		classifySpike({ intervalMs, prev, cur });
+	// A frame whose JS took the spike, and how much of it the sim was.
+	const simFrame = (steps: number, simMs: number) =>
+		work({ jsMs: 80, tickMs: 78, renderMs: 10, simSteps: steps, simMs, bodies: 40 });
+	const catchUp = at(simFrame(4, 50));
+	check(
+		'the sim leading the JS over several steps is sim catch-up',
+		catchUp.cause === 'sim catch-up' && catchUp.why.includes('4 steps'),
+		JSON.stringify(catchUp),
+	);
+	check('one step leading it is sim', at(simFrame(1, 50)).cause === 'sim');
+	check(
+		'a sim under 40% of the JS is not named',
+		at(simFrame(4, 20)).cause === 'game code',
+		JSON.stringify(at(simFrame(4, 20))),
+	);
+	const burst = at(
+		work({
+			jsMs: 80,
+			tickMs: 70,
+			renderMs: 20,
+			spawns: 10,
+			despawns: 2,
+			created: 70,
+			createdSprites: 70,
+		}),
+	);
+	check(
+		'12 bodies spawned and despawned in a JS-heavy frame is a spawn burst, before churn',
+		burst.cause === 'spawn burst' && burst.why.includes('10 bodies spawned'),
+		JSON.stringify(burst),
+	);
+	check(
+		'11 is not',
+		at(work({ jsMs: 80, tickMs: 70, renderMs: 20, spawns: 9, despawns: 2 })).cause === 'game code',
+	);
+	const upload = at(
+		work({
+			jsMs: 80,
+			tickMs: 75,
+			renderMs: 60,
+			textureUploads: 3,
+			uploadBytes: 400e3,
+			cameraPx: 14,
+		}),
+	);
+	check(
+		'texture data under first use’s line while the camera moved is tilemap/upload',
+		upload.cause === 'tilemap/upload' && upload.why.includes('400 KB'),
+		JSON.stringify(upload),
+	);
+	check(
+		'the same upload with the camera still is not',
+		at(work({ jsMs: 80, tickMs: 75, renderMs: 60, textureUploads: 3, uploadBytes: 400e3 }))
+			.cause === 'game code',
+	);
+	const patch = at(light, work({ netMs: 45, patches: 3, patchBytes: 9000 }));
+	check(
+		'room messages over 40% of the interval, counted by the frame itself, are a state patch',
+		patch.cause === 'state patch' && patch.why.includes('3 states'),
+		JSON.stringify(patch),
+	);
+	check(
+		'the same messages counted by the frame before are not (they fell before the interval)',
+		at(work({ netMs: 45, patches: 3 }), light).cause === 'outside the game',
+	);
+	check(
+		'a slot frame (no arcade counts) is classified as before',
+		at(work({ jsMs: 80, tickMs: 78, renderMs: 10 })).cause === 'game code' &&
+			at(light, light).cause === 'outside the game',
+	);
+	check(
+		'a record keeps the arcade counts, zeros left out',
+		JSON.stringify(
+			compactFrame(work({ simSteps: 2, simMs: 3.04, bodies: 0, patchBytes: 300 })),
+		).includes('"steps":2,"simMs":3,"patchBytes":300'),
+		JSON.stringify(compactFrame(work({ simSteps: 2, simMs: 3.04, bodies: 0, patchBytes: 300 }))),
+	);
+	const rec = createSpikeRecorder(PHASE_SETS.arcade);
+	rec.work(light);
+	rec.frame(2000, 70, 41.7, 'play', undefined, 1);
+	rec.work(light);
+	rec.frame(2100, 70, 41.7, 'menu', undefined, 2);
+	rec.work(light);
+	const s = rec.snapshot(41.7);
+	check(
+		'an arcade recorder counts menu and play, and a play record says so',
+		JSON.stringify(Object.keys(s.causes)) === '["menu","play"]' &&
+			s.causes.play?.['outside the game'] === 1 &&
+			s.records[0].play === true &&
+			!s.records[1].play,
+		JSON.stringify(s),
+	);
 }
 
 if (failures) throw new Error(`perfSpikes.fixture: ${failures} FAILED`);

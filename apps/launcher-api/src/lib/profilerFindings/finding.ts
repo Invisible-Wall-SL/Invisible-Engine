@@ -5,9 +5,16 @@
  */
 
 import type { PerfReportListItem } from '../profiler';
-import type { EffectiveBudget } from '../profilerBudgets';
+import { MIN_PHASE_FRAMES, type EffectiveBudget } from '../profilerBudgets';
 import { readingOnBuild, type PerfBuildListItem } from '../profilerBuilds';
-import type { BuildFacts, ReportFacts } from './facts';
+import type {
+	ArcadeFacts,
+	ArcadePhaseFact,
+	ArcadeWorkKey,
+	BuildFacts,
+	MeanMax,
+	ReportFacts,
+} from './facts';
 
 export const FINDING_RULES = [
 	'fpsBelowBudget',
@@ -18,6 +25,10 @@ export const FINDING_RULES = [
 	'unusedBytes',
 	'optimizeOff',
 	'regression',
+	'simCatchUp',
+	'spawnChurn',
+	'bodyCost',
+	'patchStutter',
 ] as const;
 export type FindingRule = (typeof FINDING_RULES)[number];
 
@@ -30,6 +41,10 @@ export const RULE_TITLES: Record<FindingRule, string> = {
 	unusedBytes: 'Unused bytes',
 	optimizeOff: 'Optimize off',
 	regression: 'Regression',
+	simCatchUp: 'Sim catch-up',
+	spawnChurn: 'Spawn churn',
+	bodyCost: 'Cost per body',
+	patchStutter: 'Patch / jitter stutter',
 };
 
 /** `high`: a budget fails; `medium`: a warn, or a cost worth cutting; `low`: worth knowing. */
@@ -288,4 +303,39 @@ export function factsOf(ctx: FindingContext, r: PerfReportListItem): ReportFacts
 export function buildFactsOf(ctx: FindingContext, b: PerfBuildListItem): BuildFacts | null {
 	const f = ctx.buildFacts.get(b.id);
 	return f && !f.missing ? f : null;
+}
+
+/** An arcade reading in play, with what its sim and room did. */
+export interface ArcadePlay {
+	r: PerfReportListItem;
+	arcade: ArcadeFacts;
+	play: ArcadePhaseFact;
+}
+
+/**
+ * What the arcade rules judge: per game and device, the as-shipped arcade readings of the current
+ * build with at least {@link MIN_PHASE_FRAMES} play frames and their arcade facts. Never a lab run.
+ */
+export function arcadePlayGroups(ctx: FindingContext): Map<string, ArcadePlay[]> {
+	const plays = currentReadings(fpsReadings(ctx.readings), ctx.builds).flatMap(
+		(r): ArcadePlay[] => {
+			const arcade = factsOf(ctx, r)?.arcade;
+			if (!arcade?.play || r.phaseSet !== 'arcade' || Object.keys(r.flags).length) return [];
+			return (r.play?.frames ?? 0) >= MIN_PHASE_FRAMES ? [{ r, arcade, play: arcade.play }] : [];
+		},
+	);
+	return groupBy(plays, (x) => `${x.r.gameKey ?? ''}|${deviceOf(x.r)}`);
+}
+
+/** The median over a group of one work key's per-frame mean; null when no reading reports it. */
+export const workMean = (group: readonly ArcadePlay[], key: ArcadeWorkKey): number | null =>
+	median(group.map((x) => x.play.work[key]?.mean).filter((v): v is number => v !== undefined));
+
+/** The largest per-frame value of one work key over a group; null when no reading reports it. */
+export function workMax(group: readonly ArcadePlay[], key: ArcadeWorkKey): number | null {
+	const maxes = group
+		.map((x) => x.play.work[key])
+		.filter((v): v is MeanMax => !!v)
+		.map((v) => v.max);
+	return maxes.length ? Math.max(...maxes) : null;
 }

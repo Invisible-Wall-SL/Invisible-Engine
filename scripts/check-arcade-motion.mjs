@@ -346,6 +346,21 @@ check('broad phase: a body spanning many cells is paired once', () => {
 	assert.equal(new Set(hitIds(grid)).size, grid.length);
 });
 
+check('overlaps: a counts sink adds the candidate pairs tested and changes no hit', () => {
+	for (const n of [12, BROAD_PHASE_ABOVE, BROAD_PHASE_ABOVE + 1, 300]) {
+		const bodies = crowd(n, `k${n}`);
+		const counts = { pairs: 0 };
+		const counted = overlaps(bodies, PAIRS, undefined, counts);
+		assert.deepEqual(hitIds(counted), hitIds(overlaps(bodies, PAIRS)), `${n}`);
+		const every = (n * (n - 1)) / 2;
+		if (n <= BROAD_PHASE_ABOVE) assert.equal(counts.pairs, every, `${n}: every pair`);
+		else assert.ok(counts.pairs > 0 && counts.pairs < every, `${n}: the grid's candidates`);
+		const first = counts.pairs;
+		overlaps(bodies, PAIRS, { broadPhaseAbove: Infinity }, counts);
+		assert.equal(counts.pairs, first + every, `${n}: added, not set`);
+	}
+});
+
 // --- static shapes: zones and the grid index ----------------------------------------------------
 
 check('zones: inZone for a box and a circle; zonesOf lists them in index order', () => {

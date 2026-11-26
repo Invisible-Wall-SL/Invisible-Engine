@@ -36,9 +36,25 @@
  * Chrome's long tasks (≥ 50 ms of the main thread, a long frame included) that overlap the interval
  * are given beside, as a check: a long task over most of the interval with little JS or browser time
  * seen means the main thread was busy before the frame's callbacks began.
+ *
+ * AN ARCADE FRAME (`arcadePerf.ts`'s counts beside the renderer's) has causes of its own, each read
+ * only off counts a slot frame never has, so a slot spike is classified exactly as before:
+ * - in rule 2, the fixed sim steps are a part of the JS of their own (`simMs`, inside the tick):
+ *   `sim catch-up` when they lead and `prev` ran more than one step (a long frame's backlog run
+ *   at once, the arcade spiral), else `sim`; then `spawn burst` when `prev` spawned and despawned
+ *   many bodies, and `tilemap/upload` when it uploaded texture data (under first use's line) while
+ *   the camera moved — the next ground and scenery coming into view — both before `churn`;
+ * - before rule 3, `state patch`: the room's messages, handled in their own WebSocket task between
+ *   frames, took ≥ 40% of the interval. They were counted by the frame itself (`cur`), whose
+ *   interval they fell in.
  */
 
 import type { FrameWork } from 'pixi-svelte';
+
+import type { ArcadeFrameWork, ArcadePhase } from './arcadePerf';
+
+/** A frame's work: the renderer's counts, and an arcade frame's own (`arcadePerf.ts`). */
+export type PerfFrameWork = FrameWork & Partial<ArcadeFrameWork>;
 
 export const SPIKE_RULES = {
 	/** A spike is longer than this and than `periods` display frames. */
@@ -64,15 +80,26 @@ export const SPIKE_RULES = {
 	churnDomNodes: 300,
 	/** Long tasks remembered, to measure their overlap with the kept spikes. */
 	longTasks: 200,
+	/** Spawn burst: the frame spawned and despawned at least this many bodies. */
+	spawnBurst: 12,
+	/** Tilemap/upload: more texture data than this uploaded by a frame whose camera moved, bytes. */
+	tilemapUploadBytes: 64e3,
+	/** State patch: the room's messages took at least this share of the interval. */
+	netShare: 0.4,
 } as const;
 
 export const SPIKE_CAUSES = [
 	'first use',
 	'particles',
 	'rigs',
+	'sim catch-up',
+	'sim',
+	'spawn burst',
+	'tilemap/upload',
 	'churn',
 	'page JS',
 	'game code',
+	'state patch',
 	'GC (likely)',
 	'outside the game',
 	'mixed',
@@ -83,12 +110,21 @@ export type SpikeCause = (typeof SPIKE_CAUSES)[number];
 export type SpikeCauseCounts = Partial<Record<SpikeCause, number>>;
 
 /**
- * Where a frame was: `spinning` (a reel moving), `round` (in a round with every reel at rest: the
- * win presentation, a feature's screens and banners) or `idle`.
+ * Where a slot frame was: `spinning` (a reel moving), `round` (in a round with every reel at rest:
+ * the win presentation, a feature's screens and banners) or `idle`.
  */
-export type PerfPhase = 'idle' | 'spinning' | 'round';
+export type SlotPhase = 'idle' | 'spinning' | 'round';
 
-export const PERF_PHASES = ['idle', 'spinning', 'round'] as const satisfies readonly PerfPhase[];
+/** Where a frame was: a slot's phases, or an arcade game's (`menu`, `play`: `arcadePerf.ts`). */
+export type PerfPhase = SlotPhase | ArcadePhase;
+
+/** The phases a reading is split into, by the game's family: an arcade game's, else a slot's. */
+export const PHASE_SETS = {
+	slot: ['idle', 'spinning', 'round'],
+	arcade: ['menu', 'play'],
+} as const satisfies Record<string, readonly PerfPhase[]>;
+
+export type PhaseSet = keyof typeof PHASE_SETS;
 
 /** A frame's work in the records: ms to 0.1, upload in KB, zero fields left out. */
 export type SpikeFrame = Partial<Record<(typeof COMPACT)[number][1], number>>;
@@ -101,6 +137,8 @@ export type SpikeRecord = {
 	spin?: true;
 	/** In a round with the reels at rest. */
 	round?: true;
+	/** An arcade game's field playing (a menu frame has no flag). */
+	play?: true;
 	/** The game's state machine at the frame. */
 	state?: string;
 	cause: SpikeCause;
@@ -120,7 +158,8 @@ export type SpikeSummary = {
 	/** Frames longer than this are spikes, ms. */
 	overMs: number;
 	records: SpikeRecord[];
-	causes: Record<PerfPhase, SpikeCauseCounts>;
+	/** Per phase of the reading's set. */
+	causes: Partial<Record<PerfPhase, SpikeCauseCounts>>;
 };
 
 /** [`FrameWork` key, record key, kept as a whole number]. */
@@ -150,7 +189,19 @@ const COMPACT = [
 	['textMs', 'textMs', false],
 	['domAdded', 'domAdded', true],
 	['domRemoved', 'domRemoved', true],
-] as const satisfies readonly (readonly [keyof FrameWork, string, boolean])[];
+	['simSteps', 'steps', true],
+	['simMs', 'simMs', false],
+	['simDroppedMs', 'droppedMs', false],
+	['bodies', 'bodies', true],
+	['pairs', 'pairs', true],
+	['spawns', 'spawns', true],
+	['despawns', 'despawns', true],
+	['looks', 'looks', true],
+	['cameraPx', 'cameraPx', false],
+	['netMs', 'netMs', false],
+	['patches', 'patches', true],
+	['patchBytes', 'patchBytes', true],
+] as const satisfies readonly (readonly [keyof PerfFrameWork, string, boolean])[];
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const pct = (part: number, of: number) => `${Math.round((part / of) * 100)}%`;
@@ -168,16 +219,19 @@ export const spikeThresholdMs = (periodMs: number): number =>
 
 /**
  * A frame's JS in parts that add up to it, and the main thread's time outside it. Rigs update on
- * Pixi's shared ticker, outside the app's tick, and rebuild their meshes inside its render.
+ * Pixi's shared ticker, outside the app's tick, and rebuild their meshes inside its render; an
+ * arcade game's fixed steps run in the app's tick (`ArcadeStage.svelte`).
  */
-export function spikeParts(w: FrameWork) {
+export function spikeParts(w: PerfFrameWork) {
 	const js = Math.max(w.jsMs, w.tickMs);
+	const sim = w.simMs ?? 0;
 	return {
 		js,
 		particles: w.particleMs,
 		rigs: w.rigMs + w.rigSyncMs,
+		sim,
 		render: Math.max(0, w.renderMs - w.rigSyncMs),
-		tick: Math.max(0, w.tickMs - w.renderMs - w.particleMs),
+		tick: Math.max(0, w.tickMs - w.renderMs - w.particleMs - sim),
 		page: Math.max(0, js - w.tickMs - w.rigMs),
 		browser: Math.max(0, w.lateMs + w.tickMs + w.afterMs - js),
 	};
@@ -218,8 +272,8 @@ export function churnReason(w: FrameWork): string {
 
 export type SpikeInput = {
 	intervalMs: number;
-	prev: FrameWork;
-	cur?: FrameWork;
+	prev: PerfFrameWork;
+	cur?: PerfFrameWork;
 	heapDropMb?: number;
 };
 
@@ -237,11 +291,31 @@ export function classifySpike({ intervalMs, prev, cur, heapDropMb }: SpikeInput)
 	const p = spikeParts(prev);
 	const js = `JS ${pct(p.js, intervalMs)} of it`;
 	if (p.js >= SPIKE_RULES.jsShare * intervalMs) {
-		const largest = Math.max(p.particles, p.rigs, p.render, p.tick, p.page);
+		const largest = Math.max(p.particles, p.rigs, p.sim, p.render, p.tick, p.page);
 		const leads = (part: number) => part === largest && part >= SPIKE_RULES.partShare * p.js;
 		if (leads(p.particles))
 			return { cause: 'particles', why: `${js}, particles ${pct(p.particles, p.js)} of that` };
 		if (leads(p.rigs)) return { cause: 'rigs', why: `${js}, rigs ${pct(p.rigs, p.js)} of that` };
+		if (leads(p.sim)) {
+			const steps = prev.simSteps ?? 0;
+			return {
+				cause: steps > 1 ? 'sim catch-up' : 'sim',
+				why: `${js}, sim ${pct(p.sim, p.js)} of that (${steps} step${steps === 1 ? '' : 's'}, ${round1(p.sim)} ms${
+					prev.bodies ? `, ${prev.bodies} bodies` : ''
+				})`,
+			};
+		}
+		const spawned = (prev.spawns ?? 0) + (prev.despawns ?? 0);
+		if (spawned >= SPIKE_RULES.spawnBurst)
+			return {
+				cause: 'spawn burst',
+				why: `${js}, ${prev.spawns ?? 0} bodies spawned, ${prev.despawns ?? 0} despawned, ${churnReason(prev)}`,
+			};
+		if (prev.uploadBytes >= SPIKE_RULES.tilemapUploadBytes && (prev.cameraPx ?? 0) > 0)
+			return {
+				cause: 'tilemap/upload',
+				why: `${js}, ${prev.textureUploads} texture uploads ${Math.round(prev.uploadBytes / 1000)} KB while the camera moved ${round1(prev.cameraPx ?? 0)} px, render ${round1(p.render)} ms`,
+			};
 		const churn = churnOf(prev);
 		if (churn.objects >= SPIKE_RULES.churnObjects || churn.dom >= SPIKE_RULES.churnDomNodes)
 			return { cause: 'churn', why: `${js}, ${churnReason(prev)}` };
@@ -256,6 +330,12 @@ export function classifySpike({ intervalMs, prev, cur, heapDropMb }: SpikeInput)
 		p.browser >= SPIKE_RULES.browserShare * intervalMs
 			? `, main thread busy ${round1(p.browser)} ms outside JS (browser or GPU wait)`
 			: '';
+	const net = cur?.netMs ?? 0;
+	if (net >= SPIKE_RULES.netShare * intervalMs)
+		return {
+			cause: 'state patch',
+			why: `room messages ${round1(net)} ms between the frames (${cur?.patches ?? 0} states, ${round1((cur?.patchBytes ?? 0) / 1000)} KB), ${js}${browser}`,
+		};
 	if (heapDropMb !== undefined && heapDropMb > SPIKE_RULES.gcDropMb)
 		return { cause: 'GC (likely)', why: `heap fell ${round1(heapDropMb)} MB, ${js}${browser}` };
 	if (p.js < SPIKE_RULES.outsideShare * intervalMs)
@@ -264,7 +344,7 @@ export function classifySpike({ intervalMs, prev, cur, heapDropMb }: SpikeInput)
 }
 
 /** A frame's work as a record keeps it. */
-export function compactFrame(w: FrameWork): SpikeFrame {
+export function compactFrame(w: PerfFrameWork): SpikeFrame {
 	const out: SpikeFrame = {};
 	for (const [key, name, whole] of COMPACT) {
 		const raw = w[key];
@@ -292,10 +372,10 @@ type Spike = {
 	ms: number;
 	phase: PerfPhase;
 	state?: string;
-	prev: FrameWork;
+	prev: PerfFrameWork;
 	/** The heap at the start of `prev`. */
 	heapBefore?: number;
-	cur?: FrameWork;
+	cur?: PerfFrameWork;
 };
 
 const heapDrop = (s: Spike): number | undefined => {
@@ -308,20 +388,23 @@ const heapDrop = (s: Spike): number | undefined => {
 const verdict = (s: Spike) =>
 	classifySpike({ intervalMs: s.ms, prev: s.prev, cur: s.cur, heapDropMb: heapDrop(s) });
 
-const noCauses = (): Record<PerfPhase, SpikeCauseCounts> => ({ idle: {}, spinning: {}, round: {} });
+/** Counts per phase of `phases`, every one present. */
+const noCauses = (phases: readonly PerfPhase[]): Partial<Record<PerfPhase, SpikeCauseCounts>> =>
+	Object.fromEntries(phases.map((phase) => [phase, {}]));
 
-export function createSpikeRecorder() {
+/** Spike records for a reading split into `phases` (a slot's by default). */
+export function createSpikeRecorder(phases: readonly PerfPhase[] = PHASE_SETS.slot) {
 	let spikes: Spike[] = [];
-	let counts = noCauses();
+	let counts = noCauses(phases);
 	/** The latest spike, waiting for its own frame's work. */
 	let open: Spike | undefined;
 	/** The latest frame's work, and the heap at its start (the frame before's end). */
-	let last: FrameWork | undefined;
+	let last: PerfFrameWork | undefined;
 	let heapAtLast: number | undefined;
 	let longTasks: { start: number; end: number }[] = [];
 
 	const tally = (into: typeof counts, s: Spike) => {
-		const bucket = into[s.phase];
+		const bucket = (into[s.phase] ??= {});
 		const { cause } = verdict(s);
 		bucket[cause] = (bucket[cause] ?? 0) + 1;
 	};
@@ -356,7 +439,7 @@ export function createSpikeRecorder() {
 			if (spikes.length > SPIKE_RULES.keep) spikes.shift();
 		},
 		/** One frame's work, handed over once its frame is over. */
-		work(sample: FrameWork): void {
+		work(sample: PerfFrameWork): void {
 			if (open) {
 				open.cur = sample;
 				tally(counts, open);
@@ -372,16 +455,14 @@ export function createSpikeRecorder() {
 		},
 		reset(): void {
 			spikes = [];
-			counts = noCauses();
+			counts = noCauses(phases);
 			open = undefined;
 			longTasks = [];
 		},
 		snapshot(thresholdMs: number): SpikeSummary {
-			const causes = {
-				idle: { ...counts.idle },
-				spinning: { ...counts.spinning },
-				round: { ...counts.round },
-			};
+			const causes = Object.fromEntries(
+				phases.map((phase) => [phase, { ...counts[phase] }]),
+			) as SpikeSummary['causes'];
 			if (open) tally(causes, open);
 			const records = spikes.map((s): SpikeRecord => {
 				const { cause, why } = verdict(s);
@@ -395,6 +476,7 @@ export function createSpikeRecorder() {
 					ms: round1(s.ms),
 					...(s.phase === 'spinning' ? { spin: true as const } : {}),
 					...(s.phase === 'round' ? { round: true as const } : {}),
+					...(s.phase === 'play' ? { play: true as const } : {}),
 					...(s.state ? { state: s.state } : {}),
 					cause,
 					why,
@@ -415,7 +497,7 @@ export type SpikeRecorder = ReturnType<typeof createSpikeRecorder>;
 export function topCause(causes: SpikeSummary['causes']): [SpikeCause, number] | undefined {
 	let top: [SpikeCause, number] | undefined;
 	for (const cause of SPIKE_CAUSES) {
-		const n = PERF_PHASES.reduce((sum, phase) => sum + (causes[phase][cause] ?? 0), 0);
+		const n = Object.values(causes).reduce((sum, counts) => sum + (counts?.[cause] ?? 0), 0);
 		if (n && (!top || n > top[1])) top = [cause, n];
 	}
 	return top;
