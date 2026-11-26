@@ -231,6 +231,20 @@ const gh = {
 	labelRace: false,
 	/** A repository route whose path holds the key is answered with this status instead of its own. */
 	failing: new Map<string, number>(),
+	/** Commits `main` has that a head lacks, by head SHA (`compare/main...<sha>`). */
+	behind: new Map<string, number>(),
+	/** The date of a head's commit, by SHA. */
+	commitDates: new Map<string, string>(),
+	/** A PR's issue events (`labeled`), by number. */
+	events: new Map<number, Json[]>(),
+	/** Every issue comment made, with its body. */
+	comments: [] as { number: number; body: string }[],
+	/** GitHub's answers to the next `update-branch` calls, in order; none left is a 202. */
+	updateAnswers: [] as { status: number; message: string }[],
+	/** Every `update-branch` asked for, with its body. */
+	updates: [] as { number: number; body: Json }[],
+	/** Whether the App may make a label: off, adding one that is missing is a 403. */
+	labelForbidden: false,
 };
 /** The sentence the fake gives a request it was told to fail. */
 const FAILURE_MESSAGE = 'upstream failure';
@@ -632,6 +646,43 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	if (rest[0] === 'pulls' && rest.length === 1 && method === 'POST') return openPull(init);
 	if (rest[0] === 'pulls' && rest.length === 1 && url.searchParams.has('head')) {
 		return pullsOfBranch(url);
+	}
+	if (rest[0] === 'compare' && method === 'GET') {
+		const head = decodeURIComponent(rest[1]).split('...')[1];
+		return jsonResponse(200, { behind_by: gh.behind.get(head) ?? 0, ahead_by: 1 });
+	}
+	if (rest[0] === 'commits' && rest.length === 2 && method === 'GET') {
+		const date = gh.commitDates.get(rest[1]);
+		return date
+			? jsonResponse(200, { sha: rest[1], commit: { committer: { date } } })
+			: jsonResponse(404, { message: 'Not Found' });
+	}
+	if (rest[0] === 'issues' && rest[2] === 'events' && method === 'GET') {
+		return jsonResponse(200, gh.events.get(Number(rest[1])) ?? []);
+	}
+	if (rest[0] === 'issues' && rest[2] === 'comments' && method === 'POST') {
+		gh.comments.push({
+			number: Number(rest[1]),
+			body: (JSON.parse(String(init?.body)) as { body: string }).body,
+		});
+		return jsonResponse(201, { id: gh.comments.length });
+	}
+	if (rest[0] === 'issues' && rest[2] === 'labels' && rest.length === 4 && method === 'DELETE') {
+		const labelled = gh.pulls.get(Number(rest[1]));
+		const at = labelled?.labels.findIndex((l) => l.name === decodeURIComponent(rest[3])) ?? -1;
+		if (!labelled || at < 0) return jsonResponse(404, { message: 'Label does not exist' });
+		labelled.labels.splice(at, 1);
+		return jsonResponse(200, labelled.labels);
+	}
+	if (rest[0] === 'issues' && rest[2] === 'labels' && method === 'POST' && gh.labelForbidden) {
+		return jsonResponse(403, { message: 'Resource not accessible by integration' });
+	}
+	if (rest[0] === 'pulls' && rest[2] === 'update-branch' && method === 'PUT') {
+		gh.updates.push({ number: Number(rest[1]), body: JSON.parse(String(init?.body)) as Json });
+		const answer = gh.updateAnswers.shift();
+		return answer
+			? jsonResponse(answer.status, { message: answer.message })
+			: jsonResponse(202, { message: 'Updating pull request branch.' });
 	}
 	const agentAnswer = agentRoutes(method, rest, url, init);
 	if (agentAnswer) return agentAnswer;
@@ -8584,6 +8635,610 @@ check(
 			'utf8',
 		).includes(view.RUNTIME_BYTES_SENTENCE),
 		true,
+	);
+}
+
+// ── Update from main, On hold and Resume (ADR-0015 §1, §7) ────────────────────
+{
+	const update = await import(src('lib/server/pipelineUpdate.ts'));
+	const hold = await import(src('lib/server/pipelineHold.ts'));
+	const updateRoute = await import(src('routes/api/pipeline/changes/[number]/update/+server.ts'));
+	const holdRoute = await import(src('routes/api/pipeline/changes/[number]/hold/+server.ts'));
+	const resumeRoute = await import(src('routes/api/pipeline/changes/[number]/resume/+server.ts'));
+	const rerecordRoute = await import(
+		src('routes/api/pipeline/changes/[number]/runtime-bytes/+server.ts')
+	);
+	const doUpdate = (locals: Locals, number: number | string, body: unknown) =>
+		call(updateRoute.POST, locals, { number: String(number) }, body);
+	const doHold = (locals: Locals, number: number | string, body: unknown = {}) =>
+		call(holdRoute.POST, locals, { number: String(number) }, body);
+	const doResume = (locals: Locals, number: number | string) =>
+		call(resumeRoute.POST, locals, { number: String(number) }, {});
+	const headOf = (n: number): string => hash(`15a head ${n}`);
+	const make = (n: number, over: Partial<Pull> & { labels?: string[] } = {}): Pull =>
+		pull(n, `launcher: card ${n}`, { sha: headOf(n), ...over });
+	const updatesSince = (at: number) => gh.updates.slice(at);
+	const WORKFLOW_MESSAGE =
+		'refusing to allow a GitHub App to create or update workflow `.github/workflows/bug-fix.yml` without `workflows` permission';
+
+	userOverrides.delete('u-tester');
+	gh.labels.add('on-hold');
+	changes.forgetChanges();
+
+	// What GitHub's refusals mean, as pure facts.
+	const refusal = (status: number, message: string) => {
+		const r = update.refusalOfUpdate(status, message, 'https://github.com/iw/engine/pull/1');
+		return r && [r.status, r.code, r.message, r.githubMessage, r.url];
+	};
+	check(
+		'update: a 2xx is not a refusal',
+		[update.refusalOfUpdate(202, 'Updating pull request branch.', 'u')],
+		[null],
+	);
+	check(
+		'update: 422 for a moved head → head_moved, "The branch moved; reload"',
+		refusal(422, "expected head sha didn't match current head ref."),
+		[
+			409,
+			'head_moved',
+			'The branch moved; reload',
+			"expected head sha didn't match current head ref.",
+			null,
+		],
+	);
+	check(
+		'update: 422 for a merge conflict → conflict',
+		refusal(422, 'merge conflict between base and head')?.slice(0, 2),
+		[409, 'conflict'],
+	);
+	check(
+		'update: any refusal naming a workflow file or the workflows permission → workflow_refused, with the PR link and GitHub text, whatever the status',
+		[
+			refusal(403, WORKFLOW_MESSAGE),
+			refusal(422, 'Cannot update workflow .github/workflows/x.yml')?.[1],
+			refusal(500, 'needs the `workflows` permission')?.[1],
+		],
+		[
+			[
+				409,
+				'workflow_refused',
+				update.WORKFLOW_REFUSED_TEXT,
+				WORKFLOW_MESSAGE,
+				'https://github.com/iw/engine/pull/1',
+			],
+			'workflow_refused',
+			'workflow_refused',
+		],
+	);
+	check(
+		'update: the workflow sentence says the App cannot push main’s workflow change and points to GitHub’s own Update branch',
+		[
+			/App/.test(update.WORKFLOW_REFUSED_TEXT),
+			/workflow change/.test(update.WORKFLOW_REFUSED_TEXT),
+			/Update branch/.test(update.WORKFLOW_REFUSED_TEXT),
+		],
+		[true, true, true],
+	);
+	check(
+		'update: GitHub’s text is capped',
+		[
+			update.refusalOfUpdate(403, `workflow ${'x'.repeat(900)}`, 'u')?.githubMessage?.length,
+			update.capGithubMessage('short'),
+		],
+		[update.GITHUB_MESSAGE_CAP, 'short'],
+	);
+	check(
+		'update: other answers are not mapped (a 500, an unrelated 422)',
+		[refusal(500, 'boom'), refusal(422, 'Validation Failed')],
+		[null, null],
+	);
+
+	// The route.
+	make(7001, { mergeable: true });
+	gh.behind.set(headOf(7001), 3);
+	check(
+		'update: no session is a 401; without pipelineMerge a 403, and GitHub is not asked',
+		[
+			(await doUpdate(ANON, 7001, { headSha: headOf(7001) })).status,
+			(await doUpdate(TESTER, 7001, { headSha: headOf(7001) })).status,
+			gh.updates.length,
+		],
+		[401, 403, 0],
+	);
+	check(
+		'update: a body without a full head SHA → 400; a bad number → 400; no such change → 404',
+		[
+			(await doUpdate(ADMIN, 7001, {})).status,
+			(await doUpdate(ADMIN, 7001, { headSha: 'abc' })).status,
+			(await doUpdate(ADMIN, 'x', { headSha: headOf(7001) })).status,
+			(await doUpdate(ADMIN, 99999, { headSha: headOf(7001) })).status,
+		],
+		[400, 400, 400, 404],
+	);
+	const u0 = gh.updates.length;
+	const done = await doUpdate(ADMIN, 7001, { headSha: headOf(7001) });
+	check(
+		'update: a clean change that is behind → PUT update-branch with expected_head_sha, answered 200 with GitHub’s message',
+		[
+			done.status,
+			done.body.githubMessage,
+			updatesSince(u0),
+			gh.requests.filter((r) => r === `PUT /repos/${REPO}/pulls/7001/update-branch`).length,
+		],
+		[
+			200,
+			'Updating pull request branch.',
+			[{ number: 7001, body: { expected_head_sha: headOf(7001) } }],
+			1,
+		],
+	);
+
+	const refused = async (
+		n: number,
+		over: Partial<Pull> & { labels?: string[] },
+		behind: number,
+		sentHead: string,
+		github?: { status: number; message: string },
+	) => {
+		make(n, over);
+		gh.behind.set(headOf(n), behind);
+		if (github) gh.updateAnswers.push(github);
+		const at = gh.updates.length;
+		const res = await doUpdate(ADMIN, n, { headSha: sentHead });
+		return { res, asked: gh.updates.length - at };
+	};
+	const stale = await refused(7002, { mergeable: true }, 2, hash('an older head'));
+	check(
+		'update: a head that is not the page’s → 409 head_moved before GitHub is asked',
+		[stale.res.status, stale.res.body.code, stale.res.body.error, stale.asked],
+		[409, 'head_moved', 'The branch moved; reload', 0],
+	);
+	const raced = await refused(7003, { mergeable: true }, 2, headOf(7003), {
+		status: 422,
+		message: "expected head sha didn't match current head ref.",
+	});
+	check(
+		'update: GitHub’s 422 for a head that moved meanwhile → 409 head_moved, GitHub’s text kept',
+		[raced.res.status, raced.res.body.code, raced.res.body.githubMessage, raced.asked],
+		[409, 'head_moved', "expected head sha didn't match current head ref.", 1],
+	);
+	const clash = await refused(7004, { mergeable: true }, 2, headOf(7004), {
+		status: 422,
+		message: 'merge conflict between base and head',
+	});
+	check(
+		'update: GitHub’s 422 for a merge conflict → 409 conflict',
+		[clash.res.status, clash.res.body.code],
+		[409, 'conflict'],
+	);
+	const wf = await refused(7005, { mergeable: true }, 2, headOf(7005), {
+		status: 403,
+		message: WORKFLOW_MESSAGE,
+	});
+	check(
+		'update: a workflow refusal → 409 workflow_refused with the sentence, GitHub’s own text and the PR’s link',
+		[
+			wf.res.status,
+			wf.res.body.code,
+			wf.res.body.error,
+			wf.res.body.githubMessage,
+			wf.res.body.url,
+		],
+		[
+			409,
+			'workflow_refused',
+			update.WORKFLOW_REFUSED_TEXT,
+			WORKFLOW_MESSAGE,
+			`https://github.com/${REPO}/pull/7005`,
+		],
+	);
+	const dirty = await refused(
+		7006,
+		{ mergeable_state: 'dirty', mergeable: false },
+		2,
+		headOf(7006),
+	);
+	const computing = await refused(7007, { mergeable: null }, 2, headOf(7007));
+	const level = await refused(7008, { mergeable: true }, 0, headOf(7008));
+	const held = await refused(7009, { mergeable: true, labels: ['on-hold'] }, 2, headOf(7009));
+	const closed = await refused(7010, { mergeable: true, state: 'closed' }, 2, headOf(7010));
+	check(
+		'update: a conflict, a mergeability still computing, a branch not behind, a held change and a closed one are 409s and GitHub is not asked',
+		[dirty, computing, level, held, closed].map((r) => [
+			r.res.status,
+			r.res.body.code ?? null,
+			r.asked,
+		]),
+		[
+			[409, 'conflict', 0],
+			[409, 'not_clean', 0],
+			[409, 'up_to_date', 0],
+			[409, 'on_hold', 0],
+			[409, null, 0],
+		],
+	);
+	const broken = await refused(7011, { mergeable: true }, 2, headOf(7011), {
+		status: 500,
+		message: 'Server Error',
+	});
+	check(
+		'update: any other GitHub failure → 502 with its status and sentence',
+		[broken.res.status, broken.res.body.error],
+		[502, 'GitHub 500: Server Error'],
+	);
+	make(7012, {
+		mergeable: true,
+		head: { sha: headOf(7012), ref: 'fork/x', repo: { full_name: 'other/engine' } },
+	});
+	const forkAt = gh.updates.length;
+	check(
+		'update: a fork’s change is a 404, never updated',
+		[(await doUpdate(ADMIN, 7012, { headSha: headOf(7012) })).status, gh.updates.length - forkAt],
+		[404, 0],
+	);
+
+	// The detail reads behind and the head commit; the list reads neither.
+	gh.behind.set(headOf(7001), 3);
+	make(7020, { mergeable: true });
+	gh.behind.set(headOf(7020), 4);
+	make(7021, { mergeable_state: 'dirty', mergeable: false, draft: true });
+	gh.commitDates.set(headOf(7021), '2026-10-01T00:00:00Z');
+	gh.behind.set(headOf(7021), 727);
+	make(7022, { mergeable_state: 'dirty', mergeable: false, draft: false });
+	gh.commitDates.set(headOf(7022), '2026-10-01T00:00:00Z');
+	make(7023, { mergeable: true, labels: ['on-hold'] });
+	gh.behind.set(headOf(7023), 9);
+	gh.events.set(7023, [
+		{ event: 'labeled', created_at: '2026-11-01T08:00:00Z', label: { name: 'agent-definition' } },
+		{ event: 'labeled', created_at: '2026-11-20T09:30:00Z', label: { name: 'on-hold' } },
+		{ event: 'unlabeled', created_at: '2026-11-21T09:30:00Z', label: { name: 'on-hold' } },
+	]);
+	changes.forgetChanges();
+	const r0 = gh.requests.length;
+	const listed = await list(ADMIN);
+	const listReqs = gh.requests.slice(r0);
+	const row = (n: number) =>
+		(listed.body.changes as { number: number; onHold: boolean }[]).find((c) => c.number === n);
+	check(
+		'list: a change with the on-hold label says so, from the PR objects it already reads; no compare, commit or events call per row',
+		[
+			row(7023)?.onHold,
+			row(7020)?.onHold,
+			listReqs.some((r) => /\/compare\/|\/events|\/commits\/[0-9a-f]{40}$/.test(r.split('?')[0])),
+		],
+		[true, false, false],
+	);
+	const d20 = (await detail(ADMIN, '7020')).body;
+	const d21 = (await detail(ADMIN, '7021')).body;
+	const d22 = (await detail(ADMIN, '7022')).body;
+	const d23Before = gh.requests.length;
+	const d23 = (await detail(ADMIN, '7023')).body;
+	check(
+		'detail: behind main is read for a clean or conflicted open change; the head commit’s date only for a draft in conflict; a held one reads when it was held and nothing else',
+		[
+			[d20.behindBy, d20.headCommittedAt, d20.heldSince],
+			[d21.behindBy, d21.headCommittedAt],
+			[d22.behindBy, d22.headCommittedAt],
+			[d23.onHold, d23.behindBy, d23.headCommittedAt, d23.heldSince],
+			gh.requests.slice(d23Before).some((r) => r.includes('/compare/')),
+		],
+		[
+			[4, null, null],
+			[727, '2026-10-01T00:00:00Z'],
+			[0, null],
+			[true, null, null, '2026-11-20T09:30:00Z'],
+			false,
+		],
+	);
+
+	// Put on hold and Resume.
+	const h = make(7030, { mergeable: true });
+	check(
+		'hold: no session is a 401; without pipelineMerge a 403; a note over 500 characters or not text → 400; no such change → 404',
+		[
+			(await doHold(ANON, 7030)).status,
+			(await doHold(TESTER, 7030)).status,
+			(await doHold(ADMIN, 7030, { note: 'x'.repeat(501) })).status,
+			(await doHold(ADMIN, 7030, { note: 5 })).status,
+			(await doHold(ADMIN, 99998)).status,
+			gh.comments.length,
+		],
+		[401, 403, 400, 400, 404, 0],
+	);
+	const held1 = await doHold(ADMIN, 7030, { note: 'waiting for @bob\n `the` release' });
+	check(
+		'hold: adds the label on-hold and posts one App comment with the display name, never an email, and the note without @ or backticks, on one line',
+		[
+			held1.status,
+			held1.body,
+			h.labels.map((l) => l.name),
+			gh.comments,
+			gh.comments.some((c) => c.body.includes('owner@example.com')),
+		],
+		[
+			200,
+			{ number: 7030, onHold: true },
+			['on-hold'],
+			[
+				{
+					number: 7030,
+					body: 'Put on hold by Gualtiero via Pipeline Changes: waiting for bob the release',
+				},
+			],
+			false,
+		],
+	);
+	const again = await doHold(ADMIN, 7030);
+	check(
+		'hold: holding a held change → 409 already_on_hold, no second comment',
+		[again.status, again.body.code, gh.comments.length],
+		[409, 'already_on_hold', 1],
+	);
+	check(
+		'hold: a change on hold reads on-hold in the list and the detail, and Update, Re-record, Mark ready and Merge are refused',
+		await (async () => {
+			changes.forgetChanges();
+			const l = await list(ADMIN);
+			const d = (await detail(ADMIN, '7030')).body;
+			const rerecorded = await call(
+				rerecordRoute.POST,
+				ADMIN,
+				{ number: '7030' },
+				{ headSha: headOf(7030) },
+			);
+			const merged = await mergeIt(ADMIN, '7030', {
+				headSha: headOf(7030),
+				requestId: crypto.randomUUID(),
+			});
+			const readied = await call(readyRoute.POST, ADMIN, { number: '7030' }, {});
+			const updated = await doUpdate(ADMIN, 7030, { headSha: headOf(7030) });
+			return [
+				(l.body.changes as { number: number; onHold: boolean }[]).find((c) => c.number === 7030)
+					?.onHold,
+				d.onHold,
+				rerecorded.status,
+				rerecorded.body.code,
+				merged.status,
+				readied.status,
+				updated.body.code,
+			];
+		})(),
+		[true, true, 409, 'on_hold', 409, 409, 'on_hold'],
+	);
+	const resumed = await doResume(ADMIN, 7030);
+	check(
+		'resume: removes the label and comments "Resumed by …"; a second resume → 409 not_on_hold; without pipelineMerge → 403',
+		[
+			resumed.status,
+			h.labels.length,
+			gh.comments.at(-1)?.body,
+			(await doResume(ADMIN, 7030)).body.code,
+			(await doResume(TESTER, 7030)).status,
+			(await doResume(ANON, 7030)).status,
+		],
+		[200, 0, 'Resumed by Gualtiero via Pipeline Changes.', 'not_on_hold', 403, 401],
+	);
+	const noNote = make(7031);
+	await doHold(ADMIN, 7031);
+	check(
+		'hold: no note → the comment says who and where, without a colon and a gap',
+		[noNote.labels.length, gh.comments.at(-1)?.body],
+		[1, 'Put on hold by Gualtiero via Pipeline Changes.'],
+	);
+	make(7032);
+	gh.labels.delete('on-hold');
+	const missing = await doHold(ADMIN, 7032);
+	gh.labels.add('on-hold');
+	gh.labelForbidden = true;
+	gh.labels.delete('on-hold');
+	make(7033);
+	const forbidden = await doHold(ADMIN, 7033);
+	gh.labelForbidden = false;
+	gh.labels.add('on-hold');
+	const c0 = gh.comments.length;
+	check(
+		'hold: a label GitHub will not add (missing, or the App may not make it) → 409 label_missing with the plain sentence, and no comment',
+		[
+			[missing.status, missing.body.code, missing.body.error],
+			[forbidden.status, forbidden.body.code, forbidden.body.error],
+			gh.comments.length - c0,
+			gh.comments.some((c) => c.number === 7032 || c.number === 7033),
+		],
+		[
+			[409, 'label_missing', 'Create the label `on-hold` once in GitHub (owner setup).'],
+			[409, 'label_missing', 'Create the label `on-hold` once in GitHub (owner setup).'],
+			0,
+			false,
+		],
+	);
+	check(
+		'hold: the note is cleaned to one line',
+		[hold.holdNoteText('a @b `c`\n\n d'), hold.HOLD_NOTE_MAX],
+		['a b c d', 500],
+	);
+
+	// The page's decisions.
+	const NOW = Date.parse('2026-11-26T12:00:00Z');
+	const base = {
+		state: 'open',
+		merged: false,
+		draft: false,
+		mergeable: true,
+		mergeableState: 'clean',
+		behindBy: 5,
+		headSha: headOf(1),
+		headCommittedAt: null,
+		heldSince: null,
+	};
+	check(
+		'the page: Update from main is offered to a merger on an open, clean change that is behind, pinned to the head',
+		[
+			view.updateBar(base, true)?.headSha,
+			view.updateBar(base, true)?.text,
+			view.updateBar(base, false),
+			view.updateBar({ ...base, onHold: true }, true),
+			view.updateBar({ ...base, mergeable: false }, true),
+			view.updateBar({ ...base, mergeable: null }, true),
+			view.updateBar({ ...base, behindBy: 0 }, true),
+			view.updateBar({ ...base, behindBy: null }, true),
+			view.updateBar({ ...base, state: 'closed' }, true),
+			view.updateBar({ ...base, merged: true }, true),
+			view.updateBar({ ...base, draft: true, behindBy: 1 }, true)?.text,
+		],
+		[
+			headOf(1),
+			'5 commits behind main. GitHub merges main into this branch; there is nothing to choose.',
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			'1 commit behind main. GitHub merges main into this branch; there is nothing to choose.',
+		],
+	);
+	const stuck = {
+		...base,
+		draft: true,
+		mergeable: false,
+		mergeableState: 'dirty',
+		behindBy: 727,
+		headCommittedAt: '2026-11-10T12:00:00Z',
+	};
+	check(
+		'the page: the 14-day hint is a draft in conflict whose head commit is 14 days old, with Put on hold for a merger',
+		[
+			view.holdBar(stuck, true, NOW),
+			view.holdBar(stuck, false, NOW),
+			view.holdBar({ ...stuck, headCommittedAt: '2026-11-13T12:01:00Z' }, true, NOW),
+			view.holdBar({ ...stuck, draft: false }, true, NOW),
+			view.holdBar({ ...stuck, mergeableState: 'blocked' }, true, NOW),
+			view.holdBar({ ...stuck, headCommittedAt: null }, true, NOW),
+			view.holdBar({ ...stuck, behindBy: null }, true, NOW)?.text,
+			view.holdBar({ ...stuck, behindBy: 1 }, true, NOW)?.text,
+			view.holdBar({ ...stuck, state: 'closed' }, true, NOW),
+		],
+		[
+			{ action: 'hold', text: '727 commits behind main for 16 days' },
+			{ action: null, text: '727 commits behind main for 16 days' },
+			null,
+			null,
+			null,
+			null,
+			'Behind main for 16 days',
+			'1 commit behind main for 16 days',
+			null,
+		],
+	);
+	check(
+		'the page: Put on hold is offered to a merger on any open change that is not held, old and conflicted or not',
+		[
+			view.holdOffered(base, true),
+			view.holdOffered(stuck, true),
+			view.holdOffered({ ...base, draft: true }, true),
+			view.holdOffered(base, false),
+			view.holdOffered({ ...base, state: 'closed' }, true),
+			view.holdOffered({ ...base, merged: true }, true),
+			view.holdOffered({ ...base, onHold: true }, true),
+		],
+		[true, true, true, false, false, false, false],
+	);
+	const heldDetail = { ...base, onHold: true, heldSince: '2026-11-20T09:30:00Z' };
+	check(
+		'the page: a held change reads "On hold · since <date>" with Resume for a merger and none otherwise; nothing it could do is offered',
+		[
+			view.heldText('2026-11-20T09:30:00Z'),
+			view.heldText(null),
+			view.holdBar(heldDetail, true, NOW),
+			view.holdBar(heldDetail, false, NOW),
+			view.rerecordBar(
+				{
+					...heldDetail,
+					checks: [
+						{
+							workflow: 'runtime-bytes',
+							jobs: [
+								{
+									name: 'runtime-bytes',
+									state: 'fail',
+									instruction: `x ${view.RUNTIME_BYTES_SENTENCE}`,
+								},
+							],
+						},
+					],
+				},
+				true,
+			),
+			view.readyBar({ ...heldDetail, draft: true }, true),
+			view.mergeBar({ ...heldDetail, filesTruncated: false }, true, false),
+			view.blockedReason({
+				...heldDetail,
+				status: { kind: 'blocked', reason: 'Merge conflict with main' },
+				mergeableState: 'dirty',
+			}),
+		],
+		[
+			'On hold · since 2026-11-20',
+			'On hold',
+			{ action: 'resume', text: 'On hold · since 2026-11-20' },
+			{ action: null, text: 'On hold · since 2026-11-20' },
+			null,
+			null,
+			{ action: null, text: view.ON_HOLD_OFFERS_TEXT },
+			null,
+		],
+	);
+	const blockedStatus = { kind: 'blocked', reason: 'Merge conflict with main' };
+	check(
+		'the page: a held change’s pill is grey "On hold", never Blocked; held changes sort last, the order inside each kept',
+		[
+			view.changePill({ onHold: true, status: blockedStatus }),
+			view.changePill({ onHold: false, status: blockedStatus }).label,
+			view
+				.sortChanges([
+					{ n: 1, onHold: true },
+					{ n: 2, onHold: false },
+					{ n: 3, onHold: true },
+					{ n: 4, onHold: false },
+				])
+				.map((c: { n: number }) => c.n),
+		],
+		[{ tone: 'muted', label: 'On hold', dot: false }, 'Blocked', [2, 4, 1, 3]],
+	);
+	check(
+		'the page: the conflict sentence is unchanged until Resolve exists',
+		view.BLOCKED_CONFLICT_TEXT,
+		'Merge conflict with main: bring main in and resolve it.',
+	);
+	check(
+		'the page: a refused update shows the server’s sentence, and a link only for the workflow refusal, only to GitHub',
+		[
+			view.updateRefusalView(409, {
+				error: 'x',
+				code: 'workflow_refused',
+				url: 'https://github.com/iw/engine/pull/5',
+			}),
+			view.updateRefusalView(409, {
+				error: 'y',
+				code: 'workflow_refused',
+				url: 'https://evil.example/',
+			}),
+			view.updateRefusalView(409, { error: 'The branch moved; reload', code: 'head_moved' }),
+			view.updateRefusalView(500, null),
+		],
+		[
+			{ text: 'x', href: 'https://github.com/iw/engine/pull/5' },
+			{ text: 'y', href: null },
+			{ text: 'The branch moved; reload', href: null },
+			{ text: 'The request failed (500).', href: null },
+		],
+	);
+	check(
+		'the page: the success sentence',
+		view.UPDATE_DONE_TEXT,
+		'GitHub is merging main in; CI re-runs on the new head.',
 	);
 }
 

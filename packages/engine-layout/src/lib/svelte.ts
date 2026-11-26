@@ -91,6 +91,8 @@ export { setWorldProjector, setWorldZoom, worldDrawing } from './worldDrawing.sv
 export { liftOf, liftsOn, setLifts } from './arcadeLifts.svelte';
 export { clearClips, clipOf, clipsOn, setClips, type InstanceClip } from './arcadeClips.svelte';
 export { clearArt, setCodeLooks, setFieldArt, type ArtMount } from './arcadeArt.svelte';
+// Art drawn in code mounted in a node's place: the arcade runtime's zone-art rig stamps use it too.
+export { default as MountedArt } from './MountedArt.svelte';
 export {
 	clearMarks,
 	setLinks,

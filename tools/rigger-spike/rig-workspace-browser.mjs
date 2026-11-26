@@ -4,6 +4,7 @@
 //   node tools/rigger-spike/rig-workspace-browser.mjs
 //   node tools/rigger-spike/rig-workspace-browser.mjs --mutants   # every planted bug must fail a check
 //   node tools/rigger-spike/rig-workspace-browser.mjs --mutants --only pinch   # the mutants named so
+//   node tools/rigger-spike/rig-workspace-browser.mjs --png <dir>   # screenshots of the workspaces
 //
 // Drives the REAL view.html in a REAL Chromium at 1366×660 CSS px and a device pixel ratio of 1.25 (a
 // 1366×768 laptop's window at Windows' 125%), against a fake launcher API on `sheet-rig.mjs`'s sheet
@@ -22,9 +23,18 @@
 //  - a joint dot is one size on the screen at 100% and at 400%;
 //  - the zoom stays when the dialog closes (Esc) and opens again, and ◧ Arranged keeps its own across
 //    ▭ One part and back;
+//  - precision: a click picks a joint (its name and numbers at the top of the side panel); the arrows
+//    move it one pixel of the picture, Shift ten, on ▭ One part and the frame stage, and on ◧ Arranged
+//    move the picked part with the parts it holds; x / y typed put it there, a turn typed turns an
+//    arranged part about its first joint; the joint or part under the pointer is ringed and named;
+//    while a joint is dragged a loupe beside the pointer shows the picture round it pixel for pixel,
+//    gone on release; Alt-drag snaps a ▭ One part joint onto the drawing's edge and lets an arranged
+//    part go unsnapped; [ and ] size 🎞's brush, a size on the screen (a quarter of the frame's
+//    pixels at 400% of what it covers at 100%);
 //  - the page threw nothing.
 // The frame stage is shown a painted frame whose joints are put straight into `f2r` (a clip needs the
-// tracker; `frame-rig-browser.mjs` covers that path); everything else goes through the page.
+// tracker; `frame-rig-browser.mjs` covers that path), so the brush (which needs a cut) is checked by
+// its size alone; everything else goes through the page.
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -97,8 +107,8 @@ const MUTANTS = [
 	],
 	[
 		'a dragged joint jumps to the pointer (no grab offset)',
-		'const moved = [Math.round(((x - b.x) / b.k + dr.off[0]) * 10) / 10, Math.round(((y - b.y) / b.k + dr.off[1]) * 10) / 10];',
-		'const moved = [Math.round(((x - b.x) / b.k) * 10) / 10, Math.round(((y - b.y) / b.k) * 10) / 10];',
+		'let moved = [Math.round(((x - b.x) / b.k + dr.off[0]) * 10) / 10, Math.round(((y - b.y) / b.k + dr.off[1]) * 10) / 10];',
+		'let moved = [Math.round(((x - b.x) / b.k) * 10) / 10, Math.round(((y - b.y) / b.k) * 10) / 10];',
 	],
 	[
 		'the frame stage ignores the camera',
@@ -121,6 +131,35 @@ const MUTANTS = [
 		'if (s2r.aview && !s2r.aview.manual) s2r.aview = null;',
 		's2r.aview = null;',
 	],
+	['a click on a joint picks nothing', 's2r.joint = { part: sel.part, j: best };', ''],
+	[
+		'an arrow moves a joint half a pixel',
+		'm.joints[j] = [wsTenth(m.joints[j][0] + dx), wsTenth(m.joints[j][1] + dy)];',
+		'm.joints[j] = [wsTenth(m.joints[j][0] + dx / 2), wsTenth(m.joints[j][1] + dy / 2)];',
+	],
+	['Shift+arrow moves five', 'n = e.shiftKey ? 10 : 1;', 'n = e.shiftKey ? 5 : 1;'],
+	["🎞 an arrow moves a joint in the frame's 0–1, not its pixels", 'h.move(dx / w, dy / hh);', 'h.move(dx / 100, dy / 100);'],
+	['◧ an arrow leaves the parts the picked one holds', 'const parts = [it.part].concat(s2rBelow(it.part));', 'const parts = [it.part];'],
+	['a typed turn turns about the middle', 'o = s2rHandle(it).pivot,', 'o = it.place.at,'],
+	['a number typed in the side panel ignored', 'i.onchange = () => wsSelSet(dialog, f, Number(i.value));', 'i.onchange = () => {};'],
+	['what is under the pointer never looked for', 'const hover = e.buttons || pan ? st.hover : st.hoverAt(st.at);', 'const hover = null;'],
+	['▭ the joint under the pointer not ringed', 'if (j === wsSt("s2rStage").hover) wsRing(', 'if (false) wsRing('],
+	['🎞 the joint under the pointer not named', 'if (picked === h || st.hover === key) wsLabel(', 'if (picked === h) wsLabel('],
+	['no loupe', 'if (!l){ el.style.display = "none"; return; }', 'if (true){ el.style.display = "none"; return; }'],
+	[
+		'▭ the loupe two pixels off its joint',
+		'at: d.prop ? d.prop.at : d.m.joints[d.joint], imgs: [d.c]',
+		'at: d.prop ? d.prop.at : [d.m.joints[d.joint][0] + 2, d.m.joints[d.joint][1]], imgs: [d.c]',
+	],
+	['🎞 the loupe two pixels off its joint', 'return { at: [d.h.at[0] * w, d.h.at[1] * h],', 'return { at: [d.h.at[0] * w + 2, d.h.at[1] * h],'],
+	['Alt never snaps a joint', 'if (wsAlt) moved = s2rSnap(dr, moved, b.k) || moved;', ''],
+	['Alt does not let a part go unsnapped', 'const to = !wsAlt && first && target', 'const to = first && target'],
+	[
+		"the brush a size in the frame's pixels",
+		'function f2rBrushRadius(){ return wsPx(Number($("#f2rRadius").value)) / f2rBox().k; }',
+		'function f2rBrushRadius(){ return Number($("#f2rRadius").value); }',
+	],
+	['[ and ] do nothing', 'f2rBrushStep(e.key === "]");', 'void 0;'],
 ];
 
 if (process.argv.includes('--mutants')) {
@@ -250,6 +289,12 @@ const browser = await launchChrome({
 	args: ['--window-size=1366,768', '--mute-audio'],
 });
 const { evaluate, waitFor, send, pageLog } = browser;
+const PNG = process.argv.includes('--png') ? process.argv[process.argv.indexOf('--png') + 1] : null;
+async function shot(name) {
+	if (!PNG) return;
+	const { data } = await send('Page.captureScreenshot', { format: 'png' });
+	writeFileSync(join(PNG, name), Buffer.from(data, 'base64'));
+}
 
 let pass = 0;
 let fail = 0;
@@ -297,14 +342,38 @@ const KEYS = {
 	'=': { key: '=', code: 'Equal', windowsVirtualKeyCode: 187, text: '=' },
 	'-': { key: '-', code: 'Minus', windowsVirtualKeyCode: 189, text: '-' },
 	Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+	ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+	ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 },
+	ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 },
+	ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+	'[': { key: '[', code: 'BracketLeft', windowsVirtualKeyCode: 219, text: '[' },
+	']': { key: ']', code: 'BracketRight', windowsVirtualKeyCode: 221, text: ']' },
+	Alt: { key: 'Alt', code: 'AltLeft', windowsVirtualKeyCode: 18 },
 };
-const keyDown = (k) => send('Input.dispatchKeyEvent', { type: KEYS[k].text ? 'keyDown' : 'rawKeyDown', ...KEYS[k] });
-const keyUp = (k) => send('Input.dispatchKeyEvent', { type: 'keyUp', ...KEYS[k] });
-const press = async (k) => {
-	await keyDown(k);
-	await keyUp(k);
+const ALT = 1, SHIFT = 8;
+const keyDown = (k, modifiers = 0) => send('Input.dispatchKeyEvent', { type: KEYS[k].text ? 'keyDown' : 'rawKeyDown', modifiers, ...KEYS[k] });
+const keyUp = (k, modifiers = 0) => send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, ...KEYS[k] });
+const press = async (k, modifiers = 0) => {
+	await keyDown(k, modifiers);
+	await keyUp(k, modifiers);
 	await frames(1);
 };
+/** A click (press and release, no move) at `at`; the mouse then rests there. */
+const click = async (at) => {
+	await mouse('mouseMoved', at);
+	await mouse('mousePressed', at, { button: 'left', buttons: 1, clickCount: 1 });
+	await mouse('mouseReleased', at, { button: 'left', buttons: 0, clickCount: 1 });
+	await frames(1);
+};
+/** The side panel's number for `f` typed in: focused, replaced, then left (its change). */
+async function typeSel(dialog, f, value) {
+	await evaluate(`(() => { const i = document.querySelector('#${dialog}Sel input[data-f="${f}"]'); i.focus(); i.select(); return true; })()`);
+	await send('Input.insertText', { text: String(value) });
+	await evaluate(`document.querySelector('#${dialog}Sel input[data-f="${f}"]').blur(); true`);
+	await frames(1);
+}
+const selPanel = (dialog) =>
+	evaluate(`(() => { const b = document.getElementById("${dialog}Sel"); return { name: (b.querySelector("b") || {}).textContent || "", ...Object.fromEntries([...b.querySelectorAll("input")].map((i) => [i.dataset.f, Number(i.value)])) }; })()`);
 const touch = (type, pts) => send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
 
 // The page's camera as the gate reads it: a picture point (its px) on the screen and back, from the
@@ -326,6 +395,35 @@ const HELPERS = `(() => {
 			const d = cv.getContext("2d").getImageData(x0, y0, n, n).data; let c = 0;
 			for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - rgb[0]) < 24 && Math.abs(d[i + 1] - rgb[1]) < 24 && Math.abs(d[i + 2] - rgb[2]) < 24) c++;
 			return c / (s * s); },
+		hover(id) { return st(id).hover ?? null; },
+		// Every channel of the canvas's pixels in a square of half-side h CSS px round client point q, summed.
+		patch(id, q, h) { const cv = document.getElementById(id), r = cv.getBoundingClientRect(), s = cv.width / r.width;
+			const d = cv.getContext("2d").getImageData(Math.round((q[0] - r.left - h) * s), Math.round((q[1] - r.top - h) * s), Math.round(2 * h * s), Math.round(2 * h * s)).data;
+			let sum = 0; for (const v of d) sum += v; return sum; },
+		loupe(id) { const el = document.getElementById(id).parentElement.querySelector(".wsLoupe"), r = el.getBoundingClientRect();
+			return { on: getComputedStyle(el).display !== "none", c: [r.left + r.width / 2, r.top + r.height / 2], w: r.width }; },
+		// The loupe against picture img round point at: each pixel within 2 of at's, its middle read in
+		// the loupe (4× the zoom, 6 to 32 CSS px a pixel, off its cross) and in img over the loupe's grey.
+		loupeCheck(id, img, at) {
+			const el = document.getElementById(id).parentElement.querySelector(".wsLoupe"), n = el.width, lg = el.getContext("2d");
+			const cv = document.getElementById(id), c = st(id).cam(), css = c.k / (cv.width / cv.getBoundingClientRect().width);
+			const m = Math.max(6, Math.min(32, css * 4)) * n / 144, ig = img.getContext("2d"), cross = 3 * n / 144;
+			let worst = 0, seen = 0, lo = 255, hi = 0;
+			for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+				const px = Math.floor(at[0]) + dx, py = Math.floor(at[1]) + dy;
+				if (px < 0 || py < 0 || px >= img.width || py >= img.height) continue;
+				const lx = Math.round(n / 2 + (px + 0.5 - at[0]) * m), ly = Math.round(n / 2 + (py + 0.5 - at[1]) * m);
+				if (Math.abs(lx - n / 2) < cross || Math.abs(ly - n / 2) < cross) continue;
+				const a = ig.getImageData(px, py, 1, 1).data, b = lg.getImageData(lx, ly, 1, 1).data, al = a[3] / 255;
+				for (let k = 0; k < 3; k++) {
+					const want = a[k] * al + 128 * (1 - al);
+					worst = Math.max(worst, Math.abs(b[k] - want));
+					lo = Math.min(lo, want); hi = Math.max(hi, want);
+				}
+				seen++;
+			}
+			return { worst, seen, spread: Math.round(hi - lo) };
+		},
 		zoomTo(id, p, pct) { const c = st(id).cam(), cv = document.getElementById(id); wsZoomAt(c, [c.x + p[0] * c.k, c.y + p[1] * c.k], wsPx(pct / 100) / c.k); st(id).draw(); },
 		layout(modal) {
 			const m = document.getElementById(modal), box = m.querySelector(".modal-box").getBoundingClientRect(), side = m.querySelector(".wsSide").getBoundingClientRect();
@@ -550,6 +648,93 @@ try {
 		);
 	}
 
+	// The selection: a click on a joint picks it (ringed, its numbers in the side panel); the arrows move
+	// it a pixel of the drawing, Shift ten; a number typed puts it there.
+	await press('f');
+	{
+		const j0 = await jointOf();
+		await click(round(await toClient('s2rStage', j0)));
+		const picked = await selPanel('s2r');
+		await shot('rws-part-picked.png');
+		await press('ArrowRight');
+		const right = await jointOf();
+		await press('ArrowDown', SHIFT);
+		const down = await jointOf();
+		await press('ArrowLeft');
+		ok(
+			`▭ One part: a click picks the joint (the side panel says “${picked.name}”); → moves it 1 px, Shift+↓ 10 px`,
+			picked.name.includes(jointName) && near(picked.x, j0[0], 0.051) && near(picked.y, j0[1], 0.051) &&
+				near(right[0] - j0[0], 1, 1e-9) && right[1] === j0[1] && near(down[1] - right[1], 10, 1e-9) && down[0] === right[0],
+			q({ picked, j0, right, down }),
+		);
+		await typeSel('s2r', 'x', 50.3);
+		const typed = await jointOf(), shown = await selPanel('s2r');
+		ok('▭ One part: x typed in the side panel puts the joint there', typed[0] === 50.3 && typed[1] === down[1] && shown.x === 50.3, q({ typed, shown }));
+	}
+	// The name under the pointer: the other joint ringed while the pointer is on it.
+	{
+		const other = arm.names[0];
+		const at = round(await toClient('s2rStage', await evaluate(`[...s2r.map.upper_arm_l.joints[${q(other)}]]`)));
+		await mouse('mouseMoved', [at[0] + 60, at[1] + 60]);
+		await frames(1);
+		const off = await evaluate(`__w.patch("s2rStage", ${q(at)}, 20)`);
+		await mouse('mouseMoved', at);
+		await frames(1);
+		const on = await evaluate(`__w.patch("s2rStage", ${q(at)}, 20)`), hover = await evaluate('__w.hover("s2rStage")');
+		await mouse('mouseMoved', [at[0] + 60, at[1] + 60]);
+		await frames(1);
+		const back = await evaluate(`__w.patch("s2rStage", ${q(at)}, 20)`);
+		ok(`▭ One part: the joint under the pointer (${hover}) is ringed, and not once it leaves`, hover === other && on > off * 1.01 && back === off, q({ hover, off, on, back }));
+	}
+	// Alt during a drag snaps the joint onto the drawing's edge (an inked pixel beside a clear one) or its
+	// other joint; without Alt it goes where the pointer puts it.
+	{
+		const edge = await evaluate(`(() => { const c = s2rCanvas(s2r.map.upper_arm_l.region), e = wsEdgeOf(c), j = s2r.map.upper_arm_l.joints[${q(jointName)}];
+			let best = null, d = Infinity; for (let i = 0; i < e.length; i += 2){ const dd = Math.hypot(e[i] - j[0], e[i + 1] - j[1]); if (dd < d && dd > 6){ d = dd; best = [e[i], e[i + 1]]; } } return best; })()`);
+		const isEdge = (p) => evaluate(`(() => { const e = wsEdgeOf(s2rCanvas(s2r.map.upper_arm_l.region)); for (let i = 0; i < e.length; i += 2) if (e[i] === ${p[0]} && e[i + 1] === ${p[1]}) return true; return false; })()`);
+		const dragTo = async (target, alt) => {
+			const j0 = await jointOf(), from = round(await toClient('s2rStage', j0)), to = round(await toClient('s2rStage', target));
+			if (alt) await keyDown('Alt', ALT);
+			const m = alt ? ALT : 0;
+			await mouse('mouseMoved', from, { modifiers: m });
+			await mouse('mousePressed', from, { button: 'left', buttons: 1, clickCount: 1, modifiers: m });
+			for (let i = 1; i <= 4; i++) await mouse('mouseMoved', [from[0] + ((to[0] - from[0]) * i) / 4, from[1] + ((to[1] - from[1]) * i) / 4], { button: 'left', buttons: 1, modifiers: m });
+			await mouse('mouseReleased', to, { button: 'left', buttons: 0, clickCount: 1, modifiers: m });
+			if (alt) await keyUp('Alt');
+			await frames(1);
+			return jointOf();
+		};
+		const near1 = [edge[0] + 1.3, edge[1] + 0.8], near2 = [edge[0] - 1.1, edge[1] + 1.4];
+		const free = await dragTo(near1, false);
+		const snapped = await dragTo(near2, true);
+		ok(
+			`▭ One part: Alt-drag snaps a joint onto the drawing's edge (${q(snapped)}); a plain drag lands where the pointer puts it`,
+			snapped[0] % 1 === 0.5 && snapped[1] % 1 === 0.5 && (await isEdge(snapped)) && d2(free, near1) < 1 && !(await isEdge(free)),
+			q({ edge, snapped, free }),
+		);
+	}
+	// The loupe: beside the pointer while a joint is dragged, the drawing round the joint pixel for pixel
+	// (the joint is on the drawing's edge now, so ink and clear pixels are both in what is compared).
+	{
+		const j0 = await jointOf(), from = round(await toClient('s2rStage', j0)), to = [from[0] + 2, from[1] + 1];
+		await mouse('mouseMoved', from);
+		await mouse('mousePressed', from, { button: 'left', buttons: 1, clickCount: 1 });
+		await mouse('mouseMoved', [from[0] + 1, from[1]], { button: 'left', buttons: 1 });
+		await mouse('mouseMoved', to, { button: 'left', buttons: 1 });
+		await frames(1);
+		const l = await evaluate('__w.loupe("s2rStage")');
+		await shot('rws-part-loupe.png');
+		const check = await evaluate(`__w.loupeCheck("s2rStage", s2rCanvas(s2r.map.upper_arm_l.region), [...s2r.map.upper_arm_l.joints[${q(jointName)}]])`);
+		await mouse('mouseReleased', to, { button: 'left', buttons: 0, clickCount: 1 });
+		await frames(1);
+		const after = await evaluate('__w.loupe("s2rStage")');
+		ok(
+			`▭ One part: a loupe beside the pointer while a joint is dragged shows the drawing round it (${check.seen} pixels spanning ${check.spread} levels, off by ${check.worst.toFixed(1)} at most), gone on release`,
+			l.on && d2(l.c, to) < 160 && check.seen >= 12 && check.spread > 40 && check.worst <= 3 && !after.on,
+			q({ l, check, after }),
+		);
+	}
+
 	// ---- ◧ Arranged ------------------------------------------------------------------------------------
 	const clickView = async (v) => {
 		const r = await evaluate(`(() => { const r = document.querySelector('#s2rView button[data-view="${v}"]').getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]; })()`);
@@ -585,11 +770,68 @@ try {
 		const after = await cam('s2rArrange');
 		ok('◧ Arranged keeps its own zoom across ▭ One part and back', q(before) === q(after), q({ before, after }));
 	}
+	// The arrows move the picked part with the parts it holds, a pixel of the sheet (Shift ten); its
+	// turn typed in the side panel turns it about its first joint, the hand with it.
+	await press('f');
+	{
+		const placeOf = (n) => evaluate(`(() => { const p = s2rPlaceOf(${q(n)}); return { at: [...p.at], turn: p.turn }; })()`);
+		const f0 = await placeOf('lower_arm_r'), h0 = await placeOf('hand_r');
+		await press('ArrowUp');
+		await press('ArrowLeft', SHIFT);
+		const f1 = await placeOf('lower_arm_r'), h1 = await placeOf('hand_r'), panel = await selPanel('s2r');
+		ok(
+			`◧ Arranged: ↑ and Shift+← move the picked part (${panel.name}) 1 and 10 px of the sheet, the hand it holds with it`,
+			panel.name === 'lower_arm_r' && near(f1.at[1] - f0.at[1], -1, 1e-9) && near(f1.at[0] - f0.at[0], -10, 1e-9) &&
+				near(h1.at[1] - h0.at[1], -1, 1e-9) && near(h1.at[0] - h0.at[0], -10, 1e-9) && near(panel.x, f1.at[0], 0.051),
+			q({ f0, f1, h0, h1, panel }),
+		);
+		const elbow0 = await evaluate('s2rJointAt("lower_arm_r", "elbow")');
+		await typeSel('s2r', 'turn', Math.round(f1.turn) + 30);
+		const f2 = await placeOf('lower_arm_r'), h2 = await placeOf('hand_r'), elbow1 = await evaluate('s2rJointAt("lower_arm_r", "elbow")');
+		const want = Math.round(f1.turn) + 30;
+		ok(
+			'◧ Arranged: a turn typed in the side panel turns the part about its first joint, the hand with it',
+			near(f2.turn, want, 1e-9) && near(h2.turn - h1.turn, want - f1.turn, 1e-9) && d2(elbow0, elbow1) < 1e-6,
+			q({ f1, f2, h1, h2, elbow0, elbow1 }),
+		);
+	}
+	// Alt lets a part go near the joint it meets without snapping onto it.
+	{
+		const first = await evaluate('s2rJointAt("lower_arm_r", "elbow")'), target = await evaluate('s2rJointAt("upper_arm_r", "elbow")');
+		const grab = await evaluate('(() => { const e = s2rJointAt("lower_arm_r", "elbow"), w = s2rJointAt("lower_arm_r", "wrist"); return [e[0] + (w[0] - e[0]) * 0.4, e[1] + (w[1] - e[1]) * 0.4]; })()');
+		const from = round(await toClient('s2rArrange', grab)), a = await toClient('s2rArrange', first), t = await toClient('s2rArrange', target);
+		const to = round([from[0] + t[0] - a[0] + 3, from[1] + t[1] - a[1] + 2]);
+		await keyDown('Alt', ALT);
+		await mouse('mouseMoved', from, { modifiers: ALT });
+		await mouse('mousePressed', from, { button: 'left', buttons: 1, clickCount: 1, modifiers: ALT });
+		for (let i = 1; i <= 5; i++) await mouse('mouseMoved', [from[0] + ((to[0] - from[0]) * i) / 5, from[1] + ((to[1] - from[1]) * i) / 5], { button: 'left', buttons: 1, modifiers: ALT });
+		await mouse('mouseReleased', to, { button: 'left', buttons: 0, clickCount: 1, modifiers: ALT });
+		await keyUp('Alt');
+		await frames(1);
+		const landed = await evaluate('s2rJointAt("lower_arm_r", "elbow")'), k = (await cam('s2rArrange')).k;
+		ok(
+			`◧ Arranged: Alt-dragged next to the joint it meets, a part is not snapped onto it (${(d2(landed, target) * k / DPR).toFixed(1)} screen px off)`,
+			d2(landed, target) * k > 1.5 * DPR,
+			q({ first, target, landed, k }),
+		);
+	}
+	// The part under the pointer is named.
+	{
+		const at = round(await toClient('s2rArrange', (await evaluate('s2rPlaceOf("torso")')).at));
+		await mouse('mouseMoved', at);
+		await frames(1);
+		const hover = await evaluate('__w.hover("s2rArrange")');
+		await shot('rws-arranged-hover.png');
+		ok(`◧ Arranged: the part under the pointer is named (${hover})`, typeof hover === 'string' && hover.length > 0, q(hover));
+	}
 
 	// ---- The zoom stays when the dialog closes and opens again ---------------------------------------
 	// A new rig's dialog opens as the first time (its mapping guessed again), so ◧ Arranged shows a new
 	// arrangement: at the zoom it had, about its middle; ▭ One part keeps its view as it was.
 	{
+		await evaluate('__w.zoomTo("s2rStage", [20, 20], 250)');
+		const ab = await box('s2rArrange');
+		await wheel(round([ab.l + ab.w / 2, ab.t + ab.h / 2]), -100);
 		const keep = { part: await cam('s2rStage'), arranged: await cam('s2rArrange') };
 		await press('Escape');
 		const closed = await evaluate('!document.getElementById("s2rModal").classList.contains("open")');
@@ -611,9 +853,10 @@ try {
 	await waitFor('document.getElementById("f2rModal").classList.contains("open")', 10000);
 	await evaluate(`(() => {
 		const c = document.createElement("canvas"); c.width = ${FW}; c.height = ${FH};
-		const g = c.getContext("2d"), grad = g.createLinearGradient(0, 0, ${FW}, ${FH});
-		grad.addColorStop(0, "#335"); grad.addColorStop(1, "#cba"); g.fillStyle = grad; g.fillRect(0, 0, ${FW}, ${FH});
-		g.strokeStyle = "#fff"; for (let x = 0; x <= ${FW}; x += 20){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ${FH}); g.stroke(); }
+		// Every pixel its own colour, so a picture shifted by a pixel shows.
+		const g = c.getContext("2d"), img = g.createImageData(${FW}, ${FH});
+		for (let i = 0; i < ${FW} * ${FH}; i++){ const x = i % ${FW}, y = (i / ${FW}) | 0; img.data.set([(x * 37 + y * 11) % 256, (x * 13 + y * 29) % 256, (x * 7 ^ y * 5) % 256, 255], i * 4); }
+		g.putImageData(img, 0, 0);
 		const L = Array.from({ length: 33 }, () => [0.5, 0.3]);
 		Object.assign(L, { 11: [0.65, 0.3], 12: [0.35, 0.3], 13: [0.72, 0.45], 14: [0.28, 0.45], 15: [0.75, 0.6], 16: [0.25, 0.6], 23: [0.6, 0.65], 24: [0.4, 0.65] });
 		Object.assign(f2r, { src: { width: ${FW}, height: ${FH}, draw: () => c, close() {} }, sel: 0, frame: { pose: { landmarks: L } }, cut: null, plan: null });
@@ -628,6 +871,72 @@ try {
 	await pans('f2rStage', '🎞 the frame stage', elbowOf, pose);
 	await keysAndButtons('f2rModal', 'f2rStage', '🎞 the frame stage', [FW, FH]);
 	await jointDrag('f2rStage', '🎞 the frame stage', elbowOf, 1e-6);
+	await press('f');
+	{
+		const e0 = await elbowOf();
+		await click(round(await toClient('f2rStage', e0)));
+		const picked = await selPanel('f2r');
+		await press('ArrowLeft');
+		const e1 = await elbowOf();
+		await press('ArrowUp', SHIFT);
+		const e2 = await elbowOf();
+		await typeSel('f2r', 'y', 300);
+		const e3 = await elbowOf();
+		ok(
+			`🎞: a click picks the joint (the side panel says “${picked.name}”); ← moves it 1 px of the frame, Shift+↑ 10, y typed puts it there`,
+			picked.name === 'elbow_r' && near(e1[0] - e0[0], -1, 1e-9) && near(e1[1], e0[1], 1e-9) && near(e2[1] - e1[1], -10, 1e-9) &&
+				near(e3[1], 300, 1e-9) && near(e3[0], e2[0], 1e-9),
+			q({ picked, e0, e1, e2, e3 }),
+		);
+	}
+	{
+		const sh = round(await toClient('f2rStage', await evaluate(`[f2r.frame.pose.landmarks[11][0] * ${FW}, f2r.frame.pose.landmarks[11][1] * ${FH}]`)));
+		const tag = [sh[0] + 40, sh[1] - 16];
+		await mouse('mouseMoved', [sh[0] - 80, sh[1] + 80]);
+		await frames(1);
+		const off = await evaluate(`__w.patch("f2rStage", ${q(tag)}, 14)`);
+		await mouse('mouseMoved', sh);
+		await frames(1);
+		const on = await evaluate(`__w.patch("f2rStage", ${q(tag)}, 14)`), hover = await evaluate('__w.hover("f2rStage")');
+		ok(`🎞: the joint under the pointer is named beside it (${hover})`, hover === 'pose:11' && Math.abs(on - off) > off * 0.02, q({ hover, off, on }));
+	}
+	{
+		const e0 = await elbowOf(), from = round(await toClient('f2rStage', e0));
+		await mouse('mouseMoved', from);
+		await mouse('mousePressed', from, { button: 'left', buttons: 1, clickCount: 1 });
+		await mouse('mouseMoved', [from[0] + 4, from[1] + 7], { button: 'left', buttons: 1 });
+		await mouse('mouseMoved', [from[0] + 8, from[1] + 13], { button: 'left', buttons: 1 });
+		await frames(1);
+		const l = await evaluate('__w.loupe("f2rStage")');
+		await shot('rws-frame-loupe.png');
+		const check = await evaluate(`__w.loupeCheck("f2rStage", f2r.src.draw(0), [f2r.frame.pose.landmarks[13][0] * ${FW}, f2r.frame.pose.landmarks[13][1] * ${FH}])`);
+		await mouse('mouseReleased', [from[0] + 8, from[1] + 13], { button: 'left', buttons: 0, clickCount: 1 });
+		await frames(1);
+		const after = await evaluate('__w.loupe("f2rStage")');
+		ok(
+			`🎞: a loupe beside the pointer while a joint is dragged shows the frame round it (${check.seen} pixels, off by ${check.worst.toFixed(1)} at most), gone on release`,
+			l.on && check.seen >= 12 && check.spread > 40 && check.worst <= 3 && !after.on,
+			q({ l, check, after }),
+		);
+	}
+	{
+		const radius = () => evaluate('({ r: Number(document.getElementById("f2rRadius").value), f: f2rBrushRadius() })');
+		const r0 = await radius();
+		await press(']');
+		const up = await radius();
+		await press('[');
+		await press('[');
+		const down = await radius();
+		await press('1');
+		const at100 = await radius();
+		await evaluate(`__w.zoomTo("f2rStage", ${q(await elbowOf())}, 400)`);
+		const at400 = await radius();
+		ok(
+			`🎞: ] and [ change the brush's size (${r0.r} → ${up.r} → ${down.r}); it is a size on the screen, so at 400% it paints a quarter of the frame's pixels it does at 100%`,
+			up.r > r0.r && down.r < r0.r && near(at100.f, (down.r * DPR) / DPR, 1e-9) && near(at400.f * 4, at100.f, 1e-9),
+			q({ r0, up, down, at100, at400 }),
+		);
+	}
 	{
 		const keep = await cam('f2rStage');
 		await press('Escape');

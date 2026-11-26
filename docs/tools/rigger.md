@@ -1295,6 +1295,9 @@ keeps its zoom while the page is open (◧ Arranged keeps its own), and the next
 | Fit the picture | **F**, or **Fit** |
 | 100% | **1**, or **1:1** |
 | Zoom in / out | **+** (or **=**) / **−**, or the bar's + and − |
+| Move the picked joint, part or prop | **← ↑ → ↓**: one pixel of the picture; with **Shift**, ten |
+| Snap the other way while dragging | Hold **Alt** (see below) |
+| Brush size (🎞) | **[** smaller, **]** bigger |
 | Leave | **Esc**, or **✕** |
 
 Joint dots, handles and labels stay one size on the screen at any zoom. Past 200% the picture's
@@ -1302,6 +1305,25 @@ pixels are drawn as squares, so you can see which pixel a joint is on. A dragged
 point you grabbed it by under the pointer, so at 400% it moves a quarter of a pixel at a time. A pan
 never moves a joint, even one under the pointer. The keys work anywhere in the workspace except
 while you type in a field.
+
+**Precise placing.**
+
+- **The selection.** The joint you clicked last (🎞, ▭ One part), or the part or prop picked in
+  ◧ Arranged, has a blue ring. The arrow keys move it, and its numbers sit at the top of the side
+  panel: **x** and **y** in the picture's pixels, and for an arranged part or prop its turn **↻** in
+  degrees. Type a number and leave the field to put it there; a turn typed for a part turns it about
+  its first joint, with the parts it holds.
+- **Names.** The joint or part under the pointer is named beside it, and ringed or outlined.
+- **The loupe.** While you drag a joint, a loupe beside the pointer shows the picture around the
+  joint, four times the zoom, one picture pixel to a square. The joint is where the cross's arms
+  meet.
+- **Alt while dragging.** In ◧ Arranged, a part dragged near the joint it meets snaps onto it; hold
+  Alt to place it near without snapping. In ▭ One part, joints do not snap; hold Alt to snap one
+  onto the drawing's edge (the middle of an inked pixel beside a clear one) or onto its other joint.
+  The snap reaches 12 screen pixels.
+- **🎞's brush** is a size on the screen, so zooming in paints finer. Its ring follows the pointer.
+
+An arranged part has no size of its own to set: every drawing keeps the size it was drawn at.
 
 #### Make a rig from a Flipbook frame (🎞 From a Flipbook frame)
 
@@ -1358,11 +1380,12 @@ of the panel. What each step does is the tooltip on the dialog's title.
    - The **bone** list on a prop's row picks the bone it hangs from (any bone of the template but the
      controls); left at "on …", it hangs from the bone its part is drawn on.
    - **🗑** removes one: each of its pixels goes back to the part it lies nearest.
-5. **Touch up with the brush or the lasso.** Tick **🖌 Brush**, pick the part (or prop) to paint as
-   and the radius, and paint on the frame: the pixels under the brush move to that part. Or tick
-   **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
-   never past the character's outline, and work on **▣ This frame** (step 6). With both off, the
-   joints drag again.
+5. **Touch up with the brush or the lasso.** Tick **🖌 Brush** in the bar above the canvas, pick the
+   part (or prop) to paint as and the brush's size (a size on the screen: zoom in to paint finer;
+   **[** and **]** change it), and paint on the frame: the pixels under the brush move to that
+   part. Or tick **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels
+   between parts, never past the character's outline, and work on **▣ This frame** (step 6). With
+   both off, the joints drag again.
 6. **Each part from its best frame.** Every part is scored on every frame of the clip too: whole
    (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its
    joints sure. The **Parts** list is that table: each part, the frame it is cut from, its score
