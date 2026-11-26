@@ -1340,10 +1340,10 @@ of the panel. What each step does is the tooltip on the dialog's title.
    - **🗑** removes one: each of its pixels goes back to the part it lies nearest.
 5. **Touch up with the brush or the lasso.** Tick **🖌 Brush** in the bar above the canvas, pick the
    part (or prop) to paint as and the brush's size (a size on the screen: zoom in to paint finer;
-   **[** and **]** change it), and paint on the frame: the pixels under the brush move to that part. Or tick
-   **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
-   never past the character's outline, and work on **▣ This frame** (step 6). With both off, the
-   joints drag again.
+   **[** and **]** change it), and paint on the frame: the pixels under the brush move to that
+   part. Or tick **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels
+   between parts, never past the character's outline, and work on **▣ This frame** (step 6). With
+   both off, the joints drag again.
 6. **Each part from its best frame.** Every part is scored on every frame of the clip too: whole
    (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its
    joints sure. The **Parts** list is that table: each part, the frame it is cut from, its score
