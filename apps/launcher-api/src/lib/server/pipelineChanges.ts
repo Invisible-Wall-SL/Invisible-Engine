@@ -71,6 +71,8 @@ export const HARNESS_WORKFLOW_PATH = '.github/workflows/current-games.yml';
 export const HARNESS_SOURCES = [/^\.github\/workflows\//, /^scripts\/current-games\//];
 /** Reserved for Director games, which never make a PR; a PR wearing it is not a change. */
 export const DIRECTOR_GAME_LABEL = 'director-game';
+/** A change put on hold from Pipeline Changes (ADR-0015 §7): the label is the whole record. */
+export const ON_HOLD_LABEL = 'on-hold';
 /** An Agents-tab change (PLAN 5.4); listed like any other, flagged for the UI. The label and the
  *  eval's status context are the workflow's own constants (`eval/report.ts`). */
 export { AGENT_DEFINITION_LABEL };
@@ -183,6 +185,8 @@ export interface ChangeSummary {
 	headSha: string;
 	labels: string[];
 	agentDefinition: boolean;
+	/** Carries the `on-hold` label: the list shows it apart and offers nothing on it. */
+	onHold: boolean;
 	status: ChangeStatus;
 }
 
@@ -289,6 +293,14 @@ export interface ChangeDetail extends ChangeSummary {
 	/** The GitHub login that merged it: the App's bot when the launcher did. */
 	mergedBy: string | null;
 	mergeCommitSha: string | null;
+	/** Commits `main` has that this head lacks; `null` when not asked (closed, held, or a head that
+	 *  neither merges cleanly nor conflicts) or when GitHub did not say. */
+	behindBy: number | null;
+	/** When the head commit was made; read only for a draft in conflict, which is what the
+	 *  14-day hint needs. */
+	headCommittedAt: string | null;
+	/** When the `on-hold` label was last put on; `null` when not on hold or not found. */
+	heldSince: string | null;
 	files: ChangeFile[];
 	filesTruncated: boolean;
 	checks: CheckGroup[];
@@ -325,6 +337,10 @@ export function isDependabot(user: GhUser | null): boolean {
 }
 
 const labelsOf = (pull: GhPull): string[] => (pull.labels ?? []).map((l) => l.name);
+
+/** Whether a pull request carries the `on-hold` label. */
+export const isOnHold = (pull: Pick<GhPull, 'labels'>): boolean =>
+	(pull.labels ?? []).some((l) => l.name === ON_HOLD_LABEL);
 
 /** A PR whose head is not a branch of this repository. */
 const isFork = (pull: GhPull): boolean => pull.head.repo?.full_name !== repo();
@@ -614,6 +630,7 @@ function summaryOf(pull: GhPull, head: Head, agentEval: AgentEvalCheck | null): 
 		headSha: pull.head.sha,
 		labels,
 		agentDefinition: labels.includes(AGENT_DEFINITION_LABEL),
+		onHold: labels.includes(ON_HOLD_LABEL),
 		status: deriveStatus({
 			mergeableState: pull.mergeable_state ?? null,
 			checks,
@@ -720,6 +737,55 @@ async function readChanges(app: GithubApp, generation: number): Promise<ChangeLi
 	return list;
 }
 
+/** GitHub's answer for one read the detail can do without: `null` for a GitHub failure. */
+async function orNull<T>(read: () => Promise<T>): Promise<T | null> {
+	try {
+		return await read();
+	} catch (err) {
+		if (err instanceof GithubAppError) return null;
+		throw err;
+	}
+}
+
+/** How many commits `main` has that `headSha` lacks (`compare/main...<head>`), or `null`. */
+export async function behindMain(app: GithubApp, headSha: string): Promise<number | null> {
+	const compared = await orNull(() =>
+		app.json<{ behind_by?: unknown }>(
+			`/repos/${repo()}/compare/${BASE_BRANCH}...${headSha}?per_page=1`,
+		),
+	);
+	return typeof compared?.behind_by === 'number' ? compared.behind_by : null;
+}
+
+/** When the head commit was made, or `null`. */
+async function headCommittedAt(app: GithubApp, headSha: string): Promise<string | null> {
+	const commit = await orNull(() =>
+		app.json<{ commit?: { committer?: { date?: unknown } | null } }>(
+			`/repos/${repo()}/commits/${headSha}`,
+		),
+	);
+	const date = commit?.commit?.committer?.date;
+	return typeof date === 'string' ? date : null;
+}
+
+/** When `on-hold` was last put on, from the issue's events (newest `labeled` event). */
+async function heldSince(app: GithubApp, number: number): Promise<string | null> {
+	let since: string | null = null;
+	for (let page = 1; page <= MAX_PAGES; page++) {
+		const batch = await orNull(() =>
+			app.json<{ event: string; created_at: string; label?: { name?: string } }[]>(
+				`/repos/${repo()}/issues/${number}/events?per_page=${PAGE}&page=${page}`,
+			),
+		);
+		if (!batch) return since;
+		for (const e of batch) {
+			if (e.event === 'labeled' && e.label?.name === ON_HOLD_LABEL) since = e.created_at;
+		}
+		if (batch.length < PAGE) break;
+	}
+	return since;
+}
+
 /** The PR behind a change number, or the 404 that says why it is not a change. */
 export async function readPull(number: number, app: GithubApp): Promise<GhPull> {
 	const res = await app.fetch(`/repos/${repo()}/pulls/${number}`);
@@ -798,6 +864,14 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			: unapprovableReason(report, diffs);
 	const standing = await standingOf(approvals);
 	const counted = countApprovals(diffs, approvals, standing);
+	const onHold = isOnHold(pull);
+	const open = pull.state === 'open' && !(pull.merged ?? false);
+	const conflicted = pull.mergeable_state === 'dirty';
+	const [behindBy, committedAt, since] = await Promise.all([
+		open && !onHold && (pull.mergeable === true || conflicted) ? behindMain(app, sha) : null,
+		open && !onHold && conflicted && (pull.draft ?? false) ? headCommittedAt(app, sha) : null,
+		onHold ? heldSince(app, number) : null,
+	]);
 	return {
 		...summaryOf(pull, head, agentEval),
 		state: pull.state,
@@ -809,6 +883,9 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		merged: pull.merged ?? false,
 		mergedBy: pull.merged_by?.login ?? null,
 		mergeCommitSha: pull.merge_commit_sha,
+		behindBy,
+		headCommittedAt: committedAt,
+		heldSince: since,
 		files: changeFiles,
 		filesTruncated: truncated,
 		familyPacks: familyPackFilesOf(changeFiles),

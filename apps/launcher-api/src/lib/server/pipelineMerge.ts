@@ -8,6 +8,7 @@ import {
 	getChange,
 	harnessFilesOf,
 	fixRunOfChange,
+	isOnHold,
 	listChanges,
 	repo,
 	type ChangeDetail,
@@ -295,6 +296,7 @@ export async function mergeChange(
 		const change = await getChange(number, app);
 		if (change.merged) return { merge: await mergedOnGithub(change, app), already: true };
 		if (change.state !== 'open') throw error(409, `#${number} is closed.`);
+		if (change.onHold) throw error(409, `#${number} is on hold: resume it first.`);
 		if (headSha !== change.headSha) {
 			throw error(
 				409,
@@ -412,10 +414,12 @@ export async function markReadyForReview(
 		state?: unknown;
 		merged?: unknown;
 		head?: { ref?: unknown };
+		labels?: { name: string }[];
 	}>(`/repos/${repo()}/pulls/${number}`);
 	if (pr.merged === true) throw error(409, `#${number} is already merged.`);
 	if (pr.state !== 'open') throw error(409, `#${number} is closed.`);
 	if (pr.draft !== true) throw error(409, `#${number} is not a draft: it is ready for review.`);
+	if (isOnHold(pr)) throw error(409, `#${number} is on hold: resume it first.`);
 	if (typeof pr.node_id !== 'string') {
 		throw new GithubAppError(`GitHub did not name #${number}'s GraphQL id.`);
 	}
