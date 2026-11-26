@@ -169,7 +169,8 @@ async function openW() {
 	await evaluate('location.reload(); true').catch(() => {});
 	await wait(300);
 	await waitFor('typeof skeletons !== "undefined" && skeletons.length === 1', 30000);
-	await evaluate('window.confirm = () => true; window.alert = () => {}; window.prompt = () => null; document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); true');
+	// 🧲 Snap to bone off: W's sparks share one origin, and a drag measured against the mouse's must not snap
+	await evaluate('window.confirm = () => true; window.alert = () => {}; window.prompt = () => null; boneSnap = false; document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); true');
 	await evaluate(`(() => { document.getElementById("loadRigBtn").click(); const row = [...document.querySelectorAll("#list .item")].find((d) => d.querySelector(".nm").textContent === "W"); row.click(); return true; })()`);
 	await waitFor('!document.getElementById("loadingOverlay").classList.contains("on")', 30000);
 	await waitFor('!!skeleton && !!rawDoc', 15000);

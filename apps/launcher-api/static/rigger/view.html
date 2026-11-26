@@ -375,6 +375,9 @@
   #timeline .tl-key.evt { background:#c98bff; } /* event key */
   #timeline .tl-key.evt.fx { box-shadow:0 0 0 2px #ffd76a inset; } /* warm ring = a bound FX effect */
   #timeline .tl-key.draw { background:#5cc8ff; } /* draw-order key */
+  #timeline .tl-key.sum { background:#8b93a7; box-shadow:0 0 0 2px #0c0f14 inset; } /* a folded row's: the keys of the rows inside it */
+  #timeline .tl-key.sum.own { background:var(--accent); } /* … and the row's own key there too */
+  #timeline .tl-key.sum.sel { background:#ffd24a; }
   #timeline .tl-key.msel { background:#fff; box-shadow:0 0 0 2px var(--accent),0 0 0 3px #0c0f14; z-index:2; } /* multi-selected */
   #timeline .tl-key.ghost { opacity:.5; box-shadow:0 0 0 1px var(--accent); pointer-events:none; z-index:3; } /* Alt-drag duplicate preview */
   /* stretch bar: the selection's time range drawn on the ruler, pinned at the anchor key */
@@ -407,10 +410,10 @@
   button:disabled { opacity:.45; cursor:not-allowed; }
   .seg button:disabled { opacity:.4; cursor:not-allowed; }
   /* floating mode switcher — top-centre of the canvas */
-  #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; }
+  #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; white-space:nowrap; } /* its width is capped at half the stage: keep the segments on one line */
   #modeBar .seg { background:rgba(20,23,28,.85); box-shadow:0 2px 10px rgba(0,0,0,.45); backdrop-filter:blur(3px); }
   #modeBar .seg button { padding:7px 14px; font-size:13px; }
-  #undoSeg { margin-left:8px; }
+  #undoSeg, #snapSeg { margin-left:8px; }
   /* tweak mode: the animator open on one cinematic strip (design invisible-cinematic.md §4.4) */
   #tweakBar { position:absolute; z-index:6; top:52px; left:50%; transform:translateX(-50%);
     display:flex; align-items:center; gap:9px; padding:6px 12px; border-radius:8px; font-size:12px;
@@ -814,6 +817,9 @@
           <button id="undoBtn" disabled>↶</button>
           <button id="redoBtn" disabled>↷</button>
         </span>
+        <span id="snapSeg" class="seg" style="display:none;">
+          <button id="boneSnapBtn" class="active" title="Snap to bone: a bone you drag on the stage puts its origin on another bone's origin or tip when it comes within a few pixels of one (a ring marks it). Hold Alt while dragging to do the opposite for that drag." aria-label="Snap to bone">🧲</button>
+        </span>
       </div>
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
       <!-- tweak mode: the animator open on one cinematic strip (design invisible-cinematic.md §4.4) -->
@@ -871,6 +877,7 @@
       </div>
       <div class="grp" id="animTools" style="display:none;">
         <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale+shear) — or, with a slot selected, its image, colour and mesh shape">◆ Key</button>
+        <button id="keyKidsBtn" title="Key the selected bone(s) AND every bone under them at the playhead (rotate+translate+scale+shear, each only what its control may key) — a whole arm or the whole body from its root in one step">◆ Key children</button>
         <button id="keyAllBtn" title="Key EVERYTHING on stage at the playhead — every bone's pose + every slot's attachment & colour + the shape of every mesh this clip shapes">◆ Key all</button>
         <button id="prevKey" title="Jump to previous key">|◀</button>
         <button id="nextKey" title="Jump to next key">▶|</button>
@@ -1317,9 +1324,21 @@ let tweakMode = false, tweak = null;
 // underneath, the animator's keying paths); only the surface differs.
 let tweakInline = false;
 let animClipboard = null; // in-session animation copy/paste: { name, animation } (memory only)
-let tlDur = 1, tlGutter = 96; // dopesheet (5.2): geometry
+const tlPref = (key, fallback) => { try { const v = localStorage.getItem("rigger." + key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } };
+const tlSavePref = (key, v) => { try { localStorage.setItem("rigger." + key, JSON.stringify(v)); } catch { /* this tab only */ } };
+let tlDur = 1, tlGutter = Math.max(70, Math.min(420, Number(tlPref("tlGutter", 180)) || 180)); // dopesheet (5.2): geometry; the names column is resizable
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
 let tlSelOnly = false; // dopesheet: show only the selected bone/slot's keys
+// dopesheet TREE: rows nested by the bone hierarchy (a slot's under its bone, a mesh's deform and
+// sequence rows under their slot), each parent foldable. A folded row shows its hidden rows' keys as
+// its own, and grabbing one of those takes every key under it at that time.
+let tlTree = tlPref("tlTree", true) !== false;
+const tlFolded = new Set(); // row keys ("bone:<name>" / "slot:<name>") folded shut, this tab only
+let tlRevealed = null; // the selection whose folded parents were last opened (once per pick)
+let tlScrubSnap = null; // key times the playhead snaps to while it is dragged (snap on), from the drag's start
+// Properties follow the keys (syncKeyPanels): what they were drawn at, a revision every edit bumps
+// (markDirty, undo), and whether a pointer is held (no redraw under a drag).
+let keyPanelsAt = null, rigEditRev = 0, pointerHeld = false;
 // dopesheet multi-select: selected keys [{tid,time}] + group-drag + marquee + per-render lookups
 let dopeSel = [], dopeDrag = null, dopeMarquee = null, dopeTrackById = {}, dopeDotEls = {};
 // dopesheet STRETCH: the selection's key times scale about ONE anchor time — the selected key you
@@ -1345,7 +1364,12 @@ const GRAPH_CHS_3D = ["orient", "depth"];
 const VALUE_CHS = ["rotate", "depth"]; // the channels keyed by one value (the others by x and y)
 let graphHide = {}; // channel label → hidden?
 let graphSel = [], graphMarquee = null; // selected graph points [{keyObj,ch,field,vi}] + box-select state
-let graphSnap = true, graphBox = null; // snap key/handle times to grid+playhead; box-scale-drag state
+let graphSnap = true, graphBox = null; // snap key/handle times to grid+playhead+keys; box-scale-drag state
+// 🧲 Snap to bone: a bone dragged on the stage puts its origin on another bone's origin or tip when it
+// comes within BONE_SNAP_PX of one (Alt turns it the other way for the drag). `boneSnapRaw` is where
+// the drag would have put it unsnapped, so pulling away lets go again; `boneSnapHit` the joint it is on.
+let boneSnap = tlPref("boneSnap", true) !== false, boneSnapRaw = null, boneSnapHit = null, boneSnapAlt = false;
+const BONE_SNAP_PX = 10;
 let gizmoDrag = null; // transform gizmo rotate-drag state
 let curProjectLabel = "", curProjectKey = "", restoringState = false; // persisted-selection helpers
 // The save precondition for the open rig's `.irig` (docs/design/multi-user-concurrency.md):
@@ -2323,6 +2347,7 @@ function tweakOverlays(){
   drawPointOverlay();
   if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); drawMirrorLine(); }
   drawGizmo();
+  drawBoneSnapRing();
 }
 
 /** Hook 4 — after the draw pass: the bone marker and the two playhead readouts. */
@@ -3392,13 +3417,15 @@ function renderSolveOrderList(consList){
 }
 
 // In animate mode the open constraint panel shows its values at the playhead, so it is redrawn when
-// the playhead stops somewhere new — never while it plays, nor under the author's typing.
+// the playhead stops somewhere new or its keys change — never while it plays, while a key is dragged,
+// nor under the author's typing.
 let consPanelAt = null;
 function syncConstraintPanel(){
   if (!animMode || playing || !(selIk || selTc || selPath || selPc)) return;
-  if (consPanelAt === curAnim + "@" + animTime) return;
+  if (consPanelAt === curAnim + "@" + animTime + "#" + rigEditRev || dopeDrag || dopeScale || graphDrag || graphBox) return;
   const det = $("#consDetail"); if (det && det.contains(document.activeElement)) return;
   renderConstraintEditor();
+  consPanelAt = curAnim + "@" + animTime + "#" + rigEditRev;
 }
 
 // A constraint panel's header: kind and name, with ✎ rename and 🗑 delete as icon buttons.
@@ -3414,7 +3441,7 @@ function consHead(det, kind, name, rename, del){
 // The constraints panel shares one detail box (#consDetail): show the editor for whichever
 // constraint kind is selected. Selecting one kind clears the other (one editor at a time).
 function renderConstraintEditor(){
-  consPanelAt = curAnim + "@" + animTime;
+  consPanelAt = curAnim + "@" + animTime + "#" + rigEditRev;
   if (selPc) renderPhysicsEditor();
   else if (selPath) renderPathConstraintEditor();
   else if (selTc) renderTransformEditor();
@@ -7682,6 +7709,7 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
+  rigEditRev++; // the Properties panels redraw at the next idle frame (syncKeyPanels)
   stage3dEdits.gen++;
   rebake3dSoon();
   historyNote();
@@ -7908,6 +7936,7 @@ function historyApply(entry){
     renderTimeline();
     rigHist.present = entry.unbaked ? { doc: entry.doc, sel: s, unbaked: true } : { doc: entry.doc, sel: s };
     dirty = true;
+    rigEditRev++;
   } finally { rigHist.applying = false; }
   if (entry.unbaked){ bake3d.sig = {}; rebake3dSoon(); }
   refreshUndoButtons();
@@ -18778,6 +18807,7 @@ function setMode(m){
   mode = m;
   editMode = (m === "setup");
   animMode = (m === "animate");
+  $("#snapSeg").style.display = editMode || animMode ? "" : "none";
   const wasCine = cineMode;
   cineMode = (m === "cinematic");
   if (cineMode) ensureCinematic();
@@ -19258,6 +19288,20 @@ function keyBone(boneName, channels, refresh){
   if (refresh && selBone != null) renderBoneDetail();
 }
 
+// ◆ Key children: key the selected bones and every bone under them at the playhead, as they pose
+// there — each only the channels its control may key, as ◆ Key does.
+function keyWithChildren(){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const roots = selectedBoneNames();
+  if (!roots.length){ $("#hint").textContent = "◆ Key children: select a bone first — it and every bone under it get keyed"; return; }
+  const names = new Set(roots);
+  for (const n of roots) for (const d of boneDescendantsOf(rawDoc, n)) names.add(d);
+  const order = skeleton.bones.map((b) => b.data.name).filter((n) => names.has(n));
+  for (const n of order) keyBone(n, keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), false);
+  refreshAnimCounts();
+  if (selBone != null) renderBoneDetail();
+  $("#hint").textContent = "◆ Keyed " + roots.join(", ") + " and " + (order.length - roots.length) + " bone(s) under " + (roots.length > 1 ? "them" : "it") + " @ " + animTime.toFixed(2) + "s";
+}
 // Key everything on stage at the playhead — every bone's pose (rotate+translate+scale)
 // plus every slot's current attachment + colour. Wired to "◆ Key all" on the toolbar.
 function keyAll(){
@@ -19341,20 +19385,69 @@ function nearestBoneKeyTime(boneName, t){
   return ts.reduce((best, k) => (Math.abs(k - t) < Math.abs(best - t) ? k : best), ts[0]);
 }
 
-// Jump the playhead to the prev/next key (of the selected bone, else any bone).
+// The key times of what is selected, as its dopesheet rows show them: the selected bones', the
+// selected slots' (image, colour, mesh shape and sequence) and the selected constraint's.
+function selectionKeyTimes(){
+  const a = animOf(curAnim), lists = selectedBoneNames().map(boneKeyTimes);
+  for (const sn of selectedSlotNames()){
+    lists.push(slotKeyTimes(sn));
+    for (const t of [...deformTracksWithKeys(a), ...sequenceTracksWithKeys(a)]) if (t.name === sn) lists.push(trackKeyTimes(t));
+  }
+  if (selIk) lists.push(ikKeyTimes(selIk));
+  if (selTc) lists.push(transformKeyTimes(selTc));
+  if (selPath) lists.push(pathKeyTimesAll(selPath));
+  if (selPc) lists.push(physicsKeyTimes(selPc));
+  return [...new Set(lists.flat())].sort((x, y) => x - y);
+}
+// Every key time of the open clip, on every row the overview can show (events and draw order too).
+function allKeyTimes(){
+  const a = animOf(curAnim); if (!a) return [];
+  const tracks = [{ kind: "events" }, { kind: "draworder" },
+    ...keyedBoneNames().map((name) => ({ kind: "bone", name })), ...Object.keys(a.slots || {}).map((name) => ({ kind: "slot", name })),
+    ...deformTracksWithKeys(a), ...sequenceTracksWithKeys(a), ...ikTracksWithKeys(a), ...transformTracksWithKeys(a),
+    ...pathTracksWithKeys(a), ...physicsTracksWithKeys(a)];
+  return [...new Set(tracks.flatMap(trackKeyTimes))].sort((x, y) => x - y);
+}
+// Jump the playhead to the prev/next key of what is selected (`selectionKeyTimes`), else of the clip.
 function gotoKey(dir){
   if (!curAnim) return;
-  const shapes = deformTracksWithKeys(animOf(curAnim));
-  const timesOf = (lists) => [...new Set(lists.flat())].sort((x, y) => x - y);
-  let times = selBone != null ? boneKeyTimes(skeletonData.bones[selBone].name)
-    : selSlot ? timesOf([slotKeyTimes(selSlot), ...shapes.filter((d) => d.name === selSlot).map(trackKeyTimes)]) : [];
-  if (!times.length) times = timesOf([...keyedBoneNames().map(boneKeyTimes), ...shapes.map(trackKeyTimes)]);
-  if (!times.length) return;
+  let times = selectionKeyTimes();
+  if (!times.length) times = allKeyTimes();
   let target = null;
   if (dir < 0){ for (let i = times.length - 1; i >= 0; i--) if (times[i] < animTime - 1e-4){ target = times[i]; break; } }
   else { for (let i = 0; i < times.length; i++) if (times[i] > animTime + 1e-4){ target = times[i]; break; } }
   if (target == null) return;
-  animTime = target; syncPlayhead(); renderTimeline(); if (selBone != null) renderBoneDetail(); else if (selSlot) renderSlotDetail();
+  animTime = target; playing = false; $("#play").textContent = "▶ Play";
+  syncPlayhead(); renderTimeline(); refreshKeyPanels();
+}
+// Every Properties panel that shows something AT THE PLAYHEAD or OF ONE KEY, drawn again together:
+// the bone's pose with its key's easing, the slot's, the open constraint's values, a sequence or event key.
+function refreshKeyPanels(){
+  if (selBone != null) renderBoneDetail();
+  if (selSlot) renderSlotDetail();
+  if (selIk || selTc || selPath || selPc){ consPanelAt = null; syncConstraintPanel(); }
+  renderSeqDetail(); renderEventDetail();
+  keyPanelsAt = keyPanelsStamp();
+}
+// The Properties panels follow the playhead and the keys: when either changed since they were drawn
+// (playback paused or ran out, a key dragged, deleted or eased from the dopesheet, an undo) they are
+// drawn again — never while it plays, under a held pointer (a drag), or while a field is being typed in.
+const keyPanelsStamp = () => curAnim + "@" + animTime + "#" + rigEditRev + "#" + selBone + "#" + selSlot;
+function syncKeyPanels(){
+  if (!animMode || playing || pointerHeld || keyPanelsAt === keyPanelsStamp()) return;
+  const ae = document.activeElement, ins = $("#inspector");
+  if (ae && ins && ins.contains(ae) && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+  if (selBone != null) renderBoneDetail();
+  if (selSlot) renderSlotDetail();
+  renderSeqDetail();
+  if (selEvent) renderEventDetail();
+  markPlayheadKeys();
+  keyPanelsAt = keyPanelsStamp();
+}
+// Light the dopesheet's keys under the playhead, in place (no rebuild).
+function markPlayheadKeys(){
+  const tl = $("#timeline"); if (!tl) return;
+  for (const el of tl.querySelectorAll(".tl-key[data-t]")) el.classList.toggle("sel", Math.abs(parseFloat(el.dataset.t) - animTime) < 1e-3);
 }
 
 // Light refresh of the Animations section key counts (without rebuilding everything).
@@ -19668,7 +19761,86 @@ function timelineTracks(){
   if (selTc && tcByName(selTc) && !out.some((t) => t.kind === "transform" && t.name === selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
   if (selPath && pcByName(selPath)) for (const ch of PATH_CH) if (!out.some((t) => t.kind === "pathch" && t.name === selPath && t.ch === ch)) out.push({ kind: "pathch", name: selPath, ch, label: "path " + PATH_CH_LABEL[ch] });
   if (selPc && physByName(selPc) && !out.some((t) => t.kind === "physics" && t.name === selPc)) out.push({ kind: "physics", name: selPc, label: "physics" });
-  return evt.concat(groupLimbTracks(out, controlsDoc));
+  return evt.concat(tlTree ? foldTracks(groupLimbTracks(treeTracks(out), controlsDoc)) : groupLimbTracks(out, controlsDoc));
+}
+// The key a bone or slot row folds by ("bone:<name>" / "slot:<name>"); null for any other row.
+const tlRowKey = (t) => (t.kind === "bone" || t.kind === "slot" ? t.kind + ":" + t.name : null);
+// The overview's rows as a TREE (`tlTree`): each bone's row under its parent's, a slot's rows under its
+// bone's, a mesh's deform and sequence rows under their slot's. A bone or slot with rows under it but
+// no keys of its own still gets a row (`bare`), so the tree reads down from the root. Constraint rows,
+// and rows naming a bone or slot the skeleton no longer has, stay flat below it. Each row carries its
+// `depth` and the key of the row it folds under (`parent`).
+function treeTracks(flat){
+  const boneRows = new Map(), slotRows = new Map(), underSlot = new Map(), rest = [];
+  for (const t of flat){
+    if (t.kind === "bone" && skeletonData.findBone(t.name)) boneRows.set(t.name, t);
+    else if (t.kind === "slot" && skeletonData.findSlot(t.name)) slotRows.set(t.name, t);
+    else if ((t.kind === "deform" || t.kind === "sequence") && skeletonData.findSlot(t.name)){
+      if (!underSlot.has(t.name)) underSlot.set(t.name, []);
+      underSlot.get(t.name).push(t);
+    } else rest.push(t);
+  }
+  for (const sn of underSlot.keys()) if (!slotRows.has(sn)) slotRows.set(sn, { kind: "slot", name: sn, bare: true });
+  const slotsOf = new Map();
+  for (const sd of skeletonData.slots){
+    if (!slotRows.has(sd.name)) continue;
+    if (!slotsOf.has(sd.boneData.name)) slotsOf.set(sd.boneData.name, []);
+    slotsOf.get(sd.boneData.name).push(sd.name);
+  }
+  for (const bn of [...boneRows.keys(), ...slotsOf.keys()])
+    for (let b = skeletonData.findBone(bn); b; b = b.parent) if (!boneRows.has(b.name)) boneRows.set(b.name, { kind: "bone", name: b.name, bare: true });
+  const kids = new Map();
+  for (const b of skeletonData.bones){
+    if (!boneRows.has(b.name) || !b.parent) continue;
+    if (!kids.has(b.parent.name)) kids.set(b.parent.name, []);
+    kids.get(b.parent.name).push(b.name);
+  }
+  const out = [];
+  const add = (t, depth, parent) => { const r = Object.assign({}, t, { depth, parent }); out.push(r); return r; };
+  const walk = (bn, depth, parent) => {
+    add(boneRows.get(bn), depth, parent);
+    for (const sn of slotsOf.get(bn) || []){
+      add(slotRows.get(sn), depth + 1, "bone:" + bn);
+      for (const t of underSlot.get(sn) || []) add(t, depth + 2, "slot:" + sn);
+    }
+    for (const c of kids.get(bn) || []) walk(c, depth + 1, "bone:" + bn);
+  };
+  for (const b of skeletonData.bones) if (boneRows.has(b.name) && !(b.parent && boneRows.has(b.parent.name))) walk(b.name, 0, null);
+  return out.concat(rest);
+}
+// Settle the tree after `groupLimbTracks` has moved a limb's rows under its control: those rows nest
+// one deeper than the control's. Then which rows have rows of their own under them (`kids`), and which
+// are `hidden` under a folded one — each hidden row names the visible folded row it shows in
+// (`foldedInto`), whose summary keys are its keys.
+function foldTracks(rows){
+  const depthOf = new Map();
+  for (const t of rows){
+    if (t.under){ t.depth = (depthOf.get("bone:" + t.under) ?? -1) + 1; t.parent = "bone:" + t.under; }
+    const k = tlRowKey(t); if (k) depthOf.set(k, t.depth || 0);
+  }
+  const parents = new Set(rows.map((t) => t.parent).filter(Boolean));
+  const shownIn = new Map(); // a folded or hidden row's key → the visible folded row its rows show in
+  for (const t of rows){
+    const k = tlRowKey(t);
+    t.kids = !!k && parents.has(k);
+    t.hidden = !!t.parent && shownIn.has(t.parent);
+    t.foldedInto = t.hidden ? shownIn.get(t.parent) : null;
+    t.folded = !t.hidden && t.kids && tlFolded.has(k);
+    if (k && (t.hidden || t.folded)) shownIn.set(k, t.hidden ? t.foldedInto : k);
+  }
+  return rows;
+}
+// Open the folded rows above the selected bone and slot, once per pick: a bone picked on the stage
+// shows its row, while a row folded later stays folded.
+function revealSelectedRows(){
+  const bn = selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null;
+  const pick = (bn || "") + "|" + (selSlot || "");
+  if (pick === tlRevealed) return;
+  tlRevealed = pick;
+  const open = (b) => { for (; b; b = b.parent) tlFolded.delete("bone:" + b.name); };
+  const bd = bn ? skeletonData.findBone(bn) : null, sd = selSlot ? skeletonData.findSlot(selSlot) : null;
+  if (bd) open(bd.parent);
+  if (sd) open(sd.boneData);
 }
 // Every (slot, attachment) that carries deform keys in animation `a`, across all skins.
 function deformTracksWithKeys(a){
@@ -21129,6 +21301,65 @@ function selectLineKeys(tr, additive){
   if (allSel) dopeSel = dopeSel.filter((s) => s.tid !== tid);
   else for (const t of times) if (!dopeSelHas(tid, t)) dopeSel.push({ tid, time: t });
 }
+// Select / toggle the COLUMN at time `t`: every key there on every row, folded ones too. Returns how
+// many it selected (negative: how many it took out, when they were all selected already).
+function selectColumnKeys(t){
+  const col = [];
+  for (const [tid, tr] of Object.entries(dopeTrackById)) for (const k of trackKeyTimes(tr)) if (Math.abs(k - t) < 1e-4) col.push({ tid, time: k });
+  if (col.length && col.every((s) => dopeSelHas(s.tid, s.time))){
+    dopeSel = dopeSel.filter((s) => !col.some((c) => c.tid === s.tid && Math.abs(c.time - s.time) < 1e-4));
+    return -col.length;
+  }
+  for (const c of col) if (!dopeSelHas(c.tid, c.time)) dopeSel.push(c);
+  return col.length;
+}
+// T: add every key at the same time as a selected key — the selection's columns — or, with no key
+// selected, the column at the playhead.
+function selectSameTimeKeys(){
+  const times = dopeSel.length ? [...new Set(dopeSel.map((s) => roundN(s.time, 4)))] : [animTime];
+  const before = dopeSel.length;
+  for (const [tid, tr] of Object.entries(dopeTrackById))
+    for (const k of trackKeyTimes(tr)) if (times.some((t) => Math.abs(k - t) < 1e-3) && !dopeSelHas(tid, k)) dopeSel.push({ tid, time: k });
+  $("#hint").textContent = dopeSel.length > before
+    ? "▥ T: +" + (dopeSel.length - before) + " key(s) at " + times.map((t) => t.toFixed(2) + "s").join(", ") + " — " + dopeSel.length + " selected"
+    : "▥ T: no other keys at " + times.map((t) => t.toFixed(2) + "s").join(", ");
+  renderTimeline();
+}
+// The bone a dopesheet row belongs to: a bone row's own, a slot row's bone (its image, colour,
+// shape and sequence rows too); null for events, draw order and constraints.
+function trackBoneOf(tr){
+  if (tr.kind === "bone" || tr.kind === "bonech") return tr.name;
+  if (tr.kind === "slot" || tr.kind === "slotch" || tr.kind === "deform" || tr.kind === "sequence"){ const sd = skeletonData.findSlot(tr.name); return sd ? sd.boneData.name : null; }
+  return null;
+}
+const boneAncestorsOf = (name) => { const out = new Set(); for (let b = skeletonData.findBone(name); b && b.parent; b = b.parent) out.add(b.parent.name); return out; };
+// P / C: from the selected keys of a bone (its row's, or its channels' with `sel` on), add the keys
+// its PARENTS have at the same times, up to the root — or its CHILDREN: every bone under it, and the
+// slots on it and on them. With no bone key selected, the selected bones' keys at the playhead start it.
+function selectRelatedKeys(which){
+  if (!skeletonData) return;
+  const from = new Map(); // bone → the times its selected keys are at
+  const add = (n, t) => { if (!from.has(n)) from.set(n, new Set()); from.get(n).add(roundN(t, 4)); };
+  for (const s of dopeSel){ const tr = dopeTrackById[s.tid]; if (tr && (tr.kind === "bone" || tr.kind === "bonech")) add(tr.name, s.time); }
+  if (!from.size) for (const n of selectedBoneNames()) for (const k of boneKeyTimes(n)) if (Math.abs(k - animTime) < 1e-3) add(n, k);
+  const label = which === "parents" ? "P: parents" : "C: children";
+  if (!from.size){ $("#hint").textContent = "⇅ " + label + " — select a bone's key first (or a bone with a key at the playhead)"; return; }
+  const before = dopeSel.length;
+  for (const [bone, times] of from){
+    const desc = which === "children" ? boneDescendantsOf(rawDoc, bone) : null, up = which === "parents" ? boneAncestorsOf(bone) : null;
+    for (const [tid, tr] of Object.entries(dopeTrackById)){
+      const owner = trackBoneOf(tr); if (!owner) continue;
+      const isBoneRow = tr.kind === "bone" || tr.kind === "bonech";
+      const hit = up ? isBoneRow && up.has(owner) : desc.has(owner) || (!isBoneRow && owner === bone);
+      if (!hit) continue;
+      for (const k of trackKeyTimes(tr)) if (times.has(roundN(k, 4)) && !dopeSelHas(tid, k)) dopeSel.push({ tid, time: k });
+    }
+  }
+  const n = dopeSel.length - before;
+  $("#hint").textContent = "⇅ " + label + ": " + (n ? "+" + n + " key(s) — " + dopeSel.length + " selected"
+    : "none keyed at the same time" + (tlSelOnly ? " on screen — turn off sel to reach the other bones' rows" : ""));
+  renderTimeline();
+}
 // Retime one selected key on its track, dispatched by kind (group-drag uses this).
 function retimeTrackKey(tr, oldTime, newTime){
   if (tr.kind === "events") retimeEventKey(oldTime, newTime);
@@ -21188,23 +21419,35 @@ function copyTrackKey(tr, srcTime, destTime){
   else if (tr.kind === "slot") copySlotKey(tr.name, srcTime, destTime);
   else copyBoneKey(tr.name, srcTime, destTime);
 }
-// Snap a dopesheet time to the playhead / ruler grid (when snap is on).
-function dopeSnap(t){
+// Snap a dopesheet time to the playhead, the ruler grid and the key times `keys` (when snap is on),
+// within 7 px.
+function dopeSnap(t, keys){
   if (!graphSnap) return t;
   let best = t, bestD = 7 / (tlPps || 1);
   const tryC = (c) => { const d = Math.abs(c - t); if (d < bestD){ bestD = d; best = c; } };
   tryC(animTime);
   const step = niceStep(tlDur || 1); for (let g = 0; g <= (tlDur || 0) + 1e-6; g += step) tryC(g);
+  for (const c of keys || []) tryC(c);
   return roundN(best, 4);
 }
-function startDopeDrag(e, dur, anchorTid, anchorTime){
+// The times of every key on the dopesheet's rows, folded ones too, but the ones a drag carries
+// (`items`): a dragged key snaps to the keys that stay put.
+function dopeSnapKeys(items){
+  const moving = new Set(items.map((it) => it.tid + "@" + roundN(it.startTime, 4))), out = new Set();
+  for (const [tid, tr] of Object.entries(dopeTrackById)) for (const t of trackKeyTimes(tr)) if (!moving.has(tid + "@" + t)) out.add(t);
+  return [...out];
+}
+// `clickTr`: the row whose dot was grabbed (a folded row's dot carries keys of the rows inside it) —
+// what a click that does not drag selects.
+function startDopeDrag(e, dur, anchorTid, anchorTime, clickTr){
   const items = [];
   for (const s of dopeSel){
     const tr = dopeTrackById[s.tid]; if (!tr) continue;
     items.push({ tid: s.tid, tr, startTime: s.time, newTime: s.time, el: dopeDotEls[s.tid + "@" + s.time],
       anchor: s.tid === anchorTid && Math.abs(s.time - anchorTime) < 1e-4 });
   }
-  dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime, duplicate: !!e.altKey };
+  dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime, duplicate: !!e.altKey,
+    clickTr: clickTr || dopeTrackById[anchorTid], snapKeys: dopeSnapKeys(items) };
   if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + items.length + " key(s) — release to drop";
 }
 
@@ -21319,7 +21562,7 @@ function startDopeScale(e, edge, dur){
   let gap = Infinity;
   for (let i = 1; i < sorted.length; i++) gap = Math.min(gap, sorted[i] - sorted[i - 1]);
   const minRatio = gap > 0 && gap < Infinity ? Math.min(1, 0.001 / gap) : 1;
-  dopeScale = { anchorT, startEdgeT, startX: e.clientX, dur, items, ratio: 1, moved: false, minRatio, maxRatio, wall,
+  dopeScale = { anchorT, startEdgeT, startX: e.clientX, dur, items, ratio: 1, moved: false, minRatio, maxRatio, wall, snapKeys: dopeSnapKeys(items),
     bar: $("#timeline .tl-scale"), grips: Array.from(document.querySelectorAll("#timeline .tl-scale-grip")) };
   $("#hint").textContent = wall
     ? "⟺ Stretch: can only SQUASH — a selected key sits at 0s, so spreading about " + anchorT.toFixed(3) + "s would push it before the start"
@@ -21444,6 +21687,97 @@ function positionDopeMarquee(){
 }
 function removeDopeMarquee(){ const b = $("#dopeMarquee"); if (b) b.remove(); }
 
+// A plain click on a key (no drag) puts the playhead on it and selects what it keys — its bone, slot
+// or constraint — so Properties show THAT key (its values, its easing, its ✕). The selection waits
+// until the click is over: selecting rebuilds the dopesheet, and a dot detached between the press and
+// the release loses its click and so its double-click (see the dots' mousedown).
+function dopeClickKey(tr, t){
+  animTime = roundN(t, 4); playing = false; $("#play").textContent = "▶ Play";
+  syncPlayhead(); markPlayheadKeys();
+  setTimeout(() => {
+    const seq = tr && tr.kind === "sequence" ? selSeqKey : null; // selecting its slot closes the key's inspector
+    selectTrackOwner(tr);
+    if (seq) selSeqKey = seq;
+    refreshKeyPanels();
+  }, 0);
+}
+function selectTrackOwner(tr){
+  if (!tr || !skeletonData) return;
+  if (tr.kind === "bone" || tr.kind === "bonech"){
+    const i = skeletonData.bones.findIndex((b) => b.name === tr.name);
+    if (i < 0 || i === selBone) return;
+    // one of the bones selected together stays one of them: it becomes the one Properties show
+    if (selMore.has(tr.name)){ if (selBone != null) selMore.add(skeletonData.bones[selBone].name); selectBone(i, true); }
+    else pickBone(i);
+  } else if (tr.kind === "slot" || tr.kind === "slotch" || tr.kind === "deform" || tr.kind === "sequence"){ if (selSlot !== tr.name) selectSlot(tr.name); }
+  else if (tr.kind === "ik"){ if (selIk !== tr.name) selectIk(tr.name); }
+  else if (tr.kind === "transform"){ if (selTc !== tr.name) selectTc(tr.name); }
+  else if (tr.kind === "pathch"){ if (selPath !== tr.name) selectPath(tr.name); }
+  else if (tr.kind === "physics"){ if (selPc !== tr.name) selectPc(tr.name); }
+}
+// The open sequence-key inspector follows its key when a drag or a stretch moves it.
+function followMovedSeqKey(items){
+  if (!selSeqKey) return;
+  const id = trackId(selSeqKey.tr);
+  const it = items.find((x) => x.tid === id && Math.abs(x.startTime - selSeqKey.time) < 1e-4);
+  if (it) selSeqKey = { tr: selSeqKey.tr, time: roundN(it.newTime, 4) };
+}
+// Delete the key at `time` on dopesheet row `tr`, whatever the row's kind.
+function deleteTrackKeyAt(tr, time){
+  if (tr.kind === "events") deleteEventKeyAt(time);
+  else if (tr.kind === "draworder") deleteDrawOrderKeyAt(time);
+  else if (tr.kind === "deform") deleteDeformKeyAt(tr, time);
+  else if (tr.kind === "sequence") deleteSequenceKeyAt(tr, time);
+  else if (tr.kind === "ik") deleteIkKeyAt(tr.name, time);
+  else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, time);
+  else if (tr.kind === "physics") deletePhysicsKeyAt(tr.name, time);
+  else if (tr.kind === "pathch") deletePathKeyAt(tr.name, tr.ch, time);
+  else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, time);
+  else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, time);
+  else deleteBoneKeyAt(tr.name, time);
+}
+// One dot of a FOLDED row at time `t`: every key there on the row and on the rows folded into it
+// (`grp`, [{tid, time}], the row's own first). It selects, drags, duplicates, eases and deletes them
+// together, as a marquee or a Shift-click takes them all.
+function foldedKeyDot(tr, tid, t, grp, dur){
+  const dot = document.createElement("div");
+  const all = () => grp.every((s) => dopeSelHas(s.tid, s.time));
+  const take = () => {
+    dopeSel = grp.map((s) => ({ tid: s.tid, time: s.time }));
+    for (const el of $("#timeline").querySelectorAll(".tl-key.msel")) el.classList.remove("msel");
+    dot.classList.add("msel");
+  };
+  const own = grp[0].tid === tid;
+  dot.className = "tl-key sum" + (own ? " own" : "") + (Math.abs(t - animTime) < 1e-3 ? " sel" : "") + (all() ? " msel" : "");
+  dot.style.left = "max(6px, " + ((t / dur) * 100).toFixed(3) + "%)";
+  dot.dataset.tid = tid; dot.dataset.t = t; dot.dataset.group = "1"; dot._group = grp;
+  for (const s of grp) dopeDotEls[s.tid + "@" + s.time] = dot;
+  dot.title = tr.name + " @ " + t.toFixed(3) + "s — " + grp.length + " key(s) here on this row and the rows folded into it: drag to retime them together · Alt-drag to duplicate · Shift-click to add them to the selection · double-click to delete them · right-click: easing · ▸ unfolds";
+  dot.onmousedown = (e) => {
+    if (e.button === 2) return; // the easing menu (contextmenu below)
+    e.stopPropagation(); e.preventDefault();
+    if (e.shiftKey || e.ctrlKey || e.metaKey){
+      if (all()) dopeSel = dopeSel.filter((s) => !grp.some((g) => g.tid === s.tid && Math.abs(g.time - s.time) < 1e-4));
+      else for (const s of grp) if (!dopeSelHas(s.tid, s.time)) dopeSel.push({ tid: s.tid, time: s.time });
+      dopeAnchorT = all() ? t : null; renderTimeline(); return;
+    }
+    if (!all()) take(); // as a plain key's mousedown: no rebuild here, or the double-click is lost
+    dopeAnchorT = t;
+    syncDopeScaleBar(dur);
+    startDopeDrag(e, dur, grp[0].tid, t, tr);
+  };
+  dot.ondblclick = (e) => {
+    e.stopPropagation();
+    for (const s of grp){ const h = dopeTrackById[s.tid]; if (h) deleteTrackKeyAt(h, s.time); }
+    dopeSel = []; dopeAnchorT = null; renderTimeline();
+  };
+  dot.addEventListener("contextmenu", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!all()) take();
+    openCurveMenu(e.clientX, e.clientY, (preset) => applyCurveToDopeSel(preset), own ? trackKeyCurve(tr, t) : null);
+  });
+  return dot;
+}
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
 function renderTimeline(){
   const tl = $("#timeline"); if (!tl) return;
@@ -21480,7 +21814,7 @@ function renderTimeline(){
   const lc = document.createElement("span"); lc.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;";
   if (tlView === "dope"){
     const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
-    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ff9f7a", "■", "sequence") + sw("#5cc8ff", "◆", "draw order") + sw("#ffd24a", "◆", "playhead");
+    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ff9f7a", "■", "sequence") + sw("#5cc8ff", "◆", "draw order") + sw("#8b93a7", "◆", "folded rows") + sw("#ffd24a", "◆", "playhead");
   } else {
     const src = graphSource(), subjects = graphSubjects(), legendTL = src ? src.tl : null;
     const keyed = (c) => legendTL && Array.isArray(legendTL[c.ch]) && legendTL[c.ch].length;
@@ -21520,9 +21854,18 @@ function renderTimeline(){
   const solo = zb("sel", "show only the selected bone/slot's keys (expanded into channels)", () => { tlSelOnly = !tlSelOnly; renderTimeline(); });
   if (tlSelOnly) solo.className = "active";
   hg.appendChild(solo);
-  const snap = zb("⇥", "snap key times to the playhead / grid / nearby keys", () => { graphSnap = !graphSnap; renderTimeline(); });
+  const tree = zb("tree", "nest the rows by the bone hierarchy — ▾ folds a bone's rows into its own (Alt-click: with every row under it) · off: one flat list", () => { tlTree = !tlTree; tlSavePref("tlTree", tlTree); renderTimeline(); });
+  if (tlTree) tree.className = "active";
+  hg.appendChild(tree);
+  const snap = zb("⇥", "snap: a dragged key to the playhead, the grid and the other keys · the playhead to the keys while you scrub (hold Alt to scrub freely)", () => { graphSnap = !graphSnap; renderTimeline(); });
   if (graphSnap) snap.className = "active";
   hg.appendChild(snap);
+  const grip = document.createElement("div");
+  grip.title = "drag to widen the names column · double-click to reset";
+  grip.style.cssText = "position:absolute;top:0;right:-3px;width:6px;height:22px;cursor:col-resize;z-index:5;";
+  grip.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); startGutterResize(e.clientX); };
+  grip.ondblclick = (e) => { e.stopPropagation(); tlGutter = 180; tlSavePref("tlGutter", tlGutter); renderTimeline(); };
+  hg.appendChild(grip);
   head.appendChild(hg);
   const ruler = document.createElement("div"); ruler.id = "tlRuler";
   ruler.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;background:var(--panel);border-bottom:1px solid var(--line);";
@@ -21531,14 +21874,33 @@ function renderTimeline(){
     tk.style.cssText = "position:absolute;top:0;bottom:0;left:" + (t / dur) * 100 + "%;border-left:1px solid var(--line);font-size:9px;color:var(--dim);padding-left:2px;";
     tk.textContent = t.toFixed(2); ruler.appendChild(tk);
   }
-  ruler.onmousedown = (e) => startScrub(ruler, e.clientX);
+  ruler.title = "drag to scrub the playhead · Shift/Ctrl-click a time to select every key there (the column)";
+  ruler.onmousedown = (e) => {
+    if (tlView === "dope" && (e.shiftKey || e.ctrlKey || e.metaKey)){ e.preventDefault(); selectColumnAtX(ruler, e.clientX); return; }
+    startScrub(ruler, e.clientX, e.altKey);
+  };
   head.appendChild(ruler); tl.appendChild(head);
   const ph = document.createElement("div"); ph.id = "tlPlayhead"; tl.appendChild(ph); // shared by both views
 
   if (tlView === "graph"){ renderGraphBody(tl, dur, pps, contentW, gutter); positionPlayhead(); tl.scrollLeft = keepSL; tl.scrollTop = keepST; return; }
 
   dopeTrackById = {}; dopeDotEls = {}; // rebuilt each render — tid→track + (tid@time)→dot
-  timelineTracks().forEach((tr) => {
+  if (tlTree && !tlSelOnly) revealSelectedRows();
+  const rows = timelineTracks();
+  // Rows folded away are still tracks: a selection holds their keys, Delete / T / P / C reach them, and
+  // their folded row draws their keys as its own (`foldedIn`: a folded row's key → its hidden rows).
+  const foldedIn = new Map(), keyTimesOf = new Map();
+  const kts = (t) => { const id = trackId(t); if (!keyTimesOf.has(id)) keyTimesOf.set(id, trackKeyTimes(t)); return keyTimesOf.get(id); };
+  for (const tr of rows){
+    dopeTrackById[trackId(tr)] = tr;
+    if (!tr.hidden) continue;
+    if (!foldedIn.has(tr.foldedInto)) foldedIn.set(tr.foldedInto, []);
+    foldedIn.get(tr.foldedInto).push(tr);
+  }
+  const parentOfKey = new Map(rows.filter((t) => tlRowKey(t)).map((t) => [tlRowKey(t), t.parent]));
+  const keysUnder = (k) => rows.map(tlRowKey).filter((r) => { for (let p = r; p; p = parentOfKey.get(p)) if (p === k) return true; return false; });
+  rows.forEach((tr) => {
+    if (tr.hidden) return;
     const isEvents = tr.kind === "events", isDraw = tr.kind === "draworder", isAnim = isEvents || isDraw;
     const isPathCh = tr.kind === "pathch";
     const isChan = tr.kind === "bonech" || tr.kind === "slotch" || isPathCh;
@@ -21553,10 +21915,31 @@ function renderTimeline(){
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
-    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan || tr.under ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
+    const nested = tr.depth != null; // a tree row: indented by its depth, with a fold toggle when it has rows under it
+    const indent = nested ? 4 + Math.min(tr.depth, 16) * 10 : isChan || tr.under ? 18 : 8;
+    g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + indent + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
     if (tr.under) g.title = "Part of " + tr.under + "'s limb: its space bones and switch keys sit under the control";
+    if (nested){
+      const fold = document.createElement("span");
+      fold.style.cssText = "flex:0 0 10px;width:10px;color:var(--dim);font-size:9px;text-align:center;";
+      if (tr.kids){
+        const k = tlRowKey(tr);
+        fold.textContent = tr.folded ? "▸" : "▾";
+        fold.className = "tl-fold"; fold.dataset.row = k;
+        fold.title = (tr.folded ? "unfold" : "fold") + " the rows under " + tr.name + " (Alt-click: and every row under those)";
+        fold.style.cursor = "pointer";
+        fold.onmousedown = (e) => e.stopPropagation();
+        fold.onclick = (e) => {
+          e.stopPropagation();
+          const shut = !tr.folded;
+          for (const r of e.altKey ? keysUnder(k) : [k]) if (shut) tlFolded.add(r); else tlFolded.delete(r);
+          renderTimeline();
+        };
+      }
+      g.appendChild(fold);
+    }
     const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isSeq ? "▩" : isIk ? "⟜" : isTc ? "⤧" : isPc ? "〜" : isPathCh ? "⟿" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isSeq ? (tr.name + " · sequence") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPc ? (tr.name + " · physics") : isPathCh ? (tr.name + " · " + tr.label) : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isSeq || isIk || isTc || isPc ? "color:var(--dim);" : "");
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isSeq ? (tr.name + " · sequence") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPc ? (tr.name + " · physics") : isPathCh ? (tr.name + " · " + tr.label) : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isSeq || isIk || isTc || isPc || tr.bare ? "color:var(--dim);" : "");
     if (tr.under) nm.textContent = "↳ " + nm.textContent;
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
@@ -21592,8 +21975,19 @@ function renderTimeline(){
     const track = document.createElement("div"); track.className = "tl-lane";
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
     track.title = "drag to scrub the playhead · Shift/Ctrl-drag to box-select keys";
-    track.onmousedown = (e) => { if (e.target !== track) return; if (e.shiftKey || e.ctrlKey || e.metaKey) startDopeMarquee(e, track); else startScrub(track, e.clientX); };
-    trackKeyTimes(tr).forEach((kt) => {
+    track.onmousedown = (e) => { if (e.target !== track) return; if (e.shiftKey || e.ctrlKey || e.metaKey) startDopeMarquee(e, track); else startScrub(track, e.clientX, e.altKey); };
+    const own = kts(tr), inside = tr.folded ? foldedIn.get(tlRowKey(tr)) || [] : [];
+    // A folded row's keys are its own and its hidden rows': one dot per time, standing for every key
+    // there (the row's own, if any, first — it anchors a drag).
+    const groupAt = (t) => {
+      const grp = own.some((k) => Math.abs(k - t) < 1e-4) ? [{ tid, time: t }] : [];
+      for (const h of inside) for (const k of kts(h)) if (Math.abs(k - t) < 1e-4) grp.push({ tid: trackId(h), time: k });
+      return grp;
+    };
+    const times = inside.length ? [...new Set([...own, ...inside.flatMap(kts)])].sort((a, b) => a - b) : own;
+    times.forEach((kt) => {
+      const grp = inside.length ? groupAt(kt) : null;
+      if (grp && grp.some((s) => s.tid !== tid)){ track.appendChild(foldedKeyDot(tr, tid, kt, grp, dur)); return; }
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
       const hasFx = isEvents && eventsAt(kt).some(evtHasBinding);
@@ -22091,16 +22485,43 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
 
 // Seek the playhead from a click/drag x on the ruler or a track (no full re-render, so
 // it stays smooth during a scrub and the dragged element survives).
-function seekFromTrack(el, clientX){
+// With snap on, the playhead lands ON a key within 7 px of the pointer (`free`: Alt held, it does not).
+function seekFromTrack(el, clientX, free){
   const r = el.getBoundingClientRect();
-  animTime = roundN(clamp01((clientX - r.left) / r.width) * tlDur, 4);
+  let t = clamp01((clientX - r.left) / r.width) * tlDur;
+  if (tlScrubSnap && !free){
+    let bestD = 7 / (tlPps || 1);
+    for (const k of tlScrubSnap){ const d = Math.abs(k - t); if (d < bestD){ bestD = d; t = k; } }
+  }
+  animTime = roundN(t, 4);
   playing = false; $("#play").textContent = "▶ Play";
   syncPlayhead();
   if (selBone != null) renderBoneDetail();
   if (selSlot) renderSlotDetail();
 }
 // Grab the timeline to scratch: mousedown on the ruler/track scrubs and starts a drag.
-function startScrub(el, clientX){ tlScrub = el; seekFromTrack(el, clientX); }
+function startScrub(el, clientX, free){ tlScrub = el; tlScrubSnap = graphSnap ? allKeyTimes() : null; seekFromTrack(el, clientX, free); }
+// Drag the right edge of the names column to widen it (a deep tree needs the room); kept per browser.
+function startGutterResize(x0){
+  const g0 = tlGutter;
+  let raf = 0;
+  const move = (e) => {
+    tlGutter = Math.max(70, Math.min(420, g0 + e.clientX - x0));
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; renderTimeline(); });
+  };
+  const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); tlSavePref("tlGutter", tlGutter); };
+  window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+}
+// Shift/Ctrl-click on the ruler: select the column of keys at the key time nearest the pointer (7 px).
+function selectColumnAtX(ruler, clientX){
+  const r = ruler.getBoundingClientRect(), t = clamp01((clientX - r.left) / r.width) * tlDur;
+  let best = null, bestD = 7 / (tlPps || 1);
+  for (const tr of Object.values(dopeTrackById)) for (const k of trackKeyTimes(tr)){ const d = Math.abs(k - t); if (d < bestD){ bestD = d; best = k; } }
+  if (best == null){ $("#hint").textContent = "▥ no key at " + t.toFixed(2) + "s — Shift/Ctrl-click a time on the ruler where keys are"; return; }
+  const n = selectColumnKeys(best);
+  $("#hint").textContent = n >= 0 ? "▥ selected the " + n + " key(s) at " + best.toFixed(3) + "s" : "▥ deselected the " + -n + " key(s) at " + best.toFixed(3) + "s";
+  renderTimeline();
+}
 function tlZoom(factor){
   const tl = $("#timeline"); if (!tl || !curAnim) return;
   const base = tlPxPerSec || Math.max((tl.clientWidth - tlGutter - 6) / workLen(curAnim), 1);
@@ -22504,12 +22925,62 @@ function moveSelectedBoneByScreen(dxScreen, dyScreen, dpr){
     }
   }
   const bd = skeletonData.bones[selBone];
-  bd.x += lx; bd.y += ly;
+  if (!boneSnapRaw || boneSnapRaw.i !== selBone) boneSnapRaw = { i: selBone, x: bd.x, y: bd.y };
+  boneSnapRaw.x += lx; boneSnapRaw.y += ly;
+  const at = snapBoneLocal(skeleton.bones[selBone], boneSnapRaw.x, boneSnapRaw.y);
+  bd.x = at.x; bd.y = at.y;
   const rb = rawDoc.bones.find((b) => b.name === bd.name);
   if (rb){ rb.x = bd.x; rb.y = bd.y; }
   skeleton.setToSetupPose();
   updateWorld();
   markDirty();
+}
+
+// 🧲 Snap to bone: the local x/y that puts `bone`'s origin on the nearest joint — another bone's origin
+// or tip — within BONE_SNAP_PX of where (x, y) would put it, else (x, y) itself. A bone never snaps to
+// itself or to a bone under it (those move with it), nor to a bone the stage hides. Only a free move
+// snaps, not one held to a gizmo axis; Alt held turns the toggle the other way. The joint it took is
+// `boneSnapHit` (ringed on the stage).
+//
+// Where a local x/y puts the origin is MEASURED, constraints and all, never read off the parent's
+// matrix: a transform constraint mixing the bone's translation (W's `wild_clock3`) or an IK chain above
+// it moves the origin elsewhere, and the parent's matrix then snaps it next to the joint, not onto it.
+// Measured at (x, y), one unit along x and one along y, the move is solved as the affine map it is for
+// translation (one Newton step, exact when it is affine).
+function snapBoneLocal(bone, x, y){
+  boneSnapHit = null;
+  if (boneSnap === boneSnapAlt || gizmoAxis || !skeleton || !rawDoc) return { x, y };
+  const keep = { x: bone.x, y: bone.y };
+  const at = (lx, ly) => { bone.x = lx; bone.y = ly; skeleton.updateWorldTransform(RIG.Physics ? RIG.Physics.none : undefined); return { x: bone.worldX, y: bone.worldY }; };
+  const restore = () => at(keep.x, keep.y);
+  const w = at(x, y);
+  const skip = boneDescendantsOf(rawDoc, bone.data.name); skip.add(bone.data.name);
+  let best = null, bestD = BONE_SNAP_PX * (window.devicePixelRatio || 1) * renderer.camera.zoom;
+  for (const b of skeleton.bones){
+    if (skip.has(b.data.name) || !boneShown(boneControlState(b.data.name))) continue;
+    const joints = [{ x: b.worldX, y: b.worldY, what: "origin" }];
+    if (b.data.length > 0.001) joints.push({ x: b.worldX + b.data.length * b.a, y: b.worldY + b.data.length * b.c, what: "tip" });
+    for (const j of joints){ const d = Math.hypot(j.x - w.x, j.y - w.y); if (d < bestD){ bestD = d; best = Object.assign(j, { bone: b.data.name }); } }
+  }
+  if (!best){ restore(); return { x, y }; }
+  const wx = at(x + 1, y), wy = at(x, y + 1);
+  restore();
+  const a = wx.x - w.x, c = wx.y - w.y, b = wy.x - w.x, d = wy.y - w.y, det = a * d - b * c;
+  if (Math.abs(det) < 1e-9) return { x, y }; // something holds the origin where it is: nothing to snap
+  boneSnapHit = best;
+  const dx = best.x - w.x, dy = best.y - w.y;
+  return { x: x + (d * dx - b * dy) / det, y: y + (a * dy - c * dx) / det };
+}
+function hintBoneSnap(name){
+  const h = boneSnapHit;
+  if (h) $("#hint").textContent = "🧲 " + name + " on " + h.bone + "'s " + h.what + " — hold Alt to place it freely";
+}
+// The joint a dragged bone is snapped onto, ringed on the stage.
+function drawBoneSnapRing(){
+  if (!boneSnapHit || !(boneDragging || posingBone) || typeof renderer.circle !== "function" || !RIG.Color) return;
+  const z = renderer.camera.zoom, col = new RIG.Color(0.36, 0.95, 1, 1);
+  renderer.circle(false, boneSnapHit.x, boneSnapHit.y, z * 9, col, 20);
+  renderer.circle(false, boneSnapHit.x, boneSnapHit.y, z * 12, new RIG.Color(0.36, 0.95, 1, 0.45), 24);
 }
 
 // Animate mode: drag adds a parent-local translation to the bone's POSE (not setup), along the
@@ -22527,7 +22998,8 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
   else if (skeleton){ lx = worldDX / (skeleton.scaleX || 1); ly = worldDY / (skeleton.scaleY || 1); }
   const name = posingBone.bone.data.name;
   posingBone.rx = (posingBone.rx ?? posingBone.x) + lx; posingBone.ry = (posingBone.ry ?? posingBone.y) + ly;
-  posingBone.x = clampLimit(name, "x", posingBone.rx); posingBone.y = clampLimit(name, "y", posingBone.ry);
+  const at = snapBoneLocal(posingBone.bone, posingBone.rx, posingBone.ry);
+  posingBone.x = clampLimit(name, "x", at.x); posingBone.y = clampLimit(name, "y", at.y);
 }
 
 // ---- transform gizmo (move + rotate the selected bone on the canvas) -------
@@ -25800,6 +26272,7 @@ function frame(now){
       syncPlayhead();
       syncFacePanel();
       syncConstraintPanel();
+      syncKeyPanels();
       syncPickerPanel();
     } else if (!editMode){
       // preview: full animation-state playback (honours curves/mixing)
@@ -25850,6 +26323,7 @@ function frame(now){
     drawPivotOverlay(); // ✥ slot pivot handle
     if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); drawMirrorLine(); }
     drawGizmo();
+    drawBoneSnapRing();
     drawBoundsOverlay();
     drawOriginOverlay();
     renderer.end();
@@ -26073,6 +26547,7 @@ function wire(){
     else if (selSlot) historyStep(() => { const s = skeleton.findSlot(selSlot); if (s && isMeshAtt(s.attachment)) keyDeform(selSlot); keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); });
     else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
   };
+  $("#keyKidsBtn").onclick = () => historyStep(keyWithChildren);
   $("#keyAllBtn").onclick = keyAll;
   // ✕ removes what ◆ keys: the selected bone's key, else the selected slot's (and its mesh's shape).
   $("#delKey").onclick = () => {
@@ -26148,6 +26623,8 @@ function wire(){
   $("#newRigFromSheet").onclick = openSheetToRig;
   wireSheetToRig();
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
+  $("#boneSnapBtn").classList.toggle("active", boneSnap);
+  $("#boneSnapBtn").onclick = () => { boneSnap = !boneSnap; tlSavePref("boneSnap", boneSnap); $("#boneSnapBtn").classList.toggle("active", boneSnap); };
   $("#animViewBtn").onclick = () => { animatorView = !animatorView; ctlHover = -1; syncControlBar(); };
   $("#viewTurn").oninput = (e) => setViewTurn(e.target.value);
   $("#viewTurnNum").onclick = () => setViewTurn(0);
@@ -26198,6 +26675,10 @@ function wire(){
   // The window losing focus mid-drag never sends the pointerup. (Not capture: a FIELD's blur, which a
   // pointerdown on the canvas causes, must not end the gesture it just started.)
   window.addEventListener("blur", (e) => { if (e.target === window) historyGestureEnd(); });
+  // While a pointer is held the Properties panels are not redrawn under it (syncKeyPanels).
+  window.addEventListener("pointerdown", () => { pointerHeld = true; }, true);
+  for (const type of ["pointerup", "pointercancel"]) window.addEventListener(type, () => { pointerHeld = false; }, true);
+  window.addEventListener("blur", (e) => { if (e.target === window) pointerHeld = false; });
   // Never in a field: the browser's own text undo wins there.
   window.addEventListener("keydown", (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.altKey || !rigHistoryActive()) return;
@@ -26383,6 +26864,7 @@ function wire(){
       }
     }
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
+    boneSnapRaw = null; boneSnapHit = null;
     if (wasSetupGizmoRotate) renderBoneDetail();
     if (wasMeshDrag) renderSlotDetail(); // show the selected vertex's UV editors
     dragging = false;
@@ -26450,6 +26932,11 @@ function wire(){
       if (dopeSel.length || graphSel.length){ e.preventDefault(); dopeSel = []; dopeAnchorT = null; graphSel = []; selSeqKey = null; renderSeqDetail(); renderTimeline(); }
       return;
     }
+    // T / P / C — select keys by column and by hierarchy (dopesheet only, not while a key is dragged).
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && tlView === "dope" && !dopeDrag && !dopeScale && !(cineMode && (!tweakMode || tweakInline))){
+      const k = e.key.toLowerCase(), act = k === "t" ? selectSameTimeKeys : k === "p" ? () => selectRelatedKeys("parents") : k === "c" ? () => selectRelatedKeys("children") : null;
+      if (act){ e.preventDefault(); act(); return; }
+    }
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     if (tlView === "graph" && graphSel.length){
       e.preventDefault();
@@ -26462,20 +26949,7 @@ function wire(){
       graphSel = []; renderTimeline();
     } else if (dopeSel.length){
       e.preventDefault();
-      for (const s of dopeSel){
-        const tr = dopeTrackById[s.tid]; if (!tr) continue;
-        if (tr.kind === "events") deleteEventKeyAt(s.time);
-        else if (tr.kind === "draworder") deleteDrawOrderKeyAt(s.time);
-        else if (tr.kind === "deform") deleteDeformKeyAt(tr, s.time);
-        else if (tr.kind === "sequence") deleteSequenceKeyAt(tr, s.time);
-        else if (tr.kind === "ik") deleteIkKeyAt(tr.name, s.time);
-        else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, s.time);
-        else if (tr.kind === "physics") deletePhysicsKeyAt(tr.name, s.time);
-        else if (tr.kind === "pathch") deletePathKeyAt(tr.name, tr.ch, s.time);
-        else if (tr.kind === "bonech" || tr.kind === "slotch") deleteChannelKeyAt(tr, s.time);
-        else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
-        else deleteBoneKeyAt(tr.name, s.time);
-      }
+      for (const s of dopeSel){ const tr = dopeTrackById[s.tid]; if (tr) deleteTrackKeyAt(tr, s.time); }
       dopeSel = []; dopeAnchorT = null; dopeScale = null; selSeqKey = null; renderSeqDetail(); renderTimeline();
     }
   });
@@ -26534,10 +27008,14 @@ function wire(){
       if (cw && w){ const k = meshDragVert; applyMeshVertexDelta(k, cw.x - w[k * 2], cw.y - w[k * 2 + 1]); if (meshIsolate && meshUVFrame) applyIsolatedVertexUV(k, cw.x, cw.y); }
       lastXY = [e.clientX, e.clientY];
     } else if (posingBone){
+      boneSnapAlt = e.altKey;
       poseBoneByScreen(dxCss, dyCss, dpr);
+      hintBoneSnap(posingBone.bone.data.name);
       lastXY = [e.clientX, e.clientY];
     } else if (boneDragging){
+      boneSnapAlt = e.altKey;
       moveSelectedBoneByScreen(dxCss, dyCss, dpr);
+      if (selBone != null) hintBoneSnap(skeletonData.bones[selBone].name);
       lastXY = [e.clientX, e.clientY];
     } else if (dragging){
       renderer.camera.position.x -= dxCss * dpr * renderer.camera.zoom;
@@ -26595,7 +27073,7 @@ function wire(){
     }
     if (dopeScale){ // stretch: scale every selected key's time about the anchor (DOM-only until mouseup)
       const d = dopeScale;
-      const t = dopeSnap(d.startEdgeT + (e.clientX - d.startX) / (tlPps || 1)); // dopeSnap is a no-op when snap is off
+      const t = dopeSnap(d.startEdgeT + (e.clientX - d.startX) / (tlPps || 1), d.snapKeys); // dopeSnap is a no-op when snap is off
       const raw = (t - d.anchorT) / (d.startEdgeT - d.anchorT);
       d.ratio = isFinite(raw) ? Math.max(d.minRatio, Math.min(d.maxRatio, raw)) : 1;
       if (Math.abs(e.clientX - d.startX) > 2) d.moved = true;
@@ -26625,7 +27103,7 @@ function wire(){
       if (Math.abs(e.clientX - dopeDrag.startX) > 2) dopeDrag.moved = true;
       if (!dopeDrag.moved) return; // a plain click must leave the dots exactly where they are
       let dT = (e.clientX - dopeDrag.startX) / (tlPps || 1);
-      dT = dopeSnap(dopeDrag.anchorStart + dT) - dopeDrag.anchorStart; // no-op when snap is off
+      dT = dopeSnap(dopeDrag.anchorStart + dT, dopeDrag.snapKeys) - dopeDrag.anchorStart; // no-op when snap is off
       for (const it of dopeDrag.items){
         const nt = Math.max(0, roundN(it.startTime + dT, 4)); it.newTime = nt;
         const leftCss = "max(6px, " + ((nt / dopeDrag.dur) * 100).toFixed(3) + "%)";
@@ -26636,7 +27114,7 @@ function wire(){
       }
       return;
     }
-    if (tlScrub){ seekFromTrack(tlScrub, e.clientX); return; }
+    if (tlScrub){ seekFromTrack(tlScrub, e.clientX, e.altKey); return; }
   });
   // Ctrl/⌘ + wheel over the timeline zooms; plain wheel scrolls (native).
   $("#timeline").addEventListener("wheel", (e) => {
@@ -26679,7 +27157,9 @@ function wire(){
           const rc = el.getBoundingClientRect(), cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
           if (cx >= xa && cx <= xb && cy >= ya && cy <= yb){
             const tid = el.dataset.tid, t = parseFloat(el.dataset.t);
-            if (tid != null && !sel.some((s) => s.tid === tid && Math.abs(s.time - t) < 1e-4)) sel.push({ tid, time: t });
+            // a folded row's dot is every key folded into it at that time
+            for (const k of el._group || (tid != null ? [{ tid, time: t }] : []))
+              if (!sel.some((s) => s.tid === k.tid && Math.abs(s.time - k.time) < 1e-4)) sel.push({ tid: k.tid, time: k.time });
           }
         });
         dopeSel = sel; if (!m.additive) dopeAnchorT = null; // a fresh box = a fresh anchor (its earliest key)
@@ -26692,6 +27172,7 @@ function wire(){
       if (d.moved && Math.abs(d.ratio - 1) > 1e-6){
         const clashes = dopeScaleClashes(d); // count BEFORE the writes that consume them
         applyDopeScale(d);
+        followMovedSeqKey(d.items);
         dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime }));
         dopeAnchorT = d.anchorT; // the anchor did not move, so it stays the anchor for the next pull
         $("#hint").textContent = "⟺ Stretched " + d.items.length + " key(s) ×" + d.ratio.toFixed(3)
@@ -26710,13 +27191,14 @@ function wire(){
         const ordered = d.items.slice().sort((a, b) => dir * (a.startTime - b.startTime));
         const apply = d.duplicate ? copyTrackKey : retimeTrackKey; // Alt-drag duplicates; plain drag retimes
         for (const it of ordered) if (Math.abs(it.newTime - it.startTime) > 1e-4) apply(it.tr, it.startTime, it.newTime);
+        if (!d.duplicate) followMovedSeqKey(d.items);
         dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime })); // select the new (or moved) keys
         const anchor = d.items.find((it) => it.anchor);
         if (anchor){ animTime = anchor.newTime; syncPlayhead(); }
-      } else if (d.items.length === 1 && !d.duplicate){
+      } else if (!d.duplicate){
         // A plain click (no drag) on an EVENT or SEQUENCE key opens its inspector for editing.
         // Neither rebuilds the dopesheet, so the key under the pointer survives to be double-clicked.
-        const it = d.items[0], tr = dopeTrackById[it.tid];
+        const it = d.items.length === 1 ? d.items[0] : null, tr = it && dopeTrackById[it.tid];
         if (tr && tr.kind === "events"){
           const evs = eventsAt(it.startTime);
           if (evs.length){ loadProjectEffects(); selBone = null; selSlot = null; renderBoneDetail(); renderSlotDetail(); selEvent = evs[0]; renderEventDetail(); }
@@ -26724,6 +27206,7 @@ function wire(){
           selSeqKey = { tr, time: roundN(it.startTime, 4) };
           renderSeqDetail();
         }
+        dopeClickKey(d.clickTr, d.anchorStart);
       }
       // Rebuild ONLY when the drag changed something. `renderTimeline` does `innerHTML = ""`, and
       // detaching the dot DURING the mouseup makes Chrome drop the whole click — so an
@@ -26736,7 +27219,7 @@ function wire(){
       }
       return;
     }
-    if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
+    if (tlScrub){ tlScrub = null; tlScrubSnap = null; renderTimeline(); return; } // refresh the under-playhead key highlight
   });
 }
 

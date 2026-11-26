@@ -801,11 +801,30 @@ Three things to know before you use it:
   channel, plus a **◆ Key all transforms** button that keys all three at once for
   the selected bone. Bottom-bar tools: **◆ Key** (keys rotate+translate+scale of the
   selected bone, or attachment+colour — and the mesh shape — of the selected slot),
-  **◆ Key all** (keys _every_ bone's pose plus _every_ slot's attachment + colour at
-  the playhead, and the shape of every mesh the clip already shapes), **|◀ / ▶|**
-  prev/next key, **✕ Key** deletes the selected bone's key at the playhead, or the
-  selected slot's (its image, colour and shape keys there). The rotate/move gizmo
-  also keys on release.
+  **◆ Key children** (keys the selected bone(s) **and every bone under them** at the
+  playhead — a whole arm, or the whole body from its root, in one step; each bone only
+  what its control may key), **◆ Key all** (keys _every_ bone's pose plus _every_
+  slot's attachment + colour at the playhead, and the shape of every mesh the clip
+  already shapes), **|◀ / ▶|** prev/next key — of everything selected (its bones, its
+  slots' image, colour, shape and sequence keys, the selected constraint), or of every
+  key in the clip when nothing selected has keys —, **✕ Key** deletes the selected
+  bone's key at the playhead, or the selected slot's (its image, colour and shape keys
+  there). The rotate/move gizmo also keys on release.
+- **The Properties panel follows the keys.** It shows the selected bone's (or slot's,
+  or constraint's) values at the playhead, and the easing and **✕ Delete key** of the
+  key under it. It redraws whenever the playhead or the keys change — a pause, a key
+  dragged, deleted or eased in the dopesheet, an undo — except while you are dragging
+  or typing in one of its fields. **Clicking a key** in the dopesheet puts the playhead
+  on it and selects what it keys (its bone, slot or constraint), so Properties show
+  that key; a double-click still deletes it.
+- **🧲 Snap to bone** (in the bar above the stage, Setup and Animate; on by default).
+  A bone dragged on the stage puts its origin **on another bone's origin or tip** when
+  it comes within about 10 screen pixels of one — a cyan ring marks the joint and the
+  status line names it. Hold **Alt** while dragging to do the opposite for that drag
+  (place freely with 🧲 on, snap with it off). It never snaps onto the dragged bone's
+  own children (they move with it), nor onto a hidden bone, and a drag held to one
+  gizmo axis does not snap. A bone moved by a constraint still lands exactly on the
+  joint.
 - **Controls in Animate.** A control keys only the channels its **keys** allow: the gizmo shows only
   those parts (a ring control has just its ring), the other fields are greyed, and ◆ Key / ◆ Key
   all skip them. A drag is held inside the control's limits, and the bone's panel warns when the
@@ -881,6 +900,36 @@ Three things to know before you use it:
   copies will land while you drag; on release the copies drop there, the
   originals stay in place, and the new keys stay selected. A plain drag on a
   track scrubs the playhead (as does the ruler).
+- **The dopesheet is a tree** (the **tree** button in its corner; on by default, off
+  gives the flat list). Each bone's row sits under its parent's, a slot's rows under
+  its bone's, and a mesh's `deform` and `sequence` rows under their slot's; IK,
+  transform, path and physics rows stay flat below. A parent with no keys of its own
+  still gets a (dimmed) row, so the tree reads down from the root. **▾ folds** a
+  row's rows into it (**Alt-click** folds or unfolds every row under it too). A
+  folded row draws the keys folded into it as its own: a **grey** dot where only rows
+  inside it have keys, a normal-coloured one where the row has its own key there too
+  (the legend's `folded rows`). Grabbing one of those dots takes **every key at that
+  time** in the row and the rows inside it — drag retimes them together, Alt-drag
+  duplicates them, Shift-click adds them to the selection, double-click deletes them,
+  right-click eases them. Picking a bone (on the stage or in the tree) unfolds the
+  rows above it once, so its row shows. Drag the right edge of the names column to
+  widen it (double-click resets it).
+- **Select across rows** — besides Shift/Ctrl-clicking a row's name (all its keys):
+  - **Shift/Ctrl-click the ruler** at a time to select the **column**: every key at
+    that time on every row, folded ones included (again to deselect it).
+  - **T** — add every key at the **same time** as a selected key (with none selected,
+    the column at the playhead).
+  - **P** — from the selected keys of a bone, add the keys its **parents** have at the
+    same times, up to the root (bones only).
+  - **C** — add the keys of its **children** at the same times: every bone under it,
+    and the slots (image, colour, shape, sequence rows) on it and on them.
+  With no bone key selected, P and C start from the selected bone's key at the
+  playhead. The status line says how many keys each added.
+- **Snap (⇥ in the dopesheet's corner, on by default).** A dragged key snaps to the
+  playhead, the ruler's grid and **the other keys' times** (a key that is moving never
+  snaps to where it started), and so does a stretch grip. Scrubbing the playhead on
+  the ruler or a track lands it **on a key** within about 7 pixels; hold **Alt** to
+  scrub freely.
 - **Stretch the timing of a selection** — select **two or more keys** and a green
   **range bar** appears on the ruler spanning them, with a **⟺ grip at each end**
   and a yellow **pin** marking the **anchor**: the one time that will not move.
