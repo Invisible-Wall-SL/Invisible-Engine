@@ -738,9 +738,17 @@ upload.
   2026-11-22 (run 45062773205, `9228524`) finds all six documents the same as the export. Live:
   `GET /rooms?game=salmons` lists a new room; a salmon, a bear and a fisherman join it by id; in
   one room a device declaring a 6400 × 6400 window was sent 65 players in every sample against
-  62 → 23 for one declaring none, so the published config carries `max`. **Not checked yet:** the
-  published link in a browser (start menu, catch and respawn, the win lock), which needs the
-  link's read token.
+  62 → 23 for one declaring none, so the published config carries `max`. **In a browser
+  (2026-11-26)**, headless Chromium on the published link (game server on `72a1b92`, arcade runtime on
+  `a404522`): the start menu comes first with its river list ("1 players in Boiling Pot River");
+  three pages joined one room as Salmon, Catcher → Bear and Catcher → Fisherman, each past the
+  boot screen's tap; the room's events showed bots catching and hooking (`caught` with `byName`,
+  `hooked`, `held`, `thrown`); a salmon held on Up swims up-river through the lobby and the round.
+  In four rooms a bot salmon won (`roundEnd`, `gameWon`, "King Chinook won!!!" over the river,
+  Start New Session); the room went to `ended` and left `GET /rooms?game=salmons` at once. No page
+  error (only the blocked Typekit font in that session). **Not seen live:** a person caught and
+  respawned; no catcher reached the test salmon before a bot won (each round about 2 min). That
+  path is covered by `salmons-play.mjs`.
 
 - **The fisherman holds his catch, then throws it; blood on top of the water (2026-11-24; owner
   request; in review; branch `claude/salmons-fisherman-throw`; engine-mechanics, game server,
@@ -2404,6 +2412,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-26 — **Browser check of the published link** (cloud deploy session): start menu, joins
+  as all three classes, bot catches, the win and the room's lock all seen live; a person's own
+  catch and respawn not reached before a bot won (Current state, "Live check").
 
 - 2026-11-25 — **Join New Game stays on the page** (owner: "I would expect to be in a room
   already"; in review). The win screen's button no longer loads the page again: the device joins
