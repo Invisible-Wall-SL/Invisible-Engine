@@ -857,15 +857,21 @@ try {
 		q(atRest),
 	);
 	await shot('sheet-rig-arranged-rest.png');
-	/** Mouse events on the arrange canvas at stage pixels `pts` (down on the first, up on the last). */
+	/**
+	 * Mouse events on the arrange canvas at stage pixels `pts` (down on the first, up on the last). A
+	 * MouseEvent's client point is a whole pixel, so a canvas at a fractional place (another font, another
+	 * viewport) gets a drag a fraction off the one asked for: what the page got, in stage px, is returned.
+	 */
 	const dragOn = (pts) => `(() => {
 		const cv = document.getElementById("s2rArrange"), rect = cv.getBoundingClientRect();
 		const to = ([x, y]) => ({ bubbles: true, clientX: rect.left + x * rect.width / cv.width, clientY: rect.top + y * rect.height / cv.height });
-		const pts = ${pts};
-		cv.dispatchEvent(new MouseEvent("mousedown", to(pts[0])));
-		for (const p of pts.slice(1)) window.dispatchEvent(new MouseEvent("mousemove", to(p)));
-		window.dispatchEvent(new MouseEvent("mouseup", to(pts[pts.length - 1])));
-		return true;
+		const pts = ${pts}, evs = [];
+		const fire = (on, type, p) => { const e = new MouseEvent(type, to(p)); evs.push(e); on.dispatchEvent(e); };
+		fire(cv, "mousedown", pts[0]);
+		for (const p of pts.slice(1)) fire(window, "mousemove", p);
+		fire(window, "mouseup", pts[pts.length - 1]);
+		const a = evs[0], z = evs[evs.length - 1];
+		return { dx: (z.clientX - a.clientX) * cv.width / rect.width, dy: (z.clientY - a.clientY) * cv.height / rect.height };
 	})()`;
 	const placeOf = `((n) => { const p = s2rPlaceOf(n); return p && { at: [...p.at], turn: p.turn }; })`;
 	const grab = `(() => { const e = s2rJointAt("lower_arm_r", "elbow"), w = s2rJointAt("lower_arm_r", "wrist"); return s2rToStage([e[0] + (w[0] - e[0]) * 0.12, e[1] + (w[1] - e[1]) * 0.12]); })()`;
@@ -873,14 +879,15 @@ try {
 	// for after every change) can land between two evaluates and move a part nobody arranged, and the
 	// stage's camera follows its canvas, so a read and the drag after it must see the same page.
 	// The right forearm dragged off: it carries its hand, the upper arm stays.
-	const { before, off } = await evaluate(`(() => {
+	const { before, off, got } = await evaluate(`(() => {
 		const before = { fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), k: s2r.aview.k, from: ${grab} };
 		const f = before.from;
-		${dragOn(`[f, [f[0] + 30, f[1] + 20], [f[0] + 60, f[1] + 40]]`)};
-		return { before, off: { sel: s2r.sel, fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), arranged: Object.keys(s2r.arrange || {}) } };
+		const got = ${dragOn(`[f, [f[0] + 30, f[1] + 20], [f[0] + 60, f[1] + 40]]`)};
+		return { before, got, off: { sel: s2r.sel, fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), arranged: Object.keys(s2r.arrange || {}) } };
 	})()`);
 	const moved = (a, b) => [a.at[0] - b.at[0], a.at[1] - b.at[1]];
-	const by = [60 / before.k, 40 / before.k];
+	// The drag asked for was (60, 40) stage px; the page got that to within a pixel.
+	const by = Math.hypot(got.dx - 60, got.dy - 40) < 1.5 ? [got.dx / before.k, got.dy / before.k] : [NaN, NaN];
 	const near = (a, b, e = 0.02) => Math.abs(a[0] - b[0]) <= e && Math.abs(a[1] - b[1]) <= e;
 	ok(
 		'a part dragged moves by the drag and carries the part it holds; its parent stays',
@@ -888,7 +895,7 @@ try {
 			near(moved(off.fore, before.fore), by) &&
 			near(moved(off.hand, before.hand), by) &&
 			near(moved(off.upper, before.upper), [0, 0], 1e-9),
-		q({ off, by }),
+		q({ off, by, got }),
 	);
 	// Back near its upper arm's elbow (wherever the latest preview has the upper arm): it snaps there.
 	const snapped = await evaluate(`(() => {
@@ -947,7 +954,7 @@ try {
 		const p = s2r.props[i], place = s2rPropPlace(p);
 		return { i, at: [...p.at], place, stage: s2rToStage(place.at), k: s2r.aview.k, turn: p.turn || 0 };
 	})()`);
-	await evaluate(
+	const propGot = await evaluate(
 		dragOn(`[${q(propBefore.stage)}, [${propBefore.stage[0] + 12}, ${propBefore.stage[1]}]]`),
 	);
 	const propMoved = await evaluate(
@@ -976,7 +983,7 @@ try {
 				propMoved.place.at[0] - propBefore.place.at[0],
 				propMoved.place.at[1] - propBefore.place.at[1],
 			],
-			[12 / propBefore.k, 0],
+			[propGot.dx / propBefore.k, propGot.dy / propBefore.k],
 			0.12,
 		) &&
 			Math.hypot(propMoved.at[0] - propBefore.at[0], propMoved.at[1] - propBefore.at[1]) > 1 &&
