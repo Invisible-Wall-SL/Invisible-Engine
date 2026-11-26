@@ -432,7 +432,7 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
     sent. Online arcade room traffic is tallied by `arcadePerf.message` from the meter that already
     counted the state patches (`online.ts` `meterMessages`, which now also wraps the connection's
     `send` / `sendUnreliable`, one boolean test a message for a player without `?perf=1`).
-  - **Found by booting it** (both fixed, each with a fixture case in the probe and in the gate): the
+  - **Found by booting it** (each fixed, with a fixture case in the probe and in the gate): the
     navigation entry spread into an object kept no field (a browser's timing entry keeps them on its
     prototype) and read `/undefined`; a 24-letter folder name (`foregroundFeatureAnimation`) read as
     a token; a font service's file asked by a stylesheet (`use.typekit.net/af/…/l`) read as CSS text
@@ -469,6 +469,14 @@ after 3.0 MB · largest bundle….js 2.6 MB` and `RGS 4 req · p50 4 · p95 12 m
     matchmaking HTTP size hidden; HUD `room in 16 KB/s (19.8/s, max 1 KB) · out 254 B/s`. Through the
     launcher's own functions both readings give **Uncompressed text** (the local test server sends the
     2.6 MB bundle without gzip) and **Before the first frame** (2.95 / 3.2 MB, the bundle the largest).
+
+- 2026-11-26 — **The readout stays on screen on an iPhone (BrowserStack Live, iPhone 16 Pro Max /
+  iOS 27, Salmons)**: the owner could not find Send. The game page had slid about 60 px up (title
+  cut, a black strip over Safari's toolbar), taking the top-left readout off the screen. The page
+  shell is pinned now (`apps/lines/src/app.html`), and the readout follows the visual viewport
+  (`PerfHud.svelte`), so a page iOS pans or zooms cannot hide Send. Checked in Chromium at
+  430 × 739 (page cannot scroll, canvas fills, readout shown); **not yet checked on the real
+  iPhone**.
 
 - 2026-11-26 — **P8 "Arcade phases" (in review; a runtime release on merge)**: the owner's first
   Salmons reading (26 Nov 09:48, BS Live · Galaxy S24 Ultra, Adreno 750) put all 5,153 frames in

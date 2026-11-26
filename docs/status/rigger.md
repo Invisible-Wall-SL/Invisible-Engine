@@ -183,6 +183,22 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **＋ New rig starts from scratch (#1927), and its review fixes (#1941, merged).**
+  (#1927) 🗺 From my sheet and 🎞 From a Flipbook frame open on the first guess, not the open rig's
+  `sheet.json`, the dialog's last state or the clip's newest kept cut; ⇄ Swap sides is no longer
+  remembered per sheet. **↺ Reuse** offers the open rig's mapping, the mapping left in the dialog or
+  a kept cut of the clip; **↺ Start over** (icon) puts the first guess back as one step **↶** takes
+  back, asking over hand edits not kept. (#1941, the #1927 review) Frame: ＋ New rig → 🎞 again resets
+  as an undoable step (`f2rSnapshot`), so dragged joints, a part's frame picked by hand and the cuts
+  made here come back with ↶; a pending ↶ survives a close, not a change of template (nor mid-cut);
+  after ↶, ↺ Reuse no longer offers the cut that is open. Opened while a cut runs, the dialog is
+  left alone. Sheet: closed right after ↺ Start over, the mapping it replaced is left for ↺ Reuse
+  what you left (`s2rMapping(st)`); Start over and ↶ move `s2r.gen` on, so a face track lands on
+  neither, and a head restored mid-track is tracked again. Only one left mapping is remembered
+  (`s2r.left`). Guards: `frame-rig-browser.mjs` 45/45, 16 page mutants; `sheet-rig-browser.mjs`
+  56/56, 40 page mutants (4 new); `rig-workspace-browser.mjs` 57/57 with #1934/#1935 merged in. ⏳
+  Not yet tried on the authed page against R2.
+
 - 2026-11-26 — **Review fixes for folders (#1925).** (1) A step with a free slot and a folder's
   middle slot selected (`w,x,a,b,c,d`, folder `a,b,c`, `{x,b}`, Ctrl+]) took unselected `a` out of
   its folder: `slotFolderStep` now moves a folder's selected slots only inside it, every free slot

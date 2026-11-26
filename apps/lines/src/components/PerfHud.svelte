@@ -161,6 +161,16 @@
 	/** None where the browser has no Resource Timing: an empty block would read as 0 MB downloaded. */
 	const networkBlock = (short = false) =>
 		resources ? network.block({ short, socket: arcadePerf.socket }) : undefined;
+	/**
+	 * Where the visible part of the page sits in the layout viewport. A fixed element is pinned to
+	 * the layout viewport, so a page iOS Safari has panned or zoomed hides it: the readout follows the
+	 * visual viewport instead, so Send can always be reached.
+	 */
+	let viewportOffset = $state({ x: 0, y: 0 });
+	const followViewport = () => {
+		const v = window.visualViewport;
+		if (v) viewportOffset = { x: v.offsetLeft, y: v.offsetTop };
+	};
 	const onVisibility = () => {
 		if (document.visibilityState !== 'hidden') return;
 		void send('leaving');
@@ -209,6 +219,9 @@
 			else stats.frame(time, spinning(), moving, gameState());
 		});
 		document.addEventListener('visibilitychange', onVisibility);
+		followViewport();
+		window.visualViewport?.addEventListener('resize', followViewport);
+		window.visualViewport?.addEventListener('scroll', followViewport);
 		if (longTasks) {
 			observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) stats.longTask(entry.startTime, entry.duration);
@@ -232,6 +245,8 @@
 		setFrameProbe(undefined);
 		arcadePerf.on = false;
 		document.removeEventListener('visibilitychange', onVisibility);
+		window.visualViewport?.removeEventListener('resize', followViewport);
+		window.visualViewport?.removeEventListener('scroll', followViewport);
 		observer?.disconnect();
 		resources?.disconnect();
 		clearInterval(timer);
@@ -553,7 +568,13 @@
 </script>
 
 {#if snapshot}
-	<div class="ie-perf" data-testid="perf-hud">
+	<div
+		class="ie-perf"
+		data-testid="perf-hud"
+		style:transform={viewportOffset.x || viewportOffset.y
+			? `translate(${viewportOffset.x}px, ${viewportOffset.y}px)`
+			: undefined}
+	>
 		<button type="button" class="ie-perf-head" onclick={() => (open = !open)}>
 			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · {headPhase(snapshot)}
 			{#if snapshot.capped30}<b class="warn"> · 30 fps cap (Low Power Mode?)</b>{/if}

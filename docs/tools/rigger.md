@@ -1341,17 +1341,18 @@ of the panel. What each step does is the tooltip on the dialog's title.
    the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
    the face`, `an arm joint hard to see`, `no face found`, `one hand not found`. Click another frame
    to use it instead. A new rig always starts here as the first time — the best frame, its joints as
-   tracked, each part's frame planned, no cut open — even when the clip was cut before.
-   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on its
-     frame in the strip): the picked frame's, else the newest. It opens that cut as it was kept —
-     parts, touch-ups, props and the frames its parts are cut from — at once, before the tracking
-     ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut opens it
-     when picked.
+   tracked, each part's frame planned, no cut open — even when the clip was cut before. Closed and
+   opened again, the dialog starts over the same way, and **↶** brings back what you had.
+   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on
+     its frame in the strip): the picked frame's, else the newest. It opens that cut as it was
+     kept — parts, touch-ups, props and the frames its parts are cut from — at once, before the
+     tracking ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut
+     opens it when picked.
    - Until you reuse one, nothing kept opens by itself: picking a frame with a kept cut shows the
      frame, ✂ Cut makes a new cut of it (the kept one stays as it was), and a part taken from
      another frame is cut there anew.
-   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best frame,
-     no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
+   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best
+     frame, no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
      picked a part's frame; **↶** brings back what it replaced. The cut that was open stays kept,
      for ↺ Reuse.
    - **✂ Edit cut** on a frame-made rig opens the cut it was made from (see below).
@@ -1394,8 +1395,9 @@ of the panel. What each step does is the tooltip on the dialog's title.
    that shows it clearly better — 0.15 more, or three quarters of what this frame lacks (a head turned
    23°, 0.92, moves for a face to the camera) — the nearest frame of those within 0.01 of its best.
    **✂ Cut** cuts this frame, then takes each such part from its frame (a cut of that frame made in
-   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
-   head; a hand stays on this frame unless you pick otherwise (its finger bones are this frame's).
+   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way
+   is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the head; a hand stays on this frame
+   unless you pick otherwise (its finger bones are this frame's).
    - **Where each part comes from shows everywhere.** Each frame a part is cut from gets a colour:
      the chip on that part's row is outlined in it, the frame in the strip is framed in it with the
      parts' own colours in its corner, and the stage shows the cut **◧ Assembled** — every part
@@ -1581,7 +1583,9 @@ A mapping made before is offered beside the sheet, never taken by itself:
 - **↺ Reuse “name”**: the mapping the open rig was made from (when it is of this sheet and
   template), every joint where you left it and the arrangement as you left it. 🦴 Create rig then
   makes a new rig from it.
-- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig.
+- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig (closed
+  right after ↺ Start over, the mapping Start over replaced). Only the last one you left is
+  remembered, and it is offered only on its own sheet and template.
 - **↺ Start over** (the icon) takes the open mapping back to the first guess, reading the names as ⇄
   Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
 
