@@ -8,7 +8,7 @@
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		boundComponentSkin,
-		BUILTIN_TIMELINES,
+		BUILTIN_LIBRARY_TIMELINES,
 		BUTTON_STATE_PARAMS,
 		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
@@ -1380,8 +1380,8 @@
 					components.map((c) => c.name),
 				),
 				mintNodeId: genComponentId,
-				timelines: componentOwnTimelines(source.id, BUILTIN_TIMELINES, projectDocs),
-				takenTimelineIds: [...listed, ...BUILTIN_TIMELINES].map((d) => d.id),
+				timelines: componentOwnTimelines(source.id, BUILTIN_LIBRARY_TIMELINES, projectDocs),
+				takenTimelineIds: [...listed, ...BUILTIN_LIBRARY_TIMELINES].map((d) => d.id),
 				projectDefaults: ((await defaults.json()) as { params?: Record<string, unknown> }).params,
 			});
 			// Edited while the reads ran: what opening the copy discards is no longer what was asked.

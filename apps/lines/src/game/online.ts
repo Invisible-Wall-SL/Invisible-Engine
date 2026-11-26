@@ -8,7 +8,6 @@ import {
 	ONLINE_EVENT,
 	STATUS,
 	abilitySignal,
-	bridgeOccupancy,
 	characterBody,
 	clampInput,
 	createAbilityPredictor,
@@ -32,7 +31,6 @@ import {
 	createTouchControl,
 	launchJoin,
 	mobileDevice,
-	occupancySteps,
 	onlineLevel,
 	pointerMove,
 	reconcilerOptions,
@@ -69,13 +67,8 @@ import {
 	createSheetAnimator,
 	createSheetRigAnimator,
 	flipbookCycleMs,
-	RUNTIME_BUILTIN_TIMELINES,
-	emitComponentSignal,
 	getComponent,
 	leanedPoint,
-	registerComponentTimelines,
-	registerComponentValues,
-	registerComponents,
 	registerFlipbooks,
 	resolveFlipbook,
 	sceneCamera,
@@ -105,12 +98,10 @@ import {
 	type SheetRigAnimator,
 	type SheetRigFrame,
 	type SheetSignal,
-	type ValueSource,
 } from 'engine-layout';
 import {
 	clearArt,
 	clearClips,
-	clearSpawnProps,
 	clearMarks,
 	clipsOn,
 	depthOf,
@@ -120,8 +111,6 @@ import {
 	setFieldArt,
 	setLinks,
 	setMarks,
-	setSpawnProps,
-	spawnPropsOf,
 	startMarks,
 	setWorldCameraView,
 	setWorldProjector,
@@ -137,6 +126,7 @@ import {
 import type {
 	CodeLook,
 	SalmonsArt,
+	SalmonsBridges,
 	SalmonsScreenHost,
 	SalmonsStartHost,
 	SalmonsZoneArt,
@@ -509,9 +499,8 @@ type Session = {
 	 *  it (`ground`, the art's) and over it by the room's height (`aloft`, the art's: a fisherman on a
 	 *  bridge); and where it was drawn. */
 	lifts: Map<string, { lift: number; ground: number; aloft: number; x: number; y: number }>;
-	/** The room's bridges drawn as prop components ({@link showBridges}): the `occupied` each
-	 *  zone's pieces follow, the counts last told, and how to take the sources away. */
-	bridges: BridgeInputs | undefined;
+	/** The room's bridges drawn as prop components (the art's `bridges`), fed every state. */
+	bridges: SalmonsBridges | undefined;
 	/** The device left this room for another ({@link switchRoom}): its leave is no lost room. */
 	quit: boolean;
 	/** Stop hearing the room's states and events. */
@@ -958,7 +947,7 @@ async function enterRoom(
 				current.art = art;
 				fieldArt = art.rivers;
 				// Before the river is drawn: it draws the water and behind pieces published here.
-				showBridges(current, art);
+				current.bridges = art.bridges(current.game, current.game.online.layer, bakedCinematics());
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
 				for (const [id, mount] of current.screens.mounts) setFieldArt(id, mount);
@@ -1124,117 +1113,6 @@ function failSwitch(launch: Launch, join: NextJoin, reason: string) {
  * next room's world may be another size), the fingers and keys held, and an author's note about
  * its levels.
  */
-/** A room's bridge zones: `bridge<i>`, each drawn with a prop (`salmonsArt/propPlacement.ts`). */
-const BRIDGE_ZONE = /^bridge\d+$/;
-
-/** A number a placed prop's input follows (`registerComponentValues`), told to its subscribers. */
-type NumberSource = ValueSource & { set: (value: number) => void };
-function numberSource(): NumberSource {
-	let value = 0;
-	const runs = new Set<(value: number) => void>();
-	return {
-		subscribe(run) {
-			runs.add(run);
-			run(value);
-			return () => void runs.delete(run);
-		},
-		set(next) {
-			if (next === value) return;
-			value = next;
-			for (const run of [...runs]) run(value);
-		},
-	};
-}
-
-type BridgeInputs = {
-	occupied: Map<string, NumberSource>;
-	counts: ReadonlyMap<string, number> | undefined;
-	unregister: () => void;
-	/** Each `stepOn` / `stepOff` fired, newest last (the probe's). */
-	fired: { zone: string; signal: 'stepOn' | 'stepOff'; step: number }[];
-};
-
-/** The value source a bridge zone's `occupied` input follows. */
-const occupiedSource = (zone: string) => `prop.${zone}.occupied`;
-
-/** The prop built-ins (a bridge's seed and its pieces) are registered once a page, from the art's
- *  lazy chunk: the defs as built-ins (a project's own shadows one), their timelines between the
- *  engine's and the project's. */
-let propsRegistered = false;
-
-/**
- * Draw the room's bridges as prop components (`docs/design/arcade-prop-components.md` §4–§5): the
- * pieces of each bridge zone (the seed `bridgeProp`, placed on the river's raised ground) published
- * for the play field's spawn layer (`setSpawnProps`). The river draws their water and behind
- * pieces; `<SpawnProps>` stands their deck cells among the players. Each zone's `occupied` is a
- * value source its pieces follow ({@link bridgeInputs}).
- */
-function showBridges(current: Session, art: SalmonsArt) {
-	if (!propsRegistered) {
-		propsRegistered = true;
-		registerComponents(Object.fromEntries(art.props.defs.map((def) => [def.id, def])), {
-			builtin: true,
-		});
-		registerComponentTimelines([
-			...RUNTIME_BUILTIN_TIMELINES,
-			...art.props.timelines,
-			...bakedCinematics(),
-		]);
-	}
-	const zones = current.game.zones.filter((zone) => BRIDGE_ZONE.test(zone.id));
-	const occupied = new Map(zones.map((zone) => [zone.id, numberSource()]));
-	const pieces = art.bridges(zones).map((piece) => {
-		const zone = String(piece.params?.zone ?? '');
-		return occupied.has(zone)
-			? { ...piece, inputSources: { ...piece.inputSources, occupied: occupiedSource(zone) } }
-			: piece;
-	});
-	const unregister = registerComponentValues(
-		Object.fromEntries([...occupied].map(([zone, source]) => [occupiedSource(zone), source])),
-	);
-	setSpawnProps(current.game.online.layer, pieces);
-	current.bridges = { occupied, counts: undefined, unregister, fired: [] };
-}
-
-/**
- * A prop's inputs from the room's state (§4): per bridge zone, how many of the characters it
- * carries stand on it (`engine-mechanics` `bridgeOccupancy`, from the synced `x y z`) as its
- * `occupied`, and a `stepOn` / `stepOff` fired on the zone's own scope when that goes from 0 to more
- * or back, so `bridge0`'s pieces never hear `bridge2`'s. Read on every state: the own player is told
- * when the room's state says it, as everyone else is.
- */
-function bridgeInputs(current: Session, players: Map<string, PlayerState>) {
-	const bridges = current.bridges;
-	if (!bridges) return;
-	const on = [...players.values()].map((p) => ({
-		x: p.x,
-		y: p.y,
-		z: p.z ?? 0,
-		character: p.character,
-	}));
-	const counts = bridgeOccupancy(current.game, on);
-	for (const [zone, n] of counts) bridges.occupied.get(zone)?.set(n);
-	const steps = occupancySteps(bridges.counts, counts);
-	const step = stateOf(current.room).step ?? 0;
-	for (const zone of steps.on) {
-		bridges.fired.push({ zone, signal: 'stepOn', step });
-		emitComponentSignal('stepOn', zone);
-	}
-	for (const zone of steps.off) {
-		bridges.fired.push({ zone, signal: 'stepOff', step });
-		emitComponentSignal('stepOff', zone);
-	}
-	bridges.fired.splice(0, bridges.fired.length - EVENTS_KEPT);
-	bridges.counts = counts;
-}
-
-/** The room's bridges are let go: no pieces, no sources. */
-function dropBridges(current: Session) {
-	current.bridges?.unregister();
-	current.bridges = undefined;
-	clearSpawnProps();
-}
-
 function closeSession(current: Session) {
 	if (current.closed) return;
 	current.closed = true;
@@ -1244,7 +1122,8 @@ function closeSession(current: Session) {
 	for (const instance of current.drawn.values()) live.despawn(instance);
 	current.drawn.clear();
 	dropArt(current);
-	dropBridges(current);
+	current.bridges?.drop();
+	current.bridges = undefined;
 	clearMarks();
 	clearClips();
 	worldCamera = undefined;
@@ -1594,7 +1473,7 @@ function received(current: Session, nowMs: number) {
 			carryY: player.carryY,
 		});
 	});
-	bridgeInputs(current, players);
+	current.bridges?.inputs(players.values(), state.step);
 }
 
 /**
@@ -3234,13 +3113,7 @@ export function onlineProbe() {
 						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
 						fieldDrawn: current.fieldDrawn ?? null,
 						level: current.level ?? null,
-						bridges: current.bridges
-							? {
-									occupied: Object.fromEntries(current.bridges.counts ?? []),
-									fired: current.bridges.fired,
-									pieces: spawnPropsOf(current.game.online.layer).length,
-								}
-							: null,
+						bridges: current.bridges?.probe() ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),

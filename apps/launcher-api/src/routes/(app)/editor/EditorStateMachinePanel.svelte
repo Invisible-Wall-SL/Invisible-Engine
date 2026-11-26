@@ -34,7 +34,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
-		BUILTIN_TIMELINES,
+		BUILTIN_LIBRARY_TIMELINES,
 		ComponentEventDispatcher,
 		ComponentStateMachineRunner,
 		type ComponentTimelinePlayer,
@@ -175,7 +175,7 @@
 
 	/** The project's timelines of the component, after the built-in ones it does not shadow — a
 	 *  built-in component's machine plays engine timelines no listing returns. */
-	const builtinTimelines = $derived(componentTimelinesOf([...BUILTIN_TIMELINES], def?.id));
+	const builtinTimelines = $derived(componentTimelinesOf([...BUILTIN_LIBRARY_TIMELINES], def?.id));
 	const timelines = $derived.by((): Row[] => {
 		const own = componentTimelinesOf(rows, def?.id);
 		const ids = new Set(own.map((t) => t.id));

@@ -493,6 +493,9 @@ the 2-cell near slope) has merged.
        land cell, path relative, the same points on screen), and the deck cells left the river's
        layer for `<SpawnProps>`.
      - `salmons-play.mjs --bridge-component`: 7 verdicts.
+   *Out of the bundle (2026-11-26):* the prop defs, their registration and the inputs are loaded
+   with the Salmons art (`salmonsArt/bridgeProps.ts`). No runtime reaches `propComponents.ts`
+   statically now: the launcher's library with the props is `builtinLibrary.ts`.
    **Then delete the code-drawn bridge** (owner, §8 Q6), in the same phase once the parity check
    passes: the seed component replaces `river.ts`'s bridge drawing, which is deleted, with what of
    `salmonsArt/bridge.ts` only that drawing used. No dual path is left. The no-component

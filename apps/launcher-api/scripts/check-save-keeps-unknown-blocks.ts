@@ -128,7 +128,7 @@ const {
 } = await import('../src/lib/server/projectPaths.ts');
 const { normalizeComponent, saveComponent } = await import('../src/lib/server/componentStorage.ts');
 const { saveComponentDefaults } = await import('../src/lib/server/componentDefaultsStorage.ts');
-const { BUILTIN_COMPONENTS } = await import('engine-layout');
+const { BUILTIN_LIBRARY_COMPONENTS } = await import('engine-layout');
 const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
 const defaultsBackupsRoute =
 	await import('../src/routes/api/editor/component-defaults/backups/+server.ts');
@@ -962,7 +962,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	);
 	// Every built-in, stored as a fork and saved unchanged, round-trips to the same bytes.
 	const drift: string[] = [];
-	for (const builtin of BUILTIN_COMPONENTS) {
+	for (const builtin of BUILTIN_LIBRARY_COMPONENTS) {
 		const def = normalizeComponent(structuredClone({ ...builtin, scope: 'project' }) as Def);
 		const key = projectComponentKey('p', def.id);
 		const bytes = JSON.stringify(def, null, 2);

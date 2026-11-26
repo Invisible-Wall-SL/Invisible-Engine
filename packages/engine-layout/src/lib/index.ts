@@ -133,6 +133,7 @@ export * from './winText';
 export * from './uiText';
 export * from './builtinComponents';
 export * from './builtinTimelines';
+export * from './builtinLibrary';
 export * from './propComponents';
 export * from './propGraphic';
 export * from './propPieces';

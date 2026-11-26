@@ -12,7 +12,6 @@ import {
 } from './componentCatalog';
 import { kindCapabilities, type KindCapabilityConfig } from './kindCapabilities';
 import { POT_SKIN_PARAMS } from './potSkin';
-import { PROP_COMPONENTS } from './propComponents';
 import { WHEEL_SKIN_PARAMS } from './wheelSkin';
 import { SM_ANY_STATE, type ComponentDef, type ComponentParam, type LayoutNode } from './types';
 
@@ -3129,7 +3128,9 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 
 /**
  * The built-in defs every runtime carries: what a boot resolves a layout doc's component ids
- * against (`stockAssetBoot.ts`). The prop built-ins are not here (`propComponents.ts`).
+ * against (`stockAssetBoot.ts`). The prop built-ins are not here (`propComponents.ts`): the
+ * launcher's library adds them (`builtinLibrary.ts`), and a runtime gets them from the arcade art
+ * that draws them, so no runtime reaches them statically.
  */
 export const RUNTIME_BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -3155,11 +3156,9 @@ export const RUNTIME_BUILTIN_COMPONENTS: ComponentDef[] = [
 	...HOLD_AND_WIN_COMPONENTS,
 ];
 
-/** Every built-in component def — the launcher's lowest-precedence layer. */
-export const BUILTIN_COMPONENTS: ComponentDef[] = [
-	...RUNTIME_BUILTIN_COMPONENTS,
-	...PROP_COMPONENTS,
-];
+/** Every built-in component def a layout doc can place (what a publish bakes copies of); the
+ *  launcher's lowest-precedence layer adds the prop built-ins (`builtinLibrary.ts`). */
+export const BUILTIN_COMPONENTS: ComponentDef[] = [...RUNTIME_BUILTIN_COMPONENTS];
 
 /**
  * Whether the Scene Editor's palette offers `def` to a project of kind `gameType` (with the add-ons

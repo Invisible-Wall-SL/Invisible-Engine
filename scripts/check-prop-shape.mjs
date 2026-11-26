@@ -105,6 +105,10 @@ import {
 	BUILTIN_TIMELINES,
 	RUNTIME_BUILTIN_TIMELINES,
 } from '../packages/engine-layout/src/lib/builtinTimelines.ts';
+import {
+	BUILTIN_LIBRARY_COMPONENTS,
+	BUILTIN_LIBRARY_TIMELINES,
+} from '../packages/engine-layout/src/lib/builtinLibrary.ts';
 import { PROP_INPUTS } from '../packages/engine-layout/src/lib/componentInterface.ts';
 import { validateStateMachine } from '../packages/engine-layout/src/lib/stateMachine.ts';
 import { validateNodeActors } from '../packages/engine-layout/src/lib/cinematicNodes.ts';
@@ -885,10 +889,15 @@ check('its machines play their own timelines, which key nodes they have', () => 
 check('it is a launcher built-in, not a runtime one, internal, placed by no other built-in', () => {
 	const ids = PROP_COMPONENTS.map((d) => d.id);
 	const has = (list, id) => list.some((d) => d.id === id);
-	assert.ok(ids.every((id) => has(BUILTIN_COMPONENTS, id)));
-	assert.ok(ids.every((id) => !has(RUNTIME_BUILTIN_COMPONENTS, id)));
-	assert.ok(PROP_TIMELINES.every((t) => has(BUILTIN_TIMELINES, t.id)));
-	assert.ok(PROP_TIMELINES.every((t) => !has(RUNTIME_BUILTIN_TIMELINES, t.id)));
+	assert.ok(ids.every((id) => has(BUILTIN_LIBRARY_COMPONENTS, id)));
+	for (const list of [BUILTIN_COMPONENTS, RUNTIME_BUILTIN_COMPONENTS])
+		assert.ok(
+			ids.every((id) => !has(list, id)),
+			'not where a runtime or a publish reads',
+		);
+	assert.ok(PROP_TIMELINES.every((t) => has(BUILTIN_LIBRARY_TIMELINES, t.id)));
+	for (const list of [BUILTIN_TIMELINES, RUNTIME_BUILTIN_TIMELINES])
+		assert.ok(PROP_TIMELINES.every((t) => !has(list, t.id)));
 	assert.ok(PROP_COMPONENTS.every((d) => d.internal === true && d.scope === 'shared'));
 	assert.ok(PROP_COMPONENTS.every((d) => d.category === 'scenery'));
 	const placing = RUNTIME_BUILTIN_COMPONENTS.filter((d) =>
@@ -898,7 +907,8 @@ check('it is a launcher built-in, not a runtime one, internal, placed by no othe
 		placing.map((d) => d.id),
 		[],
 	);
-	assert.equal(new Set(BUILTIN_COMPONENTS.map((d) => d.id)).size, BUILTIN_COMPONENTS.length);
+	const library = BUILTIN_LIBRARY_COMPONENTS;
+	assert.equal(new Set(library.map((d) => d.id)).size, library.length);
 });
 
 // ── §2 the side exit (owner, 2026-11-26: a switch, off unless a prop turns it on) ───────────

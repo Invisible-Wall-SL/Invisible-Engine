@@ -2626,6 +2626,33 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Prop components: the prop defs out of the arcade main bundle** (owner: "move it
+  out of the bundle"; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). P5b's
+  +4.3 kB came from `builtinComponents.ts` / `builtinTimelines.ts` importing the prop built-ins.
+  Through them every runtime reached `propComponents.ts` statically, so the bundler put it in the
+  main bundle once the Salmons art used it.
+  - **The library moved.** `BUILTIN_COMPONENTS` / `BUILTIN_TIMELINES` are again what a doc places,
+    which is what a publish bakes and the current-games harness reads. The launcher's library with
+    the props is a new module, `builtinLibrary.ts` (`BUILTIN_LIBRARY_COMPONENTS` /
+    `_TIMELINES`). Each list there is one `@__PURE__` call: a top-level array spread was kept in
+    the main bundle, which was measured. The library is read by `componentStorage.ts`, the
+    component editor's timeline lists, `check:prop-shape`, `check:save-keeps-unknown-blocks` and
+    `test-hold-and-win-template`.
+  - **The publishing moved.** The prop built-ins' registration, the occupancy inputs and the triggers
+    are now in the art's lazy chunk (`salmonsArt/bridgeProps.ts` `showSalmonsBridges`, the kit's
+    `bridges(game, layer, projectTimelines)`). `online.ts` keeps three calls: show, feed, drop.
+  - **Bytes** (five `--out` builds against ec5e632). Lines, match-3 and card are identical.
+    Arcade's main bundle is −3,042 B gzip and its Salmons art chunk +2,861 B. Arcade3d's main
+    bundle is −2,816 B and its art chunk +2,861 B. So a game that loads no Salmons art carries
+    none of it.
+  - **Gates.** `check:prop-depth` 26, `check:prop-shape` 43, `check:salmons-art` 50,
+    `check:salmons-levels` 28 and `check:room-levels` 19. Launcher:
+    `check:save-keeps-unknown-blocks` 170, `check:component-state-machine` 227,
+    `check:component-repeat-segments` 81 and `check:zone-art` 130. `test-hold-and-win-template`
+    OK. `check:svelte` is at its baseline for `apps/lines` (145), `packages/engine-layout` (290)
+    and `apps/launcher-api` (44). Lint is clean. `salmons-play.mjs --bridge-component` 7/7.
+    `salmons-rejoin-play` 58 PASS, 0 FAIL.
+
 - 2026-11-26 — **Prop components P5b: the bridge is the seed prop; the code-drawn bridge is
   deleted** (design §7 P5, "Built (P5b)"; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`;
   in review; runtime change, Salmons rooms only).

@@ -18,7 +18,7 @@ import type {
 	TemplateSlot,
 } from 'engine-layout';
 import {
-	BUILTIN_COMPONENTS,
+	BUILTIN_LIBRARY_COMPONENTS,
 	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_KINDS,
 	isLocalizationKey,
@@ -107,7 +107,7 @@ export async function loadComponentForGame(
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
  * (`editor/<projectKey>/components/<id>.json`) ◁ SHARED R2
- * (`_shared/editor-components/<id>.json`) ◁ BUILT-IN code (`BUILTIN_COMPONENTS`) —
+ * (`_shared/editor-components/<id>.json`) ◁ BUILT-IN code (`BUILTIN_LIBRARY_COMPONENTS`) —
  * exactly like `loadTemplate`'s R2-over-built-in fallback, with the built-in as
  * the lowest layer. A malformed/unreadable R2 object never throws; it just falls
  * through to the next source. Returns `undefined` only when no scope (and no
@@ -141,7 +141,7 @@ export async function loadComponent(
 		version,
 	);
 	if (shared) return mergeBuiltinCodedParams(shared);
-	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
+	const builtin = BUILTIN_LIBRARY_COMPONENTS.find((def) => def.id === id);
 	if (!builtin) return undefined;
 	// A built-in has no historical store (it is engine code): an unmatched pin still
 	// resolves the single coded def, exactly like a latest load — the engine's
@@ -195,7 +195,7 @@ export async function loadComponentWithEtag(
 	}
 	const { def: shared, etag: sharedEtag } = await readComponentForWrite(editorComponentKey(id));
 	if (shared) return { def: mergeBuiltinCodedParams(shared), etag: sharedEtag };
-	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
+	const builtin = BUILTIN_LIBRARY_COMPONENTS.find((def) => def.id === id);
 	if (!builtin) return undefined;
 	return { def: builtin, etag: null };
 }
@@ -682,7 +682,7 @@ export interface ListComponentsOptions {
 
 /**
  * List components, lowest → highest precedence so a later layer shadows an
- * earlier one of the same id: BUILT-IN code (`BUILTIN_COMPONENTS`) ◁ SHARED R2 ◁
+ * earlier one of the same id: BUILT-IN code (`BUILTIN_LIBRARY_COMPONENTS`) ◁ SHARED R2 ◁
  * PROJECT R2. Built-ins are `scope:'shared'`, so they slot under the shared
  * layer and are correctly excluded by a `scope:'project'` filter and kept by a
  * `scope:'shared'` filter. Filters by `scope`/`category` when given. Malformed
@@ -706,7 +706,7 @@ export async function listComponentsWithEtags(
 	const byId = new Map<string, ComponentWithEtag>();
 
 	if (opts.scope !== 'project') {
-		for (const def of BUILTIN_COMPONENTS) {
+		for (const def of BUILTIN_LIBRARY_COMPONENTS) {
 			byId.set(def.id, { def, etag: null });
 		}
 		for (const entry of await listFromPrefixWithEtags(sharedComponentsPrefix)) {
