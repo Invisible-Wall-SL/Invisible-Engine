@@ -188,6 +188,9 @@ async function insertRow(
 			drawsMean: s.drawsMean,
 			jsMs: s.jsMs,
 			textureMb: s.textureMb,
+			transferMb: s.network?.transferMb ?? null,
+			firstFrameMs: s.network?.firstFrameMs ?? null,
+			network: s.network,
 		})
 		.onConflictDoNothing({ target: perfReports.id })
 		.returning({ id: perfReports.id });
@@ -367,6 +370,7 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		drawsMean: r.drawsMean,
 		textureMb: r.textureMb,
 		counts: r.counts,
+		network: r.network,
 		keep: r.keep,
 		expiresAt: r.keep ? null : new Date(r.capturedAt.getTime() + PERF_RETENTION_MS).toISOString(),
 	};

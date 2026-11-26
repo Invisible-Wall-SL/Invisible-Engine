@@ -67,6 +67,10 @@
 	{@const draws = metric(ms, 'draws')}
 	<td class="num v-{draws?.verdict}" title={cellTitle(draws)}>{fmt(draws?.value, 0)}</td>
 	<td class="num v-{gpu?.verdict}" title={cellTitle(gpu)}>{fmt(gpu?.value)}</td>
+	{@const transfer = metric(ms, 'transferMb')}
+	{@const file = metric(ms, 'fileMb')}
+	<td class="num v-{transfer?.verdict}" title={cellTitle(transfer)}>{fmt(transfer?.value)}</td>
+	<td class="num v-{file?.verdict}" title={cellTitle(file)}>{fmt(file?.value, 2)}</td>
 {/snippet}
 
 {#snippet head(first: string, phases: PerfPhase[])}
@@ -85,6 +89,15 @@
 				>Draws</th
 			>
 			<th rowspan="2" class="num" title="Texture memory the GPU held (MB)">GPU MB</th>
+			<th
+				rowspan="2"
+				class="num"
+				title="What the game downloads, MB (median over the readings; cache hits counted at their size)"
+				>Transfer MB</th
+			>
+			<th rowspan="2" class="num" title="The heaviest single file, MB (median over the readings)"
+				>Largest file</th
+			>
 		</tr>
 		<tr>
 			{#each phases as phase (phase)}
