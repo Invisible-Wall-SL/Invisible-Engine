@@ -111,6 +111,13 @@ const PINNED = {
 		// it is offered to every kind — a new library entry no existing screen places.
 		segmentedCounter: '01bdca67dc4830f3',
 		segmentedCounterSegment: 'efba786993eed387',
+		// The seed bridge prop and its segments (arcade-prop-components P4): `internal`, so no palette
+		// offers them, and placed only by a zone-art entry — a new library entry no screen places.
+		bridgeProp: 'b8c2c79106cb6b72',
+		bridgePropDeckNear: 'fdfb0210546faa02',
+		bridgePropDeckMiddle: 'fb898e6ada452a5c',
+		bridgePropDeckFar: '586b759207715fb7',
+		bridgePropReflection: '306a58b244a3cea1',
 	},
 };
 

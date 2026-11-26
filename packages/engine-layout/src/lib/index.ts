@@ -132,6 +132,7 @@ export * from './winText';
 export * from './uiText';
 export * from './builtinComponents';
 export * from './builtinTimelines';
+export * from './propComponents';
 export * from './potSkin';
 export * from './potPieces';
 export * from './wheelSkin';

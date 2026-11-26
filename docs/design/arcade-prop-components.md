@@ -1,7 +1,8 @@
 # Arcade prop components — a component that carries its own collision (Salmons' bridge first)
 
 **Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26; P3 (one
-river on both sides) built 2026-11-26, in review; P4–P8 planned.** Owner ask of
+river on both sides) built 2026-11-26; P4 (the seed def) built 2026-11-26, in review; P5–P8
+planned; other obstacles (§9) planned after P8.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -343,7 +344,38 @@ the 2-cell near slope) has merged.
    `behind`, a deck segment repeater `sorted`). Its state machine has `idle` and `occupied` states
    and `stepOn` / `stepOff` cue timelines. A project starts from it with **Save a copy**.
    *Proof:* `check:prop-shape` §3 (the seed compiles to defaults). `check:component-state-machine`.
-   `pnpm --filter engine-layout build`.
+   `pnpm --filter engine-layout build`. **Built 2026-11-26, in review** (detail:
+   [status/component-editor](../status/component-editor.md)). As built:
+   - **Where it lives.** The defs are in `engine-layout` `propComponents.ts`: `BRIDGE_PROP_DEF`,
+     its four segment defs and `PROP_TIMELINES`. They are in `BUILTIN_COMPONENTS` /
+     `BUILTIN_TIMELINES`, the launcher's lowest layer. They are NOT in the lists every runtime
+     carries, `RUNTIME_BUILTIN_COMPONENTS` (which the boot's stock-asset walk resolves a doc's ids
+     against) and `RUNTIME_BUILTIN_TIMELINES` (which `registerGameTimelines` registers). A prop is
+     placed by zone art, never by a doc, so all five runtimes stay their bytes. P5 registers the
+     prop built-ins through the arcade seam. Two measured traps: a top-level call that builds a
+     def is kept by the bundler unless it is one `/* @__PURE__ */` call (+1.1 kB gzip until they
+     were), and a new import edge reorders the shared modules (+18 B). So `propComponents.ts`
+     imports only `types.ts`, and writes out `PROP_INPUTS` and Salmons' sizes (`BRIDGE_PROP_SIZES`),
+     which `check:prop-shape` §3 holds equal to their sources. All five defs are `internal` (no palette offers them)
+     and are pinned in `test-hold-and-win-template.mjs`, as `segmentedCounter` is.
+   - **The tree.** The origin is the first deck cell's middle on the deck top.
+     - `Reflections`: a count-mode repeater of `bridgePropReflection`, in the `water` band.
+     - `Near slope` and `Far slope`: `behind`, at 500. The far slope follows `length` by two
+       `valueBindings`.
+     - `Deck`: a count-mode repeater in the `sorted` band at 1100. Its variants are
+       `bridgePropDeckNear`, `bridgePropDeckMiddle` and `bridgePropDeckFar`. Each segment has a
+       tile (`sorted`, 1100), a pillar (`behind`, 400) and the pillar's reflection (`water`).
+   - **Pillars.** Neither a variant stride nor a modulo binding exists. So the middle segment's own
+     machine shows its pillar on `index` 4, 7, … 49, and the ends always have one. That is the
+     code's `i % 3 === 0` plus both ends, pinned for decks of 1–30 cells.
+   - **What P5 must take over.** The repeaters' row layout is only the editor's flat preview: the
+     P5 mount places each segment at its cell. The pillar is drawn for the default 6-cell height:
+     the mount scales the behind band by `height`, or a copy binds it.
+   - **The machine.** `ambience` has `idle`, which loops the water's sway on `Reflections`. That is
+     the code shimmer with one phase for the whole bridge, where the code has one per cell. Its
+     `occupied` state holds still while `occupied > 0`. `steps` has `still`, `stepOn` and
+     `stepOff`: a short dip of the `Deck` fired by the triggers from any state. The inputs are
+     `PROP_INPUTS`, and `signalScope` is the engine-provided `zone` param.
 5. **P5 — the runtime draw and the inputs.** `propMount.ts`, the band placement, per-cell
    segments, and `occupied` / `stepOn` / `stepOff` from the room state in `online.ts`.
    *Proof:* `pnpm check:salmons-art` (no component ⇒ the river's pieces and depths are unchanged).
@@ -407,3 +439,70 @@ Answered by the owner on 2026-11-26 unless marked open.
    family.
 6. **Decided: delete it.** Once the seed def matches the code look, the code-drawn bridge is
    deleted, an explicit, parity-checked step of P5 (§7). No dual path is left.
+
+## 9. Other obstacles (waterfall first)
+
+> "We should also have a way to build waterfalls the same way, and probably other kinds of
+> obstacles." (owner, 2026-11-26)
+
+Decided with the owner: the bridge goes first, end to end (P4–P8), and then the model is
+generalised. The plumbing P1–P4 added is keyed by zone kind, not by bridge. That covers
+`PROP_ZONE_KINDS` / `PROP_SHAPE_DEFAULTS` (`propShape.js`), the launcher's `normalizeProp`, the
+`PROP_COMPONENTS` / `PROP_TIMELINES` lists and `propOf(props, id, kind)` (`salmons.js`). A new
+obstacle adds an entry to each list, its own collider fields, and its rule's `?? <constant>`
+reads. It needs no new channel. Each obstacle below keeps §2's split: the collider is data the
+rules read, and the art only presents what the rules decided.
+
+| | Waterfall `waterfall#` | Rock `rock#` | Whirlpool `whirlpool#` | Sandbank `sandbank#` |
+|---|---|---|---|---|
+| Rule today (`salmons.js` `salmonsGeometry`) | `solid: 'below'`, `kind: 'waterfall'`, `characters: ['salmon']`, `aloft` on an original level; a bear blocker `waterfall<i>Bear` (`originalBounds`) | `solid: true`, every character | original: `pull: WHIRLPOOL_PULL`; band river: a `force` | `kind: 'sandbank'`, `characters: ['salmon']`, `cell: CELL` on an original level |
+| Rules module | `waterfallClimbing`, `fall` | `lowPieces` | `lowPieces` | `sandbanks` |
+| Collider fields (parity default, where it lives) | `climb: { reach: 2, step: 2.4, slide: 0.8 }` (`CLIMB.radiusSq` 4, `step`, `slidePerSecond`, `salmonsRules.js`); `bearReach: 1.5` (`SALMONS_BOUNDS.fallReach`, `salmons.js`); `aloft` (the generator's choice, kept); `characters` (`['salmon']`) | `over: 0.5` (`OVER.rock`); `characters` (every one); a footprint scale (the generator's `rock` box) | `pull: { radius: 4, strength: 14 }` cells (`WHIRLPOOL_PULL`); `over: 0.5` (`OVER.whirlpool`) | `reach: 0.8` (`SAND_REACH`); `clear: 0.05` (`CLEAR.sand`) |
+| Reserved inputs | `climbing` (number, salmon on it), `climbed` / `slipped` triggers (top reached / let go below), `bearAt` (number, bears within `bearReach`) | `struck` trigger (a body stopped on it) | `caught` (number, salmon in its pull) | `grounded` (number), `freed` trigger |
+| Art bands (`river.ts` `Z` today) | `water`: the splash clips (`Z.splash` 100 + p); `behind`: the lip (`Z.lip` 50); the cliff is drawn by the elevation pass under the upright layer, not by a prop band (see below) | `behind`: the rock (`Z.rock` 300) | `water`: the pool (`Z.whirlpool` −50) | `water` (a flat stamp) |
+| Hash | every field lands in zones / zone rules, as a bridge's | same | same | same |
+
+**What is hard, and stays out of the component.**
+
+- **A waterfall's height is the level's, not the prop's.** The generator draws each height by seed
+  (`salmonsMap.js`, H in `WATERFALL_HEIGHT_MIN`..`MAX`, capped towards the sea). An overlay `set`
+  re-heights one, and `riverElevation` (`salmonsElevation.ts`) raises everything upstream by
+  `elevStepFor(H)`. So the river's elevation, the cliff art under the lip and the climb's top all
+  follow the generator's height. A waterfall prop cannot carry a height: `fromZone.height` is
+  engine-provided and read-only, and the cliff stays drawn by the elevation pass. A prop that needs
+  its own height range sets the levels' `waterfalls.heightMin` / `heightMax` (salmons-levels), never
+  the art.
+- **Rules defined by the original.** `CLIMB`, `OVER`, `SAND_REACH` and `WHIRLPOOL_PULL` are the old
+  server's numbers, pinned by `check:salmons-heights`, `check:online-rules` and
+  `check:salmon-bots`. A default shape compiles to `{ from, zoneKind }`, exactly as the bridge's
+  does, so those traces cannot move. Changing one value is a new collider with its own hash.
+- **Bots read the same pieces.** `BOT_SWIM` weighs rocks, pools and sand by fixed pads (`SWIM_WEIGH`
+  `rock` / `pool` / `sand`). A shape that widens a pull must widen the bot's pad from the same
+  field, or the bots swim into it. Each P-step below names its bot gate.
+- **Rocks and whirlpools are many small zones.** One def per family is placed per zone, like a
+  bridge, but a level can hold dozens. The P5 mount must instance cheaply (cull with the river's
+  `uprightCulled` boxes) before a rock prop ships.
+
+**Plan (each its own PR, after P8):**
+
+9. **P9 — generalise the shape.** `PROP_SHAPE_DEFAULTS.waterfall` and its compile fields (`climb`,
+   `bearReach`, `characters`). Give the `game-config` mirror (`ONLINE_PROP_*`) a per-kind table.
+   `propOf` already takes the kind.
+   *Proof:* `check:prop-shape` §4 (a default waterfall compiles to `{from, zoneKind}`; each field
+   survives; a bad climb is refused; the mirror equals `propShape.js`), `check:runtime-bytes` (the
+   slot, match-3 and card runtimes unchanged).
+10. **P10 — the waterfall rule reads it.** `salmonsGeometry` writes `climb` and `bearReach` on the
+    rule and the bear blocker. `waterfallClimbing` reads `rule.climb?.… ?? CLIMB.…`.
+    *Proof:* `check:salmons-heights` (every height's taps unchanged with no props, and a step of
+    3 takes fewer taps), `check:online-rules`, `check:salmon-bots`, `check:room-sim`, and
+    `check:room-levels` (no props gives main's hash; a climb change gives a new one).
+11. **P11 — the seed `waterfallProp`** (`PROP_COMPONENTS`, internal, inert): splashes `water`, the lip
+    `behind`, a lip segment repeater across the river's width, and inputs `climbing`, `climbed` and
+    `slipped`. *Proof:* `check:prop-shape` §5 (it compiles to defaults),
+    `check:component-state-machine`, runtime bytes.
+12. **P12 — draw and ship.** The waterfall goes through the P5 mount and the P6 zone-art source.
+    `river.ts` deletes its code lips and splashes (as P5 does the bridge's) and keeps the cliffs
+    on the elevation pass. *Proof:* `check:salmons-art`, `check:prop-depth` (the lip's and
+    splash's Z), and `salmons-play.mjs` screenshots of a salmon climbing.
+13. **P13 — rock, whirlpool, sandbank**, one PR each, in that order, each with P9–P12's four gates
+    and the bot gate (`check:salmon-bots`).

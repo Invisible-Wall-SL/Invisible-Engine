@@ -7,6 +7,7 @@ import {
 	SEGMENTED_COUNTER_SEGMENT_NODES,
 	SEGMENTED_COUNTER_UNLIT_TIMELINE_ID,
 } from './builtinComponents';
+import { PROP_TIMELINES } from './propComponents';
 import type { CinematicDoc } from './types';
 
 /**
@@ -71,7 +72,15 @@ export const ENHANCEMENT_DIAL_TIMELINES: readonly CinematicDoc[] = ENHANCEMENT_D
 	}),
 );
 
-export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
+/** The built-in timelines every runtime registers at boot (`componentTimelines.ts`). */
+export const RUNTIME_BUILTIN_TIMELINES: readonly CinematicDoc[] = [
 	...SEGMENTED_COUNTER_TIMELINES,
 	...ENHANCEMENT_DIAL_TIMELINES,
+];
+
+/** Every built-in timeline: the runtime's and the prop built-ins' (`propComponents.ts`), which the
+ *  editor lists beside its own. */
+export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
+	...RUNTIME_BUILTIN_TIMELINES,
+	...PROP_TIMELINES,
 ];

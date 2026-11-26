@@ -110,6 +110,28 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-26 — **Prop components P4: the seed bridge** ([arcade-prop-components](../design/arcade-prop-components.md)
+  §7 P4, branch `claude/bold-cannon-3a8unw`, in review). The shared built-in `bridgeProp` and its
+  segments `bridgePropDeckNear` / `…Middle` / `…Far` and `bridgePropReflection`, with the
+  timelines its machines play, are in `engine-layout` `propComponents.ts` (`PROP_COMPONENTS`,
+  `PROP_TIMELINES`). It is `category: 'scenery'` and `internal`, and inert until a zone-art entry
+  names it (P6). Its collider is today's rule, so it compiles to `{ from, zoneKind }`. Its
+  placeholder art is close to the code bridge, in the §5 bands at the code's depths. Its state
+  machine has `idle` (looping water sway) / `occupied` and `stepOn` / `stepOff` dips, with inputs
+  `PROP_INPUTS`, scoped by an engine-provided `zone`. `BUILTIN_COMPONENTS` / `BUILTIN_TIMELINES`
+  (the launcher's layer) now include the prop built-ins. The runtime reads the new
+  `RUNTIME_BUILTIN_COMPONENTS` (`stockAssetBoot.ts`, `stockAssetBuild.ts`) and
+  `RUNTIME_BUILTIN_TIMELINES` (`registerGameTimelines`), which do not, so every runtime is
+  byte-identical (measured, all five). Two traps kept it so: the defs are built by single
+  `/* @__PURE__ */` calls, and `propComponents.ts` imports only `types.ts` (a new import edge
+  reorders the shared modules: +18 B). The five defs are pinned in
+  `test-hold-and-win-template.mjs`. The design gains §9 *Other obstacles* (waterfall, rock,
+  whirlpool, sandbank; plan P9–P13). `scripts/current-games/republish.fixture.mjs` fails on an
+  uncommitted tree for any built-in change (it compares HEAD's extraction with the working tree's);
+  it passes once committed. Gates: `check:prop-shape` (34 → 40),
+  `check:component-state-machine` 227, `check:component-repeat-segments` 81,
+  `check:component-state-machine-editor` 91, `engine-layout build`, `check:svelte` at baseline
+  (engine-layout 290, lines 145, launcher-api 44).
 - 2026-11-26 — **Prop components P1: the model and the compile** ([arcade-prop-components](../design/arcade-prop-components.md)
   §7 P1, branch `claude/bold-cannon-3a8unw`, in review). `ComponentDef.prop` (`ArcadeProp`:
   `zoneKind`, `fromZone`, `collider` with `PropLength` deck / ramps, `snap`, `hole`, opt-in

@@ -12,6 +12,7 @@ import {
 } from './componentCatalog';
 import { kindCapabilities, type KindCapabilityConfig } from './kindCapabilities';
 import { POT_SKIN_PARAMS } from './potSkin';
+import { PROP_COMPONENTS } from './propComponents';
 import { WHEEL_SKIN_PARAMS } from './wheelSkin';
 import { SM_ANY_STATE, type ComponentDef, type ComponentParam, type LayoutNode } from './types';
 
@@ -3126,8 +3127,11 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	ENHANCEMENT_DIAL_DEF,
 ];
 
-/** Every built-in component def — the launcher's lowest-precedence layer. */
-export const BUILTIN_COMPONENTS: ComponentDef[] = [
+/**
+ * The built-in defs every runtime carries: what a boot resolves a layout doc's component ids
+ * against (`stockAssetBoot.ts`). The prop built-ins are not here (`propComponents.ts`).
+ */
+export const RUNTIME_BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
 	BUTTON_DEF,
 	TEXT_BOX_DEF,
@@ -3149,6 +3153,12 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	SEGMENTED_COUNTER_DEF,
 	SEGMENTED_COUNTER_SEGMENT_DEF,
 	...HOLD_AND_WIN_COMPONENTS,
+];
+
+/** Every built-in component def — the launcher's lowest-precedence layer. */
+export const BUILTIN_COMPONENTS: ComponentDef[] = [
+	...RUNTIME_BUILTIN_COMPONENTS,
+	...PROP_COMPONENTS,
 ];
 
 /**

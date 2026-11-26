@@ -29,6 +29,21 @@
 //   `hole`); a snap narrows who is put on the deck; a height raises it;
 // - a solid in the deck's cells stops a fisherman, and one for bears stops a bear and not him.
 //
+// §3 (P4) the seed `bridgeProp` (`engine-layout` `propComponents.ts`):
+// - it compiles to `{ from, zoneKind }` (today's bridge), with no problem named, and so does the
+//   normalizer's reading of that shape;
+// - its zone params are engine-provided numbers, its scope param an engine-provided `zone`, its
+//   inputs `PROP_INPUTS`, its sizes `salmonsElevation.ts`'s (both written out in the def, so it
+//   imports nothing a runtime carries), its preview a 6-cell deck 6 high;
+// - its bands are §5's at the code's depths: reflections `water`, pillars `behind` at 400, slopes
+//   `behind` at 500, deck `sorted` at 1100, every node of every seed def in a band;
+// - its deck is a count-mode repeater of near / middle / far cells, and the cells with a pillar are
+//   the code's (`river.ts`: both ends and every third) for every deck of 1 … 30 cells;
+// - every state plays a timeline of its own def, every timeline keys nodes the def has, and each
+//   state machine validates with no issue;
+// - it is in the launcher's built-ins and not in the lists every runtime carries, internal, and no
+//   other built-in places it.
+//
 // Run: pnpm check:prop-shape
 
 import assert from 'node:assert/strict';
@@ -68,6 +83,30 @@ import {
 	shapedOnlineGame,
 } from '../packages/game-config/index.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
+import {
+	BRIDGE_PROP_DEF,
+	BRIDGE_PROP_IDS,
+	BRIDGE_PROP_SIZES,
+	PROP_COMPONENTS,
+	PROP_TIMELINES,
+} from '../packages/engine-layout/src/lib/propComponents.ts';
+import {
+	BUILTIN_COMPONENTS,
+	RUNTIME_BUILTIN_COMPONENTS,
+} from '../packages/engine-layout/src/lib/builtinComponents.ts';
+import {
+	BUILTIN_TIMELINES,
+	RUNTIME_BUILTIN_TIMELINES,
+} from '../packages/engine-layout/src/lib/builtinTimelines.ts';
+import { PROP_INPUTS } from '../packages/engine-layout/src/lib/componentInterface.ts';
+import { validateStateMachine } from '../packages/engine-layout/src/lib/stateMachine.ts';
+import { validateNodeActors } from '../packages/engine-layout/src/lib/cinematicNodes.ts';
+import { collectComponentIds } from '../packages/engine-layout/src/lib/collectComponentIds.ts';
+import {
+	CELL as ART_CELL,
+	HEIGHT_UNIT,
+	K,
+} from '../packages/engine-layout/src/lib/referenceLayouts/salmonsElevation.ts';
 
 let passed = 0;
 const check = (name, fn) => {
@@ -697,6 +736,162 @@ check('a solid in the deck’s cells stops a fisherman; one for bears stops a be
 		Math.abs(up(bridgeProps({ solids: [low] })) - (BRIDGE.y + CELL + 46)) < 1e-6,
 		'the low bridge stops it',
 	);
+});
+
+// ── §3 the seed bridge ───────────────────────────────────────────────────────────────────────
+
+const seedDef = (id) => PROP_COMPONENTS.find((d) => d.id === id);
+/** Every node of a def's tree with the band it draws in (its own, else its parent's). */
+const banded = (root) => {
+	const out = [];
+	const walk = (node, inherited) => {
+		const band = node.propDepth ?? inherited;
+		out.push({ node, band });
+		for (const child of node.children ?? []) walk(child, band);
+	};
+	for (const child of root.children) walk(child, root.propDepth);
+	return out;
+};
+const byLabel = (def, label) => banded(def.root).find(({ node }) => node.label === label);
+
+check("the seed compiles to today's bridge, { from, zoneKind }", () => {
+	assert.deepEqual(compilePropShape(BRIDGE_PROP_DEF), {
+		from: { component: BRIDGE_PROP_IDS.prop, version: BRIDGE_PROP_DEF.version },
+		zoneKind: 'bridge',
+	});
+	assert.deepEqual(propShapeErrors(BRIDGE_PROP_DEF), []);
+	assert.deepEqual(normalizeOnlineProps({ 'bridge#': compilePropShape(BRIDGE_PROP_DEF) }), {
+		'bridge#': compilePropShape(BRIDGE_PROP_DEF),
+	});
+});
+
+check(
+	"its zone params are engine-provided, its scope the zone, its inputs and sizes the engine's",
+	() => {
+		const params = new Map(BRIDGE_PROP_DEF.params.map((p) => [p.key, p]));
+		const { fromZone } = BRIDGE_PROP_DEF.prop;
+		for (const key of [fromZone.length, fromZone.height]) {
+			assert.equal(params.get(key)?.kind, 'number', key);
+			assert.equal(params.get(key)?.engineProvided, true, key);
+			assert.equal(params.get(key)?.default, 6, key);
+		}
+		assert.equal(BRIDGE_PROP_DEF.signalScope, 'zone');
+		assert.deepEqual(
+			[params.get('zone')?.kind, params.get('zone')?.engineProvided],
+			['string', true],
+		);
+		assert.deepEqual(
+			BRIDGE_PROP_DEF.inputs,
+			PROP_INPUTS.map((i) => ({ ...i })),
+		);
+		assert.deepEqual(BRIDGE_PROP_SIZES, { cell: ART_CELL, k: K, heightUnit: HEIGHT_UNIT });
+		assert.deepEqual(BRIDGE_PROP_DEF.prop.preview, { length: 6, height: 6 });
+	},
+);
+
+check("its bands are §5's at the code bridge's depths", () => {
+	const at = (def, label) => {
+		const hit = byLabel(def, label);
+		return [hit?.band, hit?.node.propZOffset];
+	};
+	const near = seedDef(BRIDGE_PROP_IDS.deckNear);
+	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Reflections'), ['water', undefined]);
+	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Near slope'), ['behind', 500]);
+	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Far slope'), ['behind', 500]);
+	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Deck'), ['sorted', 1100]);
+	assert.deepEqual(at(near, 'Pillar'), ['behind', 400]);
+	assert.deepEqual(at(near, 'Pillar reflection'), ['water', undefined]);
+	assert.deepEqual(at(near, 'Tile'), ['sorted', 1100]);
+	assert.deepEqual(at(seedDef(BRIDGE_PROP_IDS.reflection), 'Reflection'), ['water', undefined]);
+	for (const def of PROP_COMPONENTS) {
+		const loose = banded(def.root).filter(({ band }) => !band);
+		assert.deepEqual(
+			loose.map(({ node }) => node.id),
+			[],
+			`${def.id}: every node is in a band`,
+		);
+	}
+});
+
+check("its deck is near / middle / far cells, pillared as the code's", () => {
+	const deck = BRIDGE_PROP_DEF.root.children.find((n) => n.label === 'Deck');
+	assert.equal(deck.kind, 'repeater');
+	assert.equal(deck.count.preview, 6);
+	assert.deepEqual(deck.variants, {
+		first: BRIDGE_PROP_IDS.deckNear,
+		middle: BRIDGE_PROP_IDS.deckMiddle,
+		last: BRIDGE_PROP_IDS.deckFar,
+	});
+	const middle = seedDef(BRIDGE_PROP_IDS.deckMiddle);
+	const layer = middle.stateMachine.layers[0];
+	const pillaredMiddle = new Set(
+		layer.transitions.filter((t) => t.to === 'pillar').map((t) => t.conditions[0].value),
+	);
+	const ends = [deck.variants.first, deck.variants.last].map(seedDef);
+	assert.ok(
+		ends.every((d) => byLabel(d, 'Pillar')),
+		'both ends have a pillar',
+	);
+	for (let n = 1; n <= 30; n++) {
+		const seed = [];
+		const code = [];
+		for (let i = 0; i < n; i++) {
+			const index = i + 1;
+			const end = index === 1 || index === n;
+			if (end || pillaredMiddle.has(index)) seed.push(i);
+			if (i === 0 || i === n - 1 || i % 3 === 0) code.push(i);
+		}
+		assert.deepEqual(seed, code, `a deck of ${n}`);
+	}
+	assert.deepEqual(
+		collectComponentIds([BRIDGE_PROP_DEF.root]).sort(),
+		PROP_COMPONENTS.filter((d) => d !== BRIDGE_PROP_DEF)
+			.map((d) => d.id)
+			.sort(),
+	);
+});
+
+check('its machines play their own timelines, which key nodes they have', () => {
+	const ids = PROP_TIMELINES.map((t) => t.id);
+	for (const def of PROP_COMPONENTS) {
+		assert.deepEqual(validateStateMachine(def, ids), [], `${def.id}'s machine`);
+		for (const layer of def.stateMachine?.layers ?? []) {
+			for (const state of layer.states) {
+				const doc = PROP_TIMELINES.find((t) => t.id === state.timeline);
+				assert.equal(doc?.host?.componentId, def.id, `${def.id}.${state.id}`);
+				const host = { id: def.id, name: def.name, nodes: [def.root] };
+				assert.deepEqual(validateNodeActors(doc, host), [], doc.id);
+			}
+		}
+	}
+	const machine = BRIDGE_PROP_DEF.stateMachine.layers.map((l) => [
+		l.entry,
+		l.states.map((s) => s.id),
+	]);
+	assert.deepEqual(machine, [
+		['idle', ['idle', 'occupied']],
+		['still', ['still', 'stepOn', 'stepOff']],
+	]);
+	assert.equal(BRIDGE_PROP_DEF.stateMachine.layers[0].states[0].loop, true, 'the ambience loops');
+});
+
+check('it is a launcher built-in, not a runtime one, internal, placed by no other built-in', () => {
+	const ids = PROP_COMPONENTS.map((d) => d.id);
+	const has = (list, id) => list.some((d) => d.id === id);
+	assert.ok(ids.every((id) => has(BUILTIN_COMPONENTS, id)));
+	assert.ok(ids.every((id) => !has(RUNTIME_BUILTIN_COMPONENTS, id)));
+	assert.ok(PROP_TIMELINES.every((t) => has(BUILTIN_TIMELINES, t.id)));
+	assert.ok(PROP_TIMELINES.every((t) => !has(RUNTIME_BUILTIN_TIMELINES, t.id)));
+	assert.ok(PROP_COMPONENTS.every((d) => d.internal === true && d.scope === 'shared'));
+	assert.ok(PROP_COMPONENTS.every((d) => d.category === 'scenery'));
+	const placing = RUNTIME_BUILTIN_COMPONENTS.filter((d) =>
+		collectComponentIds([d.root]).some((id) => ids.includes(id)),
+	);
+	assert.deepEqual(
+		placing.map((d) => d.id),
+		[],
+	);
+	assert.equal(new Set(BUILTIN_COMPONENTS.map((d) => d.id)).size, BUILTIN_COMPONENTS.length);
 });
 
 console.log(
