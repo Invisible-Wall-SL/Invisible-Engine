@@ -1,5 +1,13 @@
 import { MAX_DESCRIPTION, MAX_TITLE, bugAreaName, bugRef } from '$lib/bugReports';
-import { capText, type FixFacts, type FixRunOutcome, type FixRunView } from '$lib/bugFixRuns';
+import {
+	MAX_BUILD_NOTE,
+	capText,
+	type FixFacts,
+	type FixOptionId,
+	type FixRunDiagnosis,
+	type FixRunOutcome,
+	type FixRunView,
+} from '$lib/bugFixRuns';
 import type { PillTone } from '../pipeline/view';
 
 /**
@@ -9,8 +17,8 @@ import type { PillTone } from '../pipeline/view';
  * as it stands. No Svelte, no browser globals.
  */
 
-export const SEND_AND_START = 'Send and start fix';
-export const START_FIX = 'Start fix';
+export const SEND_AND_START = 'Send and diagnose';
+export const START_FIX = 'Diagnose';
 
 export type FixControl =
 	/** Nothing to press: no capability pair, fix runs cannot run yet, or a run is going. */
@@ -19,6 +27,10 @@ export type FixControl =
 	| { kind: 'start'; label: string; sends: boolean }
 	/** The button greyed, with the refusal the server would give, in words. */
 	| { kind: 'blocked'; label: string; sends: boolean; why: string };
+
+/** What the Diagnose button promises: a diagnosis, never a change (ADR-0014 §1). */
+export const DIAGNOSE_TIP =
+	'Finds the cause and offers options for you to choose from. It changes nothing: a build starts only when you pick an option.';
 
 /**
  * The control for one pipeline bug. Hidden unless the viewer holds both `pipelineBugFix` and
@@ -48,6 +60,15 @@ export interface FixRunLine {
 	live: boolean;
 }
 
+export interface FixBanner {
+	tone: PillTone;
+	text: string;
+	/** Set only on "Fix proposed": the Pipeline Changes address of that one change. */
+	href: string | null;
+	/** The newest run's own summary, in full, for the page to show as text under the banner. */
+	summary: string | null;
+}
+
 const OUTCOME_WORDS: Partial<Record<FixRunOutcome, string>> = {
 	not_reproduced: 'it did not reproduce',
 	needs_person: 'it needs a person',
@@ -56,9 +77,17 @@ const OUTCOME_WORDS: Partial<Record<FixRunOutcome, string>> = {
 
 const usd = (n: number): string => `$${n.toFixed(2)}`;
 
+/** "Diagnosis d2a4…", "Build b71c… of option B": which kind of run a line is about. */
+function runName(run: FixRunView): string {
+	if (run.mode === 'diagnose') return `Diagnosis ${run.id}`;
+	return run.chosenOption
+		? `Build ${run.id} of option ${run.chosenOption.optionId}`
+		: `Build ${run.id}`;
+}
+
 /** One run as its line reads. Every word of the run's own (`summary`) goes in `note`, as text. */
 export function fixRunLine(run: FixRunView): FixRunLine {
-	const name = `Fix run ${run.id}`;
+	const name = runName(run);
 	const live = run.status === 'dispatched' || run.status === 'running';
 	const spend = live ? null : run.spendUsd === null ? 'spend unknown' : usd(run.spendUsd);
 	const note = run.summary;
@@ -76,6 +105,14 @@ export function fixRunLine(run: FixRunView): FixRunLine {
 			return line('blue', 'Queued', `${name} is queued: the job has not started yet.`);
 		case 'running':
 			return line('blue', 'Working', `${name} is working on it.`);
+		case 'diagnosed': {
+			const n = run.diagnosis?.options.length ?? 0;
+			return line(
+				'amber',
+				'Diagnosed',
+				`${name} is ready: ${n} option${n === 1 ? '' : 's'}. Nothing is built until you choose.`,
+			);
+		}
 		case 'pr_opened':
 			return line(
 				'green',
@@ -86,7 +123,13 @@ export function fixRunLine(run: FixRunView): FixRunLine {
 			);
 		case 'no_fix': {
 			const why = run.reason ?? ((run.outcome && OUTCOME_WORDS[run.outcome]) || 'no fix');
-			return line('amber', 'No fix', `${name} found no fix: ${why.replace(/\.$/, '')}.`);
+			return line(
+				'amber',
+				'No fix',
+				run.mode === 'diagnose'
+					? `${name} ended without options: ${why.replace(/\.$/, '')}.`
+					: `${name} found no fix: ${why.replace(/\.$/, '')}.`,
+			);
 		}
 		case 'failed':
 			return line(
@@ -102,6 +145,97 @@ export function fixRunLine(run: FixRunView): FixRunLine {
 			);
 	}
 }
+
+const NO_CHANGE = 'No change was made';
+
+/**
+ * The one banner at the top of a pipeline bug (ADR-0014 §4), from the bug's runs (newest first):
+ * what the newest run did, or null when there is none. A diagnosis that ended `diagnosed` is
+ * "Waiting on your decision" while it is the newest run; a build run is the newest once chosen.
+ */
+export function fixBanner(runs: FixRunView[]): FixBanner | null {
+	const run = runs[0];
+	if (!run) return null;
+	const out = (tone: PillTone, text: string, href: string | null = null): FixBanner => ({
+		tone,
+		text,
+		href,
+		summary: run.summary,
+	});
+	const building = (): string => {
+		const c = run.chosenOption;
+		return c ? `Building option ${c.optionId} — ${c.name}…` : 'Building…';
+	};
+	switch (run.status) {
+		case 'dispatched':
+		case 'running':
+			return out('blue', run.mode === 'diagnose' ? 'Diagnosing…' : building());
+		case 'diagnosed': {
+			const n = run.diagnosis?.options.length ?? 0;
+			return out('amber', `Waiting on your decision — ${n} option${n === 1 ? '' : 's'}`);
+		}
+		case 'pr_opened':
+			return run.prNumber === null
+				? out('green', 'Fix proposed — review the draft change')
+				: out(
+						'green',
+						`Fix proposed — review change #${run.prNumber}`,
+						`/pipeline?change=${run.prNumber}`,
+					);
+		case 'no_fix': {
+			const why = run.reason ?? ((run.outcome && OUTCOME_WORDS[run.outcome]) || 'no fix');
+			return out('amber', `${NO_CHANGE} — ${why.replace(/\.$/, '')}`);
+		}
+		case 'failed':
+			return out('red', `${NO_CHANGE} — ${(run.reason ?? 'the run failed').replace(/\.$/, '')}`);
+		case 'cancelled':
+			return out(
+				'muted',
+				`${NO_CHANGE} — ${(run.reason ?? 'the run was stopped').replace(/\.$/, '')}`,
+			);
+	}
+}
+
+export type BuildButton =
+	/** Pressable: the label names the option. */
+	| { kind: 'ready'; label: string }
+	/** Greyed, with the sentence that says why. */
+	| { kind: 'blocked'; label: string; why: string };
+
+export const NO_RIGHTS_TO_BUILD =
+	'A fix run needs both the “Start fix runs on pipeline bugs” and the “Triage pipeline bugs” permissions. You can read the options.';
+export const PICK_FIRST = 'Pick an option first.';
+
+/**
+ * The Build button of a diagnosis card. Nothing is pre-selected: without a pick it is blocked, even
+ * with a single option. `facts.canBuild` is the server's word; a viewer without the pair is told
+ * so, anyone else gets the start refusal's sentence.
+ */
+export function buildButton(
+	facts: FixFacts,
+	options: FixRunDiagnosis['options'],
+	picked: FixOptionId | null,
+): BuildButton {
+	const option = options.find((o) => o.id === picked);
+	const label = option ? `Build “${option.name}”` : 'Build';
+	if (!facts.may) return { kind: 'blocked', label, why: NO_RIGHTS_TO_BUILD };
+	if (!facts.canBuild) {
+		return {
+			kind: 'blocked',
+			label,
+			why: facts.refusal?.message ?? 'Fix runs cannot start right now.',
+		};
+	}
+	if (!option) return { kind: 'blocked', label, why: PICK_FIRST };
+	return { kind: 'ready', label };
+}
+
+/** "412 / 1000": the note's counter. */
+export const noteCounter = (note: string): string => `${note.length} / ${MAX_BUILD_NOTE}`;
+
+/** "Chosen: B — name": the head of the card once a build run exists (who and when follow it). */
+export const choiceText = (c: { optionId: string; name: string }): string =>
+	`Chosen: ${c.optionId} — ${c.name}`;
 
 /**
  * `/bugs?new=1&for=<area>&title=…&details=…`: the report form for a run's proposed second bug,

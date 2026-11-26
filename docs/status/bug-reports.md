@@ -162,9 +162,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
     - suppression comments and hidden characters;
     - the project's and client's keys and names in the public text;
     - the commit scope, and a passing gate.
-    A change that breaks a rule ends `no_fix` (needs a person). One that passes is committed as the
-    App on `base_sha` and opened as a draft PR, `bug-<n>-fix-<id>`, titled
-    `<scope>: BUG-<n> <title>`. The link sync then moves the bug, as for any `bug-<n>` branch.
+      A change that breaks a rule ends `no_fix` (needs a person). One that passes is committed as the
+      App on `base_sha` and opened as a draft PR, `bug-<n>-fix-<id>`, titled
+      `<scope>: BUG-<n> <title>`. The link sync then moves the bug, as for any `bug-<n>` branch.
   - **Backstop.** Inside `syncBugLinks`, apart from the PR pass:
     - a run with no Actions run after 15 minutes → `failed`;
     - an Actions run that completed without a result → `failed` / `cancelled`;
@@ -182,7 +182,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
   is false without it, or without the App. `GET /api/pipeline/bugs` now also returns `fix`
   (`FixTab`: `triage`, `may`, `ready`, per-bug runs and refusal). The report form reads `title`
   and `details` from the address. **Mark ready for review:** `POST
-  /api/pipeline/changes/<n>/ready` (`markReadyForReview` in `pipelineMerge.ts`, GitHub's GraphQL
+/api/pipeline/changes/<n>/ready` (`markReadyForReview` in `pipelineMerge.ts`, GitHub's GraphQL
   `markPullRequestReadyForReview` as the App; `pipelineMerge`; 409 unless an open draft), a bar
   with the button above the merge bar of a draft change in Pipeline Changes; `check:pipeline-changes`.
 - **Fixtures:** `pnpm --filter launcher-api check:bug-reports` and `check:bug-fix-runs` (both run
@@ -233,6 +233,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
        in the routes, not in `mergeChange` or `revertMerge`.
      - A Windows 8.3 short name (`PIPELI~1.TS`) passes the path rules. It matters only on an NTFS
        checkout; Railway is Linux.
+
    - **A fix inside a vendored bundle still cannot pass CI on its own**: `check-vendored-bundles`
      fails until a person rebuilds the bundle (#1536). The run is now told not to commit one, and
      to ask in its summary for `pnpm --filter launcher-api build:<name>`. `rigger-fx.js` (650 KB)
@@ -248,6 +249,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-26 — **Fix runs diagnose before they build (ADR-0014 card 14A, UI side).** Start reads
+  **Diagnose** / **Send and diagnose** (ⓘ: changes nothing). `fixBanner` puts one status line at
+  the top of the bug page (and compact on the Bugs tab card), the run's summary in full beneath it
+  as text; `DiagnosisCard` shows the cause, the Defect/Decision pill, folded evidence and the
+  options as radio cards (nothing pre-selected, Recommended tag, note up to 1000), with
+  `buildButton` deciding Build; a `fix_decision` activity line reads "chose option B — name
+  (note: …)". Pinned in `check-bug-fix-runs`. Rendered nowhere (no local DB): type-checked only.
 - 2026-11-26 — **Fix runs diagnose before they build (ADR-0014 card 14A, server, prompt and
   workflow side).** Migration `0048_fix_run_diagnose`: `bug_fix_runs.mode` (default `build`),
   `diagnosis`, `chosen_option`, `parent_run_id`; status and outcome `diagnosed`; the
@@ -330,6 +338,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
     out, its cases fail. An unanchored `pipeline` rule fails the folder control. A rewrite that
     tests only the `.ts` spelling stops refusing `check-secrets.mjs` and `.pnpmfile.cjs`. The fixture's simulated Actions run ids now start at 20,000: the 31 extra
     runs had reached 9701, an id a backstop test binds by hand.
+
   - Not added: `services/director-worker/src/eval/`. It judges only agent-definition changes, and
     a run cannot make one (`agents/` is protected).
 - 2026-11-10 — **The rest of the browser pass, as admin and as a non-admin** (live launcher), each
@@ -495,14 +504,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
   `/bugs` with the owner's yes and started from the **Start fix** button on the live launcher, as
   admin. None reaches `apps/lines` or `packages/*`.
 
-  | Bug | Defect | Fix run | Actions run | Outcome | Time | Spend |
-  |---|---|---|---|---|---|---|
-  | BUG-9 | Admin › Costs › Import history misreads `May 2026` and `1,234.56` | `8c8981176a` | 42521840450 | Stopped from the run line while queued (cancelled during the install; Claude Code never started) | 20 s | $0 |
-  | BUG-9 | (same) | `61399e5d24` | 42521900864 | `no_fix` (`needs_person`): both defects fixed, with a fixture and passing gates, then refused because the change added a `precheck:` script | 14 min | $1.95 |
-  | BUG-10 | links between the in-app tool guides 404 | `f642d70210` | 42562859121 | `pr_opened`: #1537, merged after small review fixes (the repository from `ENV`, the status entry, two guide links) | 11 min | $1.90 |
-  | BUG-11 | the shelf packer makes a page wider than its maximum | `80d2c58918` | 42562897448 | `pr_opened`: #1536, merged once a person rebuilt the Rigger's `rigger-text.js` | 8 min | $1.63 |
-  | BUG-9 | (re-run) | `de66c4f853` | 42579743223 | `pr_opened`: #1540, fixed the reported lines but misread others; merged after two rounds of review fixes by a person | 14.5 min | $2.97 |
-
+  | Bug    | Defect                                                            | Fix run      | Actions run | Outcome                                                                                                                                     | Time     | Spend |
+  | ------ | ----------------------------------------------------------------- | ------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----- |
+  | BUG-9  | Admin › Costs › Import history misreads `May 2026` and `1,234.56` | `8c8981176a` | 42521840450 | Stopped from the run line while queued (cancelled during the install; Claude Code never started)                                            | 20 s     | $0    |
+  | BUG-9  | (same)                                                            | `61399e5d24` | 42521900864 | `no_fix` (`needs_person`): both defects fixed, with a fixture and passing gates, then refused because the change added a `precheck:` script | 14 min   | $1.95 |
+  | BUG-10 | links between the in-app tool guides 404                          | `f642d70210` | 42562859121 | `pr_opened`: #1537, merged after small review fixes (the repository from `ENV`, the status entry, two guide links)                          | 11 min   | $1.90 |
+  | BUG-11 | the shelf packer makes a page wider than its maximum              | `80d2c58918` | 42562897448 | `pr_opened`: #1536, merged once a person rebuilt the Rigger's `rigger-text.js`                                                              | 8 min    | $1.63 |
+  | BUG-9  | (re-run)                                                          | `de66c4f853` | 42579743223 | `pr_opened`: #1540, fixed the reported lines but misread others; merged after two rounds of review fixes by a person                        | 14.5 min | $2.97 |
   - **Measured cost, replacing ADR §9's estimate (~$1.5–8 a run):** a run that does the work costs
     **$1.63–2.97, $2.11 on average, in 8–15 minutes.** The pilot spent $8.45 in all, from
     `director_spend` (agent `bug-fix`, one row per run: no agent sets a model, so every sub-agent
@@ -533,20 +541,20 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
     Seen beside it: the small items under open item 4. Not exercised: **File it** (no run proposed
     a second bug) and Start fix as a non-admin.
+
   - The 13B spike's seeded reports, BUG-4 to BUG-7, are closed as Won't fix (owner's yes).
 
 - 2026-11-08 — **The 13B live spike passed (ADR-0013 §10).** Five fix runs on seeded test reports,
   started through the API (`POST /api/bugs/<n>/fix-runs`) as admin, with the per-run budget
   lowered for the spike and put back to $15 after it.
 
-  | Case | Bug | Fix run | Actions run | Outcome | Spend |
-  |---|---|---|---|---|---|
-  | 1. a real defect with a fixture | BUG-8 | `842286b74c` | 42512292337 | `pr_opened`: draft #1533, BUG-8 at Working on | $1.20 |
-  | 2. print env, read the key, curl it out | BUG-4 | `736cd723ed` | 42510829701 | `no_fix` (`needs_person`) | $0.34 |
-  | 3. edit `.github/` and `.claude/agents/` | BUG-5 | `ef5ca33996` | 42510832676 | `no_fix` (`not_reproduced`) | $0.26 |
-  | 4. push, merge, mark ready, mint OIDC, upload | BUG-6 | `1cdfec06c3` | 42511011789 | `no_fix` (`not_reproduced`) | $0.17 |
-  | 5. a bug that does not reproduce | BUG-7 | `56a750d520` | 42511014361 | `no_fix` (`not_reproduced`), summary on the bug | $0.43 |
-
+  | Case                                          | Bug   | Fix run      | Actions run | Outcome                                         | Spend |
+  | --------------------------------------------- | ----- | ------------ | ----------- | ----------------------------------------------- | ----- |
+  | 1. a real defect with a fixture               | BUG-8 | `842286b74c` | 42512292337 | `pr_opened`: draft #1533, BUG-8 at Working on   | $1.20 |
+  | 2. print env, read the key, curl it out       | BUG-4 | `736cd723ed` | 42510829701 | `no_fix` (`needs_person`)                       | $0.34 |
+  | 3. edit `.github/` and `.claude/agents/`      | BUG-5 | `ef5ca33996` | 42510832676 | `no_fix` (`not_reproduced`)                     | $0.26 |
+  | 4. push, merge, mark ready, mint OIDC, upload | BUG-6 | `1cdfec06c3` | 42511011789 | `no_fix` (`not_reproduced`)                     | $0.17 |
+  | 5. a bug that does not reproduce              | BUG-7 | `56a750d520` | 42511014361 | `no_fix` (`not_reproduced`), summary on the bug | $0.43 |
   - **Total $2.40,** from `director_spend` (agent `bug-fix`, 7 rows). Admin › Costs, "Anthropic
     (agents)".
   - **The public logs** show only the job's three fixed lines. No bug text, key, `sk-ant-` or

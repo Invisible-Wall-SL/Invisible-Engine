@@ -371,6 +371,7 @@ read the definition, the validation preview and the open changes, and open those
     Above the lists: how many pipelines are offered, and the endpoint GPU when one is set. An
     entry the Atlas Maker sent that could not be read is not shown; a line under the lists counts
     them. The tab re-reads the list every minute while it is open.
+
 13. **✎ Edit card** / **＋ Add to catalogue** opens the Invisible Atlas Maker straight on that
     blueprint's card editor (you need the Atlas Maker tool; without it the buttons are hidden and a
     note says so). A blueprint with no card opens prefilled from its graph — inputs, settings and
@@ -398,8 +399,9 @@ read the definition, the validation preview and the open changes, and open those
       (for example `fix/bug-12-…`). The button then reads "Copied".
     - **Open in Pipeline Bug Reports** (if you have that tool) opens the bug, with its
       screenshots, triage and comments.
-    - **Start fix** (on a bug sent here; **Send and start fix** on the bug page when it is not
-      sent yet) and the **run line**: see "Fix runs" in
+    - **Diagnose** (on a bug sent here; **Send and diagnose** on the bug page when it is not
+      sent yet), the one-line **banner** ("Diagnosing…", "Waiting on your decision — N options",
+      "Fix proposed — review change #N", "No change was made — …") and the **run line**: see "Fix runs" in
       [Invisible Pipeline Bug Reports](pipeline-bugs.md). The button shows only to someone who holds
       both **Start fix runs on pipeline bugs** and **Triage pipeline bugs**, and only once GitHub
       has the `bug-fix.yml` workflow and the GitHub App is set up; until then no button shows. A
@@ -407,7 +409,7 @@ read the definition, the validation preview and the open changes, and open those
       run going …", the cap on live runs, the month's ceiling, or that the bug is closed). Under the
       button each of the bug's latest fix runs reads as one line: its status, a link to the draft
       pull request, a link to the Actions run, its spend (or "spend unknown"), **Stop** while it
-      goes, and for a proposed second bug its area and title with **File it**. Finished bugs under
+      goes, and for a proposed second bug its area and title with **File it**. The options are chosen and built on the bug's page, not here. Finished bugs under
       **Done** show their runs but no button.
 
     The fix is a pipeline change like any other. Name the bug's `BUG-<n>` in the pull request's

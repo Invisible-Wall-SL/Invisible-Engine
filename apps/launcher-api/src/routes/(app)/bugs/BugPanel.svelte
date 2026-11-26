@@ -18,6 +18,8 @@
 	import { resolve } from '$app/paths';
 	import Pill from '../pipeline/Pill.svelte';
 	import { apiErrorText, timeAgo } from '../pipeline/view';
+	import DiagnosisCard from './DiagnosisCard.svelte';
+	import FixBanner from './FixBanner.svelte';
 	import FixRunControl from './FixRunControl.svelte';
 	import RepairCard from './RepairCard.svelte';
 	import ShotDrop from './ShotDrop.svelte';
@@ -270,6 +272,8 @@
 			</div>
 		</div>
 
+		{#if !game && !editing}<FixBanner runs={detail.fixRuns} />{/if}
+
 		{#if editing}
 			<div class="row">
 				<label class="field">
@@ -464,11 +468,25 @@
 					facts={detail.fix}
 					canFile={canTriage && canOpenPipelineBugs}
 					limit={5}
+					summaryShown
 					onchanged={onreload}
 				/>
 			{/if}
 		</div>
 	</section>
+
+	{#if !game && detail.fix.latestDiagnosis}
+		<DiagnosisCard
+			number={detail.number}
+			diagnosis={detail.fix.latestDiagnosis}
+			build={detail.fixRuns.find(
+				(r) => r.mode === 'build' && r.parentRunId === detail.fix.latestDiagnosis?.id,
+			) ?? null}
+			facts={detail.fix}
+			{now}
+			onchanged={onreload}
+		/>
+	{/if}
 
 	{#if game}
 		<RepairCard {detail} {repair} {pipelineAreas} {canOpenPipelineBugs} {now} {onchanged} />

@@ -3506,6 +3506,8 @@ type Facts = {
 	may: boolean;
 	ready: boolean;
 	refusal: { code: FixRunRefusal; message: string } | null;
+	latestDiagnosis: null;
+	canBuild: boolean;
 };
 const refusal = (code: FixRunRefusal, over: Record<string, unknown> = {}) => ({
 	code,
@@ -3520,13 +3522,19 @@ const refusal = (code: FixRunRefusal, over: Record<string, unknown> = {}) => ({
 		...over,
 	}),
 });
-const open: Facts = { may: true, ready: true, refusal: null };
+const open: Facts = {
+	may: true,
+	ready: true,
+	refusal: null,
+	latestDiagnosis: null,
+	canBuild: false,
+};
 const control = (facts: Facts, sent: boolean) => {
 	const c = fixPage.fixControl(facts, sent);
 	return c.kind === 'hidden' ? 'hidden' : `${c.kind}: ${c.label}${c.why ? ` · ${c.why}` : ''}`;
 };
 check(
-	'page: the button a caller sees in each state — unsent says Send and start fix, sent says Start fix',
+	'page: the button a caller sees in each state — unsent says Send and diagnose, sent says Diagnose',
 	[
 		control(open, false),
 		control(open, true),
@@ -3537,19 +3545,19 @@ check(
 		control({ ...open, refusal: refusal('too_many_fix_runs') }, true),
 		control({ ...open, refusal: refusal('fix_budget_spent') }, false),
 		control({ ...open, may: false }, true),
-		control({ may: false, ready: false, refusal: null }, false),
+		control({ ...open, may: false, ready: false }, false),
 		control({ ...open, ready: false }, true),
 		control({ ...open, ready: false }, false),
 	],
 	[
-		'start: Send and start fix',
-		'start: Start fix',
-		'blocked: Start fix · BUG-12 is closed. Reopen it to start a fix run.',
-		'blocked: Send and start fix · BUG-12 is closed. Reopen it to start a fix run.',
-		'blocked: Start fix · A fix is already in review: #77.',
+		'start: Send and diagnose',
+		'start: Diagnose',
+		'blocked: Diagnose · BUG-12 is closed. Reopen it to start a fix run.',
+		'blocked: Send and diagnose · BUG-12 is closed. Reopen it to start a fix run.',
+		'blocked: Diagnose · A fix is already in review: #77.',
 		'hidden',
-		'blocked: Start fix · 2 fix runs are going already, the most at once (Admin › Settings). Start this one when one ends.',
-		"blocked: Send and start fix · Fix runs have spent $150.00 of this month's $150.00 (Admin › Settings). New fix runs start next month.",
+		'blocked: Diagnose · 2 fix runs are going already, the most at once (Admin › Settings). Start this one when one ends.',
+		"blocked: Send and diagnose · Fix runs have spent $150.00 of this month's $150.00 (Admin › Settings). New fix runs start next month.",
 		'hidden',
 		'hidden',
 		'hidden',
@@ -3557,7 +3565,7 @@ check(
 	],
 );
 check(
-	'page: Send and start fix sends; Start fix does not',
+	'page: Send and diagnose sends; Diagnose does not',
 	[fixPage.fixControl(open, false).sends, fixPage.fixControl(open, true).sends],
 	[true, false],
 );
@@ -3565,6 +3573,10 @@ check(
 // The run line, for each status and outcome.
 const RUN = {
 	id: 'abc0123456',
+	mode: 'build',
+	diagnosis: null,
+	chosenOption: null,
+	parentRunId: null,
 	status: 'running',
 	outcome: null,
 	prNumber: null,
@@ -3606,43 +3618,43 @@ check(
 		lineOf({ status: 'cancelled', spendUsd: 0 }),
 	],
 	[
-		['Queued', 'blue', 'Fix run abc0123456 is queued: the job has not started yet.', null, true],
-		['Working', 'blue', 'Fix run abc0123456 is working on it.', null, true],
-		['Fix proposed', 'green', 'Fix run abc0123456 opened draft pull request #12.', '$2.50', false],
+		['Queued', 'blue', 'Build abc0123456 is queued: the job has not started yet.', null, true],
+		['Working', 'blue', 'Build abc0123456 is working on it.', null, true],
+		['Fix proposed', 'green', 'Build abc0123456 opened draft pull request #12.', '$2.50', false],
 		[
 			'Fix proposed',
 			'green',
-			'Fix run abc0123456 opened draft pull request #12 for one area and found the cause also lies in another.',
+			'Build abc0123456 opened draft pull request #12 for one area and found the cause also lies in another.',
 			'spend unknown',
 			false,
 		],
-		['No fix', 'amber', 'Fix run abc0123456 found no fix: it did not reproduce.', '$0.40', false],
+		['No fix', 'amber', 'Build abc0123456 found no fix: it did not reproduce.', '$0.40', false],
 		[
 			'No fix',
 			'amber',
-			'Fix run abc0123456 found no fix: it needs a person.',
-			'spend unknown',
-			false,
-		],
-		[
-			'No fix',
-			'amber',
-			'Fix run abc0123456 found no fix: the cause is in another area.',
+			'Build abc0123456 found no fix: it needs a person.',
 			'spend unknown',
 			false,
 		],
 		[
 			'No fix',
 			'amber',
-			'Fix run abc0123456 found no fix: The change was refused (scope).',
+			'Build abc0123456 found no fix: the cause is in another area.',
 			'spend unknown',
 			false,
 		],
-		['Failed', 'red', 'Fix run abc0123456 failed.', 'spend unknown', false],
-		['Failed', 'red', 'Fix run abc0123456 failed: The run timed out.', 'spend unknown', false],
-		['Stopped', 'muted', 'Fix run abc0123456 was stopped. Stopped by Ana.', 'spend unknown', false],
-		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', 'spend unknown', false],
-		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', '$0.00', false],
+		[
+			'No fix',
+			'amber',
+			'Build abc0123456 found no fix: The change was refused (scope).',
+			'spend unknown',
+			false,
+		],
+		['Failed', 'red', 'Build abc0123456 failed.', 'spend unknown', false],
+		['Failed', 'red', 'Build abc0123456 failed: The run timed out.', 'spend unknown', false],
+		['Stopped', 'muted', 'Build abc0123456 was stopped. Stopped by Ana.', 'spend unknown', false],
+		['Stopped', 'muted', 'Build abc0123456 was stopped.', 'spend unknown', false],
+		['Stopped', 'muted', 'Build abc0123456 was stopped.', '$0.00', false],
 	],
 );
 const hostile = '<img src=x onerror=alert(1)> [x](http://evil.example) BUG-3';
@@ -3650,6 +3662,155 @@ check(
 	"page: the run's words reach the page unchanged, as the note, for the page to render as text",
 	fixPage.fixRunLine({ ...RUN, status: 'no_fix', summary: hostile }).note,
 	hostile,
+);
+
+// Diagnosis lines, the banner, the option cards and the Build button (ADR-0014 card 14A).
+const OPTIONS = ['A', 'B', 'C'].map((id) => ({
+	id,
+	name: `Option ${id}`,
+	change: 'c',
+	cost: 'k',
+	risk: 'r',
+	player: 'p',
+}));
+const DIAGNOSIS = {
+	reported: 'Slow on a phone.',
+	cause: 'Too many filters.',
+	evidence: 'fps 9',
+	kind: 'decision',
+	options: OPTIONS,
+	recommendation: { option: 'B', why: 'Cheapest.' },
+};
+const D = { ...RUN, id: 'd2a4594cb1', mode: 'diagnose' };
+const CHOICE = {
+	optionId: 'B',
+	name: 'Lower quality',
+	change: 'c',
+	note: null,
+	decidedBy: 'Ana',
+	decidedAt: '2026-11-26T10:00:00.000Z',
+};
+const B = { ...RUN, id: 'b71c000000', mode: 'build', parentRunId: D.id, chosenOption: CHOICE };
+check(
+	'page: a diagnosis line and a build line say which kind of run they are',
+	[
+		lineOf({ ...D, status: 'dispatched' })[2],
+		lineOf({ ...D })[2],
+		lineOf({ ...D, status: 'diagnosed', diagnosis: DIAGNOSIS })[2],
+		lineOf({ ...D, status: 'diagnosed', diagnosis: { ...DIAGNOSIS, options: [OPTIONS[0]] } })[1],
+		lineOf({ ...D, status: 'no_fix', reason: 'The run did not explain its change.' })[2],
+		lineOf({ ...B })[2],
+		lineOf({ ...B, status: 'pr_opened', prNumber: 7 })[2],
+	],
+	[
+		'Diagnosis d2a4594cb1 is queued: the job has not started yet.',
+		'Diagnosis d2a4594cb1 is working on it.',
+		'Diagnosis d2a4594cb1 is ready: 3 options. Nothing is built until you choose.',
+		'amber',
+		'Diagnosis d2a4594cb1 ended without options: The run did not explain its change.',
+		'Build b71c000000 of option B is working on it.',
+		'Build b71c000000 of option B opened draft pull request #7.',
+	],
+);
+const banner = (...runs: Record<string, unknown>[]) => {
+	const b = fixPage.fixBanner(runs.map((r) => ({ ...RUN, ...r })));
+	return b && [b.tone, b.text, b.href];
+};
+check(
+	'page: the banner has one state at a time, newest run first',
+	[
+		banner(),
+		banner({ ...D }),
+		banner({ ...D, status: 'diagnosed', diagnosis: DIAGNOSIS }),
+		banner({ ...D, status: 'diagnosed', diagnosis: { ...DIAGNOSIS, options: [OPTIONS[0]] } }),
+		banner({ ...B }),
+		banner({ ...B, status: 'pr_opened', prNumber: 12 }),
+		banner({ ...D, status: 'no_fix', outcome: 'not_reproduced' }),
+		banner({ ...B, status: 'no_fix', reason: 'The change was refused (scope).' }),
+		banner({ ...B, status: 'failed' }),
+		banner({ ...B, status: 'cancelled', reason: 'Stopped by Ana.' }),
+		banner({ ...B, status: 'cancelled' }),
+		banner({ ...D, status: 'dispatched' }, { ...B, status: 'no_fix' }),
+	],
+	[
+		null,
+		['blue', 'Diagnosing…', null],
+		['amber', 'Waiting on your decision — 3 options', null],
+		['amber', 'Waiting on your decision — 1 option', null],
+		['blue', 'Building option B — Lower quality…', null],
+		['green', 'Fix proposed — review change #12', '/pipeline?change=12'],
+		['amber', 'No change was made — it did not reproduce', null],
+		['amber', 'No change was made — The change was refused (scope)', null],
+		['red', 'No change was made — the run failed', null],
+		['muted', 'No change was made — Stopped by Ana', null],
+		['muted', 'No change was made — the run was stopped', null],
+		['blue', 'Diagnosing…', null],
+	],
+);
+check(
+	'page: the banner carries the newest run summary in full, as text',
+	fixPage.fixBanner([{ ...RUN, ...B, status: 'no_fix', summary: hostile }])?.summary,
+	hostile,
+);
+const may = { ...open, canBuild: true };
+const buildOf = (facts: Record<string, unknown>, picked: string | null) => {
+	const b = fixPage.buildButton({ ...may, ...facts }, OPTIONS, picked);
+	return `${b.kind}: ${b.label}${b.why ? ` · ${b.why}` : ''}`;
+};
+check(
+	'page: the Build button needs a pick, even with one option, and says why it is blocked',
+	[
+		buildOf({}, null),
+		buildOf({}, 'B'),
+		fixPage.buildButton(may, [OPTIONS[0]], null).kind,
+		buildOf({ may: false, canBuild: false }, 'B'),
+		buildOf({ canBuild: false, refusal: refusal('pr_open') }, 'B'),
+		buildOf({ canBuild: false }, 'A'),
+	],
+	[
+		'blocked: Build · Pick an option first.',
+		'ready: Build “Option B”',
+		'blocked',
+		'blocked: Build “Option B” · A fix run needs both the “Start fix runs on pipeline bugs” and the “Triage pipeline bugs” permissions. You can read the options.',
+		'blocked: Build “Option B” · A fix is already in review: #77.',
+		'blocked: Build “Option A” · Fix runs cannot start right now.',
+	],
+);
+check(
+	'page: the note counter and the chosen line',
+	[fixPage.noteCounter('abc'), fixPage.choiceText(CHOICE)],
+	['3 / 1000', 'Chosen: B — Lower quality'],
+);
+const decision = (data: Record<string, unknown>) =>
+	view.eventText({ id: 1, kind: 'fix_decision', actor: 'Ana', auto: false, at: '', data });
+check(
+	'activity: a fix_decision reads as the person choosing, the note as text; a diagnosis event says so',
+	[
+		decision({ run: 'd', build: 'b', option: 'B', name: 'Lower quality', note: null }),
+		decision({ run: 'd', build: 'b', option: 'B', name: 'Lower quality', note: '<b>soon</b>' }),
+		view.eventText({
+			id: 1,
+			kind: 'fix_run',
+			actor: 'Ana',
+			auto: false,
+			at: '',
+			data: { run: 'd', status: 'dispatched', mode: 'diagnose' },
+		}),
+		view.eventText({
+			id: 1,
+			kind: 'fix_run',
+			actor: 'Run',
+			auto: true,
+			at: '',
+			data: { run: 'd', status: 'diagnosed', options: 3 },
+		}),
+	],
+	[
+		'chose option B — Lower quality',
+		'chose option B — Lower quality (note: <b>soon</b>)',
+		'started diagnosis d',
+		'finished the diagnosis: 3 options to choose from',
+	],
 );
 
 // File it: the report form for a proposed second bug.
@@ -3734,13 +3895,13 @@ check(
 		await seen(DEV, sentBug),
 	],
 	[
-		'start: Send and start fix',
-		'start: Start fix',
-		'start: Start fix',
-		`blocked: Start fix · BUG-${closedBug} is closed. Reopen it to start a fix run.`,
-		'blocked: Start fix · A fix is already in review: #650.',
+		'start: Send and diagnose',
+		'start: Diagnose',
+		'start: Diagnose',
+		`blocked: Diagnose · BUG-${closedBug} is closed. Reopen it to start a fix run.`,
+		'blocked: Diagnose · A fix is already in review: #650.',
 		'hidden',
-		'start: Start fix',
+		'start: Diagnose',
 		'hidden',
 	],
 );
@@ -3782,7 +3943,7 @@ check(
 			.fix as Facts,
 		true,
 	),
-	'start: Start fix',
+	'start: Diagnose',
 );
 {
 	const probe = { ...app, fetch: async (p: string, i?: RequestInit) => await app.fetch(p, i) };
