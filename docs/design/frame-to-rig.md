@@ -1696,6 +1696,13 @@ the lower lip and the upper lip, instead of different mouth shapes."
   (`frameFace` / `apartFace`) place an optional bone only when a mapped part rides it
   (`faceBones(…, optional)`), so a frame-made rig's fit — and the request it sends atlas-tool — is as
   it was.
+- **The owner's names** (2026-11-26, "you should see all of the differences from the regions naming
+  on our sheet"): the dialog's first guess is one pure function, `suggestSheet` (parts by name, worn
+  things as props, the rest offered as ＋ Custom parts), so the gate reads what the page suggests.
+  `under` reads as `lower` (`UnderEyelidL` is `lid_lower_l`, not the half-closed `eyelid_l_half` it
+  went to), an eye named alone is its white, a hood is worn on the torso (a hoodie's), and a prop is
+  named past the Photoshop file's prefix (`layerName`). Blink lowers a drawn upper lid and Look moves
+  drawn pupils, as on any rig of the template.
 - **Names** (`rigSheetMap.ts`): `lip`, `teeth` and `tongue` are kinds of part and meaningful words;
   `labio`, `tooth` / `diente(s)`, `lengua`, `superior` / `inferior`, `arriba` / `abajo` read as
   theirs; `teeth` with no row is the upper row. `lips` stays the whole mouth (a mouth shape).
@@ -1775,6 +1782,10 @@ with the drawn face only where drawn; Layers order; 11 mutants) and `custom` (re
 under the bone picked, in Layers, its name, bad names refused; 3 mutants) — a gate of its own, so
 `sheet-rig.mjs` stays inside `check:all`'s five minutes; `sheet-rig-update.mjs` `custom` (🔄 Update rig gives a custom part its bone and slot; 1
 mutant); `check:rig-templates` keys each control over the made rig's own slots;
+`sheet-mouth.mjs` `names` (a fixture of the owner's own region names — arms, hands, pupils, upper and
+under lids, nose, lips, teeth, neck, torso, head, glasses, earring, chain, watch, hood — each where a
+rigger puts it, none left over, a decoy offered as a custom part; 5 mutants) and `eyes` (Blink and
+Look on the drawn lids and pupils; 2 mutants);
 `sheet-rig-browser.mjs` (the Face group's jointed rows and tooltip, ＋🦴, the launcher drawing them,
 the report; 5 page mutants, `--only-mutants` to run a subset).
 

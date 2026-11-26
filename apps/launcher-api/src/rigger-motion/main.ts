@@ -44,6 +44,7 @@ import {
 	sheetSide,
 	sheetSnapTargets,
 	suggestProp,
+	suggestSheet,
 	suggestSheetMap,
 } from '../lib/rigSheetMap';
 import { solveMotion, type MotionFrame, type MotionTrack } from '../lib/rigMotion';
@@ -475,6 +476,7 @@ const api = {
 	sheetSide,
 	sheetSnapTargets,
 	suggestSheetMap,
+	suggestSheet,
 	suggestProp,
 	propName,
 	customName,
