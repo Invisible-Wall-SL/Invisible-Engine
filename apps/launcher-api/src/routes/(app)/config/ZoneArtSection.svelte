@@ -7,6 +7,7 @@
 		ZONE_ART_LIMITS,
 		type GameConfigDoc,
 		type GameConfigIssue,
+		type ZoneArt,
 		type ZoneArtSource,
 	} from 'game-config';
 	import CardArt from '../cards/CardArt.svelte';
@@ -20,14 +21,16 @@
 		shownZoneArtRows,
 		zoneArtDefault,
 		zoneArtRows,
+		zoneArtSceneryRows,
 	} from './zoneArtDoc';
 	import type { SalmonsCodeDrawn } from './zoneArtBuiltIn';
 
 	/**
 	 * THE ZONE ART CARD of `/config` (`arcade.zoneArt`, `docs/design/zone-art.md`): per zone family
-	 * of the zones the game plays, what each of its zones is drawn with. The picture is a frame of a
-	 * project sheet (the Scene Editor's region picker) or a Flipbook clip; more pictures are
-	 * variants, one per zone by the room's seed. Every edit goes through `./zoneArtDoc`.
+	 * of the zones the game plays, what each of its zones is drawn with, and under **Scenery** what
+	 * each piece its art places on no zone is drawn with (Salmons' trees). The picture is a frame of
+	 * a project sheet (the Scene Editor's region picker) or a Flipbook clip; more pictures are
+	 * variants, one per zone (or piece) by the room's seed. Every edit goes through `./zoneArtDoc`.
 	 */
 	type Clip = { id: string; name: string; assetKey: string; firstFrame: string };
 	let {
@@ -53,6 +56,7 @@
 	const rows = $derived(zoneArtRows(zones, doc, generator));
 	const hidden = $derived(rows.length - shownZoneArtRows(rows, false).length);
 	const shown = $derived(shownZoneArtRows(rows, showRuleOnly));
+	const scenery = $derived(zoneArtSceneryRows(doc, generator));
 	const clipsById = $derived(new Map(clips.map((c) => [c.id, c])));
 
 	const KINDS = [
@@ -188,14 +192,46 @@
 	</div>
 {/snippet}
 
+{#snippet artCells(key: string, name: string, art: ZoneArt | undefined, ruleOnly = false)}
+	<td>
+		{@render picture(key, 0, art?.source, ruleOnly)}
+		{#each art?.variants ?? [] as variant, i (i)}
+			{@render picture(key, i + 1, variant)}
+		{/each}
+		{#if art && (art.variants?.length ?? 0) < ZONE_ART_LIMITS.variants}
+			<button class="small" onclick={() => addZoneArtVariant(doc, key)}>＋ Variant</button>
+		{/if}
+	</td>
+	<td
+		>{#if art}<input
+				type="number"
+				step="0.1"
+				min={ZONE_ART_LIMITS.scale.min}
+				max={ZONE_ART_LIMITS.scale.max}
+				placeholder="1"
+				value={art.scale ?? ''}
+				onchange={(e) => setZoneArtScale(doc, key, e.currentTarget.value)}
+			/>{/if}</td
+	>
+	<td
+		>{#if art}<IconButton
+				icon="trash"
+				danger
+				label={`Draw ${name} as today`}
+				onclick={() => removeZoneArt(doc, key)}
+			/>{/if}</td
+	>
+{/snippet}
+
 <SectionCard scope="config" id="zoneArt" title="Zone art">
 	{#snippet info()}
 		<p>
 			What each zone family is drawn with: a frame of one of the project's sheets or a Flipbook
 			clip, stamped on every zone of the family, fitted inside it and centred, times its scale.
 			Variants are more pictures: each zone draws one of them, chosen by the room's seed, the same
-			on every device. A family with nothing chosen draws as it does today. The art is for the eye
-			only: it changes no rule and no level, and ships with the game like any art it names.
+			on every device. A family with nothing chosen draws as it does today. Under Scenery, what the
+			river places on no zone (Salmons' trees), chosen the same way. The art is for the eye only: it
+			changes no rule and no level, and ships with the game like any art it names.
 		</p>
 	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
@@ -208,7 +244,10 @@
 				></label
 			>
 		{/if}
-		{#if shown.length}
+		{#if !shown.length}
+			<p class="status">No zone to draw.</p>
+		{/if}
+		{#if shown.length || scenery.length}
 			<table class="tbl">
 				<thead>
 					<tr>
@@ -218,54 +257,55 @@
 						<th></th>
 					</tr>
 				</thead>
-				<tbody>
-					{#each shown as row (row.family)}
-						{@const art = row.art}
-						<tr class:stale={!row.count}>
-							<td
-								><span
-									class="chip"
-									title={row.count
-										? 'Zone ids that differ only in their numbers'
-										: 'No zone of this family in the level shown'}>{row.family} × {row.count}</span
-								></td
-							>
-							<td>
-								{@render picture(row.family, 0, art?.source, row.ruleOnly)}
-								{#each art?.variants ?? [] as variant, i (i)}
-									{@render picture(row.family, i + 1, variant)}
-								{/each}
-								{#if art && (art.variants?.length ?? 0) < ZONE_ART_LIMITS.variants}
-									<button class="small" onclick={() => addZoneArtVariant(doc, row.family)}
-										>＋ Variant</button
-									>
-								{/if}
-							</td>
-							<td
-								>{#if art}<input
-										type="number"
-										step="0.1"
-										min={ZONE_ART_LIMITS.scale.min}
-										max={ZONE_ART_LIMITS.scale.max}
-										placeholder="1"
-										value={art.scale ?? ''}
-										onchange={(e) => setZoneArtScale(doc, row.family, e.currentTarget.value)}
-									/>{/if}</td
-							>
-							<td
-								>{#if art}<IconButton
-										icon="trash"
-										danger
-										label={`Draw ${row.family} as today`}
-										onclick={() => removeZoneArt(doc, row.family)}
-									/>{/if}</td
+				{#if shown.length}
+					<tbody>
+						{#each shown as row (row.family)}
+							<tr class:stale={!row.count}>
+								<td
+									><span
+										class="chip"
+										title={row.count
+											? 'Zone ids that differ only in their numbers'
+											: 'No zone of this family in the level shown'}
+										>{row.family} × {row.count}</span
+									></td
+								>
+								{@render artCells(row.family, row.family, row.art, row.ruleOnly)}
+							</tr>
+						{/each}
+					</tbody>
+				{/if}
+				{#if scenery.length}
+					<tbody class="scenery">
+						<tr>
+							<th colspan="4" class="sub"
+								><span class="inline"
+									>Scenery
+									<InfoTip
+										>What the river places itself, on no zone: the trees of the forest and the
+										banks. Each tree draws one of the pictures, chosen by the room's seed and its
+										place, the same on every device, at a built-in tree's width times the scale,
+										standing on its foot.</InfoTip
+									></span
+								></th
 							>
 						</tr>
-					{/each}
-				</tbody>
+						{#each scenery as row (row.key)}
+							<tr class:stale={row.stale}>
+								<td
+									><span
+										class="chip"
+										title={row.stale
+											? "This game's art places no scenery"
+											: "Every tree of Salmons' forest and banks"}>{row.label}</span
+									></td
+								>
+								{@render artCells(row.key, row.label, row.art)}
+							</tr>
+						{/each}
+					</tbody>
+				{/if}
 			</table>
-		{:else}
-			<p class="status">No zone to draw.</p>
 		{/if}
 		{#each issuesFor('arcade.zoneArt') as issue (issue.path + issue.message)}
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
@@ -369,6 +409,14 @@
 	}
 	tr.stale .chip {
 		color: #d3b483;
+	}
+	.tbl th.sub {
+		padding-top: 14px;
+	}
+	.sub .inline {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 	}
 	button.small {
 		background: #1b2a24;
