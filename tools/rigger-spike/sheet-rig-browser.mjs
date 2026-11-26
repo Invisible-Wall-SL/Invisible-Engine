@@ -869,18 +869,16 @@ try {
 	})()`;
 	const placeOf = `((n) => { const p = s2rPlaceOf(n); return p && { at: [...p.at], turn: p.turn }; })`;
 	const grab = `(() => { const e = s2rJointAt("lower_arm_r", "elbow"), w = s2rJointAt("lower_arm_r", "wrist"); return s2rToStage([e[0] + (w[0] - e[0]) * 0.12, e[1] + (w[1] - e[1]) * 0.12]); })()`;
+	// Each step below reads, drags and reads again in ONE evaluate: the launcher's next preview (asked
+	// for after every change) can land between two evaluates and move a part nobody arranged, and the
+	// stage's camera follows its canvas, so a read and the drag after it must see the same page.
 	// The right forearm dragged off: it carries its hand, the upper arm stays.
-	const before = await evaluate(
-		`({ fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), k: s2r.aview.k, from: ${grab} })`,
-	);
-	await evaluate(
-		dragOn(
-			`[${q(before.from)}, [${before.from[0] + 30}, ${before.from[1] + 20}], [${before.from[0] + 60}, ${before.from[1] + 40}]]`,
-		),
-	);
-	const off = await evaluate(
-		`({ sel: s2r.sel, fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), arranged: Object.keys(s2r.arrange || {}) })`,
-	);
+	const { before, off } = await evaluate(`(() => {
+		const before = { fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), k: s2r.aview.k, from: ${grab} };
+		const f = before.from;
+		${dragOn(`[f, [f[0] + 30, f[1] + 20], [f[0] + 60, f[1] + 40]]`)};
+		return { before, off: { sel: s2r.sel, fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), arranged: Object.keys(s2r.arrange || {}) } };
+	})()`);
 	const moved = (a, b) => [a.at[0] - b.at[0], a.at[1] - b.at[1]];
 	const by = [60 / before.k, 40 / before.k];
 	const near = (a, b, e = 0.02) => Math.abs(a[0] - b[0]) <= e && Math.abs(a[1] - b[1]) <= e;
@@ -892,12 +890,12 @@ try {
 			near(moved(off.upper, before.upper), [0, 0], 1e-9),
 		q({ off, by }),
 	);
-	// Back near its upper arm's elbow: it snaps there.
-	const back = await evaluate(`(() => ${grab})()`);
-	await evaluate(dragOn(`[${q(back)}, [${back[0] - 57}, ${back[1] - 38}]]`));
-	const snapped = await evaluate(
-		`({ fore: s2rJointAt("lower_arm_r", "elbow"), upper: s2rJointAt("upper_arm_r", "elbow"), hand: ${placeOf}("hand_r"), foreAt: ${placeOf}("lower_arm_r") })`,
-	);
+	// Back near its upper arm's elbow (wherever the latest preview has the upper arm): it snaps there.
+	const snapped = await evaluate(`(() => {
+		const back = ${grab}, e = s2rToStage(s2rJointAt("lower_arm_r", "elbow")), u = s2rToStage(s2rJointAt("upper_arm_r", "elbow"));
+		${dragOn(`[back, [back[0] + u[0] - e[0] + 3, back[1] + u[1] - e[1] + 2]]`)};
+		return { fore: s2rJointAt("lower_arm_r", "elbow"), upper: s2rJointAt("upper_arm_r", "elbow"), hand: ${placeOf}("hand_r"), foreAt: ${placeOf}("lower_arm_r") };
+	})()`);
 	ok(
 		'a part dragged near the joint it meets snaps its first joint onto it, its hand with it',
 		near(snapped.fore, snapped.upper, 1e-6) &&
@@ -905,23 +903,12 @@ try {
 		q(snapped),
 	);
 	// Turned 30° clockwise by its ↻ handle: about its elbow, the hand with it.
-	const handle = await evaluate(
-		`(() => { const h = s2rHandle(s2rArrangeItems().find(s2rIsSel)); return { pivot: h.stage, handle: h.handle }; })()`,
-	);
-	const spin = (p, deg) => {
-		const r = (deg * Math.PI) / 180;
-		const [x, y] = [p[0] - handle.pivot[0], p[1] - handle.pivot[1]];
-		return [
-			handle.pivot[0] + Math.cos(r) * x - Math.sin(r) * y,
-			handle.pivot[1] + Math.sin(r) * x + Math.cos(r) * y,
-		];
-	};
-	await evaluate(
-		dragOn(`[${q(handle.handle)}, ${q(spin(handle.handle, 15))}, ${q(spin(handle.handle, 30))}]`),
-	);
-	const turned = await evaluate(
-		`({ fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), elbow: s2rJointAt("lower_arm_r", "elbow") })`,
-	);
+	const turned = await evaluate(`(() => {
+		const h = s2rHandle(s2rArrangeItems().find(s2rIsSel)), o = h.stage;
+		const spin = (p, deg) => { const r = deg * Math.PI / 180, x = p[0] - o[0], y = p[1] - o[1]; return [o[0] + Math.cos(r) * x - Math.sin(r) * y, o[1] + Math.sin(r) * x + Math.cos(r) * y]; };
+		${dragOn(`[h.handle, spin(h.handle, 15), spin(h.handle, 30)]`)};
+		return { fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), elbow: s2rJointAt("lower_arm_r", "elbow") };
+	})()`);
 	ok(
 		'↻ turns a part about its first joint, with the part it holds',
 		Math.abs(turned.fore.turn - snapped.foreAt.turn - 30) < MOUSE_TURN &&
