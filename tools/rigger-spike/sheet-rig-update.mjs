@@ -27,6 +27,9 @@
 //    (or opened from the rig's own order, even an arm Setup drew behind the head, which the Arm depth
 //    control would refuse from the list); a changed list orders the slots it lists, every other slot
 //    and every draw-order key's drawing kept, and is held to the depth controls;
+//  - preview: 🗺 Edit mapping's preview (`sheetEditPreview`) warns of the Layers exactly when 🔄 Update
+//    rig refuses them, in its words (Setup's arm behind the head and a forearm prop worn anew left
+//    where the list puts it: neither); without a rig, exactly when 🦴 Create rig refuses them;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig-update.mjs [--only <guard>]
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -781,6 +784,164 @@ const GUARDS = {
 		return good;
 	},
 
+	/**
+	 * 🗺 Edit mapping's preview warns of the Layers exactly when 🔄 Update rig refuses them, with the
+	 * same words (`sheetEditPreview`, as `/api/rigger/from-sheet/preview` runs it with the open rig):
+	 * a rig whose Setup drew the arm behind the head, a forearm prop worn anew left where the list
+	 * places it, is accepted by both; a list that moves a slot there, a prop worn anew on an arm drawn
+	 * behind the head, a finger Setup drew behind the head, are refused by both. Without the rig the
+	 * preview refuses exactly what 🦴 Create rig refuses.
+	 */
+	preview(M, log) {
+		let good = true;
+		const t = M.HALF_BODY;
+		const base = baseMapping(M);
+		const made = create(M, base);
+		const list = (m) =>
+			M.sheetLayerList(
+				t.slots.map((s) => s.name),
+				(p) => slotOf(M, p),
+				m,
+			);
+		const drawn = new Set(list(base));
+		const setup = (doc) => doc.slots.map((s) => s.name);
+		const toBehind = (doc, slot, behind) => {
+			const d = clone(doc);
+			const [s] = d.slots.splice(
+				d.slots.findIndex((x) => x.name === slot),
+				1,
+			);
+			d.slots.splice(
+				d.slots.findIndex((x) => x.name === behind),
+				0,
+				s,
+			);
+			return d;
+		};
+		const opened = (doc) =>
+			setup(doc)
+				.filter((n) => drawn.has(n))
+				.reverse();
+		const moved = (l, slot, after) => {
+			const out = l.filter((n) => n !== slot);
+			out.splice(out.indexOf(after) + 1, 0, slot);
+			return out;
+		};
+		/** The open rig as the page sends it with the preview: its slots and skins' attachment names. */
+		const outline = (doc) => ({
+			slots: setup(doc),
+			skins: doc.skins.map((k) => ({
+				name: k.name,
+				attachments: Object.fromEntries(
+					Object.entries(k.attachments).map(([slot, by]) => [slot, Object.keys(by)]),
+				),
+			})),
+		});
+		const band = (m) => {
+			const out = clone(m);
+			const fore = out.parts.lower_arm_l;
+			out.props.push({
+				name: 'prop_band',
+				region: 'shadow_blob',
+				host: 'lower_arm_l',
+				bone: boneOfSlot(M, 'lower_arm_l'),
+				at: fore.joints[Object.keys(fore.joints)[0]],
+			});
+			return out;
+		};
+		const armBack = toBehind(made, 'upper_arm_l', 'head');
+		const armList = opened(armBack);
+		const onArm = band(base);
+		const placed = { ...onArm, layers: list({ ...onArm, layers: armList }) };
+		const bandBack = toBehind(create(M, onArm), 'prop_band', 'head');
+		const cases = [
+			[
+				'the arm Setup drew behind the head, the list opened from it',
+				armBack,
+				{ ...base, layers: armList },
+				true,
+			],
+			['… and a forearm prop worn anew, left where the list places it', armBack, placed, true],
+			[
+				'… and the glasses taken off',
+				armBack,
+				{
+					...placed,
+					props: placed.props.filter((p) => p.name !== 'prop_glasses'),
+					layers: placed.layers.filter((n) => n !== 'prop_glasses'),
+				},
+				true,
+			],
+			[
+				'… and a list that moves the chain behind the torso',
+				armBack,
+				{ ...base, layers: moved(armList, 'prop_chain', 'torso') },
+				false,
+			],
+			[
+				'a forearm prop worn anew, drawn behind the head',
+				made,
+				{ ...onArm, layers: moved(list({ ...onArm, layers: opened(made) }), 'prop_band', 'head') },
+				false,
+			],
+			[
+				'a finger Setup drew behind the head, the list changed',
+				toBehind(made, 'pinky_1_l', 'head'),
+				{ ...base, layers: moved(opened(made), 'prop_chain', 'torso') },
+				false,
+			],
+			[
+				'a forearm prop Setup drew behind the head, taken off, the list changed',
+				bandBack,
+				{ ...base, layers: moved(opened(made), 'prop_chain', 'torso') },
+				true,
+				onArm,
+			],
+		];
+		for (const [what, current, mapping, accepted, was = base] of cases) {
+			const upd = M.updateSheetRig({ template: t, regions: REGIONS, was, mapping, current });
+			const pv = M.sheetEditPreview({
+				template: t,
+				regions: REGIONS,
+				was,
+				mapping,
+				rig: outline(current),
+			});
+			good =
+				ok(
+					`preview: ${what}: ${accepted ? 'no warning, and 🔄 Update rig accepts' : 'the preview warns as 🔄 Update rig refuses, in its words'}`,
+					upd.ok === accepted &&
+						pv.ok === accepted &&
+						(accepted ||
+							(pv.layers === true && pv.problem === upd.problem && /depth/.test(pv.problem))),
+					`update ${upd.ok ? 'accepts' : upd.problem}\n        preview ${pv.ok ? 'no warning' : pv.problem}`,
+				) && good;
+		}
+		const creates = [
+			[
+				'the arm drawn behind the head',
+				{ ...base, layers: moved(list(base), 'upper_arm_l', 'head') },
+			],
+			[
+				'a forearm prop drawn behind the head',
+				{ ...onArm, layers: moved(list(onArm), 'prop_band', 'head') },
+			],
+			['the chain behind the torso', { ...base, layers: moved(list(base), 'prop_chain', 'torso') }],
+		];
+		for (const [what, mapping] of creates) {
+			const cr = M.sheetRig(t, REGIONS, mapping);
+			const pv = M.sheetPreview(t, REGIONS, mapping);
+			good =
+				ok(
+					`preview: no rig, ${what}: warns exactly when 🦴 Create rig refuses, in its words`,
+					cr.ok === pv.ok && (cr.ok || (pv.layers === true && pv.problem === cr.problem)),
+					`create ${cr.ok ? 'makes it' : cr.problem}\n        preview ${pv.ok ? 'no warning' : pv.problem}`,
+				) && good;
+		}
+		log(`${cases.length} edits and ${creates.length} creates: the preview and the launcher agree`);
+		return good;
+	},
+
 	/** ＋ Custom part added by 🗺 Edit mapping: 🔄 Update rig gives it its bone and slot, as a prop. */
 	custom(M, log) {
 		const base = baseMapping(M);
@@ -845,7 +1006,7 @@ const MUTANTS = [
 	[
 		'kept',
 		'the rig rebuilt from the mapping, not merged',
-		[UPD, 'current: o.current,\n\t\tfresh,', 'current: fresh,\n\t\tfresh,'],
+		[UPD, 'input: { current: o.current, fresh,', 'input: { current: fresh, fresh,'],
 	],
 	[
 		'remapped',
@@ -875,7 +1036,7 @@ const MUTANTS = [
 		"the author's frame clip replaced",
 		[
 			UPD,
-			"if (cur !== undefined && !(was.ok && sameKeys(cur, old))) frame = 'kept';\n\t\telse if",
+			"if (cur !== undefined && !(asMade && sameKeys(cur, old))) frame = 'kept';\n\t\telse if",
 			'if',
 		],
 	],
@@ -892,18 +1053,18 @@ const MUTANTS = [
 		'layers',
 		"a Setup reorder lost to the mapping's order on every update",
 		[
-			UPD,
-			'if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {',
-			'if (true) {',
+			FIT,
+			'if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null))\n\t\treturn { ok: true, value: null };',
+			'',
 		],
 	],
 	[
 		'layers',
 		'a changed Layers list never applied',
 		[
-			UPD,
-			'if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {',
-			'if (false) {',
+			FIT,
+			'if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null))\n\t\treturn { ok: true, value: null };',
+			'if (true) return { ok: true, value: null };',
 		],
 	],
 	[
@@ -911,7 +1072,7 @@ const MUTANTS = [
 		'the list applied back to front',
 		[FIT, '\t\tm,\n\t).reverse();\n}', '\t\tm,\n\t);\n}'],
 	],
-	['layers', "a draw-order key's drawing not kept", [UPD, '\t\t\tback();\n', '']],
+	['layers', "a draw-order key's drawing not kept", [UPD, '\t\tback();\n', '']],
 	[
 		'layers',
 		"Setup's order held to the depth controls on every update",
@@ -924,7 +1085,11 @@ const MUTANTS = [
 	[
 		'layers',
 		'a changed list never held to the depth controls',
-		[UPD, '\t\t\tif (against) return { ok: false, problem: against };\n', ''],
+		[
+			FIT,
+			'return against ? layersRefused(against) : { ok: true, value: now };',
+			'return { ok: true, value: now };',
+		],
 	],
 	[
 		'layers',
@@ -950,18 +1115,47 @@ const MUTANTS = [
 		'layers',
 		"a list judged on the template's order, not the one the update applies",
 		[
-			UPD,
-			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, now, new Set(want));',
-			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, want, new Set(want));',
+			FIT,
+			'slotsAgainstDepth(fitTemplate(t, fit).channels, now, new Set(want));',
+			'slotsAgainstDepth(fitTemplate(t, fit).channels, want, new Set(want));',
 		],
+	],
+	[
+		'preview',
+		"the preview judging every changed list, not only one that moves the merged rig's slots",
+		[FIT, '\tif (now.every((n, i) => n === merged[i])) return { ok: true, value: null };\n', ''],
+	],
+	[
+		'preview',
+		"the preview judged on the open rig's slots, not the ones the update's merge leaves",
+		[UPD, '\t\tmergedSlots(merge.value.input),', '\t\to.rig.slots,'],
+	],
+	[
+		'preview',
+		"the preview judging 🦴 Create rig's way, on the template's order, with a rig open",
+		[
+			UPD,
+			'sheetPreview(o.template, o.regions, o.mapping, { edit: true })',
+			'sheetPreview(o.template, o.regions, o.mapping)',
+		],
+	],
+	[
+		'preview',
+		'the preview never warning with a rig open',
+		[UPD, 'return layers.ok ? shown : layers;', 'return shown;'],
+	],
+	[
+		'preview',
+		'a Layers refusal not told apart from a misfit',
+		[FIT, 'problem, layers: true as const });', 'problem });'],
 	],
 	[
 		'custom',
 		'a custom part (not prop_) never given its bone and slot',
 		[
 			'rigFrameUpdate.ts',
-			"const isProp = (name: string) => name.startsWith('prop_') || named.has(name);",
-			"const isProp = (name: string) => name.startsWith('prop_');",
+			"return (name) => name.startsWith('prop_') || named.has(name);",
+			"return (name) => name.startsWith('prop_');",
 		],
 	],
 	[

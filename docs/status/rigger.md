@@ -183,6 +183,31 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **🗺 Edit mapping's Layers preview agrees with 🔄 Update rig (the #1942 review).**
+  The preview judged the list without the update's "the merged order moves" condition, on the open
+  rig's slots (so a prop worn anew was missing) and then again on the template's order: a rig whose
+  Setup drew `upper_arm_l` behind `head`, with a forearm prop worn anew left where the list puts it,
+  warned under the list while 🔄 Update rig accepted it. Now ONE rule decides: `sheetLayersApplied`
+  (`rigSheetFit.ts`) — the list changed since the kept mapping, moves a slot of the merged rig, and
+  is held to the depth controls as `layersJudged` says — returns the order 🔄 Update rig applies or
+  the refusal. `updateSheetRig` calls it on `frameRigUpdate`'s result; the preview
+  (`sheetEditPreview`, `rigSheetUpdate.ts`) calls it on `mergedSlots`, the merge's own slot step
+  (`rigFrameUpdate.ts`: props taken off dropped, new props placed by the same `newSlotPlaces` the
+  merge splices with), over the same `merging` inputs the update builds. The page's preview sends
+  `rig: { slots, skins (attachment names by slot), kept }` (was `{ slots, layers }`); without a rig
+  the preview refuses exactly what 🦴 Create rig refuses (`sheetRig`'s own check, unchanged). A
+  Layers refusal is tagged (`LayersFitted`, `layers: true`): the endpoint answers
+  `{ message, layers: true }` and the page shows the pill from `s2r.previewLayers`, not by matching
+  `/the Layers/`. `layersJudged`, `slotsAgainstDepth` and `sheetLayerOrder` are module-private now.
+  Guards: `sheet-rig-update.mjs` 228/228 (a `preview` guard: 7 edits each asserting the preview's
+  verdict and words equal the update's, 3 creates equal 🦴 Create rig's; the reviewer's case failed
+  on `main` — preview warned, update accepted — and passes now; 5 preview mutants red, the moved
+  `layers` mutants re-anchored), `sheet-layers.mjs` 126/126, `sheet-rig.mjs` 3418/3418,
+  `frame-rig-update.mjs` 125/125 (a mutant re-anchored on `newSlotPlaces`),
+  `frame-rig-update-browser.mjs` 22/22, `sheet-rig-browser.mjs` 76/76 (the forearm-prop case, no
+  warning), its 16 Layers page mutants red (2 new), `check:rigger-writes` 265 (the preview's `rig`
+  parsed and refused). ⏳ Not live-verified.
+
 - 2026-11-26 — **🔄 Update rig no longer refused by Setup's own order (the #1942 review).** Live on
   `main` since #1948 (which stacked on #1942's Layers code) and fixed by #1942: a rig whose Setup
   drew `upper_arm_l` behind `head` could not be updated after any 🗺 Edit mapping change:
