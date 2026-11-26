@@ -11,7 +11,7 @@ import {
 	type ZoneArtSource,
 } from 'game-config';
 
-import { SALMONS_BUILT_IN_ZONE_ART } from './zoneArtBuiltIn';
+import { SALMONS_BUILT_IN_ZONE_ART, type SalmonsCodeDrawn } from './zoneArtBuiltIn';
 import { countBy } from './zones';
 
 /**
@@ -143,17 +143,20 @@ export function clipThumbRef(clip: { assetKey: string; firstFrame: string } | un
 /** What a family with no zone art draws today: a line for it, and its pictures as scoped refs. */
 export { SALMONS_BUILT_IN_ZONE_ART };
 
-export type ZoneArtDefault = { label: string; thumbs: string[] };
+export type ZoneArtDefault = { label: string; thumbs: string[]; drawn?: SalmonsCodeDrawn };
 
 /**
  * What `family` draws with no entry: Salmons' built-in art for a Salmons generator (its pictures
- * from the project's copy of the sheet, none when the project has no such sheet), else nothing.
+ * from the project's copy of the sheet, none when the project has no such sheet), else nothing. A
+ * rule-only family (an invisible wall or area) says so.
  */
 export function zoneArtDefault(
 	family: string,
 	generator: string | undefined,
 	sheets: readonly { key: string }[],
+	ruleOnly = false,
 ): ZoneArtDefault {
+	if (ruleOnly) return { label: 'Invisible (rules only)', thumbs: [] };
 	const builtIn =
 		generator && SALMONS_ART_GENERATORS.includes(generator)
 			? SALMONS_BUILT_IN_ZONE_ART[family]
@@ -169,5 +172,7 @@ export function zoneArtDefault(
 		const key = keyOf.get(SALMONS_PROJECT_SHEETS[sheet]);
 		return key ? [`${key}::${region}`] : [];
 	});
-	return { label: builtIn.label, thumbs };
+	return builtIn.drawn
+		? { label: builtIn.label, thumbs, drawn: builtIn.drawn }
+		: { label: builtIn.label, thumbs };
 }

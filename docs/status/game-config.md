@@ -790,6 +790,10 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-26 — **Zone art Default, clearer** (owner: some rows showed no art). A rule-only family's
+  Default reads "Invisible (rules only)", and bridges, sea and source (drawn in code, no sheet) show
+  a swatch in `river.ts`' colours (`zoneArtBuiltIn.ts` `drawn`). Trees are scenery, not a zone: the
+  guide says to edit `tree_0`–`tree_5` in `salmons_props`. `check:zone-art` 72.
 - 2026-11-25 — **Zone art shows what a family draws now** (owner: "instead of 'not drawn', a preview
   of what is currently used"). The first picture's choice is **Default**, not "Not drawn", and the
   row shows what that is: for a Salmons generator the built-in art's line and its pictures as

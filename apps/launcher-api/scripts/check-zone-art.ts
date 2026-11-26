@@ -671,6 +671,16 @@ for (const [project, base] of [
 		[],
 	);
 	eq(
+		'9. a rule-only family says it is invisible',
+		zoneArtDefault('band#Left', 'salmonsMap', [{ key: props }], true),
+		{ label: 'Invisible (rules only)', thumbs: [] },
+	);
+	eq(
+		'9. a family drawn in code names its swatch',
+		zoneArtDefault('sea', 'salmonsMap', []).drawn,
+		'sea',
+	);
+	eq(
 		'9. a plain game draws nothing by default',
 		zoneArtDefault('rock#', undefined, [{ key: props }]),
 		{

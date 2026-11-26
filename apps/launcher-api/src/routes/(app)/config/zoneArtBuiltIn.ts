@@ -7,8 +7,18 @@
  */
 export type SalmonsBuiltInSheet = 'terrain' | 'props' | 'waterfall_face' | 'cliff';
 
+/** A family drawn in code, not from a sheet: the card shows a swatch in `river.ts`' colours. */
+export type SalmonsCodeDrawn = 'bridge' | 'source' | 'sea';
+
 export const SALMONS_BUILT_IN_ZONE_ART: Readonly<
-	Record<string, { label: string; pictures: readonly [SalmonsBuiltInSheet, string][] }>
+	Record<
+		string,
+		{
+			label: string;
+			pictures: readonly [SalmonsBuiltInSheet, string][];
+			drawn?: SalmonsCodeDrawn;
+		}
+	>
 > = {
 	'rock#': {
 		label: 'Built-in rocks, one of 9 per rock',
@@ -28,7 +38,11 @@ export const SALMONS_BUILT_IN_ZONE_ART: Readonly<
 		],
 	},
 	'sandbank#': { label: 'Built-in sand tiles', pictures: [['terrain', 'sand_c']] },
-	'bridge#': { label: 'Built-in placeholder bridge, drawn in code', pictures: [] },
-	source: { label: 'Built-in river water and forest', pictures: [] },
-	sea: { label: 'Built-in sea water', pictures: [] },
+	'bridge#': { label: 'Built-in placeholder bridge, drawn in code', pictures: [], drawn: 'bridge' },
+	source: {
+		label: 'Built-in river water and forest, drawn in code',
+		pictures: [],
+		drawn: 'source',
+	},
+	sea: { label: 'Built-in sea water, drawn in code', pictures: [], drawn: 'sea' },
 };

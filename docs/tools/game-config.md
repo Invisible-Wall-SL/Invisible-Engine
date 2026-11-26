@@ -428,9 +428,10 @@ has no family control at all. Three more families exist
   ([zone-art.md](../design/zone-art.md)). The card shows for an arcade config with zones, its own
   or a generator's (the level on the zone map). Hover its title for what it does. One row per
   family: the zone ids with their numbers as `#` (`rock# × 41`), as the Zones chips group them.
-  - **Drawn with:** **Default** (the family draws as it does today; the row shows what that is, e.g.
-    Salmons' 9 built-in rocks as thumbnails from the project's `salmons_props` sheet, or "Nothing
-    drawn" for a family no built-in art draws), **Sheet frame** (the Scene
+  - **Drawn with:** **Default** (the family draws as it does today; the row shows what that is:
+    Salmons' 9 built-in rocks as thumbnails from the project's `salmons_props` sheet; a swatch in
+    the game's colours for what the river draws in code (bridges, sea, source); "Invisible (rules
+    only)" for a rule-only family; "Nothing drawn" for a family no built-in art draws), **Sheet frame** (the Scene
     Editor's region picker, over the project's sheets), or **Flipbook clip** (a list of the
     project's clips; greyed out when the project has none). Clips have an optional **fps** (blank:
     the clip's own). A thumbnail of the frame, or of the clip's first frame, sits beside it.
@@ -438,6 +439,9 @@ has no family control at all. Three more families exist
     of the pictures, chosen by the room's seed and the zone, the same on every device. A variant's
     **Remove variant** takes it out. Setting the first picture to **Default** moves the first
     variant up.
+  - **Trees are not a zone.** Salmons' forest (past the source and the sea, and beyond the banks) is
+    scenery the river places itself, from `tree_0`–`tree_5` of the project's `salmons_props` sheet.
+    To change them, edit those regions in the Sheet Maker or Atlas Maker (same names and sizes).
   - **Scale** (blank: 1; 0.05–20) multiplies the fitted size. Each picture is centred on its zone
     and fitted inside it, with its own ratio kept. In Salmons' river a rock's or a whirlpool's
     picture replaces the built-in one at its size times the scale. Any other family's picture
