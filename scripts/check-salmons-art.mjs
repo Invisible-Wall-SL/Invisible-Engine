@@ -1553,6 +1553,7 @@ check("zone art's rigs: each moves on with the river's ticker while in view", ()
 	drawn.teardown();
 	unregister();
 	assert.ok(made.every((m) => m.destroyed));
+});
 
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
 // piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
