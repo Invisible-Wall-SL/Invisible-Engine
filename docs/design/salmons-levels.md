@@ -320,7 +320,10 @@ names the whole ones and `SALMONS_GENERATOR_PAIRS` the least / most pairs (swapp
 way round). Game Config re-exports the same tables (`LEVELS_GENERATOR_*`): one source.
 `generatorParams` makes a whole set (clamped); every generator function takes it through the
 shape (`shape.generator`), and with no block it is the defaults, so the arithmetic is the
-original's to the bit. Groups: river (length, source and mouth half widths, delta start and
+original's to the bit. The river's half widths are 2 at the least (five cells of water), and a
+generated rock is drawn smaller where it would leave less than two cells (`ROCK_PASS`) on its
+wider side; Game Config warns when the rock or the whirlpool reaches the narrowest water less a
+cell. The original's rocks are never held. Groups: river (length, source and mouth half widths, delta start and
 flare, meander), sand (start, end gap, seed share, passes, birth, survival, margin), rocks and
 whirlpools (first column, chance, whirlpools' share, margin, rock size, whirlpool radius),
 waterfalls (first column, spacing, clearance, height drop; count and heights stay in
@@ -350,14 +353,21 @@ meander table's length). The course's sampling step is arithmetic.
   `cycle` columns (1–400, default 35), which with the built-in six is exactly the old cycle.
 - **Gameplay.** A column's rock-or-whirlpool chance is `obstacleChance · ((1 − share) · rocks +
   share · whirlpools)`, at most 1, and the whirlpool share of it follows the two densities; a
-  delta cell's sand seed is `sandSeed · sand`. Where both piece densities are 1 the generator's
-  own arithmetic runs, so the draws are the same. A stretch keeps `waterfalls` of its own
+  delta cell's sand seed is `sandSeed · sand`. While every kind keeps both piece densities at 1,
+  the original's one stream draws the pieces, so the level is the original's. Once any kind
+  changes them, each column draws its pieces from its own stream (`<seed>_pieces_<gx>`), so
+  tuning one stretch leaves every other stretch's pieces where they were (a sand cell always
+  takes one draw, so sand was already local, bar the islands' growth across a boundary). A
+  stretch's `bridges: false` still reshuffles which columns the bridges take. A stretch keeps
+  `waterfalls` of its own
   waterfalls, spread evenly with no random draw, and the winding course straightens around the
   same columns. `bridges: false` takes its columns out of the bridges' candidates.
-- **Orphans.** A stretch that asks for more of a piece than the generator's where the level lays
-  none (rocks or whirlpools in the delta, sand above it), or for more than every column or cell
-  (chance held at 1), is told in the level's `orphans` as `{ op: 'biome', biome, kind, rows,
-  reason: 'no-room' | 'capped' }`, listed in amber with the overlay's. Nothing is dropped.
+- **Orphans.** A run of stretches of one kind that asks for more of a piece than the generator's
+  where the level lays none (`no-room`: rocks or whirlpools in the delta, sand above it), where
+  the generator's own settings lay none (`generator-off`: `obstacleChance` 0, a whirlpool share
+  of 0 or 1, `sandSeed` 0), or for more than every column or cell (`capped`: chance held at 1) is
+  told once in the level's `orphans` as `{ op: 'biome', biome, kind, rows, reason }`, listed in
+  amber with the overlay's. Nothing is dropped.
 - **Art.** `salmonsArt/river.ts` draws each row by its column's kind: trees picked from its list
   (one draw, as before), lone-tree chance, grass strip and forest wall, grass tint, riverbed sands,
   and its forest floor (a strip per stretch in the ground layer, cut at each waterfall's line and
@@ -390,14 +400,16 @@ at most); Save levels writes only `levels`, conditional on its ETag, as before.
 (`configSource.ts`), a device (`online.ts`) and `/editor` read the raw config's levels through the
 same carry and hand them to the same `ONLINE_GENERATORS.salmonsMap.make(seed, levels)`.
 
-**Proof.** `check:salmons-levels` (24 checks): every default is the original's (the recorded maps
+**Proof.** `check:salmons-levels` (27 checks): every default is the original's (the recorded maps
 of seven seeds do not move with an empty or a full `generator`, or a `biomes` block of looks
 alone; the shipped winding river neither); authored settings take effect and are deterministic,
 are held to their limits, and make a whole level at both corners of the limits; the default
 biomes are the old six-pair cycle every 35 columns over columns −120 to 700, with the old floor,
 riverbed, chance, grass and forest; densities act per stretch (rocks, whirlpools, sand,
 waterfalls, bridges) and densities of 1 move nothing; orphans; a room, a device and `/editor` make
-the same level and biomes, and what a room says makes the same level again. `check:room-levels`
+the same level and biomes, and what a room says makes the same level again; tuning one stretch's densities leaves
+every other stretch's pieces unchanged; a rock always leaves two cells to pass; a level at every
+upper limit plays in a room; `generator-off` and one orphan per run. `check:room-levels`
 (16): a tuned and a biomed config join the device × room matrix (324 decisions), the device draws
 the room's biomes, and a room plays and says the stored settings. `check:salmons-art` (37): the
 river drawn in Node, piece for piece (`scripts/salmons/art-fingerprint.mjs`), equals hashes taken

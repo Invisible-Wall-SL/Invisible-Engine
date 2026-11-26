@@ -45,7 +45,12 @@ upload.
     and a reset per setting; a reset per card) and Biomes (the strip in each biome's colours with
     draggable boundaries, the kinds list and the selected kind's editor). The stage redraws at
     each change and marks each stretch's floor down the river's edges. Save levels as before.
-  - **Gates:** `check:salmons-levels` 24, `check:room-levels` 16, `check:salmons-art` 37, launcher
+  - **After review (same day):** a density change now draws each column's pieces from its own
+    stream, so tuning one stretch leaves the others' pieces alone; `generator-off` orphans (a
+    density above 1 where the generator's settings place none) and one orphan per run of a kind;
+    a generated rock is held to leave two cells beside it and the half widths are 2 at the least,
+    with a save warning for a rock or a whirlpool as wide as the narrowest water less a cell.
+  - **Gates:** `check:salmons-levels` 27, `check:room-levels` 16, `check:salmons-art` 37, launcher
     `check:editor-level-generator` 6 (new), `check:salmons-course` 21, `check:salmons-export` 39,
     `check:zone-art` 70. Runtime bytes: the arcade runtimes grow (below); the slot, match-3 and card
     runtimes shrink, because `salmonsMap.js` no longer reads `SALMONS_MAP` at module level, so a
