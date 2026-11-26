@@ -13,7 +13,7 @@ undo/redo. Every rig now runs on our own license-free runtime, `packages/engine-
 Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated; static `static/rigger/view.html` + vendored `rigger-fx.js` / `rigger-text.js` bundles, cache-busted by `?v=BUILD_ID`). Reads/writes byte-valid 4.2-format JSON under our `.irig` extension, saved to R2 beside the artist's source. The design's build plan is complete, Phase 6 included: rigs are read, posed and drawn by our own 4.2-format-compatible runtime, `packages/engine-rig` — `engine-rig/pixi` (`RigView`) in the games, the Scene Editor and FX; `engine-rig/webgl` (vendored as `static/rig-viewer/vendor/invisible-rig.js`, rebuilt with `pnpm --filter launcher-api build:invisible-rig`) in the Rigger, the Rig Viewer and the editor. No third-party runtime code ships (`scripts/check-rig-runtime-free.mjs`):
 
 - **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete (a delete keeps every dependant where the setup pose had it); **IK / transform / path / physics constraints** (add — at the next free solve order —, edit, rename, delete, dopesheet tracks; a rig whose constraint never runs for an order clash offers **🩹 Repair**; in Animate mode the panel shows and keys the values at the playhead).
-- **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
+- **Slots / skins** — draw-order reorder (the list shows the front at the top, like a layers panel), 📁 slot folders, region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
 - **Image sequences** — declare a numbered atlas run as a rig `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because rig's loader throws on it and the rig would no longer open.
 - **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
 - **Weights** — bind-to-bone, per-vertex numeric editing, weight brush + heatmap, and **Auto-weight to chain** (inverse-square distance to the chain's length-bearing bone segments, ≤4 influences).
@@ -182,6 +182,33 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-26 — **📁 Slot folders, and the Slots list with the front at the top.** The owner's
+  verdict on #1906's loose groups ("closer to Photoshop"): they are replaced by true folders, rows
+  inside the list (▸ / ▾, 📁 name, count; members indented), one level, a slot in one folder at most,
+  a folder's slots always together in the draw order. ＋📁 in the header or Ctrl+G makes one of the
+  selection, gathering spread slots into one run at the frontmost of them (just in front of its
+  folder when that folder keeps other slots): a draw-order change, so Setup only, one undo step,
+  through `applySlotOrder` (every draw-order key kept). Drag: a drop between a folder's slots or
+  under a closed folder's row puts slots in, anywhere else takes them out; a folder's ⋮⋮ drags it as a
+  block (into another folder: lands in front of it). ↑ ↓ / Ctrl+] [: a slot passes a whole folder,
+  slots of one folder move inside it and leave it where they are at its edge, a folder moves whole;
+  Shift goes all the way (inside the folder for its slots). The folder's eye solos / hides, ✎ or a
+  double-click renames, 🗑 ungroups; the view slider (on the selected or dimmed folder) and ⤓ are
+  #1906's. Closed state and opacity are per browser (`rigger.slotFolderShut:…`,
+  `rigger.slotGroupAlpha:…`, ids `f:<name>`). Kept in `controls.json` as `slotFolders`
+  (`src/lib/rigControls.ts`, bundle rebuilt); the invariant lives in one place, `fitSlotFolders`, run
+  on every rebuild (`fitControlsToRig`) and on the server's read: a new slot placed inside a folder's
+  run joins it, a copy of a member (⧉ Duplicate, ✨ Auto FX) joins its folder (`slotFolderAdopt`),
+  and a folder keeps its largest run, so a slot moved out leaves (＋ Add slot and an import, at the
+  front, join none). `slotGroups` is read only: a group whose slots are together and unshared became
+  a folder, the others are left out without touching the draw order and named in the open's notice.
+  The template's group eyes are back to the compact chip bar they were before #1906 (no slider). The
+  list is turned over (display only: rawDoc, the .irig and keys unchanged); its caption is gone,
+  the header tooltip says which end is the front. Guards: `check:rig-controls` (folders, fit,
+  migration), `tools/rigger-spike/slot-folders-browser.mjs` (58 checks, replaces
+  `slot-groups-browser.mjs`), `slot-eye-dnd-browser.mjs` updated to the flipped list. Not yet
+  confirmed in the authed WebGL page.
 
 - 2026-11-26 — **A slot's colour keys go on the timeline its clip already uses.** The slot panel's
   opacity slider and ◆ Key opacity, its colour picker, ◆ Key, ◆ Key all and ⤓ wrote an `rgba` key

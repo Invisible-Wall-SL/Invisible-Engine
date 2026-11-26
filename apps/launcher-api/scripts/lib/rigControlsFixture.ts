@@ -216,7 +216,7 @@ export function controlsOf(stem: string): ControlsDoc {
 				{ limb: 'arm_l', at: [0.2, 0.4], label: 'IK / FK' },
 			],
 		},
-		slotGroups: { arm: ['upper_arm', 'lower_arm', 'hand'], face: ['head'] },
+		slotFolders: { arm: ['upper_arm', 'lower_arm', 'hand'], face: ['head'] },
 	};
 }
 

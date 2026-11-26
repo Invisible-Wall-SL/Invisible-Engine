@@ -2,7 +2,7 @@
  * A rig's control layer, `controls.json` (docs/design/rig-controls.md §5.7): what makes a bone a
  * control — its role, shape, colour, size, display, channel locks and limits — plus hidden and
  * locked bones, layers, selection sets, limbs (FK / IK and their spaces), the constraint presets,
- * mirror pairs, the picker's layout and the Slots list's own slot groups. Pure (no R2, no DOM), so the save path and the Rigger page
+ * mirror pairs, the picker's layout and the Slots list's folders. Pure (no R2, no DOM), so the save path and the Rigger page
  * run the same code. No game, export or runtime reads it: the control BONES and constraints are in
  * the irig, and deleting the sidecar loses the shapes, never a pose.
  *
@@ -147,7 +147,12 @@ export interface ControlsDoc {
 	/** The mirror line (a bone; the root's x = 0 when absent) and overrides of the name rule. */
 	mirror?: { line?: string; pairs?: Record<string, string> };
 	picker?: { items?: ControlPickerItem[] };
-	/** The Slots list's groups an author made: name → slots (each group's eye and view opacity). */
+	/**
+	 * The Slots list's folders: name → its slots, back to front. A slot is in one folder at most and
+	 * a folder's slots are together in the draw order (`fitSlotFolders`); one level, no nesting.
+	 */
+	slotFolders?: Record<string, string[]>;
+	/** Read only: the loose groups folders replaced (#1906); `fitControls` turns them into folders. */
 	slotGroups?: Record<string, string[]>;
 }
 
@@ -290,6 +295,7 @@ const SIDECAR = obj(
 		picker: obj({
 			items: list(obj({ bone: name, set: name, limb: name, at: unitXy, label: text }, ['at'])),
 		}),
+		slotFolders: map(names(1)),
 		slotGroups: map(names(1)),
 	},
 	['controls', 'rig'],
@@ -329,6 +335,13 @@ function crossProblems(doc: ControlsDoc): string[] {
 		if (item.limb !== undefined && !Object.hasOwn(doc.limbs ?? {}, item.limb))
 			out.push(`${where}.limb "${item.limb}" is not one of the limbs`);
 	}
+	const foldered = new Map<string, string>();
+	for (const [f, members] of Object.entries(doc.slotFolders ?? {}))
+		for (const n of members) {
+			const was = foldered.get(n);
+			if (was !== undefined) out.push(`${at}.slotFolders puts slot "${n}" in "${was}" and "${f}"`);
+			else foldered.set(n, f);
+		}
 	return out;
 }
 
@@ -368,8 +381,8 @@ const describe = (d: DroppedRef) =>
 /**
  * `doc` with every bone and constraint name passed through `to`. An entry naming one that maps to
  * null goes, as little as possible with it: a control, a set member, a preset, a mirror pair, a
- * picker button, a limb's control, pole or space, a slot group's member — a whole limb only when
- * its IK or an FK bone goes, a slot group when no member is left. Every name that mapped to null is listed, even in an entry already going.
+ * picker button, a limb's control, pole or space, a slot folder's (or group's) member — a whole
+ * limb only when its IK or an FK bone goes, a folder when no member is left. Every name that mapped to null is listed, even in an entry already going.
  */
 function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: DroppedRef[] } {
 	const dropped: DroppedRef[] = [];
@@ -472,18 +485,20 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 		}
 		next.picker = { ...doc.picker, items };
 	}
-	if (doc.slotGroups) {
-		const groups: Record<string, string[]> = {};
-		for (const [g, members] of Object.entries(doc.slotGroups)) {
-			const kept = unique(
+	for (const field of ['slotFolders', 'slotGroups'] as const) {
+		const from = doc[field];
+		if (!from) continue;
+		const kept: Record<string, string[]> = {};
+		for (const [g, members] of Object.entries(from)) {
+			const ns = unique(
 				members.flatMap((m, i) => {
-					const n = ref('slot', m, `slotGroups.${g}[${i}]`);
+					const n = ref('slot', m, `${field}.${g}[${i}]`);
 					return n === null ? [] : [n];
 				}),
 			);
-			if (kept.length) groups[g] = kept;
+			if (ns.length) kept[g] = ns;
 		}
-		next.slotGroups = groups;
+		next[field] = kept;
 	}
 	return { doc: next, dropped };
 }
@@ -508,21 +523,130 @@ function namesOf(irig: Json): Record<RefKind, Set<string>> {
 	};
 }
 
-/** Why `doc` does not fit the rig beside it (names it uses that the irig lacks), or `[]`. */
+/** The irig's slot names in draw order (back to front). */
+const slotOrderOf = (irig: Json): string[] =>
+	(Array.isArray(irig.slots) ? irig.slots : [])
+		.map((x: unknown) => (isObj(x) ? x.name : undefined))
+		.filter((n): n is string => typeof n === 'string');
+
+/**
+ * Why `doc` does not fit the rig beside it, or `[]`: names it uses that the irig lacks, a folder whose
+ * slots are not together in its draw order, and the groups folders replaced.
+ */
 export function controlsIrigProblems(doc: ControlsDoc, irig: Json): string[] {
 	const has = namesOf(irig);
-	return mapRefs(doc, (kind, n) => (has[kind].has(n) ? n : null)).dropped.map(describe);
+	const out = mapRefs(doc, (kind, n) => (has[kind].has(n) ? n : null)).dropped.map(describe);
+	const pos = new Map(slotOrderOf(irig).map((n, i) => [n, i]));
+	for (const [f, members] of Object.entries(doc.slotFolders ?? {})) {
+		const at = members.map((n) => pos.get(n)).filter((i): i is number => i !== undefined);
+		if (at.length && Math.max(...at) - Math.min(...at) !== at.length - 1)
+			out.push(`slotFolders.${f}: its slots are not together in the draw order`);
+	}
+	if (doc.slotGroups) out.push('slotGroups is read only: folders (slotFolders) replaced it');
+	return out;
 }
 
 /**
- * The lenient read: `doc` without what names a bone or constraint the irig no longer has, and a
- * notice per name dropped. The sidecar changes no playback, so a rig edited outside the Rigger is
- * opened, not refused.
+ * The rig's folders kept true over its draw order `order` (slot names, back to front), in one place,
+ * after any edit. A slot in two folders stays in the first. With `seen` (the slots there were at the
+ * last fit), a new slot placed inside a folder's run joins it. Then each folder keeps its largest run
+ * of slots together in the draw order (the frontmost of equal ones) and the rest leave it, so a slot
+ * moved out of a folder's run leaves it. Each folder lists its slots back to front; an empty one goes.
  */
-export function fitControls(doc: ControlsDoc, irig: Json): { doc: ControlsDoc; dropped: string[] } {
+export function fitSlotFolders(
+	folders: Record<string, string[]>,
+	order: string[],
+	seen?: Set<string>,
+): Record<string, string[]> {
+	const pos = new Map(order.map((n, i) => [n, i]));
+	const owner = new Map<string, string>();
+	const members: Record<string, string[]> = {};
+	for (const [f, ns] of Object.entries(folders)) {
+		members[f] = ns.filter((n) => pos.has(n) && !owner.has(n));
+		for (const n of members[f]) owner.set(n, f);
+	}
+	const at = (n: string) => pos.get(n) ?? 0;
+	if (seen)
+		for (const f of Object.keys(members)) {
+			if (!members[f].length) continue;
+			const ps = members[f].map(at);
+			for (const n of order.slice(Math.min(...ps) + 1, Math.max(...ps)))
+				if (!owner.has(n) && !seen.has(n)) {
+					owner.set(n, f);
+					members[f].push(n);
+				}
+		}
+	const out: Record<string, string[]> = {};
+	for (const f of Object.keys(members)) {
+		const runs: string[][] = [];
+		for (const n of members[f].sort((a, b) => at(a) - at(b))) {
+			const last = runs[runs.length - 1];
+			if (last && at(n) === at(last[last.length - 1]) + 1) last.push(n);
+			else runs.push([n]);
+		}
+		const keep = runs.reduce<string[]>((a, r) => (r.length >= a.length ? r : a), []);
+		if (keep.length) out[f] = keep;
+	}
+	return out;
+}
+
+/**
+ * The loose slot groups of #1906 as folders: a group whose slots are together in the draw order and
+ * in no folder already becomes one (a name a folder has gets a number); any other is left out, the
+ * draw order never changed, and named in `unconverted`.
+ */
+function foldersFromGroups(
+	groups: Record<string, string[]>,
+	folders: Record<string, string[]>,
+	order: string[],
+): { folders: Record<string, string[]>; unconverted: string[] } {
+	const pos = new Map(order.map((n, i) => [n, i]));
+	const out = { ...folders };
+	const taken = new Set(Object.values(folders).flat());
+	const unconverted: string[] = [];
+	for (const [g, ns] of Object.entries(groups)) {
+		const at = ns.map((n) => pos.get(n) ?? -1).sort((a, b) => a - b);
+		const together = at[0] >= 0 && at[at.length - 1] - at[0] === at.length - 1;
+		if (!together || ns.some((n) => taken.has(n))) {
+			unconverted.push(g);
+			continue;
+		}
+		let name = g;
+		for (let k = 2; Object.hasOwn(out, name); k++) name = `${g} ${k}`;
+		out[name] = at.map((i) => order[i]);
+		for (const n of ns) taken.add(n);
+	}
+	return { folders: out, unconverted };
+}
+
+/**
+ * The lenient read: `doc` without what names a bone, constraint or slot the irig no longer has, its
+ * old slot groups turned into folders, its folders kept true over the irig's draw order
+ * (`fitSlotFolders`, with `seen`), and a notice per name dropped and per group that could not become
+ * a folder (`slotGroups.<name> …`). The sidecar changes no playback, so a rig edited outside the
+ * Rigger is opened, not refused.
+ */
+export function fitControls(
+	doc: ControlsDoc,
+	irig: Json,
+	seen?: Set<string>,
+): { doc: ControlsDoc; dropped: string[] } {
 	const has = namesOf(irig);
 	const fit = mapRefs(doc, (kind, n) => (has[kind].has(n) ? n : null));
-	return { doc: fit.doc, dropped: fit.dropped.map(describe) };
+	const dropped = fit.dropped.map(describe);
+	const next = fit.doc;
+	const order = slotOrderOf(irig);
+	if (next.slotGroups) {
+		const moved = foldersFromGroups(next.slotGroups, next.slotFolders ?? {}, order);
+		for (const g of moved.unconverted)
+			dropped.push(
+				`slotGroups.${g} could not become a folder: its slots are not together in the draw order, or one is in another folder`,
+			);
+		next.slotFolders = moved.folders;
+		delete next.slotGroups;
+	}
+	if (next.slotFolders) next.slotFolders = fitSlotFolders(next.slotFolders, order, seen);
+	return { doc: next, dropped };
 }
 
 /** Names the irig changed, old → new, per kind. */
