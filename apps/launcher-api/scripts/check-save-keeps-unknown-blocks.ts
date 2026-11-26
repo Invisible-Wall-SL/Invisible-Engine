@@ -1781,6 +1781,16 @@ const propOf = (doc: unknown): PropDoc['prop'] => (doc as PropDoc).prop;
 		],
 		['behind', ['water', null], ['sorted', 1100], ['over', null]],
 	);
+	const placed = structuredClone(PROP_COMPONENT) as unknown as PropDoc;
+	Object.assign(placed.root.children[0], { propCell: { param: 'length', plus: 1 } });
+	Object.assign(placed.root.children[1], { propCell: -2 });
+	Object.assign(placed.root.children[2], { propCell: 'far' });
+	const cells = normalizeComponent(placed as unknown as Def).root.children;
+	check(
+		'components prop: a node’s cell is kept, a malformed one drops',
+		cells.map((n) => n.propCell ?? null),
+		[{ param: 'length', plus: 1 }, -2, null],
+	);
 	const bad = structuredClone(PROP_COMPONENT) as unknown as PropDoc;
 	Object.assign(bad.prop!, { preview: { length: 6, height: 'tall' } });
 	bad.prop!.collider.solids = [

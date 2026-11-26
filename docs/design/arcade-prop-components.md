@@ -1,8 +1,9 @@
 # Arcade prop components — a component that carries its own collision (Salmons' bridge first)
 
 **Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26; P3 (one
-river on both sides) built 2026-11-26; P4 (the seed def) built 2026-11-26, in review; P5–P8
-planned; other obstacles (§9) planned after P8.** Owner ask of
+river on both sides) built 2026-11-26; P4 (the seed def) built 2026-11-26; P5's mount and the
+seed's code look built 2026-11-26, in review (the river swap, the inputs and the deletion next);
+P6–P8 planned; other obstacles (§9) planned after P8.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -298,6 +299,40 @@ The `sorted` and `over` bands are meant for nodes inside a segment, since one co
 one depth mis-sorts a long deck against a player walking along it. The editor warns of a `sorted`
 node that lies outside a segment and spans more than a cell.
 
+As built (P5, the mount):
+- **A prop is cut into pieces** (`engine-layout` `propPieces.ts`, pure). Each root child of a prop
+  def is one band. A count-mode repeater gives one piece per zone cell: its variant, with `index`
+  / `count` as params and held inputs. A component instance gives one piece at its `propCell` (a
+  new `BaseNode` field, a `PropLength`, e.g. the far slope's `{ param: 'length', plus: 1 }`).
+  Every piece is a plain `<ComponentInstance>` of a piece def, so its machine and timelines run.
+  Each piece takes the zone's params: `length`, `height`, and `zone` (the param the def is scoped
+  by). So `stepOn` on `bridge0` reaches only `bridge0`'s pieces. A band's depth offset is the
+  child's `propZOffset`, in the original's old px.
+- **Salmons places them** (`salmonsArt/propPlacement.ts` `placeSalmonsProp`):
+  - `sorted` gets `amongBias` (the code's `amongZ`: `⌈(zOffset − 1000) · 3⌉` ground depth px);
+  - `over` gets `aloftDepth(deckLift(height)) + CELL`, which is over a character standing anywhere
+    on its cell;
+  - `behind` gets the code's `zOf` as `zIndex`;
+  - `water` keeps cell order, and each water piece gets the code shimmer's `phase`.
+- **`sorted` / `over` stand among the players.** This is the owner's "extend `<SpawnLayer>`" done
+  without touching `SpawnLayer.svelte`, which every runtime carries through `<LayoutNodeView>`:
+  any change there moves the slot, match-3 and card bytes. Instead `<IsoWorld>`, which only the
+  arcade seam registers, mounts `<SpawnProps>` for each spawn layer. It reads the registry the
+  arcade runtime fills (`arcadeProps.svelte.ts` `setSpawnProps(layer, pieces)`, in a module of
+  its own: `arcadeArt.svelte.ts` is in every runtime). `<PropsInto>` then draws each piece IN the
+  container the layer's instances are drawn in, through a pixi-svelte context parent
+  (`spawnInstancesOf`, the walk `river.ts` `spawnLayerOf` does). There it sorts by
+  `isoDepthOrder(x, y, 0, bias)`, raised by its `lift`. With no pieces published, nothing is
+  searched or drawn.
+- **`water` / `behind` seam.** The same registry holds them, read by `spawnPropsOf(layer, band)`
+  for the field art that draws those layers. The river wiring is the next step.
+- **Drawing.** The layout has no polygon node, and adding one would reach every runtime. So the
+  pieces draw through `PropGraphic`, a bound part the arcade seam registers (`propGraphic.ts`). Its
+  `bind.props.ops` are polys, rects and lines, each filled and stroked in order, as `river.ts`
+  draws them. A point is a ground point projected by the screen's projector, plus a screen `dy`. A
+  scalar may be a param × `times` + `plus` (the deck lift is `{ param: 'height', times: −24 }`).
+  The editor does not run bound parts, so in the editor the pieces show as bind anchors until P7.
+
 ## 6. The ship chain (rule 8)
 
 1. **Author.** Components side of `/editor`. The def is saved project-scoped
@@ -408,6 +443,23 @@ the 2-cell near slope) has merged.
    - The seed's placeholder art cannot reproduce the code bridge's fills, so `check:salmons-art`
      cannot stay identical, and §8 Q6 deletes the code bridge only "once the seed def matches the
      code look".
+   *Built 2026-11-26 (in review):* the mount (§5 "As built") and the seed's code look.
+   `bridgeProp` is now its pieces: `bridgePropWater` (the reflection, swaying from its cell's
+   `phase`, and under a pillar the pillar's reflection), `bridgePropPillar`,
+   `bridgePropDeckNear` / `…Middle` / `…Far` (the side, the plank tile and its two lines) and
+   `bridgePropSlope` (`run` ± 2). Each draws as `river.ts` draws, piece for piece.
+   - The per-cell shimmer phase is the cleanest thing the model already has: `SmState.offsetParam`
+     on a looping sway timeline keyed every frame over its 20π period, from an engine-provided
+     `phase` param the placement sets.
+   - The pillar cells are a machine on `index` (`== count` or 1, 4, 7, …).
+   - `check:prop-depth` draws the code river and the seed in Node on three Salmons levels,
+     mirrored and not. It checks that every piece has the same fills, strokes, alphas, widths and
+     path points at the same place and depth (the deck cells against the ones the code stands in
+     its view), that the sway matches the shimmer frame by frame, and that a character on the deck
+     sorts over its cell and under an `over` piece.
+   - The river still draws its code bridge (`check:salmons-art` unchanged). **Next, the arcade
+     agent:** `river.ts` takes its water / behind pieces from the registry, `online.ts` publishes
+     `placeSalmonsProp`'s pieces and the inputs, and the code bridge is deleted.
    **Then delete the code-drawn bridge** (owner, §8 Q6), in the same phase once the parity check
    passes: the seed component replaces `river.ts`'s bridge drawing, which is deleted, with what of
    `salmonsArt/bridge.ts` only that drawing used. No dual path is left. The no-component

@@ -111,13 +111,15 @@ const PINNED = {
 		// it is offered to every kind — a new library entry no existing screen places.
 		segmentedCounter: '01bdca67dc4830f3',
 		segmentedCounterSegment: 'efba786993eed387',
-		// The seed bridge prop and its segments (arcade-prop-components P4): `internal`, so no palette
+		// The seed bridge prop and its pieces (arcade-prop-components P4–P5): `internal`, so no palette
 		// offers them, and placed only by a zone-art entry — a new library entry no screen places.
-		bridgeProp: 'b8c2c79106cb6b72',
-		bridgePropDeckNear: 'fdfb0210546faa02',
-		bridgePropDeckMiddle: 'fb898e6ada452a5c',
-		bridgePropDeckFar: '586b759207715fb7',
-		bridgePropReflection: '306a58b244a3cea1',
+		bridgeProp: '704509b6a9aa88d8',
+		bridgePropWater: 'a900bd5172d3611d',
+		bridgePropPillar: '8b3bb3999b2061f3',
+		bridgePropDeckNear: '57891d1ea6291576',
+		bridgePropDeckMiddle: 'b4cc7c5c8def4b60',
+		bridgePropDeckFar: 'a583eec213cbf750',
+		bridgePropSlope: '37a1254212f0b508',
 	},
 };
 

@@ -34,6 +34,7 @@
 		"check:salmons-levels": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-levels.mjs",
 		"check:salmons-course": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-course.mjs",
 		"check:prop-shape": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-prop-shape.mjs",
+		"check:prop-depth": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-prop-depth.mjs",
 		"check:netcode": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-netcode.mjs",
 		"check:online-rules": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-online-rules.mjs",
 		"check:bots-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-bots-3d.mjs",

@@ -51,6 +51,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	parallax: true,
 	propDepth: true,
 	propZOffset: true,
+	propCell: true,
 	overrides: true,
 	visibleFor: true,
 	slotId: true,
@@ -184,6 +185,7 @@ const propColliderFields: Record<keyof PropCollider, true> = {
 	ramps: true,
 	hole: true,
 	solids: true,
+	sideExit: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,

@@ -35,10 +35,12 @@
 // - its zone params are engine-provided numbers, its scope param an engine-provided `zone`, its
 //   inputs `PROP_INPUTS`, its sizes `salmonsElevation.ts`'s (both written out in the def, so it
 //   imports nothing a runtime carries), its preview a 6-cell deck 6 high;
-// - its bands are §5's at the code's depths: reflections `water`, pillars `behind` at 400, slopes
-//   `behind` at 500, deck `sorted` at 1100, every node of every seed def in a band;
-// - its deck is a count-mode repeater of near / middle / far cells, and the cells with a pillar are
-//   the code's (`river.ts`: both ends and every third) for every deck of 1 … 30 cells;
+// - its root children are its pieces (`propPieces`), §5's bands at the code's depths: water cells
+//   `water`, pillars `behind` at 400, deck cells near / middle / far `sorted` at 1100, slopes
+//   `behind` at 500 on their land cells; every piece hears its zone and draws with `PropGraphic`
+//   (P5; the drawing itself is `check:prop-depth`'s);
+// - the cells with a pillar are the code's (`river.ts`: both ends and every third) for every deck
+//   of 1 … 30 cells;
 // - every state plays a timeline of its own def, every timeline keys nodes the def has, and each
 //   state machine validates with no issue;
 // - it is in the launcher's built-ins and not in the lists every runtime carries, internal, and no
@@ -107,6 +109,7 @@ import { PROP_INPUTS } from '../packages/engine-layout/src/lib/componentInterfac
 import { validateStateMachine } from '../packages/engine-layout/src/lib/stateMachine.ts';
 import { validateNodeActors } from '../packages/engine-layout/src/lib/cinematicNodes.ts';
 import { collectComponentIds } from '../packages/engine-layout/src/lib/collectComponentIds.ts';
+import { propPieces } from '../packages/engine-layout/src/lib/propPieces.ts';
 import {
 	CELL as ART_CELL,
 	HEIGHT_UNIT,
@@ -747,20 +750,6 @@ check('a solid in the deck’s cells stops a fisherman; one for bears stops a be
 
 // ── §3 the seed bridge ───────────────────────────────────────────────────────────────────────
 
-const seedDef = (id) => PROP_COMPONENTS.find((d) => d.id === id);
-/** Every node of a def's tree with the band it draws in (its own, else its parent's). */
-const banded = (root) => {
-	const out = [];
-	const walk = (node, inherited) => {
-		const band = node.propDepth ?? inherited;
-		out.push({ node, band });
-		for (const child of node.children ?? []) walk(child, band);
-	};
-	for (const child of root.children) walk(child, root.propDepth);
-	return out;
-};
-const byLabel = (def, label) => banded(def.root).find(({ node }) => node.label === label);
-
 check("the seed compiles to today's bridge, { from, zoneKind }", () => {
 	assert.deepEqual(compilePropShape(BRIDGE_PROP_DEF), {
 		from: { component: BRIDGE_PROP_IDS.prop, version: BRIDGE_PROP_DEF.version },
@@ -796,59 +785,46 @@ check(
 	},
 );
 
-check("its bands are §5's at the code bridge's depths", () => {
-	const at = (def, label) => {
-		const hit = byLabel(def, label);
-		return [hit?.band, hit?.node.propZOffset];
-	};
-	const near = seedDef(BRIDGE_PROP_IDS.deckNear);
-	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Reflections'), ['water', undefined]);
-	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Near slope'), ['behind', 500]);
-	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Far slope'), ['behind', 500]);
-	assert.deepEqual(at(BRIDGE_PROP_DEF, 'Deck'), ['sorted', 1100]);
-	assert.deepEqual(at(near, 'Pillar'), ['behind', 400]);
-	assert.deepEqual(at(near, 'Pillar reflection'), ['water', undefined]);
-	assert.deepEqual(at(near, 'Tile'), ['sorted', 1100]);
-	assert.deepEqual(at(seedDef(BRIDGE_PROP_IDS.reflection), 'Reflection'), ['water', undefined]);
-	for (const def of PROP_COMPONENTS) {
-		const loose = banded(def.root).filter(({ band }) => !band);
-		assert.deepEqual(
-			loose.map(({ node }) => node.id),
-			[],
-			`${def.id}: every node is in a band`,
-		);
-	}
-});
-
-check("its deck is near / middle / far cells, pillared as the code's", () => {
-	const deck = BRIDGE_PROP_DEF.root.children.find((n) => n.label === 'Deck');
-	assert.equal(deck.kind, 'repeater');
-	assert.equal(deck.count.preview, 6);
-	assert.deepEqual(deck.variants, {
-		first: BRIDGE_PROP_IDS.deckNear,
-		middle: BRIDGE_PROP_IDS.deckMiddle,
-		last: BRIDGE_PROP_IDS.deckFar,
+check("its pieces are §5's bands at the code bridge's depths", () => {
+	const bands = Object.fromEntries(
+		BRIDGE_PROP_DEF.root.children.map((n) => [n.label, [n.kind, n.propDepth, n.propZOffset]]),
+	);
+	assert.deepEqual(bands, {
+		Water: ['repeater', 'water', undefined],
+		Pillars: ['repeater', 'behind', 400],
+		Deck: ['repeater', 'sorted', 1100],
+		'Near slope': ['componentInstance', 'behind', 500],
+		'Far slope': ['componentInstance', 'behind', 500],
 	});
-	const middle = seedDef(BRIDGE_PROP_IDS.deckMiddle);
-	const layer = middle.stateMachine.layers[0];
-	const pillaredMiddle = new Set(
-		layer.transitions.filter((t) => t.to === 'pillar').map((t) => t.conditions[0].value),
+	const zone = { id: 'bridge0', x: 0, y: 0, w: 4 * 48, h: 48, height: 6 };
+	const pieces = propPieces(BRIDGE_PROP_DEF, zone, 48);
+	const slope = (label) => pieces.find((p) => p.id.endsWith(label));
+	assert.deepEqual(
+		[slope('nearSlope:-2')?.params.run, slope('farSlope:5')?.params.run],
+		[2, -2],
+		'the slopes stand on their land cells, two off each end',
 	);
-	const ends = [deck.variants.first, deck.variants.last].map(seedDef);
+	assert.deepEqual(
+		pieces.filter((p) => p.band === 'sorted').map((p) => p.componentId),
+		[
+			BRIDGE_PROP_IDS.deckNear,
+			BRIDGE_PROP_IDS.deckMiddle,
+			BRIDGE_PROP_IDS.deckMiddle,
+			BRIDGE_PROP_IDS.deckFar,
+		],
+	);
 	assert.ok(
-		ends.every((d) => byLabel(d, 'Pillar')),
-		'both ends have a pillar',
+		pieces.every(
+			(p) => p.params.zone === 'bridge0' && p.params.height === 6 && p.params.length === 4,
+		),
+		'every piece hears its zone and reads the deck',
 	);
-	for (let n = 1; n <= 30; n++) {
-		const seed = [];
-		const code = [];
-		for (let i = 0; i < n; i++) {
-			const index = i + 1;
-			const end = index === 1 || index === n;
-			if (end || pillaredMiddle.has(index)) seed.push(i);
-			if (i === 0 || i === n - 1 || i % 3 === 0) code.push(i);
-		}
-		assert.deepEqual(seed, code, `a deck of ${n}`);
+	for (const def of PROP_COMPONENTS.filter((d) => d !== BRIDGE_PROP_DEF)) {
+		assert.equal(def.signalScope, 'zone', def.id);
+		assert.ok(
+			def.root.children.every((n) => n.bind?.component === 'PropGraphic'),
+			`${def.id} draws with PropGraphic`,
+		);
 	}
 	assert.deepEqual(
 		collectComponentIds([BRIDGE_PROP_DEF.root]).sort(),
@@ -858,6 +834,27 @@ check("its deck is near / middle / far cells, pillared as the code's", () => {
 	);
 });
 
+check("its pillars stand on the code's cells, both ends and every third", () => {
+	for (const id of [BRIDGE_PROP_IDS.pillar, BRIDGE_PROP_IDS.water]) {
+		const layer = PROP_COMPONENTS.find((d) => d.id === id).stateMachine.layers.find(
+			(l) => l.id === 'pillar',
+		);
+		const shown = (index, count) =>
+			layer.transitions.some((t) =>
+				t.conditions.every((c) => index === (c.param === 'count' ? count : c.value)),
+			);
+		for (let n = 1; n <= 30; n++) {
+			const seed = [];
+			const code = [];
+			for (let i = 0; i < n; i++) {
+				if (shown(i + 1, n)) seed.push(i);
+				if (i === 0 || i === n - 1 || i % 3 === 0) code.push(i);
+			}
+			assert.deepEqual(seed, code, `${id}, a deck of ${n}`);
+		}
+	}
+});
+
 check('its machines play their own timelines, which key nodes they have', () => {
 	const ids = PROP_TIMELINES.map((t) => t.id);
 	for (const def of PROP_COMPONENTS) {
@@ -865,21 +862,24 @@ check('its machines play their own timelines, which key nodes they have', () => 
 		for (const layer of def.stateMachine?.layers ?? []) {
 			for (const state of layer.states) {
 				const doc = PROP_TIMELINES.find((t) => t.id === state.timeline);
-				assert.equal(doc?.host?.componentId, def.id, `${def.id}.${state.id}`);
+				const hosts = [doc?.host?.componentId, ...(doc?.playOnComponents ?? [])];
+				assert.ok(hosts.includes(def.id), `${def.id}.${state.id} plays its own timeline`);
 				const host = { id: def.id, name: def.name, nodes: [def.root] };
 				assert.deepEqual(validateNodeActors(doc, host), [], doc.id);
 			}
 		}
 	}
-	const machine = BRIDGE_PROP_DEF.stateMachine.layers.map((l) => [
-		l.entry,
-		l.states.map((s) => s.id),
+	const layers = (id) =>
+		PROP_COMPONENTS.find((d) => d.id === id).stateMachine.layers.map((l) => [
+			l.id,
+			l.states.map((st) => st.id),
+		]);
+	assert.deepEqual(layers(BRIDGE_PROP_IDS.water), [
+		['shimmer', ['sway']],
+		['ambience', ['idle', 'occupied']],
+		['pillar', ['bare', 'pillar']],
 	]);
-	assert.deepEqual(machine, [
-		['idle', ['idle', 'occupied']],
-		['still', ['still', 'stepOn', 'stepOff']],
-	]);
-	assert.equal(BRIDGE_PROP_DEF.stateMachine.layers[0].states[0].loop, true, 'the ambience loops');
+	assert.deepEqual(layers(BRIDGE_PROP_IDS.deckMiddle), [['steps', ['still', 'stepOn', 'stepOff']]]);
 });
 
 check('it is a launcher built-in, not a runtime one, internal, placed by no other built-in', () => {

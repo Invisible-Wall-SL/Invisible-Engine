@@ -110,6 +110,30 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-26 — **Prop components P5: the mount, and the seed bridge drawn as the code bridge**
+  ([arcade-prop-components](../design/arcade-prop-components.md) §5 / §7 P5 As built, branch
+  `claude/bold-cannon-3a8unw`, in review).
+  - **Cut into pieces.** A prop is cut into pieces per zone cell (`propPieces.ts`; new node field
+    `propCell`, kept by the launcher's save).
+  - **Placed by Salmons.** `salmonsArt/propPlacement.ts` places the pieces at the code's depths.
+  - **Among the players.** The `sorted` / `over` pieces stand among the players as real
+    `<ComponentInstance>`s. `<IsoWorld>` mounts `<SpawnProps>`, which reads the
+    `arcadeProps.svelte.ts` registry (`setSpawnProps`) and draws into the spawn layer's own
+    instance container. `SpawnLayer.svelte` is untouched, because it is in every runtime.
+  - **Drawn with `PropGraphic`.** The pieces draw through a new bound part, `PropGraphic`
+    (`propGraphic.ts`: polys, rects and lines filled and stroked in order), registered by the arcade
+    seam (`apps/lines/src/families/arcade.ts`).
+  - **The seed bridge's pieces.** `bridgeProp` is now `bridgePropWater` / `Pillar` /
+    `DeckNear|Middle|Far` / `Slope`, drawing as `river.ts` piece for piece. The per-cell shimmer
+    phase is `offsetParam: 'phase'` on a frame-keyed sway timeline.
+  - **Fixed in passing.** `componentFields.ts` lacked the collider's `sideExit` (from 0d48419): a
+    type error, and a save that would have re-grafted a cleared `sideExit`.
+  - **Gates.** New `pnpm check:prop-depth` (26; it fails 18 checks when a colour, alpha or place
+    is changed), `check:prop-shape` (43), `test-hold-and-win-template` (re-pinned),
+    `check:svelte` at baseline. The river still draws the code bridge
+    (`check:salmons-art` unchanged).
+  - **Next, the arcade agent:** the river swap, the inputs in `online.ts`, and deleting the code
+    bridge.
 - 2026-11-26 — **Prop components P4: the seed bridge** ([arcade-prop-components](../design/arcade-prop-components.md)
   §7 P4, branch `claude/bold-cannon-3a8unw`, in review). The shared built-in `bridgeProp` and its
   segments `bridgePropDeckNear` / `…Middle` / `…Far` and `bridgePropReflection`, with the

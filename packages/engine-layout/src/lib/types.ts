@@ -157,6 +157,12 @@ interface BaseNode {
 	/** A `behind` or `sorted` node's depth offset in old px (the original's `zOffset`). Absent ⇒
 	 *  1100 for `sorted`, 0 for `behind`. */
 	propZOffset?: number;
+	/**
+	 * A prop's root-level component instance: the cell along its zone the piece stands at (the
+	 * mount places it there, `propPieces`), a number or `{ param, plus }` of the prop's params (the
+	 * far slope's land cell is `{ param: 'length', plus: 1 }`). Absent ⇒ cell 0.
+	 */
+	propCell?: PropLength;
 	overrides?: Partial<Record<LayoutType, NodeOverride>>;
 	visibleFor?: LayoutType[];
 	/**

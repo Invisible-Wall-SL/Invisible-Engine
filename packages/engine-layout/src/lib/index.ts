@@ -133,6 +133,8 @@ export * from './uiText';
 export * from './builtinComponents';
 export * from './builtinTimelines';
 export * from './propComponents';
+export * from './propGraphic';
+export * from './propPieces';
 export * from './potSkin';
 export * from './potPieces';
 export * from './wheelSkin';

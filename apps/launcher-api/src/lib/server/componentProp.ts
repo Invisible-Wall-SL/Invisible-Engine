@@ -113,8 +113,8 @@ export function normalizeProp(input: unknown): ArcadeProp | undefined {
 }
 
 /**
- * A node's prop band and depth offset, kept only of the right shape (a band `PROP_DEPTHS` lists, a
- * finite offset). A tree without a malformed one is the same object.
+ * A node's prop band, depth offset and cell, kept only of the right shape (a band `PROP_DEPTHS`
+ * lists, a finite offset, a `PropLength` cell). A tree without a malformed one is the same object.
  */
 export function normalizePropDepths(root: ContainerNode): ContainerNode {
 	const walk = (node: LayoutNode): LayoutNode => {
@@ -123,11 +123,13 @@ export function normalizePropDepths(root: ContainerNode): ContainerNode {
 		const children = kids.map(walk);
 		const badDepth = 'propDepth' in node && !PROP_DEPTH_SET.has(node.propDepth as PropDepth);
 		const badOffset = 'propZOffset' in node && !finite(node.propZOffset);
+		const badCell = 'propCell' in node && propLength(node.propCell) === undefined;
 		const moved = children.some((c, i) => c !== kids[i]);
-		if (!badDepth && !badOffset && !moved) return node;
+		if (!badDepth && !badOffset && !badCell && !moved) return node;
 		const next: Record<string, unknown> = { ...node };
 		if (badDepth) delete next.propDepth;
 		if (badOffset) delete next.propZOffset;
+		if (badCell) delete next.propCell;
 		if (moved) next.children = children;
 		return next as unknown as LayoutNode;
 	};
