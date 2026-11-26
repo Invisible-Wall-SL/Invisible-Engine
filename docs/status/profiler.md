@@ -21,7 +21,10 @@ project's readings and builds give a ranked list of what to cut — severity, a 
 readings side by side. Step **P5 "File as bug" built 2026-11-18**: each finding opens Bug Reports'
 own form filled in — a game or a pipeline bug, its area from the owner — once per finding, and the
 readings and builds it cites are kept while the bug exists. **P7 parked 2026-11-25**: the owner
-tests cloud phones by hand on BrowserStack Live, through an ordinary capture session.
+tests cloud phones by hand on BrowserStack Live, through an ordinary capture session. Step **P8
+"Arcade phases" built 2026-11-26** (in review): an arcade game's reading (`perf: 8`, `kind:
+'arcade'`) is split into `menu` and `play` with what its sim and room did per frame, and the
+launcher shows, budgets and judges it so; a slot reading is unchanged.
 
 ## Current state
 
@@ -101,10 +104,12 @@ tests cloud phones by hand on BrowserStack Live, through an ordinary capture ses
   requires `application/json` exactly, which forces a preflight. A session takes 200 readings (429
   after); a project may have 20 staged reading uploads waiting (a presigned PUT cannot be size-limited on
   R2, so the count bounds it; the sweep also removes any staged file over 8 MB at once).
-- **Reading a report.** `src/lib/profiler.ts` `summarizePerfReport`: reads `perf: 7` only; refuses
-  a non-report, another version, or one with no frames, with a sentence. Summary = device class and
-  reason, GPU, UA family (browser + OS, no full UA), DPR, canvas, build version / sha, test-switch
-  flags, idle / spinning / round fps-p50-p95-hitches-frames, draws and JS ms a frame, texture MB.
+- **Reading a report.** `src/lib/profiler.ts` `summarizePerfReport`: reads `perf: 7` and `8`;
+  refuses a non-report, another version, or one with no frames in its own phases, with a sentence.
+  Summary = the game's `kind` and phase set (P8: `arcade` → menu / play, else slot), `capped30`
+  (a browser cap, re-checked for v7), device class and reason, GPU, UA family (browser + OS, no
+  full UA), DPR, canvas, build version / sha, test-switch flags, the set's
+  fps-p50-p95-hitches-frames per phase, draws and JS ms a frame, texture MB.
 - **Storage.** Full JSON in R2 at `<client>/<project>/perf/reports/<id>.json` (`perfReportKey`,
   `SUB.perf`; written create-only, file before row, a failed insert removes the file unless the row
   turns out to exist); summary in
@@ -312,6 +317,11 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Open items / next
 
+0. **P8 — next: network monitoring** (heavy transfers, per-resource sizes), its own session after
+   P8 merges: a `network` block in the report (the name is free), the HUD's and the launcher's
+   view of it. P8 itself is unverified on a real phone until the owner takes a fresh `?perf=1`
+   Salmons capture after the merge's runtime release. A 3D arcade game's reading
+   (`arcade3d` runtime) counts its play frames only, no sim or room counts.
 1. **P6 tolerance across games.** Measured on one game on CI (above); widen or narrow
    `LAB_TOLERANCE` as the first nightlies of the other games come in. The
    forced-feature step is skipped online: a published game's player mock refuses `/force` (an
@@ -366,13 +376,74 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   430 × 739 (page cannot scroll, canvas fills, readout shown); **not yet checked on the real
   iPhone**.
 
+- 2026-11-26 — **P8 "Arcade phases" (in review; a runtime release on merge)**: the owner's first
+  Salmons reading (26 Nov 09:48, BS Live · Galaxy S24 Ultra, Adreno 750) put all 5,153 frames in
+  `idle` and its findings named no arcade cause. Design: [invisible-profiler §7](../design/invisible-profiler.md).
+  - **Probe (`perf: 8`).** Every report says `kind` (the config's family). An arcade game's frames
+    go to `menu` / `play` (`perfStats.ts` `createPerfStats(now, 'arcade')`), decided by the
+    runtime's own tick through `apps/lines/src/game/arcadePerf.ts` (written only while the probe
+    sets `on`): `play` while the local loop moved a body (`arcade.ts`) or the online room's
+    `state.phase` is `running` (`online.ts` `tickOnline`), else `menu`; a 3D arcade game marks
+    `play` on a tick that advanced its field (`ArcadeStage3D.svelte`), with no counts. No `busy`
+    phase: the only clean split was a body count, which means different things offline and
+    online. Per frame, in `work` beside the renderer's keys: `simSteps`, `simCatchUp`,
+    `simDroppedMs` (past the loop's 5-step cap, or cut by Pixi's 100 ms ticker clamp), `simMs`,
+    `netMs` (the room's messages, a WebSocket task between frames: `online.ts` `meterMessages`
+    wraps the SDK's `connection.events.onmessage`), `bodies`, `pairs` (`motion.js` `overlaps`
+    gains an optional counts sink), `spawns`, `despawns`, `looks`, `patches`, `patchBytes`,
+    `cameraPx`; `engine-game` `createArcadeLoop` gains an optional `perf` sink. Online,
+    `arcade.lateMs.<phase>` = how late each room state came against the patch periods its steps
+    span (`noteLate`; the first version read ±17 ms on a perfect network, as Salmons patches at
+    20 Hz between 30 Hz steps). New spike causes (`perfSpikes.ts`): `sim catch-up`, `sim`,
+    `spawn burst`, `tilemap/upload`, `state patch`. A slot reading is byte-for-byte what it was:
+    `perfStats.fixture.ts` hashes a slot feed's snapshot against its pre-P8 recording; only `perf`
+    and `kind` are new on its report (a booted `cg-lines` report's keys are v7's plus `kind`).
+  - **capped30 fixed (both kinds).** The owner's reading was flagged `capped30`, but it was not a
+    cap: BS Live Android phones read their real 60 / 90 Hz the same day (Galaxy M32, A16 on
+    Buffalo Duel), and its ~25 ms of main thread a frame (JS 19.4, late 3.8, after 3.1) cannot fit
+    a 16.7 ms frame, so vsync halved it to exactly 30. A cap now also needs the median
+    `lateMs + tickMs + afterMs` under 0.75 of a 60 Hz frame (12.5 ms); the launcher re-checks a
+    `perf: 7` flag against the work means (`profiler.ts` `cappedBrowser`). A capped reading is
+    tagged **30 cap**, left out of fps / p95 budgets and the fps rules, and counted under Devices.
+    `gpuCpuBound` now weighs our JS against `1000 / max(60, refreshHz)`, not the achieved
+    interval: the owner's reading reads CPU-bound, render submit the largest part (14.9 ms), not
+    "between CPU and GPU".
+  - **Launcher.** `PERF_REPORT_VERSIONS = [7, 8]`; `PHASE_SETS`, `phaseSetOf(kind)` (arcade →
+    `menu`/`play`, anything else or v7 → slot); migration `drizzle/0050_perf_reports_arcade.sql`
+    (`game_kind`, `arcade_phases` jsonb, `capped30`). Readings, Devices, Compare and the Builds
+    detail show the phases of the listed readings' sets; Budgets lists the project's game kind's
+    set (studio lines: `menu` = idle's, `play` = spinning's, by analogy); `evaluateReadings` judges
+    a device only on its readings' own phases. Facts gain an optional `arcade` block
+    (`FACTS_VERSION` stays 1: no stored row was a v8 reading). Lab counts gain `menu` / `play`
+    (idle's tolerance band, not measured yet) and six arcade counts for Compare. Rules: `spikes`
+    counts `play` (not `menu`) and owns the arcade causes to `arcade-games`; new **Sim catch-up**,
+    **Spawn churn**, **Cost per body**, **Patch / jitter stutter** (`rules/*.ts`, owner
+    `kindOwner(arcade)` = `arcade-games`, pipeline bugs, no estimate). `lab-sequence.mjs` counts an
+    arcade report's frames at boot (it waited for idle frames that a v8 arcade report no longer
+    has).
+  - **Gates.** `perfStats.fixture` (+ the slot hash, arcade phases, the cap with busy frames),
+    `perfSpikes.fixture` (+ each arcade cause and its near miss, a slot frame unchanged),
+    `check:profiler` 80/80 (61 before; the three profiler files, each new rule with a planted
+    mutant), `check:arcade-motion` 19, `check:arcade-camera` 90 (the sinks change no body, camera,
+    signal or step). svelte-check at baseline for `apps/lines` (145) and `apps/launcher-api` (44).
+  - **Bundles** (`check:runtime-bytes`, Linux manifests from CI's artifact): lines / match-3 / card
+    main bundle +16 / +13 / +18 B gzip, the lazy `?perf=1` chunk +1.25 KB (loaded only with the
+    flag); arcade main bundle +1.1 KB and arcade3d +1.2 KB (the counters in the arcade runtime),
+    each runtime +1.3–2.4 KB in all.
+  - **Played locally** (a release-env `apps/lines` build, headless shell): Salmons against a real
+    game server with `?perf=1` read `kind: arcade`, menu 850 frames then play 1,527 (the lobby,
+    then the river running), 73 bodies, 0.5 steps a frame at 30 Hz, room states late p50 1.3 /
+    p95 22.7 ms, `capped30: false`; the HUD shows the menu / play lines, the arcade line and both
+    columns. `cg-lines` through `lab-run.mjs --local` passed (warm-up, idle, 3 spins) with a slot
+    report. Both reports read correctly through `summarizePerfReport` and `reportFacts`.
+
 - 2026-11-26 — **Cloud phones: Live starts the phone; capture links name no device**: the owner
   picked iPhone Duo / iOS 27.1 and Live dropped `device` and `start` and started nothing. The
   builder sent `os=ios`, but BrowserStack's integration-URL page
   (https://www.browserstack.com/docs/live/integration-url-params, read 2026-11-26) spells it `iOS` /
   `Android`. `browserStackLiveUrl` now sends `osName(os)` and writes a space as `+`, as in the
   page's `os=OS+X` example. It sends only the documented keys `os os_version device
-  device_browser scale_to_fit speed url start`. iPhone Duo / 27.1 IS on Live's device list. The
+device_browser scale_to_fit speed url start`. iPhone Duo / 27.1 IS on Live's device list. The
   iPhone, iPad, Samsung, Pixel and other mobile entries of `LIVE_DEVICES` were re-checked against
   that list (2026-11-26) and match. The page documents no mobile `device` naming or `os_version`
   format; we keep brand + model for Android ("Samsung Galaxy S25"). Capture links (QR, GO, Copy,

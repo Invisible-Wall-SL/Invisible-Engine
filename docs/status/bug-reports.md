@@ -275,6 +275,31 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-26 — **A failed check says what to do, and runtime bytes re-record from the page.**
+  BUG-20's fix run built the owner's option and opened #1930, which sat Blocked on
+  `runtime-bytes` with nothing on the page saying why or how forward: the fix changed
+  `packages/pixi-svelte`, so all five released runtimes no longer matched `scripts/runtime-bytes`.
+  - Check 1 shows a failed job's own instruction: the first `failure` annotation of its check run
+    that is not GitHub's "Process completed with exit code N" (`pipelineAnnotations.ts`; the App's
+    Checks read; failed jobs only, cached ten minutes by check-run id, about 500 characters, plain
+    text). GitHub not answering is a line on the job, never an error.
+  - `check-runtime-bytes.mjs` prints its closing sentence as `::error title=runtime-bytes::…` under
+    `GITHUB_ACTIONS`, so it becomes that annotation. No other `check:*` script was touched, and no
+    workflow.
+  - **Re-record runtime bytes** (`POST /api/pipeline/changes/<n>/runtime-bytes`, body `{ headSha }`,
+    `pipelineMerge`): downloads the `runtime-bytes` artifact of the head's failed run, validates it
+    (`pipelineRuntimeBytes.ts`: `<id>.json` for ids in `constants-shared/runtimes`, the gate's
+    shape, size caps) and commits the manifests that differ onto the PR's branch with the Git Data
+    API, the ref moved with `force: false`. 409 `{ message, code }`: `no_run`, `no_artifact`,
+    `head_moved`, `invalid_artifact`, `nothing_to_change`. CI builds the merge ref with `main`, so
+    a later change to the runtimes on `main` can need another re-record.
+  - The build prompt (`scripts/bug-fix/coordinator.md`) says a change under `packages/` or
+    `apps/lines/` must not re-record the manifests and must name the re-record in `risks`.
+  - Gates: `check:pipeline-changes` 8128, `check:bug-fix-runs` 172, `check:bug-fix-workflow`,
+    `check:svelte --only apps/launcher-api` 44 (baseline), `pnpm lint`, `check:undefined-names`.
+  - Not verified against real GitHub: the artifact download and the ref update ran only against
+    the fixture's fake.
+
 - 2026-11-26 — **A refused file is named, and a build cleans up after its tests.** Fix run
   `9124c61f70` (Sheet Maker, option A) built a good fix that the launcher refused as "a file is not
   UTF-8 text": a file in the change held a NUL byte, almost certainly something a test or export

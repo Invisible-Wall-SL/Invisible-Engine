@@ -15,6 +15,18 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-26 · Phase 12 · director-architect (ADR-0015 proposed)
+- Did: wrote ADR-0015 after the owner's "no way to fix [the conflict] from the pipeline". Measured
+  the window 11-04…11-26: 219 of 298 branch merges of main conflicted (112 PRs); 52% purely
+  mechanical. Proposal: Update from main (update-branch as the App); Resolve conflict = a
+  merge-main.yml run, mechanical rules in code, Claude Code proposes the rest; nothing lands until
+  Accept; the launcher builds the merge from three trees, fast-forward only; On hold for #1140.
+- Files: `docs/director/DECISIONS/0015-resolve-merge-conflicts.md`, `README.md`.
+- Branch / PR: `claude/focused-hopper-nnfkz5`, with the Pipeline Changes check-help change.
+- Tests: docs only.
+- Decisions: none yet; twelve items wait on the owner.
+- Next: owner review; then 15A (with the workflows-permission spike).
+
 ## 2026-11-26 · Phase 11 · director-backend + director-frontend (14B built)
 - Did: a build run must explain its change (`changed`, `howToCheck`, `risks`) or it ends `no_fix`
   and opens nothing; the fix PR body is fixed plain headings (what you reported, what was wrong,

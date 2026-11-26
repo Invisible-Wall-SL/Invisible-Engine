@@ -6,16 +6,27 @@
  * what it built and threw away (`pixi-svelte` `glCounters.ts`, `churnProbe.ts`), as a mean and a
  * max per frame, and a record of each spike (`perfSpikes.ts`). Plain functions over a frame feed,
  * so a fixture can drive them without a canvas (`perfStats.fixture.ts`).
+ *
+ * PHASE SETS. A reading is split by the game's family (`PHASE_SETS`): a slot's frames into idle /
+ * spinning / round ({@link framePhase}), an arcade game's into `menu` / `play` (`arcadePerf.ts`
+ * says which, a frame late: the tick that decides it runs after the frame's timestamp is taken), with
+ * its fixed steps, bodies and room messages counted in `work` beside the renderer's counts and, for
+ * an online game, how late each room state arrived. A slot reading is the same as before arcade
+ * phases existed.
  */
 
 import type { FrameMotionView } from 'pixi-svelte/frameClock';
-import type { FrameWork } from 'pixi-svelte';
 
+import { ARCADE_WORK_KEYS, type ArcadePhase } from './arcadePerf';
 import {
+	PHASE_SETS,
 	createSpikeRecorder,
 	displayPeriodMs,
 	spikeThresholdMs,
+	type PerfFrameWork,
 	type PerfPhase,
+	type PhaseSet,
+	type SlotPhase,
 	type SpikeSummary,
 } from './perfSpikes';
 
@@ -34,13 +45,20 @@ const SAME_RATE = 0.05;
 /** Frames between two reads of the display's refresh for the spike threshold. */
 const THRESHOLD_EVERY = 60;
 /**
+ * A 30 fps cap is the browser's only when the frames' main-thread work (before, in and after the
+ * tick: `lateMs + tickMs + afterMs`, the median) fits this share of a 60 Hz frame. Busier frames
+ * cannot run at 60: on a 60 Hz display each one waits a second vsync, which reads as exactly 30 fps
+ * with no cap at all (the owner's Salmons reading on a Galaxy S24 Ultra, 2026-11-26: ~25 ms a frame).
+ */
+const CAP_BUSY_SHARE = 0.75;
+/**
  * The game's top-level states a round is played in (`utils-xstate` `STATE_BET`, `STATE_AUTOBET`,
  * `STATE_RESUME_BET`): the win presentation and a feature run inside them, reels at rest.
  */
 const ROUND_STATES = new Set(['bet', 'autoBet', 'resumeBet']);
 
 /** The phase a frame counts in: spinning when a reel moves, else round or idle by the state. */
-export function framePhase(spinning: boolean, state: string | undefined): PerfPhase {
+export function framePhase(spinning: boolean, state: string | undefined): SlotPhase {
 	if (spinning) return 'spinning';
 	return state !== undefined && ROUND_STATES.has(state.split(/[.,]/)[0]) ? 'round' : 'idle';
 }
@@ -107,9 +125,12 @@ export const WORK_KEYS = [
 	'textMs',
 	'domAdded',
 	'domRemoved',
-] as const satisfies readonly (keyof FrameWork)[];
+] as const satisfies readonly (keyof PerfFrameWork)[];
 
-export type WorkKey = (typeof WORK_KEYS)[number];
+/** Every key a frame's work is bucketed on: the renderer's, then an arcade frame's own. */
+const BUCKET_KEYS = [...WORK_KEYS, ...ARCADE_WORK_KEYS] as const;
+
+export type WorkKey = (typeof BUCKET_KEYS)[number];
 
 export type WorkSnapshot = {
 	frames: number;
@@ -117,19 +138,41 @@ export type WorkSnapshot = {
 	perFrame: Partial<Record<WorkKey, { mean: number; max: number }>>;
 };
 
-export type PerfSnapshot = {
+/** How late an online arcade game's room states arrived (`arcadePerf.ts` `lates`), ms. */
+export type LateSnapshot = { count: number; p50: number; p95: number; max: number };
+
+type CommonSnapshot = {
 	seconds: number;
 	refreshHz: number | undefined;
-	/** rAF never ran faster than ~30 fps: the browser capped it (iOS Low Power Mode does). */
+	/**
+	 * rAF never ran faster than ~30 fps while the frames' work would have fit a 60 Hz frame: the
+	 * browser capped it (iOS Low Power Mode does).
+	 */
 	capped30: boolean;
+	spikes: SpikeSummary;
+};
+
+export type SlotSnapshot = CommonSnapshot & {
+	set: 'slot';
 	idle: PerfBucketSnapshot;
 	spinning: PerfBucketSnapshot;
 	/** A round's frames with the reels at rest: the win presentation, a feature's screens. */
 	round: PerfBucketSnapshot;
 	reel: { steps: number; mean: number; p95: number; max: number };
-	work: Record<PerfPhase, WorkSnapshot>;
-	spikes: SpikeSummary;
+	work: Record<SlotPhase, WorkSnapshot>;
 };
+
+export type ArcadeSnapshot = CommonSnapshot & {
+	set: 'arcade';
+	/** The field not playing: a title, a lobby, a countdown, a win screen. */
+	menu: PerfBucketSnapshot;
+	/** The field playing: the loop moving bodies, the online room running. */
+	play: PerfBucketSnapshot;
+	work: Record<ArcadePhase, WorkSnapshot>;
+	lateMs: Record<ArcadePhase, LateSnapshot>;
+};
+
+export type PerfSnapshot = SlotSnapshot | ArcadeSnapshot;
 
 class Ring {
 	private values: number[] = [];
@@ -178,9 +221,9 @@ class WorkBucket {
 	frames = 0;
 	private readonly sum: Partial<Record<WorkKey, number>> = {};
 	private readonly max: Partial<Record<WorkKey, number>> = {};
-	add(work: FrameWork): void {
+	add(work: PerfFrameWork): void {
 		this.frames++;
-		for (const key of WORK_KEYS) {
+		for (const key of BUCKET_KEYS) {
 			const value = work[key];
 			if (typeof value !== 'number' || !Number.isFinite(value)) continue;
 			this.sum[key] = (this.sum[key] ?? 0) + value;
@@ -189,7 +232,7 @@ class WorkBucket {
 	}
 	snapshot(): WorkSnapshot {
 		const perFrame: WorkSnapshot['perFrame'] = {};
-		for (const key of WORK_KEYS) {
+		for (const key of BUCKET_KEYS) {
 			const sum = this.sum[key];
 			if (sum === undefined) continue;
 			perFrame[key] = { mean: round1(sum / this.frames), max: round1(this.max[key] ?? 0) };
@@ -198,7 +241,7 @@ class WorkBucket {
 	}
 }
 
-/** rAF never ran faster than ~30 fps over these (sorted) intervals: a browser cap. */
+/** rAF never ran faster than ~30 fps over these (sorted) intervals: a cap, if the work fit. */
 const isCapped30 = (sorted: number[]) =>
 	sorted.length >= 60 && quantile(sorted, 0.1) >= 30 && quantile(sorted, 0.5) <= 36;
 
@@ -215,53 +258,91 @@ export function estimateRefreshHz(intervals: number[]): number | undefined {
 	return Math.abs(nearest - hz) / nearest <= 0.08 ? nearest : Math.round(hz);
 }
 
-export function createPerfStats(now: () => number = () => performance.now()) {
+const lateOf = (ring: Ring): LateSnapshot => {
+	const sorted = ring.sorted();
+	return {
+		count: sorted.length,
+		p50: round1(quantile(sorted, 0.5)),
+		p95: round1(quantile(sorted, 0.95)),
+		max: round1(sorted.at(-1) ?? 0),
+	};
+};
+
+export interface PerfStats<S extends PerfSnapshot = PerfSnapshot> {
+	/**
+	 * One Pixi tick of a slot: its frame timestamp, whether the game says it is spinning, every
+	 * moving reel, and the game's state. A frame with a reel moving counts as spinning too (a Hold
+	 * and Win respin's cells); one in a round with every reel at rest, as the round's.
+	 */
+	frame(time: number, isSpinning: boolean, moving: Iterable<FrameMotionView>, state?: string): void;
+	/** One Pixi tick of an arcade game: its frame timestamp and the phase the last tick was in. */
+	arcadeFrame(time: number, phase: ArcadePhase, state?: string): void;
+	/** What the frame just over did; it counts where that frame's interval did. */
+	work(sample: PerfFrameWork): void;
+	/** An online arcade game's room states since the last frame: how late each arrived, ms. */
+	lates(ms: readonly number[]): void;
+	/** A long task (Chrome's `longtask` entries), for the spike records. */
+	longTask(start: number, duration: number): void;
+	/** The page was hidden: the next interval is the pause, not a frame. */
+	pause(): void;
+	reset(): void;
+	snapshot(): S;
+}
+
+/** The snapshot a phase set's readings give. */
+export type SnapshotOf<S extends PhaseSet> = S extends 'arcade' ? ArcadeSnapshot : SlotSnapshot;
+
+/** The readout's numbers for a slot (the default) or an arcade game (`set` `arcade`). */
+export function createPerfStats<S extends PhaseSet = 'slot'>(
+	now: () => number = () => performance.now(),
+	set: S = 'slot' as S,
+): PerfStats<SnapshotOf<S>> {
+	const phases: readonly PerfPhase[] = PHASE_SETS[set];
+	/** One per phase of the set: the only phases a frame of this reading is put in. */
+	const perPhase = <T>(make: () => T) =>
+		Object.fromEntries(phases.map((phase) => [phase, make()])) as Record<PerfPhase, T>;
 	let startedAt = now();
 	let lastTime: number | undefined;
-	let buckets = { idle: new Bucket(), spinning: new Bucket(), round: new Bucket() };
+	let buckets = perPhase(() => new Bucket());
 	let reel = new Ring();
 	let reelSteps = 0;
 	let reelSum = 0;
 	let reelMax = 0;
 	let previous = new WeakMap<object, { visual: number; rate: number; time: number }>();
-	let work = { idle: new WorkBucket(), spinning: new WorkBucket(), round: new WorkBucket() };
-	let lastPhase: PerfPhase = 'idle';
-	const spikes = createSpikeRecorder();
+	let work = perPhase(() => new WorkBucket());
+	let late = perPhase(() => new Ring());
+	let busy = new Ring();
+	let lastPhase: PerfPhase = phases[0];
+	const spikes = createSpikeRecorder(phases);
 	let framesSeen = 0;
 	let threshold = spikeThresholdMs(displayPeriodMs(undefined, false));
 	const intervals = () =>
-		[
-			...buckets.idle.intervals(),
-			...buckets.spinning.intervals(),
-			...buckets.round.intervals(),
-		].sort((a, b) => a - b);
+		phases.flatMap((phase) => buckets[phase].intervals()).sort((a, b) => a - b);
+	const capped30 = (sorted: number[]) => {
+		if (!isCapped30(sorted)) return false;
+		const frames = busy.sorted();
+		return !frames.length || quantile(frames, 0.5) < (CAP_BUSY_SHARE * 1000) / 60;
+	};
 
-	return {
-		/**
-		 * One Pixi tick: its frame timestamp, whether the game says it is spinning, every moving
-		 * reel, and the game's state. A frame with a reel moving counts as spinning too (a Hold and
-		 * Win respin's cells); one in a round with every reel at rest, as the round's.
-		 */
-		frame(
-			time: number,
-			isSpinning: boolean,
-			moving: Iterable<FrameMotionView>,
-			state?: string,
-		): void {
+	const count = (time: number, phase: PerfPhase, state: string | undefined) => {
+		const interval = lastTime === undefined ? undefined : time - lastTime;
+		lastPhase = phase;
+		if (++framesSeen % THRESHOLD_EVERY === 0) {
+			const sorted = intervals();
+			threshold = spikeThresholdMs(displayPeriodMs(estimateRefreshHz(sorted), capped30(sorted)));
+		}
+		if (interval !== undefined && interval > 0) {
+			buckets[phase].add(interval);
+			const at = Math.round((time - startedAt) / 100) / 10;
+			spikes.frame(time, interval, threshold, phase, state, at);
+		}
+		return interval;
+	};
+
+	const stats: PerfStats = {
+		frame(time, isSpinning, moving, state) {
 			const motions = [...moving];
-			const interval = lastTime === undefined ? undefined : time - lastTime;
-			lastPhase = framePhase(isSpinning || motions.length > 0, state);
-			if (++framesSeen % THRESHOLD_EVERY === 0) {
-				const sorted = intervals();
-				threshold = spikeThresholdMs(
-					displayPeriodMs(estimateRefreshHz(sorted), isCapped30(sorted)),
-				);
-			}
-			if (interval !== undefined && interval > 0) {
-				buckets[lastPhase].add(interval);
-				const at = Math.round((time - startedAt) / 100) / 10;
-				spikes.frame(time, interval, threshold, lastPhase, state, at);
-			}
+			const interval = count(time, framePhase(isSpinning || motions.length > 0, state), state);
 			for (const motion of motions) {
 				const rate = motion.rate;
 				const visual = motion.drawn - motion.shift;
@@ -284,39 +365,59 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 			}
 			lastTime = time;
 		},
-		/** What the frame just over did; it counts where that frame's interval did. */
-		work(sample: FrameWork): void {
+		arcadeFrame(time, phase, state) {
+			count(time, phase, state);
+			lastTime = time;
+		},
+		work(sample) {
 			work[lastPhase].add(sample);
+			busy.push(sample.lateMs + sample.tickMs + sample.afterMs);
 			spikes.work(sample);
 		},
-		/** A long task (Chrome's `longtask` entries), for the spike records. */
-		longTask(start: number, duration: number): void {
+		lates(ms) {
+			for (const value of ms) late[lastPhase].push(value);
+		},
+		longTask(start, duration) {
 			spikes.longTask(start, duration);
 		},
-		/** The page was hidden: the next interval is the pause, not a frame. */
-		pause(): void {
+		pause() {
 			lastTime = undefined;
 		},
-		reset(): void {
+		reset() {
 			startedAt = now();
 			lastTime = undefined;
-			buckets = { idle: new Bucket(), spinning: new Bucket(), round: new Bucket() };
+			buckets = perPhase(() => new Bucket());
 			reel = new Ring();
 			reelSteps = 0;
 			reelSum = 0;
 			reelMax = 0;
 			previous = new WeakMap();
-			work = { idle: new WorkBucket(), spinning: new WorkBucket(), round: new WorkBucket() };
+			work = perPhase(() => new WorkBucket());
+			late = perPhase(() => new Ring());
+			busy = new Ring();
 			spikes.reset();
 		},
 		snapshot(): PerfSnapshot {
 			const sorted = intervals();
-			const refreshHz = estimateRefreshHz(sorted);
+			const common = {
+				seconds: Math.round((now() - startedAt) / 1000),
+				refreshHz: estimateRefreshHz(sorted),
+				capped30: capped30(sorted),
+			};
+			if (set === 'arcade')
+				return {
+					set,
+					...common,
+					menu: buckets.menu.snapshot(),
+					play: buckets.play.snapshot(),
+					work: { menu: work.menu.snapshot(), play: work.play.snapshot() },
+					lateMs: { menu: lateOf(late.menu), play: lateOf(late.play) },
+					spikes: spikes.snapshot(threshold),
+				};
 			const reelSorted = reel.sorted();
 			return {
-				seconds: Math.round((now() - startedAt) / 1000),
-				refreshHz,
-				capped30: isCapped30(sorted),
+				set,
+				...common,
 				idle: buckets.idle.snapshot(),
 				spinning: buckets.spinning.snapshot(),
 				round: buckets.round.snapshot(),
@@ -335,6 +436,5 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 			};
 		},
 	};
+	return stats as PerfStats<SnapshotOf<S>>;
 }
-
-export type PerfStats = ReturnType<typeof createPerfStats>;
