@@ -116,7 +116,7 @@ function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMappi
 }
 
 /** What 🔄 Update rig merges into the open rig (`frameRigUpdate`), and the edited mapping's fit. */
-function merging(o: SheetUpdateInput): Fitted<{
+export function merging(o: SheetUpdateInput): Fitted<{
 	fit: RigFit;
 	input: FrameUpdateInput;
 	/** The kept mapping built today, when it still builds. */
@@ -223,11 +223,31 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	};
 }
 
-/** The open rig as the 🗺 Edit mapping preview sends it: its slots, back to front, and its skins. */
+/** The open rig as the 🗺 Edit mapping preview sends it: its slots, back to front, and its skin. */
 export interface SheetRigOutline {
 	slots: readonly string[];
-	/** Each skin's attachment names, by slot. */
+	/**
+	 * The skin `madeParts` reads (`default`, else the first; none when the rig has no skin): its
+	 * attachment names, by slot.
+	 */
 	skins: readonly { name: string; attachments: Readonly<Record<string, readonly string[]>> }[];
+}
+
+/** An outline as a rig document `merging` reads: its slots, and its skin's attachments by name. */
+export function outlineDoc(rig: SheetRigOutline): Json {
+	return {
+		bones: [],
+		slots: rig.slots.map((name) => ({ name })),
+		skins: rig.skins.map((s) => ({
+			name: s.name,
+			attachments: Object.fromEntries(
+				Object.entries(s.attachments).map(([slot, names]) => [
+					slot,
+					Object.fromEntries(names.map((n) => [n, {}])),
+				]),
+			),
+		})),
+	};
 }
 
 /**
@@ -240,20 +260,7 @@ export function sheetEditPreview(
 ): LayersFitted<SheetPreview> {
 	const shown = sheetPreview(o.template, o.regions, o.mapping, { edit: true });
 	if (!shown.ok) return shown;
-	const current: Json = {
-		bones: [],
-		slots: o.rig.slots.map((name) => ({ name })),
-		skins: o.rig.skins.map((s) => ({
-			name: s.name,
-			attachments: Object.fromEntries(
-				Object.entries(s.attachments).map(([slot, names]) => [
-					slot,
-					Object.fromEntries(names.map((n) => [n, {}])),
-				]),
-			),
-		})),
-	};
-	const merge = merging({ ...o, current });
+	const merge = merging({ ...o, current: outlineDoc(o.rig) });
 	if (!merge.ok) return merge;
 	const layers = sheetLayersApplied(
 		o.template,

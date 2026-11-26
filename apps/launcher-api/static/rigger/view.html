@@ -13349,12 +13349,14 @@ function s2rArrangeItems(){
 }
 const s2rIsSel = (it) => !!s2r.sel && (it.part ? s2r.sel.part === it.part : s2r.sel.prop === it.prop);
 
-// 🗺 Edit mapping: the open rig (its slots, its skins' attachment names, the mapping it keeps), so
+// 🗺 Edit mapping: the open rig (its slots, its skin's attachment names, the mapping it keeps), so
 // the launcher judges the Layers as 🔄 Update rig will (rigSheetUpdate.ts sheetEditPreview): Setup's
 // own order warns of nothing a change here does not touch.
 function s2rPreviewRig(){
   if (!s2r.edit || !rawDoc || !sheetSrc.doc) return {};
-  const skins = (Array.isArray(rawDoc.skins) ? rawDoc.skins : []).map((k) => ({
+  // The one skin the launcher reads (rigFrameUpdate.ts madeParts): `default`, else the first.
+  const all = Array.isArray(rawDoc.skins) ? rawDoc.skins : [];
+  const skins = [all.find((k) => k.name === "default") || all[0]].filter(Boolean).map((k) => ({
     name: k.name,
     attachments: Object.fromEntries(Object.entries(k.attachments || {}).map(([slot, by]) => [slot, Object.keys(by || {})])),
   }));

@@ -61,7 +61,7 @@ async function load(mutate = []) {
 				"export * from './server/rigSheetFit.ts';",
 				"export { sheetLayerList } from './rigSheetMap.ts';",
 				"export * from './server/rigTemplates.ts';",
-				"export { attachmentHash } from './server/rigFrameUpdate.ts';",
+				"export { attachmentHash, frameRigUpdate, mergedSlots } from './server/rigFrameUpdate.ts';",
 				"export { irigDocProblem } from './server/riggerIrig.ts';",
 				"export { regionsToRigAtlas } from './server/rig.ts';",
 			].join('\n'),
@@ -827,10 +827,10 @@ const GUARDS = {
 			out.splice(out.indexOf(after) + 1, 0, slot);
 			return out;
 		};
-		/** The open rig as the page sends it with the preview: its slots and skins' attachment names. */
+		/** The open rig as the page sends it with the preview: its slots, its skin's attachment names. */
 		const outline = (doc) => ({
 			slots: setup(doc),
-			skins: doc.skins.map((k) => ({
+			skins: [doc.skins.find((k) => k.name === 'default') ?? doc.skins[0]].map((k) => ({
 				name: k.name,
 				attachments: Object.fromEntries(
 					Object.entries(k.attachments).map(([slot, by]) => [slot, Object.keys(by)]),
@@ -899,6 +899,18 @@ const GUARDS = {
 			],
 		];
 		for (const [what, current, mapping, accepted, was = base] of cases) {
+			// The slots the preview judges are the ones the update's merge leaves, before any layers.
+			const o = { template: t, regions: REGIONS, was, mapping };
+			const full = M.merging({ ...o, current });
+			const lean = M.merging({ ...o, current: M.outlineDoc(outline(current)) });
+			const merged = full.ok && setup(M.frameRigUpdate(full.value.input).doc);
+			const judged = lean.ok && M.mergedSlots(lean.value.input);
+			good =
+				ok(
+					`preview: ${what}: the slots it judges are the ones 🔄 Update rig's merge leaves`,
+					merged && JSON.stringify(judged) === JSON.stringify(merged),
+					`merge   ${merged && merged.join(' ')}\n        preview ${judged && judged.join(' ')}`,
+				) && good;
 			const upd = M.updateSheetRig({ template: t, regions: REGIONS, was, mapping, current });
 			const pv = M.sheetEditPreview({
 				template: t,
@@ -1124,6 +1136,24 @@ const MUTANTS = [
 		'preview',
 		"the preview judging every changed list, not only one that moves the merged rig's slots",
 		[FIT, '\tif (now.every((n, i) => n === merged[i])) return { ok: true, value: null };\n', ''],
+	],
+	[
+		'preview',
+		"the merge keeping a taken-off prop's slot (the preview's slots then not the merge's)",
+		[
+			'rigFrameUpdate.ts',
+			'\tdoc.slots = (doc.slots ?? []).filter((s) => s.name !== r.slot);\n',
+			'',
+		],
+	],
+	[
+		'preview',
+		"the merge drawing a new prop's slot one place on (the preview's slots then not the merge's)",
+		[
+			'rigFrameUpdate.ts',
+			'\t\tdoc.slots.splice(at, 0, { ...slot,',
+			'\t\tdoc.slots.splice(at + 1, 0, { ...slot,',
+		],
 	],
 	[
 		'preview',

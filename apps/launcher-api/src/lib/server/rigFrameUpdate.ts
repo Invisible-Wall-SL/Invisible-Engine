@@ -795,7 +795,7 @@ export function madeParts(
 	const boneNames = d.bones.map((b) => b.name);
 	const want = new Set(names);
 	const skin = (d.skins ?? []).find((s) => s.name === 'default') ?? d.skins?.[0];
-	const out: Record<string, { slot: string; hash: string }> = {};
+	const out: Record<string, { slot: string; hash: string }> = Object.create(null);
 	for (const [slot, by] of Object.entries(skin?.attachments ?? {}))
 		for (const [name, att] of Object.entries(by))
 			if (want.has(name) && isRecord(att))
