@@ -5,10 +5,17 @@
 	import { NetworkLost, api, describe, newRequestId, resend } from '../director/director.client';
 	import Pill from '../pipeline/Pill.svelte';
 	import { safeHref } from '../pipeline/view';
-	import { fileSecondBugHref, fixControl, fixRunLine, secondBugText } from './fixView';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import {
+		DIAGNOSE_TIP,
+		fileSecondBugHref,
+		fixControl,
+		fixRunLine,
+		secondBugText,
+	} from './fixView';
 
 	/**
-	 * Start fix / Send and start fix and the run lines of one pipeline bug (ADR-0013 card 13C), on
+	 * Diagnose / Send and diagnose and the run lines of one pipeline bug (ADR-0013 card 13C), on
 	 * the Bugs tab of Pipeline Changes and on the bug page. What shows is decided by `fixControl` and
 	 * `fixRunLine`; the server checks every rule again. Text from a run is rendered as text.
 	 */
@@ -20,6 +27,7 @@
 		canFile,
 		limit = 1,
 		showControl = true,
+		summaryShown = false,
 		onchanged,
 	}: {
 		number: number;
@@ -32,6 +40,8 @@
 		limit?: number;
 		/** False on a finished bug: its runs show, there is nothing to start. */
 		showControl?: boolean;
+		/** The newest run's summary shows elsewhere (the bug page's banner): do not repeat it. */
+		summaryShown?: boolean;
 		/** The bug changed on the server (a run started or stopped): read it again. */
 		onchanged: () => void;
 	} = $props();
@@ -48,7 +58,7 @@
 		if (busy || control.kind !== 'start') return;
 		const confirmed = await askConfirm({
 			title: `${control.label}: ${bugRef(number)}`,
-			message: `${control.sends ? 'Sends the bug to Pipeline Changes, then starts' : 'Starts'} a fix run: Claude Code works on the bug in a GitHub Actions job and proposes a draft pull request. It spends on the Anthropic API, and the pull request is public on GitHub. Nothing merges without the owner.`,
+			message: `${control.sends ? 'Sends the bug to Pipeline Changes, then starts' : 'Starts'} a diagnosis: Claude Code finds the cause in a GitHub Actions job and offers options. It changes nothing and spends on the Anthropic API. A build starts only when you choose an option.`,
 			confirmLabel: control.label,
 		});
 		if (!confirmed) return;
@@ -72,7 +82,7 @@
 	async function stop(run: FixRunView): Promise<void> {
 		if (busy) return;
 		const confirmed = await askConfirm({
-			title: `Stop fix run ${run.id}`,
+			title: `Stop run ${run.id}`,
 			message:
 				'Cancels the job on GitHub. What it has spent so far is not recovered, and no pull request opens from it.',
 			confirmLabel: 'Stop',
@@ -98,17 +108,19 @@
 				<button type="button" class="btn primary" disabled={busy !== null} onclick={start}>
 					{busy === 'start' ? 'Starting…' : control.label}
 				</button>
+				<InfoTip>{DIAGNOSE_TIP}</InfoTip>
 			</div>
 		{:else if control.kind === 'blocked'}
 			<div class="actions">
 				<button type="button" class="btn" disabled>{control.label}</button>
+				<InfoTip>{DIAGNOSE_TIP}</InfoTip>
 				<span class="why">{control.why}</span>
 			</div>
 		{/if}
 		{#if failure}<div class="error" role="alert">{failure}</div>{/if}
 		{#if shown.length}
 			<ul class="runs">
-				{#each shown as run (run.id)}
+				{#each shown as run, i (run.id)}
 					{@const line = fixRunLine(run)}
 					{@const pr = safeHref(run.prUrl)}
 					{@const actions = safeHref(run.actionsUrl)}
@@ -138,7 +150,7 @@
 								</button>
 							{/if}
 						</div>
-						{#if line.note}<p class="note">{line.note}</p>{/if}
+						{#if line.note && !(summaryShown && i === 0)}<p class="note">{line.note}</p>{/if}
 						{#if run.secondBug}
 							<p class="second">
 								{secondBugText(run.secondBug)}

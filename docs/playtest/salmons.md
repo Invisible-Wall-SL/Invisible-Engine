@@ -109,7 +109,8 @@ with Invisible Characters' own edits: [`--sheet`](#a-character-sheet-made-in-the
 [`--rig`](#a-rig-and-still-images-chosen-in-the-tool---rig). `--hold` plays one whose salmon's catch holds its last
 frame ([below](#a-held-catch---hold)).
 `--turn` plays a sheet that turns smoothly, as clips and as a rig
-([below](#a-smooth-turn---turn)).
+([below](#a-smooth-turn---turn)). `--trees` plays one page whose trees are drawn with zone art
+([below](#zone-arts-trees---trees)).
 
 A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
 games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
@@ -598,6 +599,25 @@ The stubs cannot show whether a turn looks right on real art: that is judged on 
 The shots: `turn-clip-NN-…`, `turn-clip-NN-seq-<facing>-lean<degrees>.png` (the reversal frame by
 frame), `turn-gold-…` the same for page G, `turn-rig-NN-seq-…` and `turn-rig-flip-NN-…`. The
 readings are in `result.json` under `turn`.
+
+## Zone art's trees (`--trees`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-trees --trees
+```
+
+One page (T) in a room of the game's own config, on the same runtime build. Its snapshot's
+config holds `arcade.zoneArt['@trees']` as a publish stores it: a magenta 32 × 64 frame of a stub
+sheet exported as a publish exports one, named in `characterArt`
+([design/zone-art](../design/zone-art.md) "Scenery keys"). 4 verdicts:
+
+- every tree of T's river is drawn with the trees' art (`regions()['zoneArt:@trees']` over 50)
+  and none with a built-in `tree_N`;
+- the rest of the river is drawn in the original images as without it (grass, one `rock_` per
+  rock, four `whirlpool_` frames per pool, two faces per waterfall);
+- the frame is on screen (`trees.png`, over 500 magenta pixels);
+- no page error.
 
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 

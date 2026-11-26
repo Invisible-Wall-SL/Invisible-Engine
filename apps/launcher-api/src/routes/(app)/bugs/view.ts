@@ -356,7 +356,9 @@ function fixRunText(e: BugEventView): string {
 	const reason = typeof d.reason === 'string' && d.reason ? d.reason : null;
 	switch (d.status) {
 		case 'dispatched':
-			return `started fix run ${run}`;
+			return d.mode === 'diagnose' ? `started diagnosis ${run}` : `started fix run ${run}`;
+		case 'diagnosed':
+			return `finished the diagnosis: ${Number(d.options) || 0} option${d.options === 1 ? '' : 's'} to choose from`;
 		case 'running':
 			return 'started work on the bug';
 		case 'pr_opened':
@@ -443,6 +445,10 @@ export function eventText(e: BugEventView): string {
 			return `linked #${String(d.pr)}${typeof d.title === 'string' ? ` “${d.title}”` : ''}`;
 		case 'fix_run':
 			return fixRunText(e);
+		case 'fix_decision': {
+			const note = typeof e.data.note === 'string' && e.data.note ? ` (note: ${e.data.note})` : '';
+			return `chose option ${String(e.data.option)} — ${String(e.data.name)}${note}`;
+		}
 		default:
 			return e.kind;
 	}

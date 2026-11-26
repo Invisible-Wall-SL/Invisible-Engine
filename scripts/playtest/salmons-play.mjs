@@ -43,7 +43,13 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn]
+//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees]
+//
+// `--trees` plays ONE room too (zone art's scenery, docs/design/zone-art.md): page T boots the game
+// with `arcade.zoneArt['@trees']` set to a magenta frame of a stub sheet exported as a publish
+// exports one, in the room of the game's own config (zone art is cosmetic). Every tree of its
+// river is drawn with the frame and none with the built-in trees, the rest of the river is drawn
+// in the original images as without it, and the magenta is on screen.
 //
 // `--rig` plays ONE room too (character pipeline C6a): page R's salmon is of a class whose sheet
 // names a RIG (one rig for every facing: a swim named for the action alone, a hop named for one
@@ -111,7 +117,11 @@ import {
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { SALMONS_CHARACTER_CLIPS } from '../../packages/engine-layout/src/lib/referenceLayouts/salmonsClips.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	withZoneArt,
+} from '../../packages/game-config/index.ts';
 import { heldBy } from '../../services/game-server/src/addresses.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { issuePass } from '../../services/game-server/src/arcadeRoom.ts';
@@ -138,6 +148,7 @@ const { values: opt } = parseArgs({
 		rig: { type: 'boolean', default: false },
 		hold: { type: 'boolean', default: false },
 		turn: { type: 'boolean', default: false },
+		trees: { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -615,6 +626,49 @@ const snapHold = await serveSnapshot({
 	bundleFile: withHold,
 	name: 'Salmons',
 	snapshotId: 'salmons-hold',
+});
+// `--trees`: the game's own config with zone art's trees, as a publish stores it (carried past the
+// normalizer), a magenta frame of a stub sheet exported as a publish exports one and named in
+// `characterArt`, so the boot keeps its sheet loaded.
+const TREES_SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_TreeStub.json';
+const TREE_RGB = [0xff, 0x00, 0xff];
+const withTrees = join(work, 'runtime-trees.json');
+{
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_TreeStub.png'),
+		png(32, 64, () => TREE_RGB),
+	);
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_TreeStub.json'),
+		JSON.stringify({
+			frames: { pine: stubFrame(0) },
+			meta: { image: 'S_TreeStub.png', format: 'RGBA8888', size: { w: 32, h: 64 }, scale: '1' },
+		}),
+	);
+	const zoneArt = {
+		'@trees': { source: { kind: 'sprite', region: `${TREES_SHEET}::pine` }, placement: 'stamp' },
+	};
+	writeFileSync(
+		withTrees,
+		JSON.stringify({
+			doc,
+			componentDefs,
+			componentDefaults: {},
+			config: withZoneArt(config, { ...authored, arcade: { ...authored.arcade, zoneArt } }),
+			flowV2: SALMONS_SEED_DOC,
+			editorArt: {
+				sheets: [{ key: TREES_SHEET, json: 'editor-art/S_TreeStub.json' }],
+				images: [],
+			},
+			characterArt: [`${TREES_SHEET}::pine`],
+		}),
+	);
+}
+const snapTrees = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withTrees,
+	name: 'Salmons',
+	snapshotId: 'salmons-trees',
 });
 // `--rig`: the same room with the salmon class naming a sheet whose source is a rig, and the bear
 // class one of still images. Both sheets are the ones Invisible Characters' own edits make of a
@@ -2488,6 +2542,48 @@ play: try {
 		await k.page.close();
 		break play;
 	}
+	if (opt.trees) {
+		const t = await ready(
+			await boot('t', {
+				rooms_name: 'Tam',
+				rooms_character: 'salmon',
+				editorDocBase: snapTrees.origin,
+			}),
+		);
+		await settle(t, 1500);
+		const regions = (await drawnOf(t)).art?.regions ?? {};
+		const sum = (prefix) =>
+			Object.entries(regions)
+				.filter(([name]) => name.startsWith(prefix))
+				.reduce((total, [, n]) => total + n, 0);
+		const made = (await riverOf(t, config)).made?.made;
+		verdict(
+			'trees: page T draws every tree of its river with the trees’ art, and no built-in tree',
+			(regions['zoneArt:@trees'] ?? 0) > 50 && sum('tree_') === 0,
+			{ trees: regions['zoneArt:@trees'], builtIn: sum('tree_') },
+		);
+		verdict(
+			'…and the rest of its river in the original images, as without it',
+			!!made &&
+				regions.grass_c > 100 &&
+				sum('rock_') === (made.rocks?.length ?? 0) &&
+				sum('whirlpool_') === made.whirlpools.length * 4 &&
+				(regions.waterfall_face ?? 0) === (made.waterfalls?.length ?? 0) * 2,
+			{ regions, rocks: made?.rocks?.length, pools: made?.whirlpools.length },
+		);
+		const shot = await t.page.screenshot();
+		writeFileSync(join(out, 'trees.png'), shot);
+		result.shots.push('trees.png');
+		const png = PNG.sync.read(shot);
+		let magenta = 0;
+		for (let i = 0; i < png.data.length; i += 4)
+			if (png.data[i] > 200 && png.data[i + 1] < 60 && png.data[i + 2] > 200) magenta += 1;
+		verdict('…and the trees’ frame is on screen (magenta)', magenta > 500, { magenta });
+		const errors = await t.page.evaluate('window.__AR_ERRORS__');
+		verdict('page T: no page error', errors.length === 0, errors);
+		await t.page.close();
+		break play;
+	}
 	if (opt.sheet) {
 		const z = await ready(
 			await boot('z', {
@@ -3959,6 +4055,7 @@ play: try {
 	await snapClipsAuthored.close();
 	await snapCatcher.close();
 	await snapSheet.close();
+	await snapTrees.close();
 	await snapTurn.close();
 	await snapTurnRig.close();
 	rmSync(work, { recursive: true, force: true });

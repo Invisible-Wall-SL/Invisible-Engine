@@ -281,15 +281,56 @@ test('3. a BrowserStack Live link starts the picked phone on a GO link with no ?
 		// Whatever Live does — split the hash first or decode it first — it reads the same link.
 		assert.equal(new URLSearchParams(hash).get('url'), go, 'split first');
 		const decodedFirst = Object.fromEntries(
-			decodeURIComponent(hash)
+			decodeURIComponent(hash.replace(/\+/g, ' '))
 				.split('&')
 				.map((kv) => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)]),
 		);
 		assert.equal(decodedFirst.url, go, 'decoded first');
 		assert.deepEqual(
 			[decodedFirst.os, decodedFirst.os_version, decodedFirst.device, decodedFirst.start],
-			['android', '15.0', 'Samsung Galaxy S25', 'true'],
+			['Android', '15.0', 'Samsung Galaxy S25', 'true'],
 		);
+	}
+});
+
+test('3. the Live URL carries exactly the documented parameters, os cased as Live writes it', () => {
+	const go = 'https://app.invisiblewall.org/profiler/go/plain/T.k';
+	const duo = CLOUD_PHONES.find((p) => p.device === 'iPhone Duo' && p.osVersion === '27.1');
+	assert.ok(duo, 'iPhone Duo on iOS 27.1 is a Live phone');
+	const live = browserStackLiveUrl(duo, go);
+	assert.equal(
+		live,
+		`${BROWSERSTACK_LIVE_DASHBOARD}#os=iOS&os_version=27.1&device=iPhone+Duo&device_browser=safari` +
+			`&scale_to_fit=true&speed=1&url=${encodeURIComponent(go)}&start=true`,
+	);
+	const documented = [
+		'os',
+		'os_version',
+		'device',
+		'device_browser',
+		'scale_to_fit',
+		'speed',
+		'url',
+		'start',
+	];
+	for (const phone of CLOUD_PHONES) {
+		const hash = new URLSearchParams(browserStackLiveUrl(phone, go).split('#')[1]);
+		assert.deepEqual([...hash.keys()], documented, phone.id);
+		assert.equal(hash.get('os'), phone.os === 'ios' ? 'iOS' : 'Android', phone.id);
+		assert.equal(hash.get('device'), phone.device, phone.id);
+		assert.equal(hash.get('start'), 'true', phone.id);
+		assert.equal(hash.get('url'), go, phone.id);
+	}
+});
+
+test('3. a capture link forces no device: the game detects a phone itself', () => {
+	const game =
+		'https://games.invisiblewall.org/buffalo/?runtime=1&project=buffalo&k=abc' +
+		'&sessionID=demo&lang=en&currency=USD&device=desktop';
+	for (const link of captureLinks(game, 'TOKEN')) {
+		const url = new URL(link.url);
+		assert.equal(url.searchParams.has('device'), false, `${link.id}: ${link.url}`);
+		assert.equal(url.searchParams.get('currency'), 'USD', 'the rest of the launch URL stays');
 	}
 });
 

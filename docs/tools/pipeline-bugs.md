@@ -29,7 +29,7 @@ bugs took.
   per user in Admin › Users, beside the card. Game bugs have their own, **Triage game bugs**. The
   page header shows which one you are: `<your name> · <role> · can triage` or `· can report`.
 - **Start fix runs on pipeline bugs** (`pipelineBugFix`, default `admin` only, set per role or per
-  user in the same group) is the permission for the **Start fix** button (see "Fix runs" below). A
+  user in the same group) is the permission for the **Diagnose** and **Build** buttons (see "Fix runs" below). A
   run needs it **and** Triage pipeline bugs; with only one of them there is no button.
 - **Who can do what on a bug:**
   - See it, comment, add a screenshot, copy its link and its fix brief: anyone with the tool who
@@ -159,19 +159,36 @@ BUG-`<n>`." with **Open BUG-`<n>`**).
    - **Fix runs.** Under the same text, for someone who holds Start fix runs and Triage pipeline
      bugs, once GitHub has the `bug-fix.yml` workflow and the GitHub App is configured (until then
      there is no button, because it could only fail):
-     - **Send and start fix** on a bug that is not sent yet: it sends the bug to Pipeline Changes
-       and starts the run in one action. **Start fix** on a bug that is. Both ask first: a run
-       spends on the Anthropic API and opens a public draft pull request; nothing merges without
-       the owner. Each click carries its own request id, so a resend after a dropped connection
-       gives the same run, never two.
+     - **Send and diagnose** on a bug that is not sent yet: it sends the bug to Pipeline Changes
+       and starts a diagnosis in one action. **Diagnose** on a bug that is. A diagnosis finds the
+       cause and offers options; it changes nothing (the ⓘ beside the button says so). Both ask
+       first: a run spends on the Anthropic API. Each click carries its own request id, so a
+       resend after a dropped connection gives the same run, never two.
+     - **The banner.** At the top of the bug, above the description, one line says what the newest
+       run did: "Diagnosing…", "Waiting on your decision — N options", "Building option B —
+       `<name>`…", "Fix proposed — review change #`<n>`" (a link to `/pipeline?change=<n>` and only
+       that change), or "**No change was made** — `<reason>`" for a run that found no fix, failed
+       or was stopped. The run's full summary is shown under it as plain text. A bug with no run has
+       no banner.
+     - **The Diagnosis card**, once a diagnosis is waiting: what was reported, what is causing it,
+       a **Defect** or **Decision** pill (ⓘ: a defect has one right fix; a decision is a product
+       call between several answers), and **Evidence** (folded; it holds the code terms). Then
+       the options as cards with a radio each: name, what changes, cost, risk and what the player
+       notices, and a **Recommended** tag with its reason on one. Nothing is pre-selected, even
+       with one option. An optional note (up to 1000 characters, with a counter) goes with the
+       choice. **Build "`<option>`"** is enabled only when you may build and have picked one;
+       while it posts it says "Starting the build…", and a refusal (a newer diagnosis, a run
+       already going) shows in red. Without the rights the card is read-only, with the sentence
+       that says why. After a choice the card says "Chosen: B — `<name>`", by whom and when, and
+       that the next diagnosis replaces this one. A build may implement only the chosen option.
      - A refusal greys the button and says why: "BUG-`<n>` is closed. Reopen it to start a fix
        run.", "A fix is already in review: #`<n>`.", "BUG-`<n>` already has a fix run going (fix run
        `<id>`).", "`N` fix runs are going already, the most at once (Admin › Settings). …", "Fix
        runs have spent $X of this month's $Y (Admin › Settings). …". If the server still refuses
        after the click (the bug moved), the same words show in red and the bug is read again.
-     - The **run line** under it, newest first (the latest five): a pill (Queued, Working, Fix
-       proposed, No fix, Failed, Stopped), a sentence ("Fix run `<id>` opened draft pull request
-       #12.", "… found no fix: it did not reproduce.", "… failed: the run timed out."), links to
+     - The **run line** under it, newest first (the latest five): a pill (Queued, Working, Diagnosed,
+       Fix proposed, No fix, Failed, Stopped), a sentence ("Build `<id>` of option B opened draft
+       pull request #12.", "Diagnosis `<id>` is ready: 3 options.", "… found no fix: it did not reproduce.", "… failed: the run timed out."), links to
        the pull request and the Actions run, the spend ("$1.20"; "$0.00" for a run that ended
        before its job read the bug; "spend unknown" when no result came back), and **Stop** while
        the run goes (a dialog first). What the run wrote is shown
@@ -179,7 +196,8 @@ BUG-`<n>`." with **Open BUG-`<n>`**).
        another area adds "Proposed second bug: `<area>` — `<title>`" with **File it**, for triagers
        with this tool, which opens the report form filled in; nothing is filed until you press
        **Report bug**.
-     - The same button and run line are on the bug's card in the **Bugs** tab of
+     - The activity shows "`<person>` chose option B — `<name>` (note: …)" for each choice.
+     - The same button, banner (compact) and run line are on the bug's card in the **Bugs** tab of
        [Invisible Pipeline Changes](pipeline-changes.md). A run never changes the bug's status:
        the draft pull request it opens is linked like any `bug-<n>` branch, so the bug turns
        Working on, and Resolved when you merge it.

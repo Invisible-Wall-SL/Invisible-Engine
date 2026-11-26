@@ -504,7 +504,8 @@ export type ArcadeBlock = {
 	abilities?: ArcadeAbility[];
 	/** Zones that push the bodies in them, offline (P11.5). An online game's are its rules'. */
 	forces?: ArcadeZoneForce[];
-	/** What each zone family is drawn with (`zoneArt.ts`); cosmetic, read by no rule or room.
+	/** What each zone family, and each piece of scenery a generator's art places (`@trees`), is
+	 *  drawn with (`zoneArt.ts`); cosmetic, read by no rule or room.
 	 *  Carried past the normalizer, not normalized by it (`withZoneArt`), so a runtime of another
 	 *  family carries none of it. */
 	zoneArt?: ZoneArtMap;
