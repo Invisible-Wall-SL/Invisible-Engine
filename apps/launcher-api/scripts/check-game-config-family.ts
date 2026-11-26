@@ -85,6 +85,7 @@ import {
 	onlineGameOf,
 	onlineTestSizeRange,
 	resolveArcadeOnline,
+	salmonsProjectManifestName,
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
@@ -1087,7 +1088,11 @@ try {
 	const lines = JSON.parse(
 		readFileSync(new URL('../src/lib/data/gameConfig/lines.json', import.meta.url), 'utf8'),
 	) as GameConfigDoc;
-	const renderPage = (config: GameConfigDoc, gameType = 'lines') => {
+	const renderPage = (
+		config: GameConfigDoc,
+		gameType = 'lines',
+		pickSheets: { key: string; name: string }[] = [],
+	) => {
 		const data = {
 			clientKey: 'c',
 			projectKey: 'p',
@@ -1103,7 +1108,7 @@ try {
 			serverPaylines: null,
 			serverGameKeys: [],
 			components: [],
-			pickSheets: [],
+			pickSheets,
 			spines: [],
 			issues: [],
 		};
@@ -1594,6 +1599,45 @@ try {
 			[true, true, 0, 0, preview.zones.length, true, true, stored ? 2 : 0, 2, false, true],
 		);
 	}
+
+	// Zone art's Scenery (`@trees`): a Salmons page has a Trees row under Scenery, its Default the
+	// six built-in trees from the project's props sheet; set, its pictures, scale and bin. A page of
+	// a game whose art places no scenery has none.
+	const props = `c/p/manifests/${salmonsProjectManifestName('salmons_props')}`;
+	const treesRow = (body: string) =>
+		/<tr[^>]*>\s*<td[^>]*><span class="chip[^"]*"[^>]*>Trees<\/span><\/td>([\s\S]*?)<\/tr>/.exec(
+			body,
+		)?.[1] ?? '';
+	const salmonsPage = renderPage(salmonsBare, 'lines', [
+		{ key: props, name: 'salmons_props' },
+	]).body;
+	const salmonsTrees = structuredClone(salmonsBare);
+	salmonsTrees.arcade!.zoneArt = {
+		'@trees': {
+			source: { kind: 'sprite', region: `${props}::tree_2` },
+			variants: [{ kind: 'sprite', region: `${props}::tree_4` }],
+			placement: 'stamp',
+			scale: 1.4,
+		},
+	};
+	const setRow = treesRow(
+		renderPage(salmonsTrees, 'lines', [{ key: props, name: 'salmons_props' }]).body,
+	);
+	same(
+		'3. Salmons: Zone art lists Trees under Scenery, by default its 6 built-in trees',
+		[
+			/>\s*Scenery\s*</.test(salmonsPage),
+			treesRow(salmonsPage).includes('>Built-in trees, 6 kinds<'),
+			tally(treesRow(salmonsPage), /class="thumb[^"]*" title="Used now"/g),
+			[
+				setRow.includes('aria-label="Variant 1"'),
+				/<input[^>]*value="1.4"/.test(setRow),
+				setRow.includes('Draw Trees as today'),
+			],
+			/>\s*Scenery\s*</.test(renderPage(salmonsLike).body),
+		],
+		[true, true, 6, [true, true, true], false],
+	);
 
 	// A hand-built game keeps its tables, paged, with one list of zone ids for every rule's picker.
 	const crowded = structuredClone(salmonsLike);

@@ -15,6 +15,41 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-26 · Phase 11 · director-backend + director-frontend (14A built)
+- Did: fix runs now diagnose first. Start fix (now **Diagnose**) changes no file and reports the
+  cause, 1–4 options and a recommendation; a person picks one and **Build** starts a run pinned to
+  it (`POST /api/bugs/<n>/fix-runs/<id>/build`, a `fix_decision` event). A diagnose run that
+  leaves a changed file keeps nothing. The bug page has a status banner ("Waiting on your decision",
+  "No change was made — …") and a diagnosis card with the options; the Bugs tab shows the banner.
+  `PIPELINE_DIAGNOSE_BUDGET_USD` ($5). The prompt weighs a Profiler saving as one option and
+  always offers "below the device floor" on a device-performance bug.
+- Files: migration `0048_fix_run_diagnose.sql`; `bugFixRuns*.ts`, `bugReports.ts`, `appSettings.ts`;
+  the build route; `scripts/bug-fix/{coordinator.md,collect.mjs,workflow.fixture.mjs}`;
+  `routes/(app)/bugs/{fixView.ts,view.ts,FixBanner,DiagnosisCard,FixRunControl,BugPanel}`,
+  `pipeline/BugsPanel.svelte`; docs `pipeline-bugs.md`, `pipeline-changes.md`, `bug-reports.md`,
+  `INFRA.md`, ADR-0013 §5 note.
+- Branch / PR: `claude/focused-hopper-nnfkz5`, #1918.
+- Tests: `check:bug-fix-runs` 161/161, `check:bug-reports` 144/144, `check:pipeline-changes`,
+  `check:bug-fix-workflow` (53 rules, 239 + 9 mutants), `check:svelte` launcher at baseline 44,
+  `pnpm lint`, `check:undefined-names`, `check:migration-order`. Not run: the hosted CLI proof.
+  The page was type-checked, not rendered (no local DB).
+- Decisions: the Actions run name stays "Fix run <id>" (the binding matches it exactly; renaming
+  touches the protected workflow) — 14B. The log line links to `/bugs?bug=<n>`.
+- Next: the owner merges #1918 and clicks through a live Diagnose on the slow-phone bug; 14B.
+
+## 2026-11-26 · Phase 11 · director-architect (ADR-0014 proposed)
+- Did: wrote ADR-0014 after fix run `d2a4594cb1` on a Profiler-filed slow-phone bug. The run ended
+  `no_fix` ($0.46, no pull request), but the owner could not tell that, landed on the unrelated
+  draft #1140, and found the run is told to decide alone. The proposal: diagnose first, options,
+  the owner picks, then build; plain-language sections on the change; Mark ready checks the
+  decision; readable outcome banners.
+- Files: `docs/director/DECISIONS/0014-fix-runs-ask-before-they-decide.md`, `README.md`,
+  `PLAN.md`.
+- Branch / PR: `claude/focused-hopper-nnfkz5`.
+- Tests: docs only.
+- Decisions: none yet; seven items wait on the owner.
+- Next: owner review of ADR-0014; then 14A.
+
 ## 2026-11-18 · Phase 10 · regression-guardian (current-games: stop rendering superseded heads)
 - Did: `current-games.yml`'s concurrency group no longer holds the commit for PR and push runs, so a
   new push cancels the run of the head it replaced; manual runs keep the commit.

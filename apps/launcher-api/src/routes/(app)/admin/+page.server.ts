@@ -120,6 +120,8 @@ import {
 	DIRECTOR_RUN_BUDGET_MAX_USD,
 	DIRECTOR_RUN_BUDGET_MIN_USD,
 	MIN_DEPLOY_TOKEN,
+	PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD,
+	PIPELINE_DIAGNOSE_BUDGET_KEY,
 	PIPELINE_FIX_BUDGET_DEFAULT_USD,
 	PIPELINE_FIX_BUDGET_KEY,
 	PIPELINE_FIX_MAX_LIVE_DEFAULT,
@@ -139,6 +141,7 @@ import {
 	getDirectorPendingMockupDays,
 	getDirectorRepairBudget,
 	getDirectorRunBudget,
+	getPipelineDiagnoseBudget,
 	getPipelineFixBudget,
 	getPipelineFixMaxLive,
 	getPipelineFixMonthlyCap,
@@ -260,6 +263,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		directorPricing,
 		directorPendingMockupDays,
 		fixBudgetUsd,
+		diagnoseBudgetUsd,
 		fixMonthlyUsd,
 		fixMaxLive,
 	] = await Promise.all([
@@ -268,6 +272,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getDirectorPricing(),
 		getDirectorPendingMockupDays(),
 		getPipelineFixBudget(),
+		getPipelineDiagnoseBudget(),
 		getPipelineFixMonthlyCap(),
 		getPipelineFixMaxLive(),
 	]);
@@ -379,6 +384,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		pipelineFix: {
 			budgetUsd: fixBudgetUsd,
 			budgetDefaultUsd: PIPELINE_FIX_BUDGET_DEFAULT_USD,
+			diagnoseBudgetUsd,
+			diagnoseBudgetDefaultUsd: PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD,
 			monthlyUsd: fixMonthlyUsd,
 			monthlyDefaultUsd: PIPELINE_FIX_MONTHLY_DEFAULT_USD,
 			monthlyMinUsd: PIPELINE_FIX_MONTHLY_MIN_USD,
@@ -1407,6 +1414,32 @@ export const actions = withAdminGuards({
 		const budget = Math.round(value * 100) / 100;
 		await setAppSetting(PIPELINE_FIX_BUDGET_KEY, String(budget), admin.id);
 		return { action: 'setPipelineFixBudget', ok: `Fix run budget set to $${budget.toFixed(2)}.` };
+	},
+
+	/** Save the cap of one pipeline bug diagnose run (ADR-0014), bounded like the run cap. */
+	setPipelineDiagnoseBudget: async ({ request, locals }) => {
+		const admin = await requireAdminPanel(locals, 'page');
+		const data = await request.formData();
+		const raw = String(data.get('budgetUsd') ?? '').trim();
+		const value = Number(raw);
+		if (!raw || !Number.isFinite(value)) {
+			return fail(400, {
+				action: 'setPipelineDiagnoseBudget',
+				error: 'Enter the budget as a number.',
+			});
+		}
+		if (value < DIRECTOR_RUN_BUDGET_MIN_USD || value > DIRECTOR_RUN_BUDGET_MAX_USD) {
+			return fail(400, {
+				action: 'setPipelineDiagnoseBudget',
+				error: `The budget must be between $${DIRECTOR_RUN_BUDGET_MIN_USD} and $${DIRECTOR_RUN_BUDGET_MAX_USD}.`,
+			});
+		}
+		const budget = Math.round(value * 100) / 100;
+		await setAppSetting(PIPELINE_DIAGNOSE_BUDGET_KEY, String(budget), admin.id);
+		return {
+			action: 'setPipelineDiagnoseBudget',
+			ok: `Diagnose run budget set to $${budget.toFixed(2)}.`,
+		};
 	},
 
 	/** Save the month's ceiling on fix-run spend; past it, new fix runs are refused. */

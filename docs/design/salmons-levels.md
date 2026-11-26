@@ -373,6 +373,12 @@ meander table's length). The course's sampling step is arithmetic.
   and its forest floor (a strip per stretch in the ground layer, cut at each waterfall's line and
   raised with it). With no block nothing of that is made: the river is drawn piece for piece as
   before. The `/editor` stage marks each stretch's floor down both edges of the placeholder river.
+- **With the trees' art.** Zone art's `@trees` ([zone-art](zone-art.md) "Scenery keys") supplies
+  the trees' pictures; the biome still picks the variant. On a level with authored biomes a tree
+  whose biome picked variant `v` draws picture `v` of the `@trees` source and its variants, round
+  again past the last (three pictures: variants 0 and 3 draw the source, 1 and 4 the first
+  variant, 2 and 5 the second), so `trees: [1]` grows only the first variant's picture. Without
+  biomes the seed and the tree's cell pick, as before. Either way every seeded draw is kept.
 
 **One resolution everywhere.** `levelShape(levels, seed)` resolves both blocks;
 `salmonsMapRiver` carries the seed's biomes on the river (`biomes`, present only when authored)

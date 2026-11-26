@@ -790,6 +790,33 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-26 — **Zone art: Scenery → Trees** (agent `arcade-games`; branch
+  `claude/wizardly-galileo-kjszii`, in review). A Salmons project chooses what its forest and bank
+  trees are drawn with, as a zone family's art. How to use it:
+  [tools/game-config](../tools/game-config.md) "Zone art"; plan:
+  [design/zone-art](../design/zone-art.md) §1 "Scenery keys"; the river's side:
+  [status/salmons](salmons.md).
+  - **The key** `@trees` in the same `arcade.zoneArt` map (`game-config` `ZONE_ART_SCENERY`,
+    `isZoneArtScenery`, `sceneryArtSourceFor`). Normalized, carried, saved and pasted as any entry.
+    `validateZoneArt` never warns of it as "no zone of this family". In a game with no generator
+    it warns that nothing draws it. `zoneArtStamps` stamps no zone of a scenery family, and
+    `familyDoc.ts` `setZoneField` refuses an `@` in a zone id.
+  - **The card:** `zoneArtDoc.ts` `zoneArtRows` leaves scenery out, and `zoneArtSceneryRows` gives
+    the Scenery rows: Trees for a Salmons generator, and for any other game only a stale row where
+    an entry was left. In `ZoneArtSection.svelte` the zone rows and the Trees row render one
+    `artCells` snippet (picture, variants, scale, bin). The Scenery sub-heading's text is an
+    `InfoTip`. The Default line and the six `tree_N` thumbnails come from `zoneArtBuiltIn.ts`
+    `'@trees'`.
+  - **Ships with no new pipeline code:** `zoneArtStillRoots`, `zoneArtArtNames` and
+    `zoneArtClipRoots` read every entry, scenery's too.
+  - **Gates:** `check:zone-art` 96 (§10 new; §5 and §8 carry `@trees`), `check:salmons-art` 39,
+    `check:game-config-family` 573 (a Salmons page server-rendered: the Trees row under Scenery,
+    "Built-in trees, 6 kinds" and 6 thumbnail slots; set, its variant, scale and bin; no Scenery on
+    a game without a generator). Bundles and plays: [status/salmons](salmons.md).
+- 2026-11-26 — **Zone art Default, clearer** (owner: some rows showed no art). A rule-only family's
+  Default reads "Invisible (rules only)", and bridges, sea and source (drawn in code, no sheet) show
+  a swatch in `river.ts`' colours (`zoneArtBuiltIn.ts` `drawn`). Trees are scenery, not a zone: the
+  guide says to edit `tree_0`–`tree_5` in `salmons_props`. `check:zone-art` 72.
 - 2026-11-25 — **Zone art shows what a family draws now** (owner: "instead of 'not drawn', a preview
   of what is currently used"). The first picture's choice is **Default**, not "Not drawn", and the
   row shows what that is: for a Salmons generator the built-in art's line and its pictures as

@@ -187,6 +187,7 @@ const ledger: (FixRunSpendRow & { runId: string; agent: string; requestId: strin
 const isLive = (r: BugFixRun) => r.status === 'dispatched' || r.status === 'running';
 const copy = (r: BugFixRun | undefined) => (r ? { ...r } : null);
 const runOf = (id: string) => runs.find((r) => r.id === id)!;
+const modeData = (mode: string): Record<string, unknown> => (mode === 'diagnose' ? { mode } : {});
 const hooks = {
 	/** Runs inside the start's transaction, before its facts are read: a racing writer. */
 	underLock: null as (() => void) | null,
@@ -247,6 +248,12 @@ fake('lib/server/bugFixRunsStore.ts', {
 					.sort((a, b) => a.prNumber - b.prNumber)[0]?.prNumber ?? null,
 			liveRun: going.find((r) => r.bugNumber === bug.number)?.id ?? null,
 			liveTotal: going.length,
+			parent: values.parentRunId ? copy(runs.find((r) => r.id === values.parentRunId)) : null,
+			latestDiagnoseId: values.parentRunId
+				? ([...runs]
+						.filter((r) => r.bugNumber === bug.number && r.mode === 'diagnose')
+						.sort((a, b) => +b.createdAt - +a.createdAt)[0]?.id ?? null)
+				: null,
 		};
 		const refused = decide(facts);
 		if (refused) return { kind: 'refused', code: refused, facts };
@@ -261,18 +268,35 @@ fake('lib/server/bugFixRunsStore.ts', {
 			summary: null,
 			reason: null,
 			secondBug: null,
+			diagnosis: null,
 			spendUsd: null,
 			resultAt: null,
 			createdAt: at,
 			updatedAt: at,
 			finishedAt: null,
+			...values,
+			parentRunId: values.parentRunId ?? null,
+			chosenOption: values.chosenOption ?? null,
 		};
 		runs.push(run);
 		if (!bug.sentAt) {
 			Object.assign(bug, { sentAt: at, sentBy: actor.name });
 			pushEvent(bug.number, actor, 'sent', {});
 		}
-		pushEvent(bug.number, actor, 'fix_run', { run: run.id, status: 'dispatched' });
+		if (run.parentRunId && run.chosenOption) {
+			pushEvent(bug.number, actor, 'fix_decision', {
+				run: run.parentRunId,
+				build: run.id,
+				option: run.chosenOption.optionId,
+				name: run.chosenOption.name,
+				note: run.chosenOption.note,
+			});
+		}
+		pushEvent(bug.number, actor, 'fix_run', {
+			run: run.id,
+			status: 'dispatched',
+			...modeData(run.mode),
+		});
 		return { kind: 'created', run: { ...run } };
 	},
 	bindFixRun: async (id: string, ghRunId: number) => {
@@ -288,7 +312,11 @@ fake('lib/server/bugFixRunsStore.ts', {
 		const run = runs.find((r) => r.id === id);
 		if (!run || run.status !== 'dispatched') return null;
 		run.status = 'running';
-		pushEvent(run.bugNumber, actor, 'fix_run', { run: id, status: 'running' });
+		pushEvent(run.bugNumber, actor, 'fix_run', {
+			run: id,
+			status: 'running',
+			...modeData(run.mode),
+		});
 		return { ...run };
 	},
 	claimFixRunResult: async (id: string, staleBefore: Date) => {
@@ -321,6 +349,7 @@ fake('lib/server/bugFixRunsStore.ts', {
 			reason: end.reason ?? null,
 			summary: end.summary ?? null,
 			secondBug: end.secondBug ?? null,
+			diagnosis: end.diagnosis ?? null,
 			prNumber: end.prNumber ?? null,
 			branch: end.branch ?? null,
 			finishedAt: tick(),
@@ -328,6 +357,7 @@ fake('lib/server/bugFixRunsStore.ts', {
 		pushEvent(run.bugNumber, actor, 'fix_run', {
 			run: id,
 			status: end.status,
+			...modeData(run.mode),
 			...(end.prNumber === undefined ? {} : { pr: end.prNumber }),
 			...(end.outcome === undefined ? {} : { outcome: end.outcome }),
 			...(end.reason === undefined ? {} : { reason: end.reason }),
@@ -373,9 +403,10 @@ fake('lib/server/r2.ts', {
 		return body ? { body, contentType: 'image/png', etag: 'e' } : null;
 	},
 });
-const settings = { budget: 15, monthly: 150, maxLive: 2 };
+const settings = { budget: 15, diagnoseBudget: 5, monthly: 150, maxLive: 2 };
 fake('lib/server/appSettings.ts', {
 	getPipelineFixBudget: async () => settings.budget,
+	getPipelineDiagnoseBudget: async () => settings.diagnoseBudget,
 	getPipelineFixMonthlyCap: async () => settings.monthly,
 	getPipelineFixMaxLive: async () => settings.maxLive,
 });
@@ -1065,6 +1096,7 @@ check(
 {
 	const schema = text('../src/lib/server/db/schema.ts');
 	const sql = text('../drizzle/0037_bug_fix_runs.sql');
+	const lists = text('../drizzle/0048_fix_run_diagnose.sql');
 	const listed = (source: string, re: RegExp) =>
 		[...(re.exec(source)?.[1] ?? '').matchAll(/'(\w+)'/g)].map((m) => m[1]);
 	check(
@@ -1073,8 +1105,8 @@ check(
 			listed(schema, /'bug_fix_runs_status_check',\s*sql`[^`]*in \(([^)]*)\)/),
 			listed(schema, /'bug_fix_runs_outcome_check',\s*sql`[^`]*in \(([^)]*)\)/),
 			listed(schema, /'bug_fix_runs_live_idx'\)[\s\S]*?in \(([^)]*)\)/),
-			listed(sql, /"bug_fix_runs_status_check" CHECK \([^)]*in \(([^)]*)\)/),
-			listed(sql, /"bug_fix_runs_outcome_check" CHECK \(.*?in \(([^)]*)\)/),
+			listed(lists, /"bug_fix_runs_status_check" CHECK \([^)]*in \(([^)]*)\)/),
+			listed(lists, /"bug_fix_runs_outcome_check" CHECK \(.*?in \(([^)]*)\)/),
 			listed(sql, /"bug_fix_runs_live_idx"[^;]*?in \(([^)]*)\)/),
 		],
 		[
@@ -1208,7 +1240,7 @@ check(
 	[
 		[
 			['sent', '@fia', {}],
-			['fix_run', '@fia', { run: R1, status: 'dispatched' }],
+			['fix_run', '@fia', { run: R1, status: 'dispatched', mode: 'diagnose' }],
 		],
 		'@fia',
 		'open',
@@ -1501,7 +1533,7 @@ const read = await brief(R1, token());
 const briefText = String(read.body.brief);
 const briefJson = JSON.stringify(read.body);
 check(
-	'brief: the run, its base, its cap and the screenshot list; opens with the untrusted line',
+	'brief: the run, its base, its (diagnose) cap, its mode and the screenshot list; opens with the untrusted line',
 	[
 		read.status,
 		read.body.fixRun,
@@ -1510,8 +1542,18 @@ check(
 		read.body.budgetUsd,
 		read.body.screenshots,
 		briefText.startsWith(`${UNTRUSTED_LINE}\n\nFix BUG-1: Rigger loses the bone order`),
+		[read.body.mode, read.body.decision, read.body.diagnosis],
 	],
-	[200, R1, 1, BASE, 15, [{ id: 'a1a1a1a1a1a1a1a1', mediaType: 'image/png', bytes: 12 }], true],
+	[
+		200,
+		R1,
+		1,
+		BASE,
+		5,
+		[{ id: 'a1a1a1a1a1a1a1a1', mediaType: 'image/png', bytes: 12 }],
+		true,
+		['diagnose', null, null],
+	],
 );
 check(
 	"brief: no one's email or user id anywhere in the answer",
@@ -1580,6 +1622,7 @@ function liveRun(bug = 1, over: Partial<BugFixRun> = {}): { id: string; gh: numb
 	runs.push({
 		id,
 		bugNumber: bug,
+		mode: 'build',
 		status: 'running',
 		outcome: null,
 		baseSha: BASE,
@@ -1589,6 +1632,9 @@ function liveRun(bug = 1, over: Partial<BugFixRun> = {}): { id: string; gh: numb
 		summary: null,
 		reason: null,
 		secondBug: null,
+		diagnosis: null,
+		chosenOption: null,
+		parentRunId: null,
 		spendUsd: null,
 		startedById: FIXER.id,
 		startedBy: '@fia',
@@ -3460,6 +3506,8 @@ type Facts = {
 	may: boolean;
 	ready: boolean;
 	refusal: { code: FixRunRefusal; message: string } | null;
+	latestDiagnosis: null;
+	canBuild: boolean;
 };
 const refusal = (code: FixRunRefusal, over: Record<string, unknown> = {}) => ({
 	code,
@@ -3474,13 +3522,19 @@ const refusal = (code: FixRunRefusal, over: Record<string, unknown> = {}) => ({
 		...over,
 	}),
 });
-const open: Facts = { may: true, ready: true, refusal: null };
+const open: Facts = {
+	may: true,
+	ready: true,
+	refusal: null,
+	latestDiagnosis: null,
+	canBuild: false,
+};
 const control = (facts: Facts, sent: boolean) => {
 	const c = fixPage.fixControl(facts, sent);
 	return c.kind === 'hidden' ? 'hidden' : `${c.kind}: ${c.label}${c.why ? ` · ${c.why}` : ''}`;
 };
 check(
-	'page: the button a caller sees in each state — unsent says Send and start fix, sent says Start fix',
+	'page: the button a caller sees in each state — unsent says Send and diagnose, sent says Diagnose',
 	[
 		control(open, false),
 		control(open, true),
@@ -3491,19 +3545,19 @@ check(
 		control({ ...open, refusal: refusal('too_many_fix_runs') }, true),
 		control({ ...open, refusal: refusal('fix_budget_spent') }, false),
 		control({ ...open, may: false }, true),
-		control({ may: false, ready: false, refusal: null }, false),
+		control({ ...open, may: false, ready: false }, false),
 		control({ ...open, ready: false }, true),
 		control({ ...open, ready: false }, false),
 	],
 	[
-		'start: Send and start fix',
-		'start: Start fix',
-		'blocked: Start fix · BUG-12 is closed. Reopen it to start a fix run.',
-		'blocked: Send and start fix · BUG-12 is closed. Reopen it to start a fix run.',
-		'blocked: Start fix · A fix is already in review: #77.',
+		'start: Send and diagnose',
+		'start: Diagnose',
+		'blocked: Diagnose · BUG-12 is closed. Reopen it to start a fix run.',
+		'blocked: Send and diagnose · BUG-12 is closed. Reopen it to start a fix run.',
+		'blocked: Diagnose · A fix is already in review: #77.',
 		'hidden',
-		'blocked: Start fix · 2 fix runs are going already, the most at once (Admin › Settings). Start this one when one ends.',
-		"blocked: Send and start fix · Fix runs have spent $150.00 of this month's $150.00 (Admin › Settings). New fix runs start next month.",
+		'blocked: Diagnose · 2 fix runs are going already, the most at once (Admin › Settings). Start this one when one ends.',
+		"blocked: Send and diagnose · Fix runs have spent $150.00 of this month's $150.00 (Admin › Settings). New fix runs start next month.",
 		'hidden',
 		'hidden',
 		'hidden',
@@ -3511,7 +3565,7 @@ check(
 	],
 );
 check(
-	'page: Send and start fix sends; Start fix does not',
+	'page: Send and diagnose sends; Diagnose does not',
 	[fixPage.fixControl(open, false).sends, fixPage.fixControl(open, true).sends],
 	[true, false],
 );
@@ -3519,6 +3573,10 @@ check(
 // The run line, for each status and outcome.
 const RUN = {
 	id: 'abc0123456',
+	mode: 'build',
+	diagnosis: null,
+	chosenOption: null,
+	parentRunId: null,
 	status: 'running',
 	outcome: null,
 	prNumber: null,
@@ -3560,43 +3618,43 @@ check(
 		lineOf({ status: 'cancelled', spendUsd: 0 }),
 	],
 	[
-		['Queued', 'blue', 'Fix run abc0123456 is queued: the job has not started yet.', null, true],
-		['Working', 'blue', 'Fix run abc0123456 is working on it.', null, true],
-		['Fix proposed', 'green', 'Fix run abc0123456 opened draft pull request #12.', '$2.50', false],
+		['Queued', 'blue', 'Build abc0123456 is queued: the job has not started yet.', null, true],
+		['Working', 'blue', 'Build abc0123456 is working on it.', null, true],
+		['Fix proposed', 'green', 'Build abc0123456 opened draft pull request #12.', '$2.50', false],
 		[
 			'Fix proposed',
 			'green',
-			'Fix run abc0123456 opened draft pull request #12 for one area and found the cause also lies in another.',
+			'Build abc0123456 opened draft pull request #12 for one area and found the cause also lies in another.',
 			'spend unknown',
 			false,
 		],
-		['No fix', 'amber', 'Fix run abc0123456 found no fix: it did not reproduce.', '$0.40', false],
+		['No fix', 'amber', 'Build abc0123456 found no fix: it did not reproduce.', '$0.40', false],
 		[
 			'No fix',
 			'amber',
-			'Fix run abc0123456 found no fix: it needs a person.',
-			'spend unknown',
-			false,
-		],
-		[
-			'No fix',
-			'amber',
-			'Fix run abc0123456 found no fix: the cause is in another area.',
+			'Build abc0123456 found no fix: it needs a person.',
 			'spend unknown',
 			false,
 		],
 		[
 			'No fix',
 			'amber',
-			'Fix run abc0123456 found no fix: The change was refused (scope).',
+			'Build abc0123456 found no fix: the cause is in another area.',
 			'spend unknown',
 			false,
 		],
-		['Failed', 'red', 'Fix run abc0123456 failed.', 'spend unknown', false],
-		['Failed', 'red', 'Fix run abc0123456 failed: The run timed out.', 'spend unknown', false],
-		['Stopped', 'muted', 'Fix run abc0123456 was stopped. Stopped by Ana.', 'spend unknown', false],
-		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', 'spend unknown', false],
-		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', '$0.00', false],
+		[
+			'No fix',
+			'amber',
+			'Build abc0123456 found no fix: The change was refused (scope).',
+			'spend unknown',
+			false,
+		],
+		['Failed', 'red', 'Build abc0123456 failed.', 'spend unknown', false],
+		['Failed', 'red', 'Build abc0123456 failed: The run timed out.', 'spend unknown', false],
+		['Stopped', 'muted', 'Build abc0123456 was stopped. Stopped by Ana.', 'spend unknown', false],
+		['Stopped', 'muted', 'Build abc0123456 was stopped.', 'spend unknown', false],
+		['Stopped', 'muted', 'Build abc0123456 was stopped.', '$0.00', false],
 	],
 );
 const hostile = '<img src=x onerror=alert(1)> [x](http://evil.example) BUG-3';
@@ -3604,6 +3662,155 @@ check(
 	"page: the run's words reach the page unchanged, as the note, for the page to render as text",
 	fixPage.fixRunLine({ ...RUN, status: 'no_fix', summary: hostile }).note,
 	hostile,
+);
+
+// Diagnosis lines, the banner, the option cards and the Build button (ADR-0014 card 14A).
+const OPTIONS = ['A', 'B', 'C'].map((id) => ({
+	id,
+	name: `Option ${id}`,
+	change: 'c',
+	cost: 'k',
+	risk: 'r',
+	player: 'p',
+}));
+const DIAGNOSIS = {
+	reported: 'Slow on a phone.',
+	cause: 'Too many filters.',
+	evidence: 'fps 9',
+	kind: 'decision',
+	options: OPTIONS,
+	recommendation: { option: 'B', why: 'Cheapest.' },
+};
+const D = { ...RUN, id: 'd2a4594cb1', mode: 'diagnose' };
+const CHOICE = {
+	optionId: 'B',
+	name: 'Lower quality',
+	change: 'c',
+	note: null,
+	decidedBy: 'Ana',
+	decidedAt: '2026-11-26T10:00:00.000Z',
+};
+const B = { ...RUN, id: 'b71c000000', mode: 'build', parentRunId: D.id, chosenOption: CHOICE };
+check(
+	'page: a diagnosis line and a build line say which kind of run they are',
+	[
+		lineOf({ ...D, status: 'dispatched' })[2],
+		lineOf({ ...D })[2],
+		lineOf({ ...D, status: 'diagnosed', diagnosis: DIAGNOSIS })[2],
+		lineOf({ ...D, status: 'diagnosed', diagnosis: { ...DIAGNOSIS, options: [OPTIONS[0]] } })[1],
+		lineOf({ ...D, status: 'no_fix', reason: 'The run did not explain its change.' })[2],
+		lineOf({ ...B })[2],
+		lineOf({ ...B, status: 'pr_opened', prNumber: 7 })[2],
+	],
+	[
+		'Diagnosis d2a4594cb1 is queued: the job has not started yet.',
+		'Diagnosis d2a4594cb1 is working on it.',
+		'Diagnosis d2a4594cb1 is ready: 3 options. Nothing is built until you choose.',
+		'amber',
+		'Diagnosis d2a4594cb1 ended without options: The run did not explain its change.',
+		'Build b71c000000 of option B is working on it.',
+		'Build b71c000000 of option B opened draft pull request #7.',
+	],
+);
+const banner = (...runs: Record<string, unknown>[]) => {
+	const b = fixPage.fixBanner(runs.map((r) => ({ ...RUN, ...r })));
+	return b && [b.tone, b.text, b.href];
+};
+check(
+	'page: the banner has one state at a time, newest run first',
+	[
+		banner(),
+		banner({ ...D }),
+		banner({ ...D, status: 'diagnosed', diagnosis: DIAGNOSIS }),
+		banner({ ...D, status: 'diagnosed', diagnosis: { ...DIAGNOSIS, options: [OPTIONS[0]] } }),
+		banner({ ...B }),
+		banner({ ...B, status: 'pr_opened', prNumber: 12 }),
+		banner({ ...D, status: 'no_fix', outcome: 'not_reproduced' }),
+		banner({ ...B, status: 'no_fix', reason: 'The change was refused (scope).' }),
+		banner({ ...B, status: 'failed' }),
+		banner({ ...B, status: 'cancelled', reason: 'Stopped by Ana.' }),
+		banner({ ...B, status: 'cancelled' }),
+		banner({ ...D, status: 'dispatched' }, { ...B, status: 'no_fix' }),
+	],
+	[
+		null,
+		['blue', 'Diagnosing…', null],
+		['amber', 'Waiting on your decision — 3 options', null],
+		['amber', 'Waiting on your decision — 1 option', null],
+		['blue', 'Building option B — Lower quality…', null],
+		['green', 'Fix proposed — review change #12', '/pipeline?change=12'],
+		['amber', 'No change was made — it did not reproduce', null],
+		['amber', 'No change was made — The change was refused (scope)', null],
+		['red', 'No change was made — the run failed', null],
+		['muted', 'No change was made — Stopped by Ana', null],
+		['muted', 'No change was made — the run was stopped', null],
+		['blue', 'Diagnosing…', null],
+	],
+);
+check(
+	'page: the banner carries the newest run summary in full, as text',
+	fixPage.fixBanner([{ ...RUN, ...B, status: 'no_fix', summary: hostile }])?.summary,
+	hostile,
+);
+const may = { ...open, canBuild: true };
+const buildOf = (facts: Record<string, unknown>, picked: string | null) => {
+	const b = fixPage.buildButton({ ...may, ...facts }, OPTIONS, picked);
+	return `${b.kind}: ${b.label}${b.why ? ` · ${b.why}` : ''}`;
+};
+check(
+	'page: the Build button needs a pick, even with one option, and says why it is blocked',
+	[
+		buildOf({}, null),
+		buildOf({}, 'B'),
+		fixPage.buildButton(may, [OPTIONS[0]], null).kind,
+		buildOf({ may: false, canBuild: false }, 'B'),
+		buildOf({ canBuild: false, refusal: refusal('pr_open') }, 'B'),
+		buildOf({ canBuild: false }, 'A'),
+	],
+	[
+		'blocked: Build · Pick an option first.',
+		'ready: Build “Option B”',
+		'blocked',
+		'blocked: Build “Option B” · A fix run needs both the “Start fix runs on pipeline bugs” and the “Triage pipeline bugs” permissions. You can read the options.',
+		'blocked: Build “Option B” · A fix is already in review: #77.',
+		'blocked: Build “Option A” · Fix runs cannot start right now.',
+	],
+);
+check(
+	'page: the note counter and the chosen line',
+	[fixPage.noteCounter('abc'), fixPage.choiceText(CHOICE)],
+	['3 / 1000', 'Chosen: B — Lower quality'],
+);
+const decision = (data: Record<string, unknown>) =>
+	view.eventText({ id: 1, kind: 'fix_decision', actor: 'Ana', auto: false, at: '', data });
+check(
+	'activity: a fix_decision reads as the person choosing, the note as text; a diagnosis event says so',
+	[
+		decision({ run: 'd', build: 'b', option: 'B', name: 'Lower quality', note: null }),
+		decision({ run: 'd', build: 'b', option: 'B', name: 'Lower quality', note: '<b>soon</b>' }),
+		view.eventText({
+			id: 1,
+			kind: 'fix_run',
+			actor: 'Ana',
+			auto: false,
+			at: '',
+			data: { run: 'd', status: 'dispatched', mode: 'diagnose' },
+		}),
+		view.eventText({
+			id: 1,
+			kind: 'fix_run',
+			actor: 'Run',
+			auto: true,
+			at: '',
+			data: { run: 'd', status: 'diagnosed', options: 3 },
+		}),
+	],
+	[
+		'chose option B — Lower quality',
+		'chose option B — Lower quality (note: <b>soon</b>)',
+		'started diagnosis d',
+		'finished the diagnosis: 3 options to choose from',
+	],
 );
 
 // File it: the report form for a proposed second bug.
@@ -3688,13 +3895,13 @@ check(
 		await seen(DEV, sentBug),
 	],
 	[
-		'start: Send and start fix',
-		'start: Start fix',
-		'start: Start fix',
-		`blocked: Start fix · BUG-${closedBug} is closed. Reopen it to start a fix run.`,
-		'blocked: Start fix · A fix is already in review: #650.',
+		'start: Send and diagnose',
+		'start: Diagnose',
+		'start: Diagnose',
+		`blocked: Diagnose · BUG-${closedBug} is closed. Reopen it to start a fix run.`,
+		'blocked: Diagnose · A fix is already in review: #650.',
 		'hidden',
-		'start: Start fix',
+		'start: Diagnose',
 		'hidden',
 	],
 );
@@ -3736,7 +3943,7 @@ check(
 			.fix as Facts,
 		true,
 	),
-	'start: Start fix',
+	'start: Diagnose',
 );
 {
 	const probe = { ...app, fetch: async (p: string, i?: RequestInit) => await app.fetch(p, i) };
@@ -3868,6 +4075,875 @@ check(
 		],
 	);
 	escalations.clear();
+}
+
+// ── ADR-0014: Start fix diagnoses; a person builds one option ─────────────────
+{
+	for (const r of runs) if (isLive(r)) r.status = 'cancelled';
+	Object.assign(settings, { budget: 15, diagnoseBudget: 5, monthly: 150, maxLive: 2 });
+	hooks.underLock = null;
+	hooks.twin = null;
+	gh.workflow = 'active';
+	workflow.forgetFixWorkflow();
+	let nextGh = 30_000;
+	gh.dispatch = () => answer(200, { workflow_run_id: ++nextGh });
+	for (const n of [1, 8, 9]) bugOf(n).status = 'open';
+	const buildRoute = await import(src('routes/api/bugs/[number]/fix-runs/[id]/build/+server.ts'));
+	const buildAs = (user: TestUser, n: number, id: string, json: unknown) =>
+		call(buildRoute.POST, { user, params: { number: String(n), id }, json });
+	const pick = (optionId: string, over: Record<string, unknown> = {}) => ({
+		optionId,
+		requestId: newRequest(),
+		...over,
+	});
+	const DIAG = {
+		reported: 'The rig loses its bone order.',
+		cause: 'A Set drops the insertion order when the rig is saved.',
+		evidence: 'order.ts builds a Set at line 12.',
+		kind: 'decision',
+		options: [
+			{
+				id: 'A',
+				name: 'Keep the order',
+				change: 'Sort the bones by index when the rig is saved.',
+				cost: 'A small change in one file.',
+				risk: 'Low: only the Rigger reads it.',
+				player: 'Nothing visible.',
+			},
+			{
+				id: 'B',
+				name: "Don't fix: below the supported device floor",
+				change: 'Nothing changes.',
+				cost: 'None.',
+				risk: 'The bug stays.',
+				player: 'Old phones stay as they are.',
+			},
+		],
+		recommendation: { option: 'A', why: 'It is cheap and safe.' },
+	};
+	const diag = (over: Record<string, unknown> = {}) => ({ ...DIAG, ...over });
+	/** A live diagnose run on `bug`, its result posted: the answer and the run. */
+	async function diagnoseWith(bug: number, body: Record<string, unknown>) {
+		const live = liveRun(bug, { mode: 'diagnose' });
+		const a = await result(live.id, live.gh, {
+			baseSha: BASE,
+			outcome: 'diagnosed',
+			summary: 'Reproduced on the base.',
+			diagnosis: DIAG,
+			files: [],
+			usage,
+			...body,
+		});
+		return { ...live, a, run: runOf(live.id) };
+	}
+
+	// Start fix is a diagnose run.
+	const started = await start(FIXER, 8);
+	const startedRun = started.body.run as { id: string; mode: string; status: string };
+	check(
+		'adr-0014 start: Start fix starts a diagnose run, dispatched with the run id alone',
+		[
+			started.status,
+			startedRun.mode,
+			startedRun.status,
+			runOf(startedRun.id).mode,
+			runOf(startedRun.id).parentRunId,
+			runOf(startedRun.id).chosenOption,
+			gh.calls.at(-1)?.body?.inputs,
+			eventsOf(8, 'fix_run').at(-1)?.data,
+		],
+		[
+			201,
+			'diagnose',
+			'dispatched',
+			'diagnose',
+			null,
+			null,
+			{ fix_run: startedRun.id },
+			{ run: startedRun.id, status: 'dispatched', mode: 'diagnose' },
+		],
+	);
+	runOf(startedRun.id).status = 'cancelled';
+
+	// A diagnosed result: stored on the run, no change, no pull request.
+	const writesBefore = writes().length;
+	const ok1 = await diagnoseWith(8, {});
+	const stored = ok1.run;
+	check(
+		'adr-0014 result: a diagnose run ends diagnosed with its diagnosis stored, not live, and writes nothing to GitHub',
+		[
+			ok1.a.status,
+			ok1.a.body.status,
+			ok1.a.body.outcome,
+			ok1.a.body.prNumber,
+			ok1.a.body.bugUrl,
+			stored.status,
+			stored.outcome,
+			stored.summary,
+			stored.diagnosis,
+			stored.prNumber,
+			stored.branch,
+			isLive(stored),
+			writes().length - writesBefore,
+			eventsOf(8, 'fix_run').at(-1)?.data,
+			shared.isLiveFixRun('diagnosed'),
+		],
+		[
+			200,
+			'diagnosed',
+			'diagnosed',
+			null,
+			'https://app.example/bugs?bug=8',
+			'diagnosed',
+			'diagnosed',
+			'Reproduced on the base.',
+			DIAG,
+			null,
+			null,
+			false,
+			0,
+			{
+				run: ok1.id,
+				status: 'diagnosed',
+				mode: 'diagnose',
+				outcome: 'diagnosed',
+				options: 2,
+				summary: 'Reproduced on the base.',
+			},
+			false,
+		],
+	);
+
+	// Files on a diagnose run: nothing is kept.
+	const withFiles = await diagnoseWith(9, { files: [{ path: ORDER, content: ORDER_FIXED }] });
+	check(
+		'adr-0014 result: a diagnose run that left a file ends no_fix needs_person, nothing kept, nothing written',
+		[
+			withFiles.a.status,
+			withFiles.a.body.status,
+			runOf(withFiles.id).status,
+			runOf(withFiles.id).outcome,
+			runOf(withFiles.id).reason,
+			runOf(withFiles.id).diagnosis,
+			writes().length - writesBefore,
+		],
+		[
+			200,
+			'no_fix',
+			'no_fix',
+			'needs_person',
+			'A diagnose run changed files; nothing was kept.',
+			null,
+			0,
+		],
+	);
+	check(
+		'adr-0014 result: a diagnose run that left a file is refused even when it also says not_reproduced',
+		await (async () => {
+			const r = await diagnoseWith(9, {
+				outcome: 'not_reproduced',
+				files: [{ path: ORDER, content: ORDER_FIXED }],
+			});
+			return [runOf(r.id).outcome, runOf(r.id).reason];
+		})(),
+		['needs_person', 'A diagnose run changed files; nothing was kept.'],
+	);
+
+	// A missing or unwhole diagnosis.
+	const long = (n: number) => 'x'.repeat(n);
+	const bad: [string, unknown][] = [
+		['none', undefined],
+		['not an object', 'a diagnosis'],
+		['no options', diag({ options: [] })],
+		[
+			'five options',
+			diag({ options: [...DIAG.options, ...DIAG.options, ...DIAG.options].slice(0, 5) }),
+		],
+		['ids out of order', diag({ options: [{ ...DIAG.options[1], id: 'B' }, DIAG.options[0]] })],
+		['a duplicate id', diag({ options: [DIAG.options[0], { ...DIAG.options[1], id: 'A' }] })],
+		['an id outside A to D', diag({ options: [{ ...DIAG.options[0], id: 'E' }] })],
+		['a recommendation naming no option', diag({ recommendation: { option: 'C', why: 'w' } })],
+		['a recommendation with no why', diag({ recommendation: { option: 'A' } })],
+		['a kind it does not know', diag({ kind: 'maybe' })],
+		['an empty cause', diag({ cause: '   ' })],
+		['an option with no cost', diag({ options: [{ ...DIAG.options[0], cost: undefined }] })],
+		['a text over four times its cap', diag({ cause: long(12_001) })],
+		[
+			'a name over four times its cap',
+			diag({ options: [{ ...DIAG.options[0], name: long(481) }] }),
+		],
+		[
+			'a total past 16,000 characters',
+			diag({
+				reported: long(3000),
+				cause: long(3000),
+				evidence: long(3000),
+				options: [{ ...DIAG.options[0], change: long(3000), cost: long(3000), risk: long(3000) }],
+			}),
+		],
+		['a text that is nothing once cleaned', diag({ evidence: '<!-- a -->[skip ci]' })],
+	];
+	const unwhole: unknown[] = [];
+	for (const [what, diagnosis] of bad) {
+		const r = await diagnoseWith(9, { diagnosis });
+		unwhole.push([
+			what,
+			runOf(r.id).status,
+			runOf(r.id).outcome,
+			runOf(r.id).reason,
+			runOf(r.id).diagnosis,
+		]);
+	}
+	check(
+		'adr-0014 result: a missing or unwhole diagnosis ends no_fix with "did not explain its diagnosis", nothing stored',
+		unwhole,
+		bad.map(([what]) => [
+			what,
+			'no_fix',
+			'needs_person',
+			'The run did not explain its diagnosis.',
+			null,
+		]),
+	);
+	check(
+		'adr-0014 result: a diagnose run may also end not_reproduced or needs_person, as a build does; diagnosed with no diagnosis is the only other end',
+		await (async () => {
+			const ends: unknown[] = [];
+			for (const outcome of ['not_reproduced', 'needs_person']) {
+				const r = await diagnoseWith(9, { outcome, diagnosis: undefined });
+				ends.push([runOf(r.id).status, runOf(r.id).outcome, runOf(r.id).reason]);
+			}
+			const fixed = await diagnoseWith(9, { outcome: 'fixed', diagnosis: undefined });
+			ends.push([runOf(fixed.id).status, runOf(fixed.id).outcome, runOf(fixed.id).reason]);
+			return ends;
+		})(),
+		[
+			['no_fix', 'not_reproduced', null],
+			['no_fix', 'needs_person', null],
+			['no_fix', 'needs_person', 'The run did not explain its diagnosis.'],
+		],
+	);
+
+	// A diagnose result for a bug closed meanwhile.
+	bugOf(9).status = 'resolved';
+	const closedMeanwhile = await diagnoseWith(9, {});
+	bugOf(9).status = 'open';
+	check(
+		'adr-0014 result: a bug closed while the diagnose run was going keeps no diagnosis',
+		[runOf(closedMeanwhile.id).status, runOf(closedMeanwhile.id).reason],
+		['no_fix', 'The bug was closed while the run was going.'],
+	);
+
+	// The diagnosis is the run's untrusted text: cleaned like a summary.
+	const dirty = await diagnoseWith(9, {
+		diagnosis: diag({
+			reported: 'See <b>this</b> [skip ci] and <!-- hidden --> BUG-7 @owner #12',
+			cause: 'q'.repeat(3100),
+			options: [{ ...DIAG.options[0], name: `Line one\n${'n'.repeat(200)}` }],
+			recommendation: { option: 'A', why: 'w'.repeat(1200) },
+		}),
+	});
+	const cleaned = runOf(dirty.id).diagnosis;
+	check(
+		'adr-0014 result: the diagnosis text is cleaned like a summary — tags shown as text, directives, comments and bug references out, @ and # quieted, each text cut to its cap',
+		[
+			runOf(dirty.id).status,
+			cleaned?.reported,
+			Array.from(cleaned?.cause ?? '').length,
+			cleaned?.options[0].name.includes('\n'),
+			Array.from(cleaned?.options[0].name ?? '').length,
+			Array.from(cleaned?.recommendation.why ?? '').length,
+		],
+		['diagnosed', 'See ‹b›this‹/b›  and  bug #⁠7 @⁠owner #⁠12', 3000, false, 120, 1000],
+	);
+	const leaked = await diagnoseWith(9, {
+		diagnosis: diag({ evidence: `the key is ghp_${'E'.repeat(36)}` }),
+	});
+	const named = await diagnoseWith(1, {
+		diagnosis: diag({ cause: 'It is the ACME games rig that breaks.' }),
+	});
+	check(
+		'adr-0014 result: a secret in any text of the diagnosis, or the bug’s client named in it, ends no_fix needs_person and keeps nothing',
+		[
+			[
+				runOf(leaked.id).status,
+				runOf(leaked.id).outcome,
+				runOf(leaked.id).reason,
+				runOf(leaked.id).diagnosis,
+			],
+			[
+				runOf(named.id).status,
+				runOf(named.id).outcome,
+				runOf(named.id).reason,
+				runOf(named.id).diagnosis,
+			],
+		],
+		[
+			[
+				'no_fix',
+				'needs_person',
+				'The change was refused (secret scan: GitHub token in the diagnosis).',
+				null,
+			],
+			[
+				'no_fix',
+				'needs_person',
+				"The change was refused (privacy: the diagnosis names the bug's project or client).",
+				null,
+			],
+		],
+	);
+
+	// `diagnosed` from a build run is an outcome the launcher does not know.
+	const aBuild = liveRun(9);
+	const fromBuild = await result(
+		aBuild.id,
+		aBuild.gh,
+		good({ outcome: 'diagnosed', diagnosis: DIAG }),
+	);
+	check(
+		'adr-0014 result: diagnosed from a build run → 400, as an unknown outcome, the run still live',
+		[fromBuild.status, fromBuild.body.error, runOf(aBuild.id).status],
+		[400, "The result's outcome is not one the launcher knows.", 'running'],
+	);
+	runOf(aBuild.id).status = 'cancelled';
+
+	// Build: the new endpoint.
+	const diagnosed = ok1.id;
+	const decisionsBefore = eventsOf(8, 'fix_decision').length;
+	const req = newRequest();
+	const built = await buildAs(FIXER, 8, diagnosed, {
+		optionId: 'A',
+		note: 'Keep it small <b>please</b> [skip ci]',
+		requestId: req,
+	});
+	const buildRun = built.body.run as Record<string, unknown> & { id: string };
+	const row = runOf(buildRun.id);
+	check(
+		'adr-0014 build: a person with the rights builds an option of a current diagnosis: a build run with its parent and choice, dispatched as a start is',
+		[
+			built.status,
+			buildRun.mode,
+			buildRun.status,
+			buildRun.parentRunId,
+			(buildRun.chosenOption as Record<string, unknown>).optionId,
+			(buildRun.chosenOption as Record<string, unknown>).name,
+			(buildRun.chosenOption as Record<string, unknown>).change,
+			(buildRun.chosenOption as Record<string, unknown>).note,
+			(buildRun.chosenOption as Record<string, unknown>).decidedBy,
+			Number.isNaN(
+				Date.parse(String((buildRun.chosenOption as Record<string, unknown>).decidedAt)),
+			),
+			row.mode,
+			row.parentRunId,
+			row.baseSha,
+			gh.calls.at(-1)?.body?.inputs,
+			Object.keys(buildRun).includes('canStop'),
+		],
+		[
+			201,
+			'build',
+			'dispatched',
+			diagnosed,
+			'A',
+			'Keep the order',
+			'Sort the bones by index when the rig is saved.',
+			'Keep it small ‹b›please‹/b›',
+			'@fia',
+			false,
+			'build',
+			diagnosed,
+			BASE,
+			{ fix_run: buildRun.id },
+			true,
+		],
+	);
+	check(
+		'adr-0014 build: the decision is an event of the bug by the person, before the run’s own, and holds the run, the build, the option, its name and the note',
+		[
+			eventsOf(8, 'fix_decision').length - decisionsBefore,
+			eventsOf(8, 'fix_decision').at(-1)?.actor,
+			eventsOf(8, 'fix_decision').at(-1)?.actorId,
+			eventsOf(8, 'fix_decision').at(-1)?.data,
+			eventsOf(8)
+				.slice(-2)
+				.map((e) => e.kind),
+			eventsOf(8, 'fix_run').at(-1)?.data,
+		],
+		[
+			1,
+			'@fia',
+			FIXER.id,
+			{
+				run: diagnosed,
+				build: buildRun.id,
+				option: 'A',
+				name: 'Keep the order',
+				note: 'Keep it small ‹b›please‹/b›',
+			},
+			['fix_decision', 'fix_run'],
+			{ run: buildRun.id, status: 'dispatched' },
+		],
+	);
+	const replay = await buildAs(FIXER, 8, diagnosed, { optionId: 'A', requestId: req });
+	check(
+		'adr-0014 build: a replayed requestId answers the same build, and records no second decision',
+		[
+			replay.status,
+			(replay.body.run as { id: string }).id,
+			eventsOf(8, 'fix_decision').length - decisionsBefore,
+			runs.filter((r) => r.parentRunId === diagnosed).length,
+		],
+		[200, buildRun.id, 1, 1],
+	);
+
+	// The brief: the budget per mode, the decision and the diagnosis for a build.
+	const buildBrief = await brief(
+		buildRun.id,
+		token({ run_id: String(runOf(buildRun.id).ghRunId) }),
+	);
+	check(
+		'adr-0014 brief: a build run’s brief carries its mode, the fix cap, the decision and the parent diagnosis',
+		[
+			buildBrief.status,
+			buildBrief.body.mode,
+			buildBrief.body.budgetUsd,
+			buildBrief.body.decision,
+			buildBrief.body.diagnosis,
+		],
+		[
+			200,
+			'build',
+			15,
+			{
+				optionId: 'A',
+				name: 'Keep the order',
+				change: 'Sort the bones by index when the rig is saved.',
+				note: 'Keep it small ‹b›please‹/b›',
+			},
+			DIAG,
+		],
+	);
+	settings.budget = 9;
+	settings.diagnoseBudget = 3;
+	const diagnoseLive = liveRun(9, { mode: 'diagnose', status: 'dispatched' });
+	const buildLive = liveRun(1, { status: 'dispatched' });
+	const [diagnoseBrief, buildBrief2] = [
+		await brief(diagnoseLive.id, token({ run_id: String(diagnoseLive.gh) })),
+		await brief(buildLive.id, token({ run_id: String(buildLive.gh) })),
+	];
+	check(
+		'adr-0014 brief: each mode has its own cap — a diagnose run PIPELINE_DIAGNOSE_BUDGET_USD, a build run PIPELINE_FIX_BUDGET_USD',
+		[
+			diagnoseBrief.body.budgetUsd,
+			buildBrief2.body.budgetUsd,
+			diagnoseBrief.body.decision,
+			buildBrief2.body.mode,
+		],
+		[3, 9, null, 'build'],
+	);
+	settings.budget = 15;
+	settings.diagnoseBudget = 5;
+	runOf(diagnoseLive.id).status = 'cancelled';
+	runOf(buildLive.id).status = 'cancelled';
+	runOf(buildRun.id).status = 'cancelled';
+
+	// Refusals of a build.
+	const newer = liveRun(8, { mode: 'diagnose' });
+	runOf(newer.id).status = 'no_fix';
+	const stale = await buildAs(FIXER, 8, diagnosed, pick('A'));
+	const other = await diagnoseWith(9, {});
+	const refusedBuilds: [string, Answer][] = [
+		['a newer diagnose run exists', stale],
+		['no such option', await buildAs(FIXER, 9, other.id, pick('C'))],
+		['an option that is not one of A to D', await buildAs(FIXER, 9, other.id, pick('Z'))],
+		['a run that is not a diagnose run', await buildAs(FIXER, 8, buildRun.id, pick('A'))],
+		['a run of another bug', await buildAs(FIXER, 8, other.id, pick('A'))],
+		['a diagnose run that found nothing', await buildAs(FIXER, 9, withFiles.id, pick('A'))],
+		['a run that does not exist', await buildAs(FIXER, 9, '0000000000', pick('A'))],
+		['an id that is not a run id', await buildAs(FIXER, 9, 'nope', pick('A'))],
+	];
+	check(
+		'adr-0014 build: each refusal is a 409 with its code, and starts nothing',
+		refusedBuilds.map(([, a]) => [a.status, a.body.code]),
+		[
+			[409, 'stale_diagnosis'],
+			[409, 'no_such_option'],
+			[409, 'no_such_option'],
+			[409, 'not_diagnosed'],
+			[409, 'not_diagnosed'],
+			[409, 'not_diagnosed'],
+			[409, 'not_diagnosed'],
+			[409, 'not_diagnosed'],
+		],
+	);
+	check(
+		'adr-0014 build: the sentences of the new refusals',
+		[
+			refusedBuilds[0][1].body.error,
+			refusedBuilds[1][1].body.error,
+			refusedBuilds[3][1].body.error,
+		],
+		[
+			'BUG-8 has a newer diagnosis. Choose from that one.',
+			'That diagnosis has no such option.',
+			'That is not a finished diagnosis of BUG-8.',
+		],
+	);
+	check(
+		'adr-0014 build: a stale diagnosis is not built, whoever asks',
+		[
+			runs.filter((r) => r.parentRunId === diagnosed).length,
+			(await buildAs(ADMIN, 8, diagnosed, pick('A'))).body.code,
+		],
+		[1, 'stale_diagnosis'],
+	);
+
+	// The start refusals, for a build.
+	const live9 = liveRun(9);
+	const busy = await buildAs(FIXER, 9, other.id, pick('A'));
+	runOf(live9.id).status = 'cancelled';
+	settings.maxLive = 1;
+	const holding = liveRun(2);
+	const tooMany = await buildAs(FIXER, 9, other.id, pick('A'));
+	runOf(holding.id).status = 'cancelled';
+	settings.maxLive = 2;
+	settings.monthly = 0.01;
+	const spent = await buildAs(FIXER, 9, other.id, pick('A'));
+	settings.monthly = 150;
+	bugOf(9).status = 'resolved';
+	const closed = await buildAs(FIXER, 9, other.id, pick('A'));
+	bugOf(9).status = 'open';
+	db.links.push({
+		bugNumber: 9,
+		prNumber: 640,
+		title: 'launcher: BUG-9 fix',
+		url: `https://github.com/${REPO}/pull/640`,
+		state: 'open',
+		updatedAt: tick(),
+	});
+	const inReview = await buildAs(FIXER, 9, other.id, pick('A'));
+	db.links.pop();
+	const reuse = pick('A');
+	const first = await buildAs(FIXER, 9, other.id, reuse);
+	const reused = await buildAs(ADMIN, 9, other.id, reuse);
+	runOf((first.body.run as { id: string }).id).status = 'cancelled';
+	check(
+		'adr-0014 build: the start refusals apply — a live run, too many live, the month’s ceiling, a closed bug, a pull request open, a requestId another person used',
+		[busy, tooMany, spent, closed, inReview, reused].map((a) => [a.status, a.body.code]),
+		[
+			[409, 'fix_run_live'],
+			[409, 'too_many_fix_runs'],
+			[409, 'fix_budget_spent'],
+			[409, 'bug_closed'],
+			[409, 'pr_open'],
+			[409, 'request_id_reused'],
+		],
+	);
+	check(
+		'adr-0014 build: its own refusals come before the start’s — a stale diagnosis on a closed bug is a stale diagnosis',
+		await (async () => {
+			bugOf(8).status = 'resolved';
+			const a = await buildAs(FIXER, 8, diagnosed, pick('A'));
+			bugOf(8).status = 'open';
+			return a.body.code;
+		})(),
+		'stale_diagnosis',
+	);
+	check(
+		'adr-0014 build: a start-time refusal stores no run and no decision',
+		[runs.filter((r) => r.parentRunId === other.id).length, eventsOf(9, 'fix_decision').length],
+		[1, 1],
+	);
+
+	// Rights, bodies and the other bug kinds.
+	const noRights = await buildAs(DEV, 8, other.id, pick('A'));
+	const fixOnly = await buildAs(FIXONLY, 8, other.id, pick('A'));
+	const outsider = await buildAs(OUTSIDER, 1, other.id, pick('A'));
+	const game = await buildAs(FIXER, 5, other.id, pick('A'));
+	const missing = await buildAs(FIXER, 999, other.id, pick('A'));
+	const bodies = await Promise.all([
+		buildAs(FIXER, 9, other.id, { optionId: 'A' }),
+		buildAs(FIXER, 9, other.id, { optionId: 'A', requestId: 'x' }),
+		buildAs(FIXER, 9, other.id, { requestId: newRequest() }),
+		buildAs(FIXER, 9, other.id, pick('A', { note: 'n'.repeat(1001) })),
+		buildAs(FIXER, 9, other.id, pick('A', { note: 7 })),
+		buildAs(FIXER, 9, other.id, 'not an object'),
+	]);
+	check(
+		'adr-0014 build: both capabilities (403), a bug the person may see (404), a requestId and optionId, a note of at most 1000 characters (400)',
+		[noRights, fixOnly, outsider, game, missing, ...bodies].map((a) => a.status),
+		[403, 403, 404, 404, 404, 400, 400, 400, 400, 400, 400],
+	);
+	const thousand = await buildAs(FIXER, 9, other.id, pick('A', { note: 'n'.repeat(1000) }));
+	runOf((thousand.body.run as { id: string }).id).status = 'cancelled';
+	const emptyNote = await buildAs(FIXER, 9, other.id, pick('B', { note: '   ' }));
+	runOf((emptyNote.body.run as { id: string }).id).status = 'cancelled';
+	check(
+		'adr-0014 build: a 1000-character note is kept whole; a blank note is none',
+		[
+			thousand.status,
+			Array.from(((thousand.body.run as Json).chosenOption as { note: string }).note).length,
+			emptyNote.status,
+			((emptyNote.body.run as Json).chosenOption as { note: string | null }).note,
+		],
+		[201, 1000, 201, null],
+	);
+	// Under the lock a racing writer is read again: a newer diagnosis, a run going.
+	const racer = await diagnoseWith(9, {});
+	hooks.underLock = () => {
+		const at = tick();
+		runs.push({
+			...runOf(racer.id),
+			id: 'aaaaaaaaaa',
+			status: 'dispatched',
+			createdAt: at,
+			ghRunId: null,
+			requestId: 'race-1',
+			diagnosis: null,
+		});
+	};
+	const lostRace = await buildAs(FIXER, 9, racer.id, pick('A'));
+	runOf('aaaaaaaaaa').status = 'cancelled';
+	const racer2 = await diagnoseWith(9, {});
+	hooks.underLock = () => {
+		const at = tick();
+		runs.push({
+			...runOf(racer2.id),
+			id: 'bbbbbbbbbb',
+			mode: 'build',
+			status: 'dispatched',
+			createdAt: at,
+			ghRunId: null,
+			requestId: 'race-2',
+		});
+	};
+	const wasLive = await buildAs(FIXER, 9, racer2.id, pick('A'));
+	runOf('bbbbbbbbbb').status = 'cancelled';
+	check(
+		'adr-0014 build: the refusals are read again under the lock — a newer diagnose run, a run that went live',
+		[lostRace, wasLive].map((a) => [a.status, a.body.code]),
+		[
+			[409, 'stale_diagnosis'],
+			[409, 'fix_run_live'],
+		],
+	);
+
+	// What the pages are given.
+	const page = async (user: TestUser, n: number) =>
+		(await call(bugRoute.GET, { user, params: { number: String(n) } })).body as {
+			fixRuns: {
+				id: string;
+				mode: string;
+				diagnosis: unknown;
+				chosenOption: unknown;
+				parentRunId: unknown;
+			}[];
+			fix: { latestDiagnosis: { id: string } | null; canBuild: boolean; may: boolean };
+			canBuild: boolean;
+			canStartFix: boolean;
+		};
+	for (const r of runs) if (isLive(r)) r.status = 'cancelled';
+	const current = await diagnoseWith(8, {});
+	workflow.forgetFixWorkflow();
+	const asFixer = await page(FIXER, 8);
+	const asDev = await page(DEV, 8);
+	check(
+		'adr-0014 page: the bug’s fix runs carry mode, diagnosis, chosen option and parent; the current diagnosis is the newest diagnose run when it is diagnosed; whoever sees the bug sees it, only the pair may build',
+		[
+			asFixer.fixRuns[0].id,
+			asFixer.fixRuns[0].mode,
+			asFixer.fixRuns[0].diagnosis,
+			asFixer.fix.latestDiagnosis?.id,
+			asFixer.fix.canBuild,
+			asFixer.canBuild,
+			asFixer.canStartFix,
+			asDev.fix.latestDiagnosis?.id,
+			asDev.fix.canBuild,
+			asDev.canBuild,
+		],
+		[current.id, 'diagnose', DIAG, current.id, true, true, true, current.id, false, false],
+	);
+	const buildNow = await buildAs(FIXER, 8, current.id, pick('B', { note: 'Owner judges.' }));
+	const buildId = (buildNow.body.run as { id: string }).id;
+	const duringBuild = await page(FIXER, 8);
+	const live = duringBuild.fixRuns[0];
+	check(
+		'adr-0014 page: a live build shows its choice and parent; the diagnosis stays current but nothing can be built while a run is live',
+		[
+			buildNow.status,
+			live.id === buildId,
+			live.mode,
+			live.parentRunId,
+			(live.chosenOption as { optionId: string; note: string }).optionId,
+			(live.chosenOption as { note: string }).note,
+			duringBuild.fix.latestDiagnosis?.id,
+			duringBuild.fix.canBuild,
+			duringBuild.canStartFix,
+		],
+		[201, true, 'build', current.id, 'B', 'Owner judges.', current.id, false, false],
+	);
+	runOf(buildId).status = 'failed';
+	const diagnoseAgain = liveRun(8, { mode: 'diagnose' });
+	const whileDiagnosing = await page(FIXER, 8);
+	runOf(diagnoseAgain.id).status = 'failed';
+	const afterFailed = await page(FIXER, 8);
+	check(
+		'adr-0014 page: a newer diagnose run, live or failed, leaves no current diagnosis and nothing to build',
+		[whileDiagnosing, afterFailed].map((p) => [p.fix.latestDiagnosis, p.fix.canBuild, p.canBuild]),
+		[
+			[null, false, false],
+			[null, false, false],
+		],
+	);
+	check(
+		'adr-0014 page: a game bug has no diagnosis and cannot build',
+		await (async () => {
+			const g = await page(DEV, 5);
+			return [g.fix.latestDiagnosis, g.fix.canBuild, g.canBuild, g.fixRuns.length];
+		})(),
+		[null, false, false, 0],
+	);
+	const tab = await reports.fixTabFor(
+		FIXER as never,
+		[8, 9].map((n) => ({ number: n, status: 'open' as const, links: [] })),
+	);
+	const tabOpen = await reports.fixTabFor(FIXER as never, [
+		{ number: 8, status: 'open' as const, links: [] },
+	]);
+	const dispatchedOnNine = liveRun(9, { mode: 'diagnose' });
+	runOf(dispatchedOnNine.id).status = 'diagnosed';
+	runOf(dispatchedOnNine.id).diagnosis = DIAG;
+	const tabNine = await reports.fixTabFor(FIXER as never, [
+		{ number: 9, status: 'open' as const, links: [] },
+	]);
+	const tabDev = await reports.fixTabFor(DEV as never, [
+		{ number: 9, status: 'open' as const, links: [] },
+	]);
+	check(
+		'adr-0014 tab: each bug’s latest diagnosis and whether the viewer may build it — none after a newer failed diagnose run, one when diagnosed; seen but not buildable without the pair',
+		[
+			[tab.byBug[8].latestDiagnosis, tab.byBug[8].canBuild],
+			[tabOpen.byBug[8].canBuild],
+			[
+				tabNine.byBug[9].latestDiagnosis?.id,
+				tabNine.byBug[9].canBuild,
+				tabNine.byBug[9].runs[0].mode,
+			],
+			[tabDev.byBug[9].latestDiagnosis?.id, tabDev.byBug[9].canBuild],
+		],
+		[[null, false], [false], [dispatchedOnNine.id, true, 'diagnose'], [dispatchedOnNine.id, false]],
+	);
+
+	// A game bug's page learns where its escalated pipeline bug stands, not what the runs said.
+	escalations.set(5, { toBug: 8, toStatus: 'open' });
+	runOf(current.id).createdAt = tick();
+	const diagnosedAgain = await diagnoseWith(8, {});
+	const viaGame = await call(bugRoute.GET, { user: DEV, params: { number: '5' } });
+	escalations.clear();
+	const escalated = viaGame.body.escalatedFix as Record<string, unknown>;
+	check(
+		'adr-0014 page: a game bug’s escalated fix shows no diagnosis, no chosen option and no words of the run',
+		[
+			escalated.id,
+			escalated.status,
+			escalated.mode,
+			escalated.diagnosis,
+			escalated.chosenOption,
+			escalated.summary,
+			escalated.reason,
+		],
+		[diagnosedAgain.id, 'diagnosed', 'diagnose', null, null, null, null],
+	);
+
+	// Spend: a diagnose run's counts toward the month like a build's.
+	const month = ledger
+		.filter((l) => l.agent === 'bug-fix' && l.at >= shared.monthStartUtc(clock))
+		.reduce((t, l) => t + l.usd, 0);
+	check(
+		'adr-0014 spend: a diagnose run’s spend is recorded under the fix-run agent and counts toward the month',
+		[
+			ledger.filter((l) => l.runId === `fix:${ok1.id}`).map((l) => l.agent),
+			runOf(ok1.id).spendUsd,
+			month >= (runOf(ok1.id).spendUsd ?? Infinity),
+		],
+		[['bug-fix'], opusUsd, true],
+	);
+
+	// The shared rules.
+	check(
+		'adr-0014 shared: buildRefusal reads the parent, the newest diagnose run and the option; latestDiagnosisOf the newest diagnose run alone',
+		[
+			shared.buildRefusal(8, null, 'x', 'A'),
+			shared.buildRefusal(
+				8,
+				{ id: 'x', bugNumber: 8, mode: 'diagnose', status: 'diagnosed', diagnosis: DIAG },
+				'x',
+				'A',
+			),
+			shared.buildRefusal(
+				8,
+				{ id: 'x', bugNumber: 8, mode: 'diagnose', status: 'diagnosed', diagnosis: DIAG },
+				'y',
+				'A',
+			),
+			shared.buildRefusal(
+				8,
+				{ id: 'x', bugNumber: 8, mode: 'diagnose', status: 'diagnosed', diagnosis: DIAG },
+				'x',
+				'C',
+			),
+			shared.buildRefusal(
+				8,
+				{ id: 'x', bugNumber: 8, mode: 'diagnose', status: 'diagnosed', diagnosis: null },
+				'x',
+				'A',
+			),
+			shared.buildRefusal(
+				8,
+				{ id: 'x', bugNumber: 9, mode: 'diagnose', status: 'diagnosed', diagnosis: DIAG },
+				'x',
+				'A',
+			),
+			shared.buildRefusal(
+				8,
+				{ id: 'x', bugNumber: 8, mode: 'build', status: 'diagnosed', diagnosis: DIAG },
+				'x',
+				'A',
+			),
+			shared.latestDiagnosisOf([
+				{ mode: 'build', status: 'failed' },
+				{ mode: 'diagnose', status: 'diagnosed' },
+			])?.status,
+			shared.latestDiagnosisOf([
+				{ mode: 'diagnose', status: 'no_fix' },
+				{ mode: 'diagnose', status: 'diagnosed' },
+			]),
+			shared.latestDiagnosisOf([{ mode: 'build', status: 'pr_opened' }]),
+		],
+		[
+			'not_diagnosed',
+			null,
+			'stale_diagnosis',
+			'no_such_option',
+			'not_diagnosed',
+			'not_diagnosed',
+			'not_diagnosed',
+			'diagnosed',
+			null,
+			null,
+		],
+	);
+	check(
+		'adr-0014 shared: the build route is under the protected fix-run routes, the migration under the protected drizzle folder',
+		[
+			change.protectedEntry(
+				'apps/launcher-api/src/routes/api/bugs/[number]/fix-runs/[id]/build/+server.ts',
+			),
+			change.protectedEntry('apps/launcher-api/drizzle/0048_fix_run_diagnose.sql'),
+		],
+		['apps/launcher-api/src/routes/api/bugs/[number]/fix-runs', 'apps/launcher-api/drizzle'],
+	);
 }
 
 if (failures) {

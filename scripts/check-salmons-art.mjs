@@ -18,9 +18,14 @@
 //   sandbank, a rock or the sea does not, nor a fisherman on a bridge's deck, nor a salmon; on land
 //   its look has no filter; under the line its colour is `underTint`'s, and the pass finds the
 //   look's place at any zoom and resolution; the runtime wraps every mount it publishes.
-// - biomes (2026-11-26): a river with none authored is drawn piece for piece as at main a404522
+// - zone art's trees (`@trees`, docs/design/zone-art.md): `/config`'s Default line names the six
+//   trees the river draws; the river itself, mounted here over a stand-in app, draws every
+//   scattered and forest tree with the trees' picture (a frame, variants, a clip) at the built-in
+//   tree's place, depth and foot, its width times the scale, and every other piece exactly as
+//   without it; with no picture loaded it draws exactly as without.
+// - biomes (2026-11-26): a river with none authored is drawn piece for piece as before them
 //   (`salmons/art-fingerprint.mjs`), and an authored stretch draws its own trees, floor, grass
-//   tint and riverbed.
+//   tint and riverbed; with the trees' art, a biome's variants pick among its pictures.
 //
 // Run: pnpm check:salmons-art
 
@@ -49,6 +54,7 @@ import {
 	usesSalmonsArt,
 } from '../packages/game-config/src/salmonsProjectArt.ts';
 import { ONLINE_GENERATOR_IDS } from '../packages/game-config/src/family.ts';
+import { ZONE_ART_SCENERY } from '../packages/game-config/src/zoneArt.ts';
 import { SALMONS_BUILT_IN_ZONE_ART } from '../apps/launcher-api/src/routes/(app)/config/zoneArtBuiltIn.ts';
 import { salmonsProjectArtPlan } from './salmons/project-art.mjs';
 import {
@@ -1171,14 +1177,217 @@ check(
 			}
 		assert.deepEqual(
 			Object.keys(SALMONS_BUILT_IN_ZONE_ART).sort(),
-			[...SALMONS_DRAWN_ZONE_FAMILIES].sort(),
+			[...SALMONS_DRAWN_ZONE_FAMILIES, ...ZONE_ART_SCENERY].sort(),
 		);
+		// The trees: every tree the river draws (`tree_${variant}`), from the props sheet.
+		const trees = SALMONS_REGIONS.props.filter((name) => name.startsWith('tree_'));
+		assert.equal(trees.length, 6);
+		assert.deepEqual(
+			SALMONS_BUILT_IN_ZONE_ART['@trees'].pictures,
+			trees.map((name) => ['props', name]),
+		);
+		assert.match(
+			readFileSync(join(ART, 'river.ts'), 'utf8'),
+			/: region\(`tree_\$\{variant\}`\)/,
+			'the river draws the built-in trees by these names',
+		);
+	},
+);
+
+// The river mounted in Node: its textures stand-ins labelled by region, an app whose renderer makes
+// plain textures and whose screen holds the whole world (every piece in view), the players' layer
+// registered. Pixi's canvas for the displacement map is a stand-in too.
+globalThis.OffscreenCanvas ??= class {
+	constructor(width = 1, height = 1) {
+		this.width = width;
+		this.height = height;
+	}
+	getContext() {
+		return null;
+	}
+};
+globalThis.document.createElement = () => new OffscreenCanvas(256, 256);
+registerHooks({
+	resolve: (specifier, context, next) =>
+		specifier.endsWith('/worldDrawing.svelte')
+			? next(`${specifier}.ts`, context)
+			: next(specifier, context),
+});
+const { AnimatedSprite } = await import(
+	pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href
+);
+const { mountSalmonsRiver } = await import(join(ART, 'river.ts'));
+const { registerProjectedLayer } =
+	await import('../packages/engine-layout/src/lib/worldDrawing.svelte.ts');
+const { SALMONS_FIELD_LAYER } =
+	await import('../packages/engine-layout/src/lib/referenceLayouts/salmonsRiver.ts');
+const { registerFlipbooks } =
+	await import('../packages/engine-layout/src/lib/registerFlipbooks.ts');
+const { editorArtTextureKey } = await import('../packages/engine-layout/src/lib/editorArtKey.ts');
+const { salmonsRiver } = await import('../packages/engine-mechanics/src/salmons.js');
+
+const textureOf = (() => {
+	const made = new Map();
+	return (name, w = 64, h = 96) => {
+		if (!made.has(name)) {
+			const texture = new Texture({ frame: new Rectangle(0, 0, w, h) });
+			texture.label = name;
+			made.set(name, texture);
+		}
+		return made.get(name);
+	};
+})();
+const riverArt = {
+	region: (name) => textureOf(name),
+	face: textureOf('waterfall_face'),
+	cliff: textureOf('cliff'),
+};
+const riverApp = {
+	renderer: { generateTexture: () => new Texture(), screen: { width: 1e7, height: 1e7 } },
+	ticker: { add() {}, remove() {} },
+};
+const TREES = 'invisible_wall/salmons/manifests/atlas_manifest_S_Trees.json';
+const treeAssets = {
+	[editorArtTextureKey(TREES, 'pine')]: textureOf('pine', 40, 100),
+	[editorArtTextureKey(TREES, 'fir')]: textureOf('fir', 60, 90),
+	[editorArtTextureKey(TREES, 'sway_0')]: textureOf('sway_0', 50, 110),
+	[editorArtTextureKey(TREES, 'sway_1')]: textureOf('sway_1', 50, 110),
+};
+registerFlipbooks([
+	{ id: 'tree_sway', name: 'Sway', assetKey: TREES, frames: ['sway_0', 'sway_1'], fps: 4 },
+]);
+const PINE = { kind: 'sprite', region: `${TREES}::pine` };
+const FIR = { kind: 'sprite', region: `${TREES}::fir` };
+const SWAY = { kind: 'flipbook', clip: 'tree_sway' };
+const TREE_W = 96 * K;
+
+/** What a river of `seed` draws with `zoneArt`: every upright piece and every piece among the
+ *  players, in order, and the regions it drew. */
+const drawnRiver = (river, seed, zoneArt) => {
+	const into = new Container();
+	const layer = new Container();
+	const unregister = registerProjectedLayer(SALMONS_FIELD_LAYER, layer);
+	const drawn = mountSalmonsRiver(
+		into,
+		riverApp,
+		riverArt,
+		river,
+		seed,
+		ISO_PROJECTOR_MIRRORED,
+		zoneArt,
+	);
+	const piece = (v) => ({
+		x: v.x,
+		y: v.y,
+		z: v.zIndex,
+		sx: v.scale.x,
+		sy: v.scale.y,
+		anchor: v.anchor ? [v.anchor.x, v.anchor.y] : undefined,
+		texture: v.texture?.label ?? v.constructor.name,
+		frames: v instanceof AnimatedSprite ? v.textures.map((t) => t.label) : undefined,
+		frame: v instanceof AnimatedSprite ? v.currentFrame : undefined,
+		playing: v instanceof AnimatedSprite ? v.playing : undefined,
+	});
+	const upright = into.children.at(-1);
+	const out = {
+		pieces: [...upright.children, ...layer.children].map(piece),
+		regions: drawn.regions(),
+	};
+	drawn.teardown();
+	unregister();
+	return out;
+};
+const isTree = (p) => p.texture.startsWith('tree_');
+const treeCount = (regions) =>
+	Object.entries(regions)
+		.filter(([name]) => name.startsWith('tree_'))
+		.reduce((n, [, count]) => n + count, 0);
+const SEED = 7;
+const rivers = [
+	['the band river', salmonsRiver()],
+	["the original's map", salmonsMapRiver(SALMONS_MAP_SEED)],
+];
+
+for (const [label, river] of rivers) {
+	const bare = drawnRiver(river, SEED);
+	check(`zone art's trees, ${label}: nothing set or nothing loaded draws exactly as today`, () => {
+		assert.ok(treeCount(bare.regions) > 100, 'the river draws its trees');
+		assert.deepEqual(drawnRiver(river, SEED, { stamps: [], assets: () => treeAssets }), bare);
+		assert.deepEqual(
+			drawnRiver(river, SEED, {
+				stamps: [],
+				trees: { source: PINE, variants: [SWAY], placement: 'stamp' },
+				assets: () => ({}),
+			}),
+			bare,
+			'a picture not loaded draws the built-in tree',
+		);
+	});
+	check(
+		`zone art's trees, ${label}: every tree draws the frame, a tree's width times the scale, on its foot; nothing else moves`,
+		() => {
+			const art = drawnRiver(river, SEED, {
+				stamps: [],
+				trees: { source: PINE, placement: 'stamp', scale: 1.5 },
+				assets: () => treeAssets,
+			});
+			const { 'zoneArt:@trees': trees, ...others } = art.regions;
+			assert.equal(trees, treeCount(bare.regions), 'as many trees as the built-in art draws');
+			assert.deepEqual(
+				others,
+				Object.fromEntries(
+					Object.entries(bare.regions).filter(([name]) => !name.startsWith('tree_')),
+				),
+				'every other region as often',
+			);
+			assert.equal(art.pieces.length, bare.pieces.length);
+			bare.pieces.forEach((was, i) => {
+				const now = art.pieces[i];
+				if (!isTree(was)) return assert.deepEqual(now, was, `piece ${i} (${was.texture}) moved`);
+				assert.deepEqual(
+					[now.x, now.y, now.z, now.anchor, now.texture],
+					[was.x, was.y, was.z, [0.5, 1], 'pine'],
+					`tree ${i}`,
+				);
+				assert.ok(
+					Math.abs(now.sx * 40 - TREE_W * 1.5) < 1e-9 && now.sy === now.sx,
+					`tree ${i}'s size`,
+				);
+			});
+		},
+	);
+}
+
+check(
+	"zone art's trees: variants and a clip, by the seed and the cell, the same on every device",
+	() => {
+		const [, river] = rivers[0];
+		const bare = drawnRiver(river, SEED);
+		const trees = { source: PINE, variants: [FIR, SWAY], placement: 'stamp' };
+		const one = drawnRiver(river, SEED, { stamps: [], trees, assets: () => treeAssets });
+		assert.deepEqual(drawnRiver(river, SEED, { stamps: [], trees, assets: () => treeAssets }), one);
+		const drawnTrees = one.pieces.filter((_, i) => isTree(bare.pieces[i]));
+		const kinds = (list) => list.map((p) => (p.frames ? 'sway' : p.texture));
+		const count = (name) => kinds(drawnTrees).filter((k) => k === name).length;
+		assert.ok(
+			['pine', 'fir', 'sway'].every((k) => count(k) > drawnTrees.length / 6),
+			JSON.stringify({ pine: count('pine'), fir: count('fir'), sway: count('sway') }),
+		);
+		const other = drawnRiver(river, SEED + 1, { stamps: [], trees, assets: () => treeAssets });
+		assert.notDeepEqual(kinds(other.pieces), kinds(one.pieces), 'another seed picks otherwise');
+		for (const tree of drawnTrees.filter((p) => p.frames)) {
+			assert.deepEqual(tree.frames, ['sway_0', 'sway_1']);
+			assert.ok(tree.playing, 'a clip plays');
+		}
+		const starts = new Set(drawnTrees.filter((p) => p.frames).map((p) => p.frame));
+		assert.deepEqual([...starts].sort(), [0, 1], "a clip's trees start on different frames");
 	},
 );
 
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
 // piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
-// biomes were data: a level with no biomes block is drawn exactly as it was.
+// biomes were data, and are the same of main's after its trees' art (#1922): a level with no
+// biomes block is drawn exactly as it was.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
@@ -1261,6 +1470,24 @@ check('biomes: an authored stretch draws its own trees, floor, grass tint and ri
 	// The birch grows tree 4 alone, the original's first stretch below it trees 0 and 1.
 	const variants = new Set(trees.map((r) => r.at(-1)));
 	assert.deepEqual([...variants].sort(), ['tree_0', 'tree_1', 'tree_4']);
+});
+
+check("biomes and the trees' art: a biome's variants pick among the authored pictures", () => {
+	const trees = { source: PINE, variants: [FIR, SWAY], placement: 'stamp' };
+	const art = { stamps: [], trees, assets: () => treeAssets };
+	const kindsOf = (biomes) => {
+		const drawn = drawnRiver(riverOf(SEED, { biomes }), SEED, art);
+		const bare = drawnRiver(riverOf(SEED, { biomes }), SEED);
+		const picked = drawn.pieces.filter((_, i) => isTree(bare.pieces[i]));
+		return new Set(picked.map((p) => (p.frames ? 'sway' : p.texture)));
+	};
+	// Variant v draws picture v of the source and its variants, round again past the last.
+	assert.deepEqual([...kindsOf({ kinds: [{ id: 'a', trees: [1] }] })], ['fir']);
+	assert.deepEqual([...kindsOf({ kinds: [{ id: 'a', trees: [0, 2] }] })].sort(), ['pine', 'sway']);
+	assert.deepEqual([...kindsOf({ kinds: [{ id: 'a', trees: [3] }] })], ['pine']);
+	// No biomes: the seed and the cell pick, as main draws it.
+	const plain = drawnRiver(riverOf(SEED), SEED, art);
+	assert.deepEqual(plain, drawnRiver(salmonsMapRiver(SEED), SEED, art));
 });
 
 console.log(`check:salmons-art: ${passed} passed`);

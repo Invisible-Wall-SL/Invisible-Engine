@@ -101,6 +101,17 @@ game with the capture session. It has no `?` or `&` in it, so BrowserStack canno
 off the link. It needs no sign-in and lasts as long as the session (24 hours). **Copy link**
 copies this short form too, so you can also paste it into a phone's address bar yourself.
 
+The dashboard address follows BrowserStack's integration-URL page: `os=iOS` or `os=Android`
+(capitalised, as BrowserStack writes them), `os_version`, `device`, `device_browser`,
+`scale_to_fit=true`, `speed=1`, `url=<short form>` and `start=true`. If the dashboard opens with no
+phone running, compare its address bar with that list: a missing `device` means Live did not
+know the phone by that name.
+
+A capture link never says what kind of device it runs on. The published launch URL ends in
+`device=desktop`, and capture links drop it. The game reads no `device` parameter either way: its
+layout follows the screen and **Device** in the readout comes from the browser itself, so a phone
+gets the phone layout and its readings are filed as `phone`.
+
 If the readout on the phone has no **Send**, it says "no Send: this link has no capture session"
 — the game was opened without its session; open it again from the button or a copied link. If
 Send fails, the readout says "not sent: <reason>", for example that the capture link has

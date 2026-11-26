@@ -58,7 +58,60 @@ upload.
   - **Live:** nothing until a Save levels (or a re-export) and a publish, and the game server and
     runtime of this merge: a room of an older game server ignores the blocks, and its devices play
     its levels (§3 of the design).
+  - **With the trees' art (`@trees`, below).** On a level with authored biomes a tree whose
+    biome picked variant `v` draws picture `v` of the `@trees` source and its variants (round
+    again past the last); without biomes the seed and the cell pick, as #1922 built it.
+    `check:salmons-art` 43.
 
+- **Zone art draws the trees too: Scenery → Trees (2026-11-26; in review; branch
+  `claude/wizardly-galileo-kjszii`; runtime and launcher change, no config change; Salmons draws
+  exactly as before until someone sets the row).** Plan: [design/zone-art](../design/zone-art.md)
+  §1 "Scenery keys"; the card: [status/game-config](game-config.md),
+  [tools/game-config](../tools/game-config.md) "Zone art".
+  - **What a person does.** In `/config` → Zone art, under **Scenery**, the **Trees** row (shown
+    for `salmonsRiver` and `salmonsMap` only). Its Default reads "Built-in trees, 6 kinds", with
+    `tree_0`–`tree_5` from `salmons_props` as thumbnails. A sheet frame or a Flipbook clip, with
+    variants and a scale, as a zone family's.
+  - **The key** is `@trees` in the same `arcade.zoneArt` map (`game-config` `ZONE_ART_SCENERY`).
+    It is carried and cosmetic like every entry, so the slot, match-3 and card runtimes do not
+    change. A room's levels, `levelHash` and adoption are the same with it
+    (`check:zone-art` §5 now carries `@trees`). It is no zone's family: `@` is in no id the
+    generators make, `/config` refuses one, and `zoneArtStamps` never stamps one.
+  - **In the river** (`salmonsArt/river.ts`): `online.ts` `roomZoneArt` passes the entry
+    (`game/zoneArt.ts` `zoneSceneryOf`) beside the stamps. With it, every scattered and forest
+    tree draws a picture picked by the room's seed and its cell (`sceneryArtSourceFor`), in place
+    of `tree_N`. It is drawn at `TREE_W` times the scale, at the same place and depth, anchored at
+    its foot. A forest tree's cull box takes the picture's size. A clip plays on the river's
+    ticker, neighbouring trees start on different frames, and a forest tree's clip out of the
+    view is not ticked. Each tree still draws its `random()` / `forestRandom()` kind, so nothing
+    else on the river moves. Unset, or a picture not loaded, it draws exactly as before. The
+    probe counts the drawn trees as `regions()['zoneArt:@trees']`.
+  - **Fixed on the way (never released):** the river's clip helpers (`animate`, `pictureOf`)
+    were declared after the tree code, so a tree drawn with the art would have thrown. They now
+    come first. `check:salmons-art` caught it by mounting the river in Node.
+  - **Ships (rule 8)** through the existing generic roots, no new pipeline code: the frame's
+    sheet, the clip and its sheets, and the frame in `characterArt` (`check:zone-art` §8, through
+    the real exporter).
+  - **Gates:** `check:zone-art` 96 (was 72), `check:salmons-art` 39 (was 34: the built-in table
+    holds the six tree names; the river mounted in Node over a stand-in app, on the band river and
+    the original's map, draws exactly as before with nothing set or nothing loaded, draws every
+    tree with the frame at its place, depth, foot and size with every other piece unchanged, and
+    draws variants and a clip by the seed), `check:game-config-family` 573 (the Trees row
+    server-rendered), `check:salmons-export` 39, `check:room-levels` 15, `check:room-sim` 43,
+    svelte-check at baseline for `apps/launcher-api`, `apps/lines` and `packages/engine-layout`.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux): lines, match-3 and card 0 B.
+    arcade +205 B gzip: its bundle +25 B, and the lazy Salmons art chunk +190 B. arcade3d
+    +281 B: its bundle +86 B, and the chunk +189 B. The other chunks moved by a hash and ±4 B.
+  - **Played** on the branch's arcade runtime (headless shell). `salmons-play.mjs --trees` (new,
+    4/4; [playtest/salmons](../playtest/salmons.md) "Zone art's trees"): page T's 427 trees are
+    drawn with a magenta stub frame and none with `tree_N`. The rest of the river is in the
+    original images, and the frame is on screen. `salmons-play.mjs` with no zone art passes
+    102/102. Also on that build: `zone-art-play.mjs` 5/5, `arcade-play.mjs` 14/14,
+    `arcade-characters-play.mjs` 14/14, `arcade-platformer-play.mjs` 15/15, `online-play.mjs`
+    20/20. A clip as the trees' picture was not played in a browser. It is proven in Node
+    (`check:salmons-art`) and found by `resolveClipFrames`, as a whirlpool's clip is.
+  - **Owner steps:** none to keep Salmons as it is. To use it: pick the trees' art in `/config`,
+    save, publish. It reaches rooms with the runtime release of the merge.
 - **Join New Game stays on the page (2026-11-25; owner: "when I finish a game and click join new
   room, the game restarts from the loading screen, I would expect to be in a room already"; in
   review; runtime change only: no game-server, config, layout or flow change; live with the arcade
@@ -778,9 +831,17 @@ upload.
   2026-11-22 (run 45062773205, `9228524`) finds all six documents the same as the export. Live:
   `GET /rooms?game=salmons` lists a new room; a salmon, a bear and a fisherman join it by id; in
   one room a device declaring a 6400 × 6400 window was sent 65 players in every sample against
-  62 → 23 for one declaring none, so the published config carries `max`. **Not checked yet:** the
-  published link in a browser (start menu, catch and respawn, the win lock), which needs the
-  link's read token.
+  62 → 23 for one declaring none, so the published config carries `max`. **In a browser
+  (2026-11-26)**, headless Chromium on the published link (game server on `72a1b92`, arcade runtime on
+  `a404522`): the start menu comes first with its river list ("1 players in Boiling Pot River");
+  three pages joined one room as Salmon, Catcher → Bear and Catcher → Fisherman, each past the
+  boot screen's tap; the room's events showed bots catching and hooking (`caught` with `byName`,
+  `hooked`, `held`, `thrown`); a salmon held on Up swims up-river through the lobby and the round.
+  In four rooms a bot salmon won (`roundEnd`, `gameWon`, "King Chinook won!!!" over the river,
+  Start New Session); the room went to `ended` and left `GET /rooms?game=salmons` at once. No page
+  error (only the blocked Typekit font in that session). **Not seen live:** a person caught and
+  respawned; no catcher reached the test salmon before a bot won (each round about 2 min). That
+  path is covered by `salmons-play.mjs`.
 
 - **The fisherman holds his catch, then throws it; blood on top of the water (2026-11-24; owner
   request; in review; branch `claude/salmons-fisherman-throw`; engine-mechanics, game server,
@@ -2455,6 +2516,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   dependency), `salmonsRiver.ts` marks stretches. `/editor`: `EditorLevelGenerator.svelte`,
   `EditorLevelBiomes.svelte`, `LevelParamField.svelte`; `IconButton` gains `up` / `down`. Gates
   as in Current state; `scripts/salmons/art-fingerprint.mjs` new.
+- 2026-11-26 — **Browser check of the published link** (cloud deploy session): start menu, joins
+  as all three classes, bot catches, the win and the room's lock all seen live; a person's own
+  catch and respawn not reached before a bot won (Current state, "Live check").
+
 - 2026-11-25 — **Join New Game stays on the page** (owner: "I would expect to be in a room
   already"; in review). The win screen's button no longer loads the page again: the device joins
   the new room first, and one task swaps the old room for it in the mounted game, the flow

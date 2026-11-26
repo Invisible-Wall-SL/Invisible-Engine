@@ -15,23 +15,20 @@ const { Container, Graphics, Sprite, Texture, TextureSource, TilingSprite } = aw
 	pathToFileURL(PIXI.replace(/index\.js$/, 'index.mjs')).href
 );
 
-// The projected world's registry (a Svelte module) stood in for: the spawn layer is one container
-// the drawing finds, and the projector the one it is handed.
-const layer = { current: undefined };
-globalThis.__salmonsArtLayer = layer;
+// The projected world's registry is the real one (`worldDrawing.svelte.ts`, which the drawing imports
+// without its extension): the spawn layer is one container registered under Salmons' field layer.
 registerHooks({
 	resolve: (specifier, context, next) =>
-		specifier === '../worldDrawing.svelte'
-			? {
-					url:
-						'data:text/javascript,' +
-						encodeURIComponent(
-							'export const projectedLayer = () => globalThis.__salmonsArtLayer.current;',
-						),
-					shortCircuit: true,
-				}
+		specifier.endsWith('/worldDrawing.svelte')
+			? next(`${specifier}.ts`, context)
 			: next(specifier, context),
 });
+const { registerProjectedLayer } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/worldDrawing.svelte.ts')).href
+);
+const { SALMONS_FIELD_LAYER } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/referenceLayouts/salmonsRiver.ts')).href
+);
 globalThis.document ??= { createElement: () => ({ getContext: () => null }) };
 
 const named = (label) =>
@@ -91,7 +88,8 @@ export async function riverArtFingerprint(river, projector, { module = 'river.ts
 	);
 	const { app, art } = stage();
 	const into = new Container();
-	layer.current = new Container();
+	const layer = new Container();
+	const unregister = registerProjectedLayer(SALMONS_FIELD_LAYER, layer);
 	// The displacement map is drawn on a canvas, which Node has none of.
 	const from = Texture.from;
 	Texture.from = (source) => (source?.getContext ? named('canvas') : from.call(Texture, source));
@@ -105,8 +103,9 @@ export async function riverArtFingerprint(river, projector, { module = 'river.ts
 	const rows = [];
 	if (omit) omit(into);
 	describe(into, rows);
-	describe(layer.current, rows);
+	describe(layer, rows);
 	const hash = createHash('sha256').update(JSON.stringify(rows)).digest('hex').slice(0, 24);
 	drawn.teardown();
+	unregister();
 	return { hash, pieces: rows.length, rows };
 }

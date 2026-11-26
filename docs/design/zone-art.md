@@ -32,6 +32,14 @@ source:  { kind: 'sprite', region: '<manifest key>::<frame>' }
   (`zoneArtSourceFor`). Offline the seed is 0.
 - **No entry, no change.** A family with no entry draws exactly as it did before. An empty map is
   no map.
+- **Scenery keys.** A few reserved keys in the same map name pieces a generator's own art places
+  on no zone: today only `@trees`, Salmons' forest and bank trees (`game-config`
+  `ZONE_ART_SCENERY`; everything derives from that list). An entry has the same shape as a
+  family's. Each piece draws one of `[source, ...variants]`, picked by the room's seed and the
+  piece's cell (`sceneryArtSourceFor`). `@` is in no zone id a generator makes, and `/config`
+  refuses one in a zone it edits. A stored zone whose family is a scenery key is never stamped
+  (`zoneArtStamps`). The validator does not judge a generated game. In a game with no generator,
+  a scenery key is warned of as scenery nobody draws, never as "no zone of this family".
 - **Cosmetic.** No rule, room, level or fingerprint reads it. A room's `levelHash` covers only the
   generator's geometry ([salmons-levels §3](salmons-levels.md)), so a device whose config has zone
   art plays and adopts exactly as one without (`check:zone-art` §5).
@@ -54,11 +62,14 @@ source:  { kind: 'sprite', region: '<manifest key>::<frame>' }
   room's stamps, worked out from the zones the room made. For a **rock** or a **whirlpool** whose
   zone has a stamp, the stamp's picture takes the built-in one's place, at the built-in size times
   the scale. Any other family's stamp stands upright on its zone's centre, fitted inside the zone,
-  in the upright layer at the rock depth. Every seeded choice is made as before (a rock still
-  draws both of its numbers), so nothing else on the river moves. A picture that is not loaded
-  falls back to the built-in piece.
-- **Rule 8.** `editorArtExport` ships the sheet of every frame zone art names
-  (`zoneArtStillRoots`; the frame is counted as used, so a lost frame is reported). Clip
+  in the upright layer at the rock depth. With `@trees` set, every scattered and forest tree draws
+  its picked picture in place of `tree_N`: a built-in tree's width (`TREE_W`) times the scale, its
+  ratio kept, at the same place and depth, anchored at its foot. A clip plays on the river's
+  ticker, and neighbouring trees start on different frames. Every seeded choice is made as before
+  (a rock still draws both of its numbers, a tree still draws its built-in kind), so nothing else
+  on the river moves. A picture that is not loaded falls back to the built-in piece.
+- **Rule 8.** `editorArtExport` ships the sheet of every frame zone art names, a scenery key's
+  too (`zoneArtStillRoots`; the frame is counted as used, so a lost frame is reported). Clip
   reachability counts every clip zone art names as played (`zoneArtClipRoots`), so the clip and
   its sheets ship. A frame or clip that no scene places still ships. The runtime's normalizer drops
   the field, so the index lists each frame in `characterArt` (`zoneArtArtNames`, beside a character
@@ -70,7 +81,10 @@ source:  { kind: 'sprite', region: '<manifest key>::<frame>' }
 1. **Built (this change):** sheet frames and Flipbook clips, `stamp`, variants, scale; the
    `/config` Zone art card with thumbnails; the export and reachability; the runtime draw for a
    plain arcade game and in Salmons' river. Proof: `pnpm --filter launcher-api check:zone-art`,
-   and `scripts/playtest/zone-art-play.mjs`, which plays a plain game in a browser.
+   and `scripts/playtest/zone-art-play.mjs`, which plays a plain game in a browser. **Scenery
+   (built 2026-11-26, in review):** `@trees`, the card's **Scenery → Trees** row (Salmons'
+   generators). Proof: `check:zone-art` §10, `check:salmons-art` (which mounts the river in
+   Node), and `salmons-play.mjs --trees`.
 2. **Next: a rig source** (`{ kind: 'rig', rig, animation }`), drawn as the character sheet's rig
    look is (`engine-layout/sheet-rig`), with its bundle in `characterArt`-style boot names. Also a
    flipbook `randomStart` (a frame per zone by the seed; `<Flipbook>` has no start frame yet) and a

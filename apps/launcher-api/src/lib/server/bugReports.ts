@@ -35,6 +35,7 @@ import {
 	FIX_RUN_AGENT,
 	fixRunView,
 	isLiveFixRun,
+	latestDiagnosisOf,
 	monthStartUtc,
 	refusalMessage,
 	startRefusal,
@@ -260,7 +261,10 @@ export interface BugDetail extends BugSummary {
 	events: BugEventView[];
 	/** A pipeline bug's fix runs (ADR-0013), newest first, at most ten; none on a game bug. */
 	fixRuns: FixRunView[];
-	/** What the page decides Start fix from (`fixControl`); none on a game bug. */
+	/**
+	 * What the page decides Start fix and Build from (`fixControl`); none on a game bug. Holds the
+	 * bug's current diagnosis too (`fix.latestDiagnosis`, ADR-0014).
+	 */
 	fix: FixFacts;
 	/**
 	 * The viewer may start a fix run now: they hold both capabilities, fix runs can run (the App
@@ -268,6 +272,8 @@ export interface BugDetail extends BugSummary {
 	 * (closed, a pull request open, a run live, too many live, the month's ceiling spent).
 	 */
 	canStartFix: boolean;
+	/** The viewer may build an option of the current diagnosis now (`fix.canBuild`, ADR-0014). */
+	canBuild: boolean;
 	/**
 	 * A game bug's escalated pipeline bug's latest fix run, read through the relation (ADR-0013 §6):
 	 * its status and pull request only, never the run's words, and nothing to stop or start here.
@@ -357,6 +363,7 @@ function detailOf(
 		fixRuns: fix.runs,
 		fix: fix.facts,
 		canStartFix: fix.facts.may && fix.facts.ready && fix.facts.refusal === null,
+		canBuild: fix.facts.canBuild,
 		escalatedFix,
 		revision: bug.revision,
 		canEdit: mine || access.triage.has(bug.kind),
@@ -461,6 +468,8 @@ async function escalatedFixRun(pipelineBug: number): Promise<FixRunView | null> 
 		reason: null,
 		summary: null,
 		secondBug: null,
+		diagnosis: null,
+		chosenOption: null,
 	};
 }
 
@@ -517,10 +526,21 @@ async function fixRunsFor(
 	const rows = await fixRunsOfBug(full.bug.number);
 	const may = canRunFixes(access);
 	const runs = rows.map((r) => fixRunView(r, ENV.GITHUB_ENGINE_REPO, may));
-	if (!may) return { runs, facts: NO_FIX };
+	const latestDiagnosis = latestDiagnosisOf(runs);
+	if (!may) return { runs, facts: { ...NO_FIX, latestDiagnosis } };
 	const ready = !githubApp.missing() && (await fixWorkflowReady());
 	const facts = await fixStartFacts(full.bug, full.links, rows);
-	return { runs, facts: { may, ready, refusal: refusalOf(full.bug.number, facts) } };
+	const refusal = refusalOf(full.bug.number, facts);
+	return {
+		runs,
+		facts: {
+			may,
+			ready,
+			refusal,
+			latestDiagnosis,
+			canBuild: ready && refusal === null && latestDiagnosis !== null,
+		},
+	};
 }
 
 /** What the Bugs tab of Pipeline Changes knows of fix runs: one entry per bug listed. */
@@ -530,7 +550,17 @@ export interface FixTab {
 	/** Triage and the fix capability both. */
 	may: boolean;
 	ready: boolean;
-	byBug: Record<number, { runs: FixRunView[]; refusal: FixFacts['refusal'] }>;
+	byBug: Record<
+		number,
+		{
+			runs: FixRunView[];
+			refusal: FixFacts['refusal'];
+			/** The bug's current diagnosis (`FixFacts.latestDiagnosis`), whoever views it. */
+			latestDiagnosis: FixRunView | null;
+			/** The viewer may build an option of it now (`FixFacts.canBuild`). */
+			canBuild: boolean;
+		}
+	>;
 }
 
 /**
@@ -553,11 +583,16 @@ export async function fixTabFor(
 	const globals = may ? await fixGlobals(nowMs) : null;
 	const byBug: FixTab['byBug'] = {};
 	bugs.forEach((b, i) => {
+		const views = runs[i].map((r) => fixRunView(r, ENV.GITHUB_ENGINE_REPO, may));
+		const refusal = globals
+			? refusalOf(b.number, startFactsOf(globals, b, b.links.map(linkFact), runs[i]))
+			: null;
+		const latestDiagnosis = latestDiagnosisOf(views);
 		byBug[b.number] = {
-			runs: runs[i].map((r) => fixRunView(r, ENV.GITHUB_ENGINE_REPO, may)),
-			refusal: globals
-				? refusalOf(b.number, startFactsOf(globals, b, b.links.map(linkFact), runs[i]))
-				: null,
+			runs: views,
+			refusal,
+			latestDiagnosis,
+			canBuild: may && ready && refusal === null && latestDiagnosis !== null,
 		};
 	});
 	return { triage, may, ready, byBug };
