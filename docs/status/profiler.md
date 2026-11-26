@@ -455,6 +455,9 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
     gains the new rules' targets and a "delivery filed as the game's" mutant.
     `check:svelte` at baseline for `apps/launcher-api` (44) and `apps/lines` (145); `pnpm lint` clean;
     `check:undefined-names` clean.
+  - **Bundles** (`check:runtime-bytes`, Linux manifests from CI's artifact): every runtime's lazy
+    `?perf=1` chunk +2.7 KB gzip; main bundles lines / match-3 / card +6 B, arcade and arcade3d
+    +220 B (the room tally and the metered `send`).
   - **Played locally** (a release-env `apps/lines` build, headless shell). `cg-lines` stand-in on the
     real test server: `perf: 9`, 91 files, 9.0 MB (2 sizes hidden: Typekit's pixel and the local
     snapshot server's runtime bundle, which sends no `Timing-Allow-Origin`), first frame 0.9 s
