@@ -313,8 +313,10 @@ const REFUSALS = {
 	'it touches a protected path (${guarded})': 'Edit a protected path',
 	"it changes ${lock}: dependencies are a person's call": 'Change a dependency',
 	'it sets a mode other than 100644 or 100755': 'mode other than 644 or 755',
-	'a file is not UTF-8 text': 'plain UTF-8 text files',
-	'a file holds Unicode tag or bidi control characters': 'Unicode tag or bidi control characters',
+	'a file is not UTF-8 text (${f.path})': 'plain UTF-8 text files',
+	'a file holds a NUL byte (${f.path})': 'no NUL',
+	'a file holds Unicode tag or bidi control characters (${f.path})':
+		'Unicode tag or bidi control characters',
 	'it adds more than 400 KB': '400 KB in all',
 	'the scope is not one commit subjects take': 'a scope from scripts/commit-scope.mjs SCOPES',
 	'it has no title': '"title": "one line',
@@ -2658,6 +2660,18 @@ check(
 		) ?? '',
 	),
 	'collectChange refuses a changed file that is not UTF-8',
+);
+check(
+	/NUL byte \(a binary file\): sprites\/stub\.png\./.test(
+		refusesChange(
+			() => {
+				mkdirSync(join(ws, 'sprites'), { recursive: true });
+				writeFileSync(join(ws, 'sprites', 'stub.png'), Buffer.from([0x50, 0x00, 0x4e, 0x47]));
+			},
+			() => rmSync(join(ws, 'sprites'), { recursive: true, force: true }),
+		) ?? '',
+	),
+	'collectChange refuses a new file that is UTF-8 but holds a NUL, naming it',
 );
 // A tracked folder swapped for a link to a folder outside, holding files of the same names.
 if (linked || process.platform !== 'win32') {
