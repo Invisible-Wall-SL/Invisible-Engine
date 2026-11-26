@@ -109,7 +109,7 @@ export function prepareGameConfigDoc(input: unknown): {
 		? [...validateTouchSchemes(input), ...validateOnlineCarry(input), ...validateLevelsShape(input)]
 		: [];
 	const slideIssues = carried.arcade?.online ? validateSlide(input) : [];
-	const zoneArtIssues = carried.arcade?.zoneArt ? validateZoneArt(input) : [];
+	const zoneArtIssues = carried.arcade ? validateZoneArt(input) : [];
 	return {
 		doc: carried,
 		warnings: sheetAwareIssues(

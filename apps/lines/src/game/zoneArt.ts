@@ -1,8 +1,9 @@
-import { resolveFlipbook, type LayoutDoc } from 'engine-layout';
-import { withZoneArtNodes } from 'engine-layout/zone-art';
+import { registerBoundComponents, resolveFlipbook, type LayoutDoc } from 'engine-layout';
+import { ZONE_ART_RIG, withZoneArtNodes } from 'engine-layout/zone-art';
 import {
 	normalizeGameConfigDoc,
 	usesSalmonsArt,
+	zoneArtNamesRig,
 	zoneArtOf,
 	zoneArtStamps,
 	type ArcadeZone,
@@ -11,6 +12,7 @@ import {
 	type ZoneStamp,
 } from 'game-config';
 
+import ZoneArtRig from '../components/ZoneArtRig.svelte';
 import { bakedGameConfig } from '../editor-scenes';
 
 /**
@@ -36,6 +38,9 @@ export function zoneStampsOf(zones: readonly ArcadeZone[], seed: number | string
 export const zoneSceneryOf = (key: ZoneArtScenery): ZoneArt | undefined =>
 	zoneArtOf(bakedGameConfig())?.[key];
 
+/** Whether the config's zone art names a rig: only then is the rig drawing loaded. */
+export const zoneArtDrawsRig = (): boolean => zoneArtNamesRig(zoneArtOf(bakedGameConfig()));
+
 /** A registered clip's Bounds box: a stamp of it keeps its ratio. */
 const clipSize = (clipId: string) => {
 	const bounds = resolveFlipbook(clipId)?.bounds;
@@ -47,7 +52,9 @@ const clipSize = (clipId: string) => {
  * arcade seam passes the loaded doc through it, `editor-scenes` `setRoomDocChange`): drawn under
  * the online room's layer, or offline the play field's. `doc` itself when nothing is drawn, and for
  * a game whose generator makes its zones: a room of one replaces this change with its own field
- * (`online.ts` `withRoomField`), whose art draws the stamps.
+ * (`online.ts` `withRoomField`), whose art draws the stamps. A rig stamp's node binds
+ * `ZoneArtRig.svelte`, registered here before the layout mounts, only when the zone art names a
+ * rig.
  */
 export function withZoneArt(doc: LayoutDoc): LayoutDoc {
 	const baked = bakedGameConfig();
@@ -56,6 +63,7 @@ export function withZoneArt(doc: LayoutDoc): LayoutDoc {
 	const config = normalizeGameConfigDoc(baked);
 	const arcade = config?.arcade;
 	if (!arcade || usesSalmonsArt(config) || arcade.online?.generator) return doc;
+	if (zoneArtNamesRig(map)) registerBoundComponents({ [ZONE_ART_RIG]: ZoneArtRig });
 	return withZoneArtNodes(doc, zoneArtStamps(arcade.zones ?? [], map, 0), {
 		layer: arcade.online?.layer,
 		clipSize,

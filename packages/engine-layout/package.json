@@ -53,6 +53,10 @@
 			"types": "./src/lib/zoneArtNodes.ts",
 			"default": "./src/lib/zoneArtNodes.ts"
 		},
+		"./zone-art-rig": {
+			"types": "./src/lib/zoneArtRig.ts",
+			"default": "./src/lib/zoneArtRig.ts"
+		},
 		"./scenes/*": "./scenes/*"
 	},
 	"devDependencies": {

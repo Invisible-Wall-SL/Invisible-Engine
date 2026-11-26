@@ -7,7 +7,9 @@ import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
  * game's zone stamps (`game-config` `zoneArtStamps`) as ordinary layout nodes, a sprite or a
  * Flipbook clip each, in one container placed just under the play field's spawn layer with the
  * layer's own transform, so a stamp sits on its zone wherever the layer's bodies do and under them.
- * Every screen and runtime draws them with the nodes it already draws: nothing new renders them.
+ * Every screen and runtime draws them with the nodes it already draws. A RIG stamp is a container
+ * bound to {@link ZONE_ART_RIG}, the one component the arcade runtime registers for it (`apps/lines`
+ * `ZoneArtRig.svelte`), which loads the rig drawing (`engine-layout/zone-art-rig`) only then.
  *
  * Pure. Imported only by the arcade runtime (`apps/lines` `game/zoneArt.ts`); never from the
  * package's index, so no other runtime carries it. A doc with no stamp comes back as it was.
@@ -15,6 +17,10 @@ import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
 
 /** The container's id: one per doc, on the screen of the play field's layer. */
 export const ZONE_ART_NODE = 'zone-art';
+
+/** The bound component a rig stamp's node names; its props are a `ZoneRigStamp`
+ *  (`zoneArtRig.ts`): the picture, where it starts, and the box it is fitted in. */
+export const ZONE_ART_RIG = 'ZoneArtRig';
 
 /** A clip's natural size (its Bounds box), when known: a stamp of it then keeps its ratio. */
 export type ClipSize = (clipId: string) => { w: number; h: number } | undefined;
@@ -27,7 +33,8 @@ function contain(natural: { w: number; h: number } | undefined, w: number, h: nu
 }
 
 /** One stamp as a node, centred on its box. A sprite fits its frame inside the box; a clip with a
- *  known size is fitted the same, one with none fills it. */
+ *  known size is fitted the same, one with none fills it; a rig is fitted by its component, which
+ *  knows the rig's box once it is loaded. */
 export function zoneStampNode(stamp: ZoneStamp, clipSize?: ClipSize): LayoutNode {
 	const at = {
 		id: `${ZONE_ART_NODE}:${stamp.zone}`,
@@ -37,6 +44,16 @@ export function zoneStampNode(stamp: ZoneStamp, clipSize?: ClipSize): LayoutNode
 		locked: true,
 	};
 	const { source } = stamp;
+	if (source.kind === 'rig')
+		return {
+			...at,
+			kind: 'container',
+			children: [],
+			bind: {
+				component: ZONE_ART_RIG,
+				props: { source, phase: stamp.phase ?? 0, w: stamp.w, h: stamp.h },
+			},
+		};
 	if (source.kind === 'sprite') {
 		const assetKey = source.region.slice(0, source.region.indexOf('::'));
 		return {
