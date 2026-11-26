@@ -332,9 +332,13 @@ const noteLine = (fontSize: number, fill: number, text = '') =>
 const centreLine = (line: Text, x: number, y: number) =>
 	line.position.set(Math.round(x - line.width / 2), Math.round(y - line.height / 2));
 
+/** How many times `width` px fit between the note's margins on a canvas `w` px wide (never 0). */
+const room = (w: number, width: number) =>
+	Math.max(0.01, (w - 2 * LOBBY.margin) / Math.max(width, 1));
+
 /** The scale at which `width` px fit between the note's margins on a canvas `w` px wide: 1, or
  *  less on a canvas narrower than that (a phone, with the pixel font). */
-const fitTo = (w: number, width: number) => Math.min(1, (w - 2 * LOBBY.margin) / width);
+const fitTo = (w: number, width: number) => Math.min(1, room(w, width));
 
 /**
  * The lobby's note, where a new room waits for its players, under the layout's own title: the
@@ -402,8 +406,9 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 		root.visible = shown !== undefined;
 		const pop = (clock - popAt) / MENU.popMs;
 		const popScale = pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1;
-		river.scale.set(fitTo(w, river.width / river.scale.x) * popScale);
-		you.scale.set(fitTo(w, you.width / you.scale.x));
+		const riverRoom = room(w, river.getLocalBounds().width);
+		river.scale.set(Math.min(Math.min(1, riverRoom) * popScale, riverRoom));
+		you.scale.set(fitTo(w, you.getLocalBounds().width));
 		centreLine(river, w / 2, h / 2 + LOBBY.riverY);
 		centreLine(you, w / 2, h / 2 + LOBBY.youY);
 		const picking = shown?.picking === true;

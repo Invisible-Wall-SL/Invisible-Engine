@@ -120,10 +120,10 @@
 	 * the layout viewport, so a page iOS Safari has panned or zoomed hides it: the readout follows the
 	 * visual viewport instead, so Send can always be reached.
 	 */
-	let visible = $state({ x: 0, y: 0 });
+	let viewportOffset = $state({ x: 0, y: 0 });
 	const followViewport = () => {
 		const v = window.visualViewport;
-		if (v) visible = { x: v.offsetLeft, y: v.offsetTop };
+		if (v) viewportOffset = { x: v.offsetLeft, y: v.offsetTop };
 	};
 	const onVisibility = () => {
 		if (document.visibilityState !== 'hidden') return;
@@ -518,8 +518,8 @@
 	<div
 		class="ie-perf"
 		data-testid="perf-hud"
-		style:transform={visible.x || visible.y
-			? `translate(${visible.x}px, ${visible.y}px)`
+		style:transform={viewportOffset.x || viewportOffset.y
+			? `translate(${viewportOffset.x}px, ${viewportOffset.y}px)`
 			: undefined}
 	>
 		<button type="button" class="ie-perf-head" onclick={() => (open = !open)}>

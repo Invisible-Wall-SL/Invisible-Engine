@@ -43,8 +43,8 @@
 			"gzip": 12414
 		},
 		"index.html": {
-			"sha256": "fef0bf99f69e4bfaf85167dc39545835200cf5ab0b99c5a84605c6919978fcf9",
-			"gzip": 4123
+			"sha256": "db40c89e4aa85b0a9ed0e73884d6d7071ae59326595896d2cf0a3e60539842c7",
+			"gzip": 4117
 		}
 	},
 	"other": {
@@ -1056,6 +1056,6 @@
 	},
 	"total": {
 		"files": 11,
-		"gzip": 1168029
+		"gzip": 1168023
 	}
 }
