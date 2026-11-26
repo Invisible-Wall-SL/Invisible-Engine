@@ -10134,7 +10134,7 @@ let wsSpace = false;
 
 const wsPx = (n) => n * (window.devicePixelRatio || 1);
 function wsCamera(zoomId){ return { k: 1, x: 0, y: 0, fitK: 1, manual: false, key: null, zoomId }; }
-const WS_CAM = { f2r: wsCamera("f2rZoom"), s2r: wsCamera("s2rZoom") };
+const WS_CAM = { f2r: wsCamera("f2rZoom"), s2r: wsCamera("s2rZoom"), arr: wsCamera("s2rZoom") };
 // A pointer event's point on canvas `cv`, in canvas px; and canvas px per CSS px, on each axis (each is
 // rounded to whole canvas px on its own).
 function wsAt(cv, e){
@@ -10183,7 +10183,7 @@ function wsPan(cam, dx, dy){ cam.x += dx; cam.y += dy; cam.manual = true; }
 const WS_STAGES = [
   { id: "f2rStage", modal: "f2rModal", shown: () => true, cam: () => WS_CAM.f2r, fit: () => { WS_CAM.f2r.manual = false; }, draw: () => f2rDraw() },
   { id: "s2rStage", modal: "s2rModal", shown: () => s2r.view !== "arranged", cam: () => WS_CAM.s2r, fit: () => { WS_CAM.s2r.manual = false; }, draw: () => s2rDraw() },
-  { id: "s2rArrange", modal: "s2rModal", shown: () => s2r.view === "arranged", cam: () => s2r.aview, fit: () => { s2r.aview = null; }, draw: () => s2rDraw() },
+  { id: "s2rArrange", modal: "s2rModal", shown: () => s2r.view === "arranged", cam: () => s2r.aview, fit: () => { WS_CAM.arr.manual = false; s2r.aview = null; }, draw: () => s2rDraw() },
 ];
 const wsOpen = (st) => $("#" + st.modal).classList.contains("open");
 function wsActive(){ return WS_STAGES.find((st) => wsOpen(st) && st.shown()) || null; }
@@ -10197,7 +10197,7 @@ function wsResize(st){
   if (cv.width === w && cv.height === h) return false;
   const cam = st.cam();
   if (cam && cam.manual){ cam.x += (w - cv.width) / 2; cam.y += (h - cv.height) / 2; }
-  else st.fit();
+  else if (cam) st.fit();
   cv.width = w; cv.height = h;
   return true;
 }
@@ -12759,7 +12759,9 @@ async function s2rPreview(){
   if (s2r.view === "arranged") s2rDraw();
 }
 
-// The arrangement fitted inside the stage with a margin: the camera everything is drawn through.
+// The camera everything is drawn through: the arrangement fitted inside the stage with a margin, or,
+// put back after the dialog made a new arrangement (`s2r.aview` dropped) while the zoom was set by
+// hand, that zoom about the new arrangement's middle.
 function s2rArrangeFit(){
   const items = s2rArrangeItems();
   if (!items.length) return;
@@ -12769,7 +12771,10 @@ function s2rArrangeFit(){
       const [x, y] = s2rOnCanvas(it.place, it.c, q);
       [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
     }
-  s2r.aview = wsFit(s2r.aview || wsCamera("s2rZoom"), $("#s2rArrange"), [x0, y0, Math.max(x1, x0 + 1), Math.max(y1, y0 + 1)], 24);
+  const cam = WS_CAM.arr, cv = $("#s2rArrange"), box = [x0, y0, Math.max(x1, x0 + 1), Math.max(y1, y0 + 1)];
+  const k = !s2r.aview && cam.manual ? cam.k : null;
+  s2r.aview = wsFit(cam, cv, box, 24);
+  if (k) wsZoomAt(cam, [cv.width / 2, cv.height / 2], k / cam.k);
 }
 const s2rToStage = ([x, y]) => [s2r.aview.x + x * s2r.aview.k, s2r.aview.y + y * s2r.aview.k];
 const s2rFromStage = ([x, y]) => [(x - s2r.aview.x) / s2r.aview.k, (y - s2r.aview.y) / s2r.aview.k];
