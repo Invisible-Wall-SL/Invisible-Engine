@@ -36,8 +36,19 @@ import { gzipSync } from 'node:zlib';
 export const AUDIENCE = 'invisible-launcher-bug-fix';
 const FIX_RUN = /^[0-9a-f]{10}$/;
 const SHA = /^[0-9a-f]{40}$/;
-const OUTCOMES = ['fixed', 'not_reproduced', 'needs_person', 'second_area'];
-const STATUSES = ['dispatched', 'running', 'pr_opened', 'no_fix', 'failed', 'cancelled'];
+const OUTCOMES = ['fixed', 'not_reproduced', 'needs_person', 'second_area', 'diagnosed'];
+const STATUSES = [
+	'dispatched',
+	'running',
+	'diagnosed',
+	'pr_opened',
+	'no_fix',
+	'failed',
+	'cancelled',
+];
+/** A run diagnoses or builds (ADR-0014); a brief that names no mode is an old launcher's build. */
+const MODES = ['diagnose', 'build'];
+const OPTION_IDS = ['A', 'B', 'C', 'D'];
 /** The tools the run gets; an agent's own list is cut to these. */
 export const TOOLS = ['Bash', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Agent'];
 const MEDIA = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
@@ -161,6 +172,87 @@ const jobPaths = () => paths(env('RUNNER_TEMP'), env('GITHUB_WORKSPACE'));
 
 // ── Step 3: the brief ─────────────────────────────────────────────────────────
 
+/** A text field of a brief's decision or diagnosis: a string, or the brief is refused. */
+const briefText = (v, what) =>
+	typeof v === 'string' ? v : fail(`The brief's ${what} is not text.`);
+
+/**
+ * A build's decision (the option a person chose) and the diagnosis it came from, checked and
+ * returned as plain data; never echoed.
+ */
+function checkDecision(decision, diagnosis) {
+	if (!decision || typeof decision !== 'object' || !OPTION_IDS.includes(decision.optionId)) {
+		fail('The brief has no decision for this build.');
+	}
+	if (!diagnosis || typeof diagnosis !== 'object' || !Array.isArray(diagnosis.options)) {
+		fail('The brief has no diagnosis for this build.');
+	}
+	if (diagnosis.options.length > OPTION_IDS.length)
+		fail('The brief’s diagnosis has too many options.');
+	return {
+		decision: {
+			optionId: decision.optionId,
+			name: briefText(decision.name, 'decision name'),
+			change: briefText(decision.change, 'decision change'),
+			note:
+				decision.note === null || decision.note === undefined
+					? null
+					: briefText(decision.note, 'decision note'),
+		},
+		diagnosis: {
+			reported: briefText(diagnosis.reported, 'diagnosis'),
+			cause: briefText(diagnosis.cause, 'diagnosis'),
+			evidence: briefText(diagnosis.evidence, 'diagnosis'),
+			kind: briefText(diagnosis.kind, 'diagnosis'),
+			options: diagnosis.options.map((o) => ({
+				id: briefText(o?.id, 'diagnosis'),
+				name: briefText(o?.name, 'diagnosis'),
+				change: briefText(o?.change, 'diagnosis'),
+				cost: briefText(o?.cost, 'diagnosis'),
+				risk: briefText(o?.risk, 'diagnosis'),
+				player: briefText(o?.player, 'diagnosis'),
+			})),
+			recommendation: {
+				option: briefText(diagnosis.recommendation?.option, 'diagnosis'),
+				why: briefText(diagnosis.recommendation?.why, 'diagnosis'),
+			},
+		},
+	};
+}
+
+/** The decision as the build's `decision.md` reads: the owner's choice, as data. */
+export function decisionText({ decision }) {
+	return [
+		`Option ${decision.optionId}: ${decision.name}`,
+		'',
+		`What it changes: ${decision.change}`,
+		'',
+		`The owner's note: ${decision.note ?? '(none)'}`,
+		'',
+	].join('\n');
+}
+
+/** The diagnosis a build came from, as the build's `diagnosis.md` reads: context, as data. */
+export function diagnosisText({ diagnosis: d }) {
+	return [
+		`What was reported: ${d.reported}`,
+		`What is causing it: ${d.cause}`,
+		`Evidence: ${d.evidence}`,
+		`Kind: ${d.kind}`,
+		'',
+		...d.options.flatMap((o) => [
+			`Option ${o.id}: ${o.name}`,
+			`  Change: ${o.change}`,
+			`  Cost: ${o.cost}`,
+			`  Risk: ${o.risk}`,
+			`  The player notices: ${o.player}`,
+			'',
+		]),
+		`Recommendation: option ${d.recommendation.option}. ${d.recommendation.why}`,
+		'',
+	].join('\n');
+}
+
 /** The brief's answer, checked: what the later steps rely on, never echoed. */
 export function checkBrief(body, id) {
 	if (!body || typeof body !== 'object') fail('The brief is not a JSON object.');
@@ -184,7 +276,22 @@ export function checkBrief(body, id) {
 			fail('The brief lists a screenshot with no id.');
 		}
 	}
-	return { bug: body.bug, baseSha: body.baseSha, budgetUsd: budget, brief: body.brief, shots };
+	const mode = body.mode === undefined ? 'build' : body.mode;
+	if (!MODES.includes(mode)) fail('The brief names a mode the job does not know.');
+	const chosen =
+		body.mode === 'build'
+			? checkDecision(body.decision, body.diagnosis)
+			: { decision: null, diagnosis: null };
+	if (mode === 'diagnose' && body.decision) fail('A diagnose brief carries a decision.');
+	return {
+		bug: body.bug,
+		baseSha: body.baseSha,
+		budgetUsd: budget,
+		brief: body.brief,
+		shots,
+		mode,
+		...chosen,
+	};
 }
 
 async function brief() {
@@ -197,6 +304,10 @@ async function brief() {
 	const got = checkBrief(await res.json().catch(() => null), id);
 	mkdirSync(p.bug, { recursive: true });
 	writeFileSync(join(p.bug, 'brief.md'), `${got.brief.replace(/\r\n?/g, '\n').trimEnd()}\n`);
+	if (got.decision) {
+		writeFileSync(join(p.bug, 'decision.md'), decisionText(got));
+		writeFileSync(join(p.bug, 'diagnosis.md'), diagnosisText(got));
+	}
 	const screenshots = [];
 	for (const [i, shot] of got.shots.entries()) {
 		const r = await request(
@@ -220,11 +331,13 @@ async function brief() {
 			bug: got.bug,
 			baseSha: got.baseSha,
 			budgetUsd: got.budgetUsd,
+			mode: got.mode,
+			optionId: got.decision?.optionId ?? null,
 			screenshots,
 		}),
 	);
 	appendFileSync(env('GITHUB_OUTPUT'), `base_sha=${got.baseSha}\nbudget=${got.budgetUsd}\n`);
-	console.log(`fix run ${id}: brief read, ${screenshots.length} screenshot(s).`);
+	console.log(`fix run ${id}: ${got.mode} brief read, ${screenshots.length} screenshot(s).`);
 }
 
 // ── Preparing the run: settings, agents, prompt ───────────────────────────────
@@ -281,9 +394,38 @@ export function agentsJson(agentsDir) {
 	return out;
 }
 
+/**
+ * The prompt for one mode: the lines between `<!-- mode: <name> -->` and `<!-- /mode -->` stay for
+ * that mode and go for the other; the markers themselves always go. A marker left open, or a mode
+ * the template does not have, is an error, never a prompt with both.
+ */
+export function forMode(template, mode) {
+	if (!MODES.includes(mode)) fail('The run has no mode the prompt knows.');
+	const kept = [];
+	let inside = null;
+	let seen = 0;
+	for (const line of template.split('\n')) {
+		const open = /^<!-- mode: ([a-z]+) -->$/.exec(line);
+		if (open) {
+			if (inside || !MODES.includes(open[1])) fail('The prompt has a mode section it cannot read.');
+			inside = open[1];
+			seen += inside === mode ? 1 : 0;
+		} else if (line === '<!-- /mode -->') {
+			if (!inside) fail('The prompt closes a mode section it never opened.');
+			inside = null;
+		} else if (!inside || inside === mode) kept.push(line);
+	}
+	if (inside || !seen) fail('The prompt has no complete section for this mode.');
+	return kept.join('\n');
+}
+
 /** The values the templates are rendered with. */
 export function templateValues(p, run) {
 	return {
+		MODE: run.mode ?? 'build',
+		OPTION: run.optionId ?? '(none)',
+		DECISION: posix.join(p.bug, 'decision.md'),
+		DIAGNOSIS: posix.join(p.bug, 'diagnosis.md'),
 		WORKSPACE: p.workspace,
 		RUNNER_TEMP: p.runnerTemp,
 		MAIN: p.main,
@@ -350,7 +492,7 @@ function prepare() {
 	writeFileSync(join(p.conf, 'settings.json'), settings);
 	writeFileSync(
 		join(p.conf, 'prompt.md'),
-		render(readFileSync(join(own, 'coordinator.md'), 'utf8'), values),
+		render(forMode(readFileSync(join(own, 'coordinator.md'), 'utf8'), values.MODE), values),
 	);
 	const agents = agentsJson(join(p.main, '.claude', 'agents'));
 	writeFileSync(join(p.conf, 'agents.json'), JSON.stringify(agents));
@@ -609,7 +751,40 @@ export const CAPS = {
 	area: 40,
 	evidence: 2_000,
 };
+/**
+ * What the launcher keeps of a diagnosis's text (`DIAGNOSIS_CAPS` in `$lib/bugFixRuns.ts`), in code
+ * points. A text over four times its cap refuses the whole result, so the job cuts each to it.
+ */
+export const DIAGNOSIS_CAPS = { name: 120, why: 1_000, text: 3_000 };
 const cut = (x, max) => (typeof x === 'string' ? Array.from(x).slice(0, max).join('') : '');
+
+/**
+ * A diagnosis as data: the fields the launcher takes, each cut to its cap, at most four options.
+ * Whether it is whole is the launcher's to say; null only when it is not an object.
+ */
+export function readDiagnosis(d) {
+	if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+	const text = (x) => cut(x, DIAGNOSIS_CAPS.text);
+	const options = Array.isArray(d.options) ? d.options.slice(0, OPTION_IDS.length) : [];
+	return {
+		reported: text(d.reported),
+		cause: text(d.cause),
+		evidence: text(d.evidence),
+		kind: cut(d.kind, 12),
+		options: options.map((o) => ({
+			id: cut(o?.id, 1),
+			name: cut(o?.name, DIAGNOSIS_CAPS.name),
+			change: text(o?.change),
+			cost: text(o?.cost),
+			risk: text(o?.risk),
+			player: text(o?.player),
+		})),
+		recommendation: {
+			option: cut(d.recommendation?.option, 1),
+			why: cut(d.recommendation?.why, DIAGNOSIS_CAPS.why),
+		},
+	};
+}
 
 /**
  * The model's `result.json`, read as data — through the same one-descriptor read as the change, no
@@ -633,6 +808,7 @@ export function readResultJson(path) {
 				.map((g) => ({ command: cut(g.command, CAPS.command), ok: g.ok }))
 		: [];
 	const sb = v.secondBug ?? v.second_bug;
+	const diagnosis = readDiagnosis(v.diagnosis);
 	return {
 		outcome: OUTCOMES.includes(v.outcome) ? v.outcome : null,
 		title: cut(v.title, CAPS.title),
@@ -640,6 +816,7 @@ export function readResultJson(path) {
 		summary: cut(v.summary, CAPS.summary),
 		lesson: cut(v.lesson, CAPS.lesson),
 		gates,
+		...(diagnosis ? { diagnosis } : {}),
 		...(sb && typeof sb === 'object' && typeof sb.area === 'string' && typeof sb.title === 'string'
 			? {
 					secondBug: {
@@ -734,14 +911,33 @@ export function encodeBody(body) {
 	};
 }
 
-/** The one line the log shows, from the launcher's answer — nothing of the run's own words. */
-export function logLine(id, answer) {
+/**
+ * The bug page's address the launcher answers, when it is the launcher's own `/bugs?bug=<n>`:
+ * anything else is dropped, so the log carries no address the launcher did not mean.
+ */
+function bugPage(url, origin) {
+	if (typeof url !== 'string' || !origin) return null;
+	try {
+		const u = new URL(url);
+		const ok = u.origin === origin && u.pathname === '/bugs' && /^\?bug=\d{1,9}$/.test(u.search);
+		return ok && !u.hash && !u.username && !u.password ? u.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The one line the log shows, from the launcher's answer — nothing of the run's own words, and the
+ * bug page's address (the log is public; the page is behind the launcher's login).
+ */
+export function logLine(id, answer, origin = null) {
 	const status = STATUSES.includes(answer?.status) ? answer.status : 'unknown';
 	const spend =
 		typeof answer?.spendUsd === 'number' && Number.isFinite(answer.spendUsd)
 			? `$${answer.spendUsd.toFixed(2)}`
 			: 'spend unknown';
-	return `fix run ${id}: ${status}, ${spend}`;
+	const page = bugPage(answer?.bugUrl, origin);
+	return `fix run ${id}: ${status}, ${spend}${page ? ` — ${page}` : ''}`;
 }
 
 /** Print `line` where no workflow command can be read into it. */
@@ -769,7 +965,8 @@ async function result() {
 	let body;
 	try {
 		const parsed = failureOf(ended) ? null : readResultJson(join(p.out, 'result.json'));
-		const changes = parsed?.outcome === 'fixed' || parsed?.outcome === 'second_area';
+		const changes =
+			run.mode === 'diagnose' || parsed?.outcome === 'fixed' || parsed?.outcome === 'second_area';
 		const files = changes ? collectChange(p.main, p.workspace) : [];
 		const shots = (run.screenshots ?? []).map((s) => readFileSync(join(p.bug, basename(s))));
 		const refused =
@@ -806,7 +1003,9 @@ async function result() {
 		process.exitCode = 1;
 		return;
 	}
-	printFenced(logLine(id, answer));
+	printFenced(
+		logLine(id, answer, trustedUrl(env('LAUNCHER_URL'), ['app.invisiblewall.org']).origin),
+	);
 }
 
 /**

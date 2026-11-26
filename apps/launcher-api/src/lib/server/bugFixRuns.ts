@@ -10,7 +10,9 @@ import {
 	FIX_RUN_ID,
 	FIX_RUN_REASONS,
 	FIX_RUN_WORKFLOW_PATH,
+	MAX_BUILD_NOTE,
 	actionsRefusal,
+	buildRefusal,
 	capReason,
 	fixRunBranch,
 	fixRunName,
@@ -21,7 +23,11 @@ import {
 	refusedChange,
 	startRefusal,
 	stoppedBy,
+	type BuildParent,
+	type FixRunChoice,
+	type FixRunDiagnosis,
 	type FixRunFile,
+	type FixRunMode,
 	type FixRunOutcome,
 	type FixRunRefusal,
 	type FixRunSecondBug,
@@ -30,13 +36,13 @@ import {
 	type FixRunView,
 	type StartFacts,
 } from '$lib/bugFixRuns';
-import { bugBrief } from '$lib/bugReports';
+import { bugBrief, bugPath } from '$lib/bugReports';
 import {
 	CAPABILITIES,
 	PIPELINE_BUG_FIX_CAPABILITY,
 	PIPELINE_BUG_TRIAGE_CAPABILITY,
 } from '$lib/roles';
-import { getPipelineFixBudget } from './appSettings';
+import { getPipelineDiagnoseBudget, getPipelineFixBudget } from './appSettings';
 import {
 	actionsRunUrl,
 	cancelActionsRun,
@@ -53,13 +59,17 @@ import {
 	TEXT_CAPS,
 	TEXT_SLACK,
 	baseProblem,
+	cleanDiagnosis,
 	cleanPerson,
 	cleanResult,
 	cleanText,
+	diagnosisIsWhole,
+	diagnosisProblem,
 	localProblem,
 	privateNames,
 	publication,
 	publicationProblem,
+	readDiagnosis,
 	withModes,
 	type BaseEntry,
 	type BaseTree,
@@ -165,13 +175,15 @@ const viewOf = (access: BugAccess, run: BugFixRun): FixRunView =>
 export const newFixRunId = (): string => randomBytes(5).toString('hex');
 
 /**
- * Start a fix run on a pipeline bug (`POST /api/bugs/<n>/fix-runs`, body `{ requestId }`). In
- * order: the bug (404), both capabilities (403), a known `requestId` (its run; 409 when it is
- * another bug's or another person's), the App (503, before anything is written), and the refusals
- * of ADR-0013 §1 (409 with their code), read once to answer fast and again under the bug's lock —
- * but a `requestId` a racing twin of this request has just stored answers its run, not a refusal.
- * Main's commit is read before the transaction; the run is dispatched after it commits. A dispatch
- * GitHub refuses ends the run `failed` with GitHub's reason, and is still answered as the run.
+ * Start a fix run on a pipeline bug (`POST /api/bugs/<n>/fix-runs`, body `{ requestId }`). It always
+ * starts a DIAGNOSE run (ADR-0014): it reproduces the bug, changes no file and offers options; a
+ * person then builds one with {@link buildFixRun}. In order: the bug (404), both capabilities
+ * (403), a known `requestId` (its run; 409 when it is another bug's or another person's), the App
+ * (503, before anything is written), and the refusals of ADR-0013 §1 (409 with their code), read
+ * once to answer fast and again under the bug's lock — but a `requestId` a racing twin of this
+ * request has just stored answers its run, not a refusal. Main's commit is read before the
+ * transaction; the run is dispatched after it commits. A dispatch GitHub refuses ends the run
+ * `failed` with GitHub's reason, and is still answered as the run.
  */
 export async function startFixRun(
 	access: BugAccess,
@@ -179,10 +191,72 @@ export async function startFixRun(
 	body: unknown,
 	app: GithubApp = githubApp,
 ): Promise<{ run: FixRunView; created: boolean }> {
+	return launchFixRun(access, number, requestIdOf(body), app, null);
+}
+
+/** What a build is made from: the diagnose run (null when none was found), the option a person
+ *  named and their note. */
+interface Build {
+	parent: BugFixRun | null;
+	optionId: string;
+	note: string | null;
+}
+
+/**
+ * Build one option of a diagnosis (`POST /api/bugs/<n>/fix-runs/<diagnoseRunId>/build`, body
+ * `{ optionId, note?, requestId }`, ADR-0014 §1). The same order and refusals as
+ * {@link startFixRun}, with the three of a build checked first: `not_diagnosed` (the run is not a
+ * `diagnosed` diagnose run of this bug), `stale_diagnosis` (a newer diagnose run of the bug exists)
+ * and `no_such_option`. In one transaction the build run (with its parent and the choice) and the
+ * bug's `fix_decision` event are stored; the run is then dispatched as a start's is.
+ */
+export async function buildFixRun(
+	access: BugAccess,
+	number: number,
+	diagnoseRunId: string,
+	body: unknown,
+	app: GithubApp = githubApp,
+): Promise<{ run: FixRunView; created: boolean }> {
+	const requestId = requestIdOf(body);
+	const optionId = isRecord(body) ? body.optionId : undefined;
+	if (typeof optionId !== 'string') throw error(400, 'optionId names an option of the diagnosis.');
+	const rawNote = isRecord(body) ? body.note : undefined;
+	if (rawNote !== undefined && rawNote !== null && typeof rawNote !== 'string') {
+		throw error(400, 'note is text.');
+	}
+	if (typeof rawNote === 'string' && Array.from(rawNote).length > MAX_BUILD_NOTE) {
+		throw error(400, `A note is at most ${MAX_BUILD_NOTE} characters.`);
+	}
+	const note = (typeof rawNote === 'string' && cleanText(rawNote, MAX_BUILD_NOTE)) || null;
+	const parent = FIX_RUN_ID.test(diagnoseRunId) ? await getFixRun(diagnoseRunId) : null;
+	return launchFixRun(access, number, requestId, app, { parent, optionId, note });
+}
+
+function requestIdOf(body: unknown): string {
 	const requestId = isRecord(body) ? body.requestId : undefined;
 	if (typeof requestId !== 'string' || !REQUEST_ID.test(requestId)) {
 		throw error(400, 'requestId is 8–64 URL-safe characters.');
 	}
+	return requestId;
+}
+
+const parentOf = (run: BugFixRun | null): BuildParent | null =>
+	run && {
+		id: run.id,
+		bugNumber: run.bugNumber,
+		mode: run.mode,
+		status: run.status,
+		diagnosis: run.diagnosis,
+	};
+
+/** What both starts share; `build` is null for a diagnose run. */
+async function launchFixRun(
+	access: BugAccess,
+	number: number,
+	requestId: string,
+	app: GithubApp,
+	build: Build | null,
+): Promise<{ run: FixRunView; created: boolean }> {
 	const full = await visiblePipelineBug(access, number);
 	requireFixRights(access);
 	const replayed = (run: BugFixRun) => {
@@ -198,13 +272,31 @@ export async function startFixRun(
 	if (known) return replayed(known);
 	const missing = app.missing();
 	if (missing) throw error(503, missing);
-	const facts = await fixStartFacts(full.bug, full.links, await fixRunsOfBug(number));
-	const early = startRefusal(facts);
+	const rows = await fixRunsOfBug(number);
+	const facts = await fixStartFacts(full.bug, full.links, rows);
+	const refusal = (f: StartFacts, parent: BugFixRun | null, latestDiagnoseId: string | null) =>
+		(build && buildRefusal(number, parentOf(parent), latestDiagnoseId, build.optionId)) ||
+		startRefusal(f);
+	const early = refusal(
+		facts,
+		build?.parent ?? null,
+		rows.find((r) => r.mode === 'diagnose')?.id ?? null,
+	);
 	if (early) {
 		const twin = await getFixRunByRequest(requestId);
 		if (twin) return replayed(twin);
 		refuse(early, number, facts);
 	}
+	const option = build?.parent?.diagnosis?.options.find((o) => o.id === build.optionId);
+	if (build && !option) refuse('no_such_option', number, facts);
+	const chosenOption: FixRunChoice | undefined = option && {
+		optionId: option.id,
+		name: option.name,
+		change: option.change,
+		note: build?.note ?? null,
+		decidedBy: access.actor.name,
+		decidedAt: new Date().toISOString(),
+	};
 
 	const baseSha = await mainSha(app);
 	const id = newFixRunId();
@@ -212,6 +304,9 @@ export async function startFixRun(
 	const outcome = await insertFixRun(
 		{
 			id,
+			mode: build ? 'build' : 'diagnose',
+			parentRunId: build?.parent?.id,
+			chosenOption,
 			bugNumber: number,
 			baseSha,
 			requestId,
@@ -227,7 +322,7 @@ export async function startFixRun(
 				liveRun: now.liveRun,
 				liveTotal: now.liveTotal,
 			};
-			return startRefusal(locked);
+			return refusal(locked, now.parent, now.latestDiagnoseId);
 		},
 	);
 	if (outcome.kind === 'missing') throw error(404, `There is no BUG-${number}.`);
@@ -446,8 +541,21 @@ export interface FixRunBrief {
 	bug: number;
 	/** The commit the job checks out, and the change must sit on. */
 	baseSha: string;
-	/** The run's cap, for the CLI's budget flag (`PIPELINE_FIX_BUDGET_USD`). */
+	/** `diagnose` or `build` (ADR-0014): which prompt the job renders. */
+	mode: FixRunMode;
+	/**
+	 * The run's cap, for the CLI's budget flag: `PIPELINE_DIAGNOSE_BUDGET_USD` for a diagnose run,
+	 * `PIPELINE_FIX_BUDGET_USD` for a build run.
+	 */
 	budgetUsd: number;
+	/** A build run: the option a person chose and the diagnosis it came from. Null otherwise. */
+	decision: {
+		optionId: string;
+		name: string;
+		change: string;
+		note: string | null;
+	} | null;
+	diagnosis: FixRunDiagnosis | null;
 	/** The untrusted-text line, then the bug's fix brief: no email, no user id. */
 	brief: string;
 	screenshots: { id: string; mediaType: string; bytes: number }[];
@@ -471,6 +579,8 @@ export async function fixRunBrief(
 	const full = await getBugFull(now.bugNumber);
 	if (!full || full.bug.kind !== 'pipeline') throw error(404, `There is no fix run ${id}.`);
 	const { bug, screenshots } = full;
+	const parent = now.parentRunId ? await getFixRun(now.parentRunId) : null;
+	const choice = now.chosenOption;
 	const brief = bugBrief(
 		{
 			number: bug.number,
@@ -491,7 +601,16 @@ export async function fixRunBrief(
 		fixRun: now.id,
 		bug: bug.number,
 		baseSha: now.baseSha,
-		budgetUsd: await getPipelineFixBudget(),
+		mode: now.mode,
+		budgetUsd:
+			now.mode === 'diagnose' ? await getPipelineDiagnoseBudget() : await getPipelineFixBudget(),
+		decision: choice && {
+			optionId: choice.optionId,
+			name: choice.name,
+			change: choice.change,
+			note: choice.note,
+		},
+		diagnosis: parent?.diagnosis ?? null,
 		brief: `${UNTRUSTED_LINE}\n\n${brief}`,
 		screenshots: screenshots.map((s) => ({ id: s.id, mediaType: s.mediaType, bytes: s.bytes })),
 	};
@@ -546,6 +665,8 @@ export interface FixRunResultAnswer {
 	outcome: FixRunOutcome | null;
 	prNumber: number | null;
 	spendUsd: number | null;
+	/** The bug's page, for the job's one public log line (the page itself is behind login). */
+	bugUrl: string;
 }
 
 /**
@@ -556,7 +677,8 @@ export interface FixRunResultAnswer {
  *     it goes; one not renewed for {@link CLAIM_STALE_MS} is taken over, and its first holder —
  *     should it wake — writes nothing more (409); otherwise 409, nothing opened;
  *  3. a `failure` ends the run `failed`; a run that found no fix ends `no_fix` with its outcome; a
- *     bug closed meanwhile opens nothing;
+ *     bug closed meanwhile opens nothing; a diagnose run (ADR-0014) never opens a pull request: it
+ *     ends `diagnosed` with its diagnosis, or `no_fix` (`settleDiagnosis`);
  *  4. otherwise the change is checked (any refusal: `no_fix`, `needs_person`, the rule named), then
  *     committed as the App on the run's base and opened as a draft pull request: `pr_opened`.
  * Anything that goes wrong after the claim ends the run `failed` — unless GitHub has its pull
@@ -571,7 +693,7 @@ export async function acceptFixRunResult(
 	const run = await jobRun(request, id, deps);
 	const body = await readResultBody(request);
 	const spendUsd = await recordSpend(run.id, parseUsage(body.usage));
-	const result = parseResult(body);
+	const result = parseResult(body, run.mode);
 	const claimed = await claimFixRunResult(run.id, new Date(Date.now() - CLAIM_STALE_MS));
 	if (!claimed?.resultAt) {
 		throw error(409, 'A result was already accepted for this fix run, or the run has ended.');
@@ -595,6 +717,7 @@ export async function acceptFixRunResult(
 		outcome: ended.outcome,
 		prNumber: ended.prNumber,
 		spendUsd,
+		bugUrl: `${ENV.ORIGIN}${bugPath({ number: ended.bugNumber, kind: 'pipeline', projectKey: null })}`,
 	};
 }
 
@@ -712,9 +835,12 @@ const FIELD_CAPS = {
 const optionalText = (body: Record<string, unknown>, key: keyof typeof FIELD_CAPS): string =>
 	textOf(body[key], key, FIELD_CAPS[key]);
 
-function parseResult(body: Record<string, unknown>): ParsedResult {
+function parseResult(body: Record<string, unknown>, mode: FixRunMode): ParsedResult {
 	const failure = optionalText(body, 'failure').trim() || null;
-	const outcome = isFixRunOutcome(body.outcome) ? body.outcome : null;
+	const outcome =
+		isFixRunOutcome(body.outcome) && (mode === 'diagnose' || body.outcome !== 'diagnosed')
+			? body.outcome
+			: null;
 	if (!outcome && body.outcome !== undefined) bad('outcome is not one the launcher knows');
 	if (!outcome && !failure) bad('outcome is missing');
 	const list = (key: string): unknown[] => {
@@ -768,6 +894,7 @@ function parseResult(body: Record<string, unknown>): ParsedResult {
 		lesson: optionalText(body, 'lesson'),
 		gates,
 		secondBug,
+		diagnosis: body.diagnosis,
 		files,
 	};
 }
@@ -1088,6 +1215,61 @@ async function namesOf(projectKey: string | null): Promise<string[]> {
 	return privateNames([...project, ...client]);
 }
 
+type NoFix = (end: { outcome: FixRunOutcome; reason?: string }) => Promise<BugFixRun | null>;
+
+/**
+ * End a diagnose run (ADR-0014 §1). It changes no file: any file it posts ends it `no_fix`
+ * `needs_person` and nothing is kept. `not_reproduced`, `needs_person` and `second_area` end as a
+ * build's do. Otherwise the run must have explained itself — a whole diagnosis, its text clean of
+ * secrets and of the bug's project and client — and then ends `diagnosed`, the diagnosis stored.
+ */
+async function settleDiagnosis(
+	io: Io,
+	run: BugFixRun,
+	r: ParsedResult,
+	text: FixRunText,
+	noFix: NoFix,
+): Promise<BugFixRun | null> {
+	const outcome = r.outcome as FixRunOutcome;
+	if (r.files.length) {
+		return noFix({ outcome: 'needs_person', reason: FIX_RUN_REASONS.diagnoseChangedFiles });
+	}
+	if (outcome === 'not_reproduced' || outcome === 'needs_person' || outcome === 'second_area') {
+		return noFix({ outcome });
+	}
+	const unexplained = () => noFix({ outcome: 'needs_person', reason: FIX_RUN_REASONS.noDiagnosis });
+	const read = outcome === 'diagnosed' ? readDiagnosis(r.diagnosis) : null;
+	if (!read) return unexplained();
+	const diagnosis = cleanDiagnosis(read);
+	if (!diagnosisIsWhole(diagnosis)) return unexplained();
+	const full = await getBugFull(run.bugNumber);
+	if (!full) return null;
+	if (full.bug.status === 'resolved' || full.bug.status === 'wontFix') {
+		return noFix({ outcome, reason: FIX_RUN_REASONS.bugClosed });
+	}
+	const problem = diagnosisProblem(read, diagnosis, await namesOf(full.bug.projectKey));
+	await renew(io);
+	if (problem) return noFix({ outcome: 'needs_person', reason: refusedChange(problem) });
+	return settleFixRun(
+		run.id,
+		{
+			status: 'diagnosed',
+			outcome,
+			summary: text.summary,
+			secondBug: text.secondBug,
+			diagnosis,
+		},
+		fixRunActor(run.id),
+		{
+			heldAt: io.hold.at,
+			extra: {
+				options: diagnosis.options.length,
+				...(text.summary ? { summary: text.summary } : {}),
+			},
+		},
+	);
+}
+
 async function settleChange(
 	io: Io,
 	run: BugFixRun,
@@ -1096,13 +1278,14 @@ async function settleChange(
 ): Promise<BugFixRun | null> {
 	const outcome = r.outcome as FixRunOutcome;
 	const done: Done = { outcome, summary: text.summary, secondBug: text.secondBug };
-	const noFix = (end: { outcome: FixRunOutcome; reason?: string }) =>
+	const noFix: NoFix = (end) =>
 		settleFixRun(
 			run.id,
 			{ status: 'no_fix', ...end, summary: text.summary, secondBug: text.secondBug },
 			fixRunActor(run.id),
 			{ heldAt: io.hold.at, extra: text.summary ? { summary: text.summary } : {} },
 		);
+	if (run.mode === 'diagnose') return settleDiagnosis(io, run, r, text, noFix);
 	if (outcome === 'not_reproduced' || outcome === 'needs_person') return noFix({ outcome });
 	if (outcome === 'second_area' && !r.files.length) return noFix({ outcome });
 	const full = await getBugFull(run.bugNumber);

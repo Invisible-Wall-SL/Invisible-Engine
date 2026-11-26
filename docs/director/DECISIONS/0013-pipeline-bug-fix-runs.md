@@ -268,6 +268,10 @@ workspace spend limit bounds the worst case either way.
 
 ### 5. Inside the run, and the result
 
+> **Amended by ADR-0014 (2026-11-26):** a run is a diagnose run or a build run. The coordinator
+> prompt, the result's fields and what the launcher does with `diagnosed` change as it says; the
+> rules for a change below apply to a build run.
+
 **Claude Code headless (`claude -p`, pinned), not `anthropics/claude-code-action`.** The action is
 built to comment and push with a GitHub token. This job must hold none.
 

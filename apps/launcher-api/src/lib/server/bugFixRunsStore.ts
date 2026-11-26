@@ -2,6 +2,9 @@ import { and, asc, count, desc, eq, gte, inArray, isNull, lt, or, sql } from 'dr
 import {
 	LIVE_FIX_RUN_STATUSES,
 	fixRunSpendId,
+	type FixRunChoice,
+	type FixRunDiagnosis,
+	type FixRunMode,
 	type FixRunOutcome,
 	type FixRunRefusal,
 	type FixRunSecondBug,
@@ -60,23 +63,30 @@ function uniqueViolation(e: unknown, index: string): boolean {
 	return code === '23505' && constraint === index;
 }
 
-/** One `fix_run` event on the run's bug, which the bug's activity shows; the bug is touched. */
+/**
+ * One event on the run's bug, which the bug's activity shows; the bug is touched. A diagnose run's
+ * `fix_run` events carry `mode: 'diagnose'`; one without a mode is a build's, as before ADR-0014.
+ */
 async function recordEvent(
 	tx: Tx,
 	bugNumber: number,
 	actor: Actor,
 	data: Record<string, unknown>,
+	kind: 'fix_run' | 'fix_decision' = 'fix_run',
 ): Promise<void> {
 	const now = new Date();
 	await tx.insert(bugReportEvents).values({
 		bugNumber,
-		kind: 'fix_run',
+		kind,
 		actorId: actor.id,
 		actor: actor.name,
 		data,
 	});
 	await tx.update(bugReports).set({ updatedAt: now }).where(eq(bugReports.number, bugNumber));
 }
+
+const modeData = (mode: FixRunMode): Record<string, unknown> =>
+	mode === 'diagnose' ? { mode } : {};
 
 export async function getFixRun(id: string): Promise<BugFixRun | null> {
 	const [run] = await getDb().select().from(bugFixRuns).where(eq(bugFixRuns.id, id));
@@ -119,6 +129,10 @@ export async function fixSpendSince(since: Date, agent: string): Promise<number>
 
 export interface NewFixRun {
 	id: string;
+	mode: FixRunMode;
+	/** A build: the diagnose run it comes from, and the option a person chose from it. */
+	parentRunId?: string;
+	chosenOption?: FixRunChoice;
 	bugNumber: number;
 	baseSha: string;
 	requestId: string;
@@ -132,6 +146,10 @@ export interface LockedStartFacts {
 	openPr: number | null;
 	liveRun: string | null;
 	liveTotal: number;
+	/** A build's parent run, read under the lock; null for a start, or when it is not found. */
+	parent: BugFixRun | null;
+	/** The bug's newest diagnose run, read under the lock for a build. */
+	latestDiagnoseId: string | null;
 }
 
 export type StartOutcome =
@@ -145,7 +163,8 @@ export type StartOutcome =
  * serialised on one advisory lock, so the live count two people read at once is the count; the
  * facts re-read and handed to `decide`, which refuses or lets it in; the run inserted `dispatched`
  * (a replayed `request_id` answers the run it made); an unsent bug sent first (`sent` event), then
- * the `fix_run` event — both by `actor`, the person.
+ * the `fix_run` event — both by `actor`, the person. A build (`values.chosenOption`) also reads its
+ * parent and the bug's newest diagnose run for `decide`, and records the `fix_decision` event.
  */
 export async function insertFixRun(
 	values: NewFixRun,
@@ -176,11 +195,28 @@ export async function insertFixRun(
 				.select({ id: bugFixRuns.id, bugNumber: bugFixRuns.bugNumber })
 				.from(bugFixRuns)
 				.where(live());
+			let parent: BugFixRun | null = null;
+			let latestDiagnoseId: string | null = null;
+			if (values.parentRunId) {
+				[parent = null] = await tx
+					.select()
+					.from(bugFixRuns)
+					.where(eq(bugFixRuns.id, values.parentRunId));
+				const [latest] = await tx
+					.select({ id: bugFixRuns.id })
+					.from(bugFixRuns)
+					.where(and(eq(bugFixRuns.bugNumber, bug.number), eq(bugFixRuns.mode, 'diagnose')))
+					.orderBy(desc(bugFixRuns.createdAt))
+					.limit(1);
+				latestDiagnoseId = latest?.id ?? null;
+			}
 			const facts: LockedStartFacts = {
 				bug,
 				openPr: open?.pr ?? null,
 				liveRun: going.find((r) => r.bugNumber === bug.number)?.id ?? null,
 				liveTotal: going.length,
+				parent,
+				latestDiagnoseId,
 			};
 			const refused = decide(facts);
 			if (refused) return { kind: 'refused', code: refused, facts };
@@ -207,7 +243,26 @@ export async function insertFixRun(
 					.insert(bugReportEvents)
 					.values({ bugNumber: bug.number, kind: 'sent', ...who, data: {} });
 			}
-			await recordEvent(tx, bug.number, actor, { run: run.id, status: 'dispatched' });
+			if (run.parentRunId && run.chosenOption) {
+				await recordEvent(
+					tx,
+					bug.number,
+					actor,
+					{
+						run: run.parentRunId,
+						build: run.id,
+						option: run.chosenOption.optionId,
+						name: run.chosenOption.name,
+						note: run.chosenOption.note,
+					},
+					'fix_decision',
+				);
+			}
+			await recordEvent(tx, bug.number, actor, {
+				run: run.id,
+				status: 'dispatched',
+				...modeData(run.mode),
+			});
 			return { kind: 'created', run };
 		});
 	} catch (e) {
@@ -249,7 +304,11 @@ export async function markFixRunRunning(id: string, actor: Actor): Promise<BugFi
 			.where(and(eq(bugFixRuns.id, id), eq(bugFixRuns.status, 'dispatched')))
 			.returning();
 		if (!run) return null;
-		await recordEvent(tx, run.bugNumber, actor, { run: id, status: 'running' });
+		await recordEvent(tx, run.bugNumber, actor, {
+			run: id,
+			status: 'running',
+			...modeData(run.mode),
+		});
 		return run;
 	});
 }
@@ -296,6 +355,7 @@ export interface FixRunEnd {
 	reason?: string;
 	summary?: string;
 	secondBug?: FixRunSecondBug | null;
+	diagnosis?: FixRunDiagnosis | null;
 	prNumber?: number;
 	branch?: string;
 }
@@ -324,6 +384,7 @@ export async function settleFixRun(
 				reason: end.reason ?? null,
 				summary: end.summary ?? null,
 				secondBug: end.secondBug ?? null,
+				diagnosis: end.diagnosis ?? null,
 				prNumber: end.prNumber ?? null,
 				branch: end.branch ?? null,
 				spendUsd: endedSpend(),
@@ -343,6 +404,7 @@ export async function settleFixRun(
 		await recordEvent(tx, run.bugNumber, actor, {
 			run: id,
 			status: end.status,
+			...modeData(run.mode),
 			...(end.prNumber === undefined ? {} : { pr: end.prNumber }),
 			...(end.outcome === undefined ? {} : { outcome: end.outcome }),
 			...(end.reason === undefined ? {} : { reason: end.reason }),

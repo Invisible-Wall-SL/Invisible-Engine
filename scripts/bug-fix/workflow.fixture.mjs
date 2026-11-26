@@ -51,6 +51,7 @@ const FILES = {
 	coordinator: read('scripts/bug-fix/coordinator.md'),
 	currentGames: read('.github/workflows/current-games.yml'),
 	launcher: read('apps/launcher-api/src/lib/bugFixRuns.ts'),
+	server: read('apps/launcher-api/src/lib/server/bugFixRuns.ts'),
 	change: read('apps/launcher-api/src/lib/server/bugFixRunsChange.ts'),
 	vendored: read('apps/launcher-api/scripts/check-vendored-bundles.mjs'),
 };
@@ -851,6 +852,10 @@ export function problems(files) {
 				'BRIEF',
 				'RESULT',
 				'SCREENSHOTS',
+				'MODE',
+				'OPTION',
+				'DECISION',
+				'DIAGNOSIS',
 			].includes(m[1]),
 		),
 	);
@@ -955,6 +960,83 @@ export function problems(files) {
 		reasons.size > 0 &&
 			same([...reasons], Object.keys(REFUSALS)) &&
 			Object.values(REFUSALS).every((p) => [p ?? []].flat().every((w) => prompt.includes(w))),
+	);
+	// ADR-0014: a diagnose run's words are the launcher's own — the outcomes and statuses, the
+	// diagnosis caps, the two sentences a diagnose run can end with, the brief's fields — and the
+	// prompt has a complete section for each mode.
+	const exported = (src, name) =>
+		quoted(
+			new RegExp(`\\nexport const ${name} = \\[([\\s\\S]*?)\\] as const`).exec(src)?.[1] ?? '',
+		);
+	const outcomes = exported(files.launcher, 'FIX_RUN_OUTCOMES');
+	const statuses = exported(files.launcher, 'FIX_RUN_STATUSES');
+	const numbers = (m) => (m ? m.slice(1).map((n) => Number(n.replace(/_/g, ''))) : []);
+	const [capName, capWhy, capText, capTotal] = numbers(
+		/\nexport const DIAGNOSIS_CAPS = \{ name: (\d+), why: ([\d_]+), text: ([\d_]+), total: ([\d_]+) \} as const;/.exec(
+			files.launcher,
+		),
+	);
+	const jobCaps = numbers(
+		/\nexport const DIAGNOSIS_CAPS = \{ name: (\d+), why: ([\d_]+), text: ([\d_]+) \};/.exec(
+			files.collect,
+		),
+	);
+	const reasonOf = (key) =>
+		new RegExp(`\\n\\t${key}:\\s*'([^']+)'`).exec(files.launcher)?.[1] ?? null;
+	const changedFiles = reasonOf('diagnoseChangedFiles');
+	const unexplained = reasonOf('noDiagnosis');
+	const grouped = (n) => n.toLocaleString('en-US');
+	const resultOutcomes = [...files.coordinator.matchAll(/"outcome": "([^"]+)"/g)].flatMap((m) =>
+		m[1].split(' | '),
+	);
+	const marks = (re) => (files.coordinator.match(re) ?? []).length;
+	rule(
+		'diagnose-mode',
+		outcomes.length > 0 &&
+			statuses.length > 0 &&
+			outcomes.includes('diagnosed') &&
+			statuses.includes('diagnosed') &&
+			same(outcomes, quoted(listBlock(files.collect, 'OUTCOMES'))) &&
+			same(statuses, quoted(listBlock(files.collect, 'STATUSES'))) &&
+			// Every outcome the launcher takes is one the prompt's result templates offer.
+			same(outcomes, [...new Set(resultOutcomes)]) &&
+			[capName, capWhy, capText, capTotal].every(Number.isInteger) &&
+			same(jobCaps, [capName, capWhy, capText]) &&
+			prompt.includes(`kept to ${grouped(capText)} characters`) &&
+			prompt.includes(`\`name\` to ${capName}`) &&
+			prompt.includes(`\`why\` to ${grouped(capWhy)}`) &&
+			prompt.includes(`the whole diagnosis to ${grouped(capTotal)}`) &&
+			// The sentences a diagnose run ends with are quoted in the prompt as the launcher says them.
+			changedFiles !== null &&
+			unexplained !== null &&
+			prompt.includes(`"${changedFiles}"`) &&
+			prompt.includes(`"${unexplained}"`) &&
+			// The brief carries the mode and the decision, and the job reads both.
+			/\n\tmode: FixRunMode;/.test(files.server) &&
+			/\n\tdecision: \{/.test(files.server) &&
+			/\n\tdiagnosis: FixRunDiagnosis \| null;/.test(files.server) &&
+			['body.mode', 'body.decision', 'body.diagnosis'].every((w) => files.collect.includes(w)) &&
+			// A mode's section opens and closes; both modes have one in "What to do" and "The result".
+			marks(/^<!-- mode: diagnose -->$/gm) === 2 &&
+			marks(/^<!-- mode: build -->$/gm) === 2 &&
+			marks(/^<!-- \/mode -->$/gm) === 4 &&
+			['{{MODE}}', '{{OPTION}}', '{{DECISION}}', '{{DIAGNOSIS}}'].every((w) =>
+				files.coordinator.includes(w),
+			) &&
+			[
+				'You change **no file** in this checkout',
+				'one option to weigh, never the plan',
+				'"Don\'t fix: below the supported device floor"',
+				'docs/knowledge/targets.md',
+				'It states none today',
+				'Never ask for a new capture or a new reading when the brief already cites readings',
+				'whenever reasonable people could pick differently',
+				'any secret pattern in any text of the diagnosis',
+				"or the bug's project or client named in the diagnosis",
+				'A diagnose run leaves no changed file',
+				'**Implement only this option.**',
+				'Never switch to another option',
+			].every((w) => prompt.includes(w)),
 	);
 	rule(
 		'launcher-patterns',
@@ -1728,6 +1810,61 @@ const MUTANTS = [
 	['coordinator-caps', 'change', 'const MAX_PATH = 300;', 'const MAX_PATH = 200;'],
 	['coordinator-caps', 'change', 'const MAX_FILES = 40;', 'const MAX_FILES = LIMIT;'],
 	['coordinator-caps', 'coordinator', 'at most 40 files and', 'at most 50 files and'],
+	// ADR-0014: the diagnose mode, each word of it the launcher's.
+	['diagnose-mode', 'launcher', "\t'second_area',\n\t'diagnosed',\n]", "\t'second_area',\n]"],
+	['diagnose-mode', 'launcher', "\t'running',\n\t'diagnosed',", "\t'running',"],
+	['diagnose-mode', 'collect', "'second_area', 'diagnosed']", "'second_area']"],
+	['diagnose-mode', 'collect', "\t'diagnosed',\n\t'pr_opened',", "\t'pr_opened',"],
+	['diagnose-mode', 'launcher', 'text: 3_000, total', 'text: 2_500, total'],
+	['diagnose-mode', 'launcher', 'total: 16_000', 'total: 20_000'],
+	['diagnose-mode', 'collect', 'text: 3_000 }', 'text: 2_500 }'],
+	['diagnose-mode', 'launcher', 'why: 1_000, text', 'why: 800, text'],
+	[
+		'diagnose-mode',
+		'launcher',
+		"'A diagnose run changed files; nothing was kept.'",
+		"'It changed files.'",
+	],
+	['diagnose-mode', 'launcher', "'The run did not explain its diagnosis.'", "'No diagnosis.'"],
+	['diagnose-mode', 'server', '\tmode: FixRunMode;\n', '\tkind: FixRunMode;\n'],
+	['diagnose-mode', 'server', '\tdiagnosis: FixRunDiagnosis | null;\n', ''],
+	['diagnose-mode', 'coordinator', '**Implement only this option.**', 'Implement this option.'],
+	['diagnose-mode', 'coordinator', 'Never switch to another option', 'Switch when it is better'],
+	['diagnose-mode', 'coordinator', 'one option to weigh, never the plan', 'the plan'],
+	[
+		'diagnose-mode',
+		'coordinator',
+		'include the option "Don\'t fix: below the supported',
+		'include the option "Leave it alone: not the supported',
+	],
+	['diagnose-mode', 'coordinator', 'It states none today', 'It states one'],
+	['diagnose-mode', 'coordinator', 'You change **no file** in this checkout', 'You may edit files'],
+	[
+		'diagnose-mode',
+		'coordinator',
+		'Never ask for a new capture or a new reading when the brief already cites readings',
+		'Ask for a new capture',
+	],
+	[
+		'diagnose-mode',
+		'coordinator',
+		'whenever reasonable people could pick differently',
+		'when the code is wrong',
+	],
+	[
+		'diagnose-mode',
+		'coordinator',
+		'- A diagnose run leaves no changed file.',
+		'- A diagnose run may edit.',
+	],
+	['diagnose-mode', 'coordinator', 'any secret pattern in any text of the', 'any secret in the'],
+	[
+		'diagnose-mode',
+		'coordinator',
+		'<!-- /mode -->\n<!-- mode: build -->\nThe owner',
+		'<!-- mode: build -->\nThe owner',
+	],
+	['diagnose-mode', 'coordinator', '`{{DECISION}}` holds', '`{{DECISION_FILE}}` holds'],
 	[
 		'coordinator-vendored',
 		'vendored',
@@ -1954,10 +2091,64 @@ check(
 		rendered.permissions.allow.includes('Edit(//ws/**)'),
 	'settings render to absolute paths (`//` rules)',
 );
+const prompts = Object.fromEntries(
+	['diagnose', 'build'].map((mode) => [
+		mode,
+		C.render(
+			C.forMode(FILES.coordinator, mode),
+			C.templateValues(C.paths('/rt', '/ws'), {
+				screenshots: ['screenshot-1.png'],
+				mode,
+				optionId: mode === 'build' ? 'B' : null,
+			}),
+		),
+	]),
+);
 check(
-	C.render(FILES.coordinator, values).includes('- /rt/bug/screenshot-1.png') &&
-		!/\{\{/.test(C.render(FILES.coordinator, values)),
-	'the prompt renders, screenshots listed',
+	Object.values(prompts).every(
+		(p) => p.includes('- /rt/bug/screenshot-1.png') && !/\{\{|<!-- \/?mode/.test(p),
+	),
+	'each mode’s prompt renders, screenshots listed, no placeholder or marker left',
+);
+check(
+	prompts.diagnose.includes('This is a **diagnose** run') &&
+		prompts.diagnose.includes('You change **no file**') &&
+		prompts.diagnose.includes('"outcome": "diagnosed |') &&
+		!prompts.diagnose.includes('Implement only this option') &&
+		!prompts.diagnose.includes('"outcome": "fixed |') &&
+		!prompts.diagnose.includes('/rt/bug/decision.md'),
+	'the diagnose prompt is the diagnose sections alone',
+);
+check(
+	prompts.build.includes('This is a **build** run') &&
+		prompts.build.includes('The owner chose option B after reading a diagnosis') &&
+		prompts.build.includes('`/rt/bug/decision.md`') &&
+		prompts.build.includes('`/rt/bug/diagnosis.md`') &&
+		prompts.build.includes('Implement only this option') &&
+		prompts.build.includes('"outcome": "fixed |') &&
+		!prompts.build.includes('You change **no file**') &&
+		!prompts.build.includes('"outcome": "diagnosed |'),
+	'the build prompt is the build sections alone, the choice named',
+);
+check(
+	C.templateValues(C.paths('/rt', '/ws'), { screenshots: [] }).MODE === 'build',
+	'a run with no mode is a build (an old launcher’s)',
+);
+const modeRefused = (template, mode) => {
+	try {
+		C.forMode(template, mode);
+		return false;
+	} catch {
+		return true;
+	}
+};
+check(
+	modeRefused(FILES.coordinator, 'fix') &&
+		modeRefused('<!-- mode: diagnose -->\nx\n', 'diagnose') &&
+		modeRefused('x\n<!-- /mode -->\n', 'build') &&
+		modeRefused('<!-- mode: diagnose -->\nx\n<!-- /mode -->\n', 'build') &&
+		modeRefused('<!-- mode: diagnose -->\n<!-- mode: build -->\nx\n<!-- /mode -->\n', 'build'),
+	'forMode refuses an unknown mode, an open or stray marker and a mode with no section',
 );
 let threw = false;
 try {
@@ -1991,6 +2182,55 @@ for (const [why, b] of [
 	['no budget', { ...goodBrief, budgetUsd: 0 }],
 	['a huge budget', { ...goodBrief, budgetUsd: 1000 }],
 	['a bad screenshot id', { ...goodBrief, screenshots: [{ id: '../x' }] }],
+])
+	check(refuses(b), `checkBrief refuses ${why}`);
+
+// The mode: none is an old launcher's build; a diagnose run carries no decision; a build must.
+const diagnosis = {
+	reported: 'r',
+	cause: 'c',
+	evidence: 'e',
+	kind: 'decision',
+	options: [
+		{ id: 'A', name: 'Lighter', change: 'ch', cost: 'co', risk: 'ri', player: 'pl' },
+		{ id: 'B', name: 'Leave it', change: 'ch', cost: 'co', risk: 'ri', player: 'pl' },
+	],
+	recommendation: { option: 'A', why: 'w' },
+};
+const decision = { optionId: 'B', name: 'Leave it', change: 'ch', note: null };
+const buildBrief = { ...goodBrief, mode: 'build', decision, diagnosis };
+check(C.checkBrief(goodBrief, 'abcdef0123').mode === 'build', 'a brief with no mode is a build');
+check(
+	C.checkBrief({ ...goodBrief, mode: 'diagnose', decision: null, diagnosis: null }, 'abcdef0123')
+		.mode === 'diagnose',
+	'checkBrief takes a diagnose brief',
+);
+const built = C.checkBrief(buildBrief, 'abcdef0123');
+check(
+	built.mode === 'build' &&
+		built.decision.optionId === 'B' &&
+		/^Option B: Leave it\n/.test(C.decisionText(built)) &&
+		C.decisionText(built).includes("The owner's note: (none)") &&
+		C.diagnosisText(built).includes('Recommendation: option A. w'),
+	'checkBrief takes a build brief and renders its decision and diagnosis as text',
+);
+for (const [why, b] of [
+	['a mode it does not know', { ...goodBrief, mode: 'fixit' }],
+	['a build with no decision', { ...buildBrief, decision: null }],
+	['a build with no diagnosis', { ...buildBrief, diagnosis: null }],
+	[
+		'a build whose option is not A to D',
+		{ ...buildBrief, decision: { ...decision, optionId: 'E' } },
+	],
+	[
+		'a decision with a name that is not text',
+		{ ...buildBrief, decision: { ...decision, name: 7 } },
+	],
+	[
+		'a diagnosis whose option is not whole',
+		{ ...buildBrief, diagnosis: { ...diagnosis, options: [{ id: 'A' }] } },
+	],
+	['a diagnose run that carries a decision', { ...goodBrief, mode: 'diagnose', decision }],
 ])
 	check(refuses(b), `checkBrief refuses ${why}`);
 
@@ -2124,6 +2364,36 @@ check(
 	'logLine says status and spend only',
 );
 check(
+	C.logLine(
+		'abcdef0123',
+		{ status: 'diagnosed', spendUsd: 0.456, bugUrl: 'https://app.invisiblewall.org/bugs?bug=12' },
+		'https://app.invisiblewall.org',
+	) === 'fix run abcdef0123: diagnosed, $0.46 — https://app.invisiblewall.org/bugs?bug=12',
+	'logLine adds the launcher’s bug page address',
+);
+for (const bugUrl of [
+	'https://evil.example/bugs?bug=12',
+	'https://app.invisiblewall.org/bugs?bug=12&x=::set-output::',
+	'https://app.invisiblewall.org/other?bug=12',
+	'https://u:p@app.invisiblewall.org/bugs?bug=12',
+	'https://app.invisiblewall.org/bugs?bug=12#x',
+	'not a url',
+	7,
+]) {
+	check(
+		C.logLine('abcdef0123', { status: 'diagnosed', bugUrl }, 'https://app.invisiblewall.org') ===
+			'fix run abcdef0123: diagnosed, spend unknown',
+		`logLine drops an address that is not the launcher’s bug page: ${bugUrl}`,
+	);
+}
+check(
+	C.logLine('abcdef0123', {
+		status: 'diagnosed',
+		bugUrl: 'https://app.invisiblewall.org/bugs?bug=12',
+	}) === 'fix run abcdef0123: diagnosed, spend unknown',
+	'logLine adds no address when it is not told the launcher’s origin',
+);
+check(
 	C.logLine('abcdef0123', { status: '::set-output name=x::y' }) ===
 		'fix run abcdef0123: unknown, spend unknown',
 	'logLine prints no status it does not know',
@@ -2138,6 +2408,41 @@ const r1 = C.readResultJson(join(tmp, 'r1.json'));
 check(
 	r1.outcome === 'fixed' && !('extra' in r1) && r1.gates.length === 1,
 	`readResultJson keeps known fields: ${JSON.stringify(r1)}`,
+);
+writeFileSync(
+	join(tmp, 'rd.json'),
+	JSON.stringify({
+		outcome: 'diagnosed',
+		summary: 's',
+		diagnosis: {
+			...diagnosis,
+			reported: 'r'.repeat(9000),
+			kind: 'decision-and-more-than-twelve',
+			options: [...diagnosis.options, ...diagnosis.options, ...diagnosis.options].map((o, i) => ({
+				...o,
+				id: 'ABCDEFG'[i],
+				name: 'n'.repeat(500),
+				extra: 'dropped',
+			})),
+			recommendation: { option: 'A', why: 'y'.repeat(5000), extra: 'dropped' },
+		},
+	}),
+);
+const rd = C.readResultJson(join(tmp, 'rd.json'));
+check(
+	rd.outcome === 'diagnosed' &&
+		rd.diagnosis.reported.length === C.DIAGNOSIS_CAPS.text &&
+		rd.diagnosis.options.length === 4 &&
+		rd.diagnosis.options.every((o) => o.name.length === C.DIAGNOSIS_CAPS.name && !('extra' in o)) &&
+		rd.diagnosis.recommendation.why.length === C.DIAGNOSIS_CAPS.why &&
+		!('extra' in rd.diagnosis.recommendation) &&
+		rd.diagnosis.kind.length === 12 &&
+		!('title' in rd.diagnosis),
+	'readResultJson keeps a diagnosis, each text cut to the launcher’s cap and at most four options',
+);
+check(
+	C.readResultJson(join(tmp, 'r1.json')).diagnosis === undefined,
+	'readResultJson adds no diagnosis a result did not have',
 );
 writeFileSync(join(tmp, 'r2.json'), 'not json');
 check(
@@ -2489,6 +2794,56 @@ check(
 	/budget/.test(capped.failure ?? '') && capped.files.length === 0 && capped.summary === '',
 	`a run stopped at its cap posts a failure and no change: ${JSON.stringify(capped)}`,
 );
+// A diagnose run: the files it left are posted too (the launcher refuses them), its diagnosis goes
+// with them, and the log line carries the bug page's address.
+writeFileSync(join(rt, 'claude', 'stream.jsonl'), streamWithResult);
+writeFileSync(
+	join(rt, 'bug', 'run.json'),
+	JSON.stringify({
+		fixRun: 'abcdef0123',
+		bug: 7,
+		baseSha,
+		budgetUsd: 5,
+		mode: 'diagnose',
+		optionId: null,
+		screenshots: [],
+	}),
+);
+writeFileSync(
+	join(rt, 'out', 'result.json'),
+	JSON.stringify({ outcome: 'diagnosed', summary: 'SUMMARY-NEVER-LOGGED', diagnosis }),
+);
+answer = {
+	status: 200,
+	body: {
+		fixRun: 'abcdef0123',
+		status: 'diagnosed',
+		outcome: 'diagnosed',
+		prNumber: null,
+		spendUsd: 0.5,
+		bugUrl: `${base}/bugs?bug=7`,
+	},
+};
+const diagnoseRun = await runCollect('result');
+const diagnosed = JSON.parse(posted.at(-1).raw.toString('utf8'));
+check(
+	diagnoseRun.code === 0 &&
+		diagnosed.outcome === 'diagnosed' &&
+		diagnosed.diagnosis?.options.length === 2 &&
+		diagnosed.diagnosis.recommendation.option === 'A' &&
+		diagnosed.files.length === 3,
+	`a diagnose run posts its diagnosis and every file it left: ${JSON.stringify(diagnosed).slice(0, 300)}`,
+);
+check(
+	new RegExp(
+		`^::stop-commands::[0-9a-f]{24}\\nfix run abcdef0123: diagnosed, \\$0\\.50 — ${base.replace(/[.]/g, '\\.')}/bugs\\?bug=7\\n::[0-9a-f]{24}::\\n$`,
+	).test(diagnoseRun.out) && !/SUMMARY-NEVER/.test(diagnoseRun.out),
+	`a diagnose run prints one fenced line with the bug page: ${JSON.stringify(diagnoseRun.out)}`,
+);
+writeFileSync(
+	join(rt, 'bug', 'run.json'),
+	JSON.stringify({ fixRun: 'abcdef0123', bug: 7, baseSha, budgetUsd: 15, screenshots: [] }),
+);
 // Stopped during the install: nothing was prepared, no key written, Claude Code never ran.
 rmSync(join(rt, 'claude', 'stream.jsonl'));
 rmSync(join(rt, 'key', 'anthropic'));
@@ -2527,6 +2882,36 @@ const changeError = (M, setup, undo) => {
  * collect.mjs does what the check above, on the real one, says it must not.
  */
 const COLLECT_MUTANTS = [
+	[
+		'a prompt holds one mode only',
+		'} else if (!inside || inside === mode) kept.push(line);',
+		'} else kept.push(line);',
+		async (M) => M.forMode(FILES.coordinator, 'diagnose').includes('Implement only this option'),
+	],
+	[
+		'a build must carry its decision',
+		"body.mode === 'build'\n\t\t\t? checkDecision",
+		'false\n\t\t\t? checkDecision',
+		async (M) => {
+			try {
+				M.checkBrief({ ...goodBrief, mode: 'build' }, 'abcdef0123');
+				return true;
+			} catch {
+				return false;
+			}
+		},
+	],
+	[
+		'the bug page is the launcher’s own',
+		'u.origin === origin &&',
+		'true &&',
+		async (M) =>
+			M.logLine(
+				'abcdef0123',
+				{ status: 'diagnosed', bugUrl: 'https://evil.example/bugs?bug=1' },
+				'https://app.invisiblewall.org',
+			).includes('evil.example'),
+	],
 	[
 		'symlink check',
 		"if (seen.isSymbolicLink()) fail('The change holds a symbolic link.');",

@@ -1,9 +1,15 @@
 import { PATTERNS } from '../../../../../scripts/check-secrets.mjs';
 import { SCOPES, squashSubjectHasScope } from '../../../../../scripts/commit-scope.mjs';
 import {
+	DIAGNOSIS_CAPS,
+	FIX_OPTION_IDS,
+	MAX_OPTIONS,
 	capText,
 	fixRunTitle,
+	isFixOptionId,
+	type FixRunDiagnosis,
 	type FixRunFile,
+	type FixRunOption,
 	type FixRunOutcome,
 	type FixRunSecondBug,
 } from '$lib/bugFixRuns';
@@ -31,6 +37,8 @@ export interface ParsedResult {
 	lesson: string;
 	gates: { command: string; ok: boolean }[];
 	secondBug: FixRunSecondBug | null;
+	/** What the result said under `diagnosis`, unread: {@link readDiagnosis} judges it. */
+	diagnosis: unknown;
 	files: FixRunFile[];
 }
 
@@ -161,6 +169,126 @@ export function cleanResult(r: ParsedResult): FixRunText {
 			evidence: cleanText(r.secondBug.evidence, TEXT_CAPS.summary),
 		},
 	};
+}
+
+// ── A diagnosis ───────────────────────────────────────────────────────────────
+
+const OPTION_TEXTS = ['change', 'cost', 'risk', 'player'] as const;
+
+/** A string within {@link TEXT_SLACK} times its cap, else null (not text, or far too long). */
+function unreadText(v: unknown, cap: number): string | null {
+	return typeof v === 'string' && v.length <= cap * TEXT_SLACK ? v : null;
+}
+
+/**
+ * A result's diagnosis as the run wrote it, or null when it is not one: every field present as
+ * text (none far past its cap), `kind` `defect` or `decision`, one to {@link MAX_OPTIONS} options
+ * whose ids run A, B, C, D from the first, and a recommendation naming one of them. Nothing is
+ * cleaned yet ({@link cleanDiagnosis}).
+ */
+export function readDiagnosis(v: unknown): FixRunDiagnosis | null {
+	if (!isRecord(v)) return null;
+	const reported = unreadText(v.reported, DIAGNOSIS_CAPS.text);
+	const cause = unreadText(v.cause, DIAGNOSIS_CAPS.text);
+	const evidence = unreadText(v.evidence, DIAGNOSIS_CAPS.text);
+	if (reported === null || cause === null || evidence === null) return null;
+	if (v.kind !== 'defect' && v.kind !== 'decision') return null;
+	if (!Array.isArray(v.options) || !v.options.length || v.options.length > MAX_OPTIONS) return null;
+	const options: FixRunOption[] = [];
+	for (const [i, o] of (v.options as unknown[]).entries()) {
+		if (!isRecord(o) || o.id !== FIX_OPTION_IDS[i]) return null;
+		const name = unreadText(o.name, DIAGNOSIS_CAPS.name);
+		const [change, cost, risk, player] = OPTION_TEXTS.map((k) =>
+			unreadText(o[k], DIAGNOSIS_CAPS.text),
+		);
+		if (name === null || change === null || cost === null || risk === null || player === null) {
+			return null;
+		}
+		options.push({ id: FIX_OPTION_IDS[i], name, change, cost, risk, player });
+	}
+	const rec = v.recommendation;
+	if (!isRecord(rec) || !isFixOptionId(rec.option)) return null;
+	const why = unreadText(rec.why, DIAGNOSIS_CAPS.why);
+	if (why === null || !options.some((o) => o.id === rec.option)) return null;
+	return {
+		reported,
+		cause,
+		evidence,
+		kind: v.kind,
+		options,
+		recommendation: { option: rec.option, why },
+	};
+}
+
+/** Every text of a diagnosis, in reading order. */
+export function diagnosisTexts(d: FixRunDiagnosis): string[] {
+	return [
+		d.reported,
+		d.cause,
+		d.evidence,
+		...d.options.flatMap((o) => [o.name, o.change, o.cost, o.risk, o.player]),
+		d.recommendation.why,
+	];
+}
+
+/** The diagnosis cleaned like a summary: plain text, capped, unlinked and quiet. */
+export function cleanDiagnosis(d: FixRunDiagnosis): FixRunDiagnosis {
+	const text = (t: string) => cleanText(t, DIAGNOSIS_CAPS.text);
+	return {
+		reported: text(d.reported),
+		cause: text(d.cause),
+		evidence: text(d.evidence),
+		kind: d.kind,
+		options: d.options.map((o) => ({
+			id: o.id,
+			name: cleanLine(o.name, DIAGNOSIS_CAPS.name),
+			change: text(o.change),
+			cost: text(o.cost),
+			risk: text(o.risk),
+			player: text(o.player),
+		})),
+		recommendation: {
+			option: d.recommendation.option,
+			why: cleanText(d.recommendation.why, DIAGNOSIS_CAPS.why),
+		},
+	};
+}
+
+/**
+ * Whether a cleaned diagnosis is whole: no text empty, the total within its cap. One that is not
+ * is not offered to a person to choose from.
+ */
+export function diagnosisIsWhole(d: FixRunDiagnosis): boolean {
+	const texts = diagnosisTexts(d);
+	return (
+		texts.every((t) => t.length > 0) &&
+		texts.reduce((n, t) => n + Array.from(t).length, 0) <= DIAGNOSIS_CAPS.total
+	);
+}
+
+/**
+ * The first rule a diagnosis breaks that a summary is held to: a secret in any text (as written,
+ * as cleaned, with its tags out), or the bug's project or client named in it. Names the rule.
+ */
+export function diagnosisProblem(
+	raw: FixRunDiagnosis,
+	clean: FixRunDiagnosis,
+	names: string[],
+): string | null {
+	const where = 'the diagnosis';
+	const cleaned = diagnosisTexts(clean);
+	const said = diagnosisTexts(raw).map((r, i): [string, string] => [r, cleaned[i]]);
+	for (const [r, c] of said) {
+		const found = secretIn(r) ?? secretIn(c) ?? secretIn(unmarked(r));
+		if (found) return `secret scan: ${found} in ${where}`;
+	}
+	for (const [r, c] of said) {
+		const folded = [fold(r), fold(c), fold(unmarked(r))];
+		if (names.some((n) => folded.some((t) => t.includes(n)))) {
+			return `privacy: ${where} names the bug's project or client`;
+		}
+	}
+	return null;
 }
 
 /** Who started the run, as the PR names them: the account's own name, never its email. */

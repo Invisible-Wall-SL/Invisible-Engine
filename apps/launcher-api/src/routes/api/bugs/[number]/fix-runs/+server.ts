@@ -4,7 +4,8 @@ import { parseBugNumber, requireBugAccess } from '$lib/server/bugReports';
 import type { RequestHandler } from './$types';
 
 /**
- * Start a fix run on a pipeline bug (ADR-0013 §1):
+ * Start a fix run on a pipeline bug (ADR-0013 §1). It always starts a DIAGNOSE run (ADR-0014): it
+ * changes no file and ends with options, which a person builds at `…/fix-runs/<id>/build`:
  *
  *   POST /api/bugs/<n>/fix-runs   (JSON) { requestId }
  *        → 201 { run: FixRunView }; a replayed requestId → 200 with the run it started

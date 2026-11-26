@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { bugAreaName, bugBrief, bugPath, bugRef } from '$lib/bugReports';
 	import type { BugSummary, FixTab } from '$lib/server/bugReports';
+	import FixBanner from '../bugs/FixBanner.svelte';
 	import FixRunControl from '../bugs/FixRunControl.svelte';
 	import { linkTone, priorityLabel, priorityTone, statusLabel, statusTone } from '../bugs/view';
 	import Pill from './Pill.svelte';
@@ -105,11 +106,18 @@
 				<a class="btn" href={bugPath(b)}>Open in Pipeline Bug Reports</a>
 			{/if}
 		</div>
+		<FixBanner runs={fix.byBug[b.number]?.runs ?? []} compact />
 		<FixRunControl
 			number={b.number}
 			sent={b.sentAt !== null}
 			runs={fix.byBug[b.number]?.runs ?? []}
-			facts={{ may: fix.may, ready: fix.ready, refusal: fix.byBug[b.number]?.refusal ?? null }}
+			facts={{
+				may: fix.may,
+				ready: fix.ready,
+				refusal: fix.byBug[b.number]?.refusal ?? null,
+				latestDiagnosis: fix.byBug[b.number]?.latestDiagnosis ?? null,
+				canBuild: fix.byBug[b.number]?.canBuild ?? false,
+			}}
 			canFile={fix.triage && canOpenBugs}
 			showControl={!done(b)}
 			onchanged={onfixchanged}

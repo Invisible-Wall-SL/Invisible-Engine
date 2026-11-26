@@ -863,7 +863,8 @@ code default, so the dashboard need not set it):
     pins the workflow's rules offline.
   - **The runner:** each run apt-installs `bubblewrap` and `socat` (the CLI's sandbox) and stops
     Docker before the CLI starts.
-  - **Caps:** the per-run budget is Admin › Settings `PIPELINE_FIX_BUDGET_USD`, passed to
+  - **Caps:** the per-run budget is Admin › Settings `PIPELINE_FIX_BUDGET_USD` for a build run and
+    `PIPELINE_DIAGNOSE_BUDGET_USD` (default $5) for a diagnose run (ADR-0014), passed to
     `--max-budget-usd`; 150 turns; step 4 times out at 60 minutes, the job at 75.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
