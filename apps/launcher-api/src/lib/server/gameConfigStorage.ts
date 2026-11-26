@@ -21,7 +21,6 @@ import {
 	type GameConfigDoc,
 	type GameConfigIssue,
 } from 'game-config';
-import { loadComponent } from './componentStorage';
 import { putDocWithBackup, type BackupMode } from './docBackups';
 import { gameConfig3dBlocksOf, gameConfig3dErrors, withGameConfig3dBlocks } from './gameConfig3d';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
@@ -301,10 +300,13 @@ export async function saveGameConfigDoc(
 	backup: BackupMode = 'auto',
 ): Promise<{ doc: GameConfigDoc; etag: string | null; warnings: GameConfigIssue[] }> {
 	const prepared = prepareGameConfigDoc(input);
-	// The zone art's prop components, compiled at their pinned versions (`zoneArtProps.ts`).
-	const compiled = await compileZoneArtProps(prepared.doc, (id, version) =>
-		loadComponent(id, projectKey, version),
-	);
+	// The zone art's prop components, compiled at their pinned versions (`zoneArtProps.ts`). Loaded
+	// lazily: the component store reaches SvelteKit, which the Node gates that import this store
+	// cannot resolve (`check:desktop-publish-checks`).
+	const compiled = await compileZoneArtProps(prepared.doc, async (id, version) => {
+		const { loadComponent } = await import('./componentStorage');
+		return loadComponent(id, projectKey, version);
+	});
 	const doc = compiled.doc;
 	const warnings = [...prepared.warnings, ...compiled.warnings];
 	const stamped: GameConfigDoc = { ...doc, updatedAt: new Date().toISOString() };
