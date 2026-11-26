@@ -1,6 +1,6 @@
 # ADR-0015 — Resolve a merge conflict from Pipeline Changes
 
-- **Status:** proposed
+- **Status:** approved (2026-11-26, owner; see "Owner decision" at the end)
 - **Date:** 2026-11-26
 - **Scope:** what a person can do in Pipeline Changes about a change marked **Blocked · Merge
   conflict with main**. Two actions: **Update from main** when GitHub can merge cleanly, and
@@ -303,6 +303,12 @@ owner's hands, and it holds only the YAML.
     hold.
 12. **Setup:** the owner creates the label `on-hold` once. Default: yes. The alternative is to give
     the App Issues write, so it can create the label itself.
+
+## Owner decision (2026-11-26)
+
+Approved: items 1–12 of "Needs owner approval", each at its default, as written. The open
+questions take their suggested defaults. 15A starts. Item 12 is the owner's to do: create the
+label `on-hold` once.
 
 ## Open questions
 
