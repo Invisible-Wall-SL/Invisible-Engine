@@ -275,6 +275,22 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-26 — **A refused file is named, and a build cleans up after its tests.** Fix run
+  `9124c61f70` (Sheet Maker, option A) built a good fix that the launcher refused as "a file is not
+  UTF-8 text": a file in the change held a NUL byte, almost certainly something a test or export
+  left in the checkout. The launcher keeps no refused change, so which file it was is not known.
+  - The launcher's content refusals now name the file and tell a NUL apart:
+    "a file is not UTF-8 text (<path>)", "a file holds a NUL byte (<path>)", "a file holds Unicode
+    tag or bidi control characters (<path>)".
+  - `collect.mjs` refuses a NUL itself, naming the path ("A changed file holds a NUL byte (a binary
+    file): <path>."), so the job ends with the name instead of the launcher's review. It prints a
+    path only when it is printable ASCII, since the log is public and reads `::` commands.
+  - The build prompt's Gates step ends with **Then clean up**: run `git status` with every
+    untracked file listed, delete what the gates or tests made, build fixtures in a temporary
+    folder; checked once more before the result.
+  - Gates: `check:bug-fix-workflow` (a new case for a UTF-8 file with a NUL; it fails with the
+    check removed), `check:bug-fix-runs` 172, `pnpm lint`, `check:undefined-names`.
+
 - 2026-11-26 — **The change says what you are approving (ADR-0014 card 14B, UI side).** Pipeline
   Changes' detail opens with a "What you're approving" `SectionCard` for a fix-run change (reads
   `ChangeDetail.fixRun`): reported, cause, the chosen option (who, when, note), what changed,

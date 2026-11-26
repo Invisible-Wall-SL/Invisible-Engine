@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { invalidate } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import type { PhaseSet } from '$lib/profiler';
 	import {
 		BUDGET_METRIC_DEFS,
 		BUDGET_SCOPES,
 		budgetKeyId,
+		budgetLinesFor,
 		budgetRefusal,
 		lineText,
 		PROFILER_BUDGETS,
@@ -17,8 +19,12 @@
 	interface Props {
 		projectKey: string;
 		budgets: EffectiveBudget[];
+		/** The project's game kind's phases: their lines are listed, others only when overridden. */
+		phaseSet: PhaseSet;
 	}
-	const { projectKey, budgets }: Props = $props();
+	const { projectKey, budgets, phaseSet }: Props = $props();
+
+	const listed = $derived(budgetLinesFor(budgets, phaseSet));
 
 	const SCOPE_TITLE: Record<BudgetScope, string> = {
 		phone: 'Phone',
@@ -123,7 +129,7 @@
 </script>
 
 {#each BUDGET_SCOPES as scope (scope)}
-	{@const lines = budgets.filter((b) => b.deviceClass === scope)}
+	{@const lines = listed.filter((b) => b.deviceClass === scope)}
 	<SectionCard scope="profiler" id="budgets-{scope}" title="{SCOPE_TITLE[scope]} budgets">
 		{#snippet info()}
 			<p>
@@ -131,7 +137,10 @@
 				A value past its warn line is a warn, past its fail line a fail; a blank line is not checked.
 				Type a value and press Enter (or leave the field) to set this project's own line; the reset button
 				brings back the studio default. Everyone can edit these; if someone else saved the same line first,
-				yours is not saved and theirs is shown.
+				yours is not saved and theirs is shown. The phases listed are this project's game kind's —
+				{phaseSet === 'arcade'
+					? 'menu and play (studio lines by analogy: menu as idle, play as spinning)'
+					: 'idle, spinning and round'} — plus any other phase with a project line.
 				{#if scope === 'tablet'}The probe reports phones and desktops only for now, so no reading is
 					judged as a tablet yet.{/if}
 			</p>

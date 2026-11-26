@@ -517,10 +517,11 @@ export function localProblem(c: LocalCheck): string | null {
 			return 'it sets a mode other than 100644 or 100755';
 		}
 		if (f.content !== null) {
-			if (!f.content.isWellFormed() || f.content.includes('\u0000')) {
-				return 'a file is not UTF-8 text';
+			if (!f.content.isWellFormed()) return `a file is not UTF-8 text (${f.path})`;
+			if (f.content.includes('\u0000')) return `a file holds a NUL byte (${f.path})`;
+			if (HIDDEN.test(f.content)) {
+				return `a file holds Unicode tag or bidi control characters (${f.path})`;
 			}
-			if (HIDDEN.test(f.content)) return 'a file holds Unicode tag or bidi control characters';
 			bytes += Buffer.byteLength(f.content, 'utf8');
 		}
 	}

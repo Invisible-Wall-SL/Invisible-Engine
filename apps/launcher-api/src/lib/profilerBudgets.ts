@@ -5,7 +5,14 @@
  * the page uses the same functions, so the colours on the page are the gate's verdicts.
  */
 
-import { PERF_PHASES, type PerfPhase, type PerfReportListItem } from './profiler';
+import {
+	PERF_PHASES,
+	phasesOf,
+	setPhases,
+	type PerfPhase,
+	type PerfReportListItem,
+	type PhaseSet,
+} from './profiler';
 import { readingOnBuild, type PerfBuildListItem } from './profilerBuilds';
 
 /** The `depends` key of `/profiler`'s budgets. */
@@ -27,7 +34,7 @@ export interface BudgetMetricDef {
 	unit: string;
 	/** `higher`: under the line is bad (fps). `lower`: over the line is bad (ms, MB, draws). */
 	better: 'higher' | 'lower';
-	/** Per phase (idle / spinning / round), or one number for the whole reading or build. */
+	/** Per phase (idle / spinning / round, or menu / play), or one number for the whole reading or build. */
 	phased: boolean;
 	/** `all` when it does not depend on the device. */
 	perDevice: boolean;
@@ -132,12 +139,26 @@ export interface BudgetOverride extends BudgetLine {
  * p95 warns over 20 ms, shipped over 20 MB, GPU over 120 MB. A round is a spin plus its win
  * presentation, so it gets the spinning line. A tablet gets the phone's lines. Draws a frame has
  * no default (no owner number); a project may set one.
+ *
+ * The arcade phases' lines are studio defaults by analogy, not an owner number: menu ≈ idle (a
+ * screen at rest, 60 fps), play ≈ spinning (the field moving, ≥ 50), the same p95 and desktop lines.
  */
+const PHONE_FPS: Record<PerfPhase, BudgetThresholds> = {
+	idle: { warn: 58, fail: 55 },
+	spinning: { warn: 55, fail: 50 },
+	round: { warn: 55, fail: 50 },
+	menu: { warn: 58, fail: 55 },
+	play: { warn: 55, fail: 50 },
+};
+
 export const STUDIO_BUDGETS: readonly BudgetLine[] = [
 	...(['phone', 'tablet'] as const).flatMap((deviceClass): BudgetLine[] => [
-		{ deviceClass, metric: 'fps', phase: 'idle', warn: 58, fail: 55 },
-		{ deviceClass, metric: 'fps', phase: 'spinning', warn: 55, fail: 50 },
-		{ deviceClass, metric: 'fps', phase: 'round', warn: 55, fail: 50 },
+		...PERF_PHASES.map((phase): BudgetLine => ({
+			deviceClass,
+			metric: 'fps',
+			phase,
+			...PHONE_FPS[phase],
+		})),
 		...PERF_PHASES.map((phase): BudgetLine => ({
 			deviceClass,
 			metric: 'p95',
@@ -168,6 +189,18 @@ export function budgetKeys(): BudgetKey[] {
 		}
 	}
 	return keys;
+}
+
+/**
+ * The lines the Budgets tab lists for a project: every per-phase line of its game kind's phase set,
+ * every line that is not per phase, and any other phase's line the project has overridden.
+ */
+export function budgetLinesFor(
+	budgets: readonly EffectiveBudget[],
+	set: PhaseSet,
+): EffectiveBudget[] {
+	const phases = setPhases(set);
+	return budgets.filter((b) => b.phase === '' || phases.includes(b.phase) || !!b.override);
 }
 
 export function isBudgetKey(k: {
@@ -279,7 +312,7 @@ export interface MetricVerdict extends BudgetKey {
 
 type ReadingForBudget = Pick<
 	PerfReportListItem,
-	'deviceClass' | 'idle' | 'spinning' | 'round' | 'drawsMean' | 'textureMb' | 'flags'
+	PerfPhase | 'deviceClass' | 'phaseSet' | 'capped30' | 'drawsMean' | 'textureMb' | 'flags'
 >;
 
 /** The class a reading is judged as, or null when the probe named none this tool budgets. */
@@ -315,7 +348,9 @@ const median = (values: readonly number[]): number | null => {
  * readings with at least `MIN_PHASE_FRAMES` frames in that phase (so one unlucky reading does not
  * fail a device, and a reading that never spun does not count as spinning); the others are the
  * median over readings that have them. With no reading enough, a budgeted line is `nodata`.
- * One reading is a group of one.
+ * One reading is a group of one. Only the phases of the readings' own sets are judged (a slot has
+ * no menu, an arcade game no spin), and a reading at a browser's 30 fps cap (`capped30`) is left
+ * out of fps and p95 — its frame rate is the browser's — while its draws and texture MB count.
  */
 export function evaluateReadings(
 	deviceClass: BudgetDeviceClass,
@@ -324,9 +359,11 @@ export function evaluateReadings(
 ): MetricVerdict[] {
 	const line = lookup(budgets);
 	const out: MetricVerdict[] = [];
+	const timed = readings.filter((r) => !r.capped30);
+	const phases = phasesOf(readings);
 	for (const metric of ['fps', 'p95'] as const) {
-		for (const phase of PERF_PHASES) {
-			const enough = readings
+		for (const phase of phases) {
+			const enough = timed
 				.map((r) => r[phase])
 				.filter((p): p is NonNullable<typeof p> => !!p && p.frames >= MIN_PHASE_FRAMES);
 			const key = { deviceClass, metric, phase };

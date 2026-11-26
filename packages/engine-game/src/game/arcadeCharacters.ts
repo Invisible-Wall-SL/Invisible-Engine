@@ -112,8 +112,9 @@ export interface CharacterStage {
 	/** A body joined the loop: a character gets its brain, a solid is marked solid. */
 	attach(body: StageBody): void;
 	forget(id: string): void;
-	/** Controllers and brains → steer, for every character in `list` (before the step). */
-	decide(list: readonly StageBody[], dt: number): void;
+	/** Controllers and brains → steer, for every character in `list` (before the step). Returns the
+	 *  characters it decided for. */
+	decide(list: readonly StageBody[], dt: number): number;
 	/** Step every body: the rest as P10.8, the characters with solids — those of `solidFrom` (default
 	 *  `list`: P11.5 passes the held characters too). Returns the characters moved. */
 	move(list: StageBody[], dt: number, area: Field, solidFrom?: readonly StageBody[]): string[];
@@ -323,9 +324,11 @@ export function createCharacterStage(options: {
 		},
 		decide(list, dt) {
 			const paths = sampledPaths();
+			let decided = 0;
 			for (const body of list) {
 				const actor = actors.get(body.id);
 				if (!actor) continue;
+				decided += 1;
 				const { character } = actor;
 				const drive = driver(actor);
 				const controller = drive === 'controller' ? character.controller : undefined;
@@ -382,6 +385,7 @@ export function createCharacterStage(options: {
 					if (hop) stepHop(hop, actor.jump, { pressed: false, dt });
 				}
 			}
+			return decided;
 		},
 		move(list, dt, area, solidFrom = list) {
 			step(

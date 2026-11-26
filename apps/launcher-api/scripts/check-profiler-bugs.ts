@@ -50,6 +50,8 @@ import {
 } from '../src/lib/server/profiler/findingBugLink.ts';
 import { withFindingDraft } from '../src/routes/(app)/bugs/view.ts';
 
+const ARCADE_RULES = ['simCatchUp', 'spawnChurn', 'bodyCost', 'patchStutter'] as const;
+
 const OWNERS: OwnerMap = JSON.parse(
 	readFileSync(new URL('../../../docs/knowledge/owners.json', import.meta.url), 'utf8'),
 );
@@ -166,9 +168,27 @@ const CASES: [string, Finding, FindingBugTarget][] = [
 		finding('regression', 'regression:counts:slots:11>12', BUILD_CHANGES),
 		{ kind: 'pipeline', area: 'engine' },
 	],
+	[
+		'arcade sim spikes → the engine (the arcade kind’s agent)',
+		finding('spikes', 'spikes:k:3:sim catch-up', kindOwner(OWNERS, 'arcade')),
+		{ kind: 'pipeline', area: 'engine' },
+	],
+	...ARCADE_RULES.map((rule): [string, Finding, FindingBugTarget] => [
+		`${rule} → the engine (the arcade runtime, its kind’s agent)`,
+		finding(rule, `${rule}:k:3`, kindOwner(OWNERS, 'arcade')),
+		{ kind: 'pipeline', area: 'engine' },
+	]),
 ];
 
 type Target = (f: Finding, o: OwnerMap) => FindingBugTarget;
+
+test('17. the arcade rules are owned by the arcade kind’s agent, which owns a tool too', () => {
+	assert.equal(kindOwner(OWNERS, 'arcade').id, 'arcade-games', 'owners.json kinds.arcade');
+	assert.ok(
+		Object.values(OWNERS.tools).some((agents) => agents[0] === 'arcade-games'),
+		'arcade-games also owns a tool first (characters): the area must not follow it',
+	);
+});
 
 function checkTable(target: Target): void {
 	for (const [name, f, want] of CASES) assert.deepEqual(target(f, OWNERS), want, name);
@@ -194,9 +214,15 @@ test('17. every rule and variant is filed in its list, against an area Bug Repor
 	};
 	const allArt: Target = (f, o) =>
 		f.rule === 'textures' ? { kind: 'game', area: 'art' } : findingBugTarget(f, o);
+	// …and the arcade runtime's findings filed as the game's own content.
+	const arcadeAsGame: Target = (f, o) =>
+		(ARCADE_RULES as readonly FindingRule[]).includes(f.rule)
+			? { kind: 'game', area: 'art' }
+			: findingBugTarget(f, o);
 	for (const [name, mutant] of [
 		['first tool', firstTool],
 		['all art', allArt],
+		['arcade as game', arcadeAsGame],
 	] as const) {
 		assert.throws(() => checkTable(mutant), assert.AssertionError, `${name}: must be caught`);
 	}
