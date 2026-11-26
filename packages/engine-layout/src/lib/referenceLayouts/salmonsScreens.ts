@@ -20,7 +20,15 @@ export const SALMONS_SCREEN_ART = {
 	lobby: 'sm-lobby-menu',
 	/** The loading screen's phrases. */
 	phrases: 'sm-loading-phrases',
+	/** The lobby's clock: the seconds to round 1, red and pulsing in the last
+	 *  {@link SALMONS_CLOCK_URGENT} of them. Drawn in place of the countdown screen's seconds, a
+	 *  text node every published layout has, which shows the plain number until the art is in. */
+	clock: 'sm-countdown-seconds',
 } as const;
+
+/** The seconds of the lobby's clock it shows red and pulsing (owner, 2026-11-26: "blink in red
+ *  with a pulse the last 10 seconds"). */
+export const SALMONS_CLOCK_URGENT = 10;
 
 /** What a caught player may respawn as (owner decision 4, 2026-11-18) and a person waiting in the
  *  lobby may change to (owner, 2026-11-25), in the order offered. */

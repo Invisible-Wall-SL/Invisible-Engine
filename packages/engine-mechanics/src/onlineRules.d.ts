@@ -165,7 +165,8 @@ export const ONLINE_RULES_MODULES: Readonly<Record<string, RulesModule>>;
 export type OnlineRules = {
 	readonly phase: OnlinePhase;
 	readonly round: number;
-	/** The stamp the phase ends at; 0 = never. */
+	/** The stamp the phase ends at; 0 = never. A lobby's, from its first person: when round 1
+	 *  starts at the latest, then the countdown's end. */
 	readonly endsAt: number;
 	readonly winner: string;
 	readonly winnerName: string;

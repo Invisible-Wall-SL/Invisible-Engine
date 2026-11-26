@@ -3346,6 +3346,17 @@ play: try {
 			passW,
 		{ wonW, winScreen, passW },
 	);
+	// It swam the round (ArrowUp), so the screen counts to the next game by itself (owner,
+	// 2026-11-26); the click below comes first and joins at once.
+	verdict(
+		'…and, since page W played the round, “Next game in N” counts from 10 over its button',
+		winScreen?.count === 'running' &&
+			winScreen.next >= 7 &&
+			winScreen.next <= 10 &&
+			!!winScreen.boxes?.next &&
+			winScreen.boxes.next.y + winScreen.boxes.next.h <= winScreen.boxes.button.y,
+		{ count: winScreen?.count, next: winScreen?.next, boxes: winScreen?.boxes },
+	);
 	// The button leaves for a new room on the same page (`online.ts` `switchRoom`): the page is
 	// stepped until it is another session's. A page that loaded again would have lost the mark.
 	await w.page.evaluate('window.__ptBeforeRejoin = true');

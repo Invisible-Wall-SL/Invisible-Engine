@@ -469,6 +469,10 @@ type Session = {
 	facing: { x: number; y: number } | undefined;
 	/** The buttons of the last input sent (a tap is a press). */
 	buttons: number;
+	/** Whether the person played the round now running or just ended: an input of its that moved,
+	 *  pressed or asked for a respawn while it ran. Only then does the win screen join the next game
+	 *  by itself (an idle tab does not hop rooms for ever). */
+	played: boolean;
 	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
 	 *  screen px, eased, and where it was drawn. */
 	lifts: Map<string, { lift: number; x: number; y: number }>;
@@ -878,6 +882,7 @@ async function enterRoom(
 		lookCharacters: new Map(),
 		facing: undefined,
 		buttons: 0,
+		played: false,
 		lifts: new Map(),
 		quit: false,
 		unlisten: () => {},
@@ -2589,7 +2594,8 @@ const nameIn = (current: Session, id: string, carried?: string) =>
 /**
  * What the room's events show on Salmons' screens and looks: the own player caught (the death
  * screen, "by" its catcher), the own player's catch (its "you catch NAME!" over it), the game won
- * (the win animation) and the winner's pass (kept for the next join). A refused Respawn, or pick,
+ * (the win animation, which joins the next game by itself when the person played the round:
+ * {@link Session.played}) and the winner's pass (kept for the next join). A refused Respawn, or pick,
  * is not read off its event: the state says it ({@link drawScreens}).
  */
 function screenEvents(current: Session, events: readonly OnlineEvent[]) {
@@ -2610,15 +2616,21 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 			if (event.by === me) current.art?.float(me, 'tap to throw it!', current.clipClock);
 		} else if (event.type === 'gameWon') {
 			current.screens?.caught(undefined);
-			current.screens?.won({ winner: event.winnerName || DEFAULT_NAME, won: event.winner === me });
-		} else if (event.type === 'winnerPass') current.pass = event.pass;
+			current.screens?.won({
+				winner: event.winnerName || DEFAULT_NAME,
+				won: event.winner === me,
+				count: current.played,
+			});
+		} else if (event.type === 'roundStart') current.played = false;
+		else if (event.type === 'winnerPass') current.pass = event.pass;
 	}
 }
 
 /**
  * What the room's state shows on Salmons' screens each frame: the death screen only while the own
- * player is out, and the lobby's note (the room, who the device plays in it) while the room waits
- * for its players. While the room lets its people pick (`picking`: a lobby, until round 1 starts;
+ * player is out, and the lobby's note (the room, who the device plays in it) and its clock (the
+ * seconds to round 1, the flow's `secondsLeft`; none from a server older than the whole clock,
+ * which runs none before the countdown) while the room waits for its players. While the room lets its people pick (`picking`: a lobby, until round 1 starts;
  * a server older than the pick never says so, and the note has no classes there) the note offers
  * the classes.
  *
@@ -2654,6 +2666,11 @@ function drawScreens(current: Session) {
 					picking,
 					refused: picking && ask.refused,
 				}
+			: undefined,
+	);
+	screens.clock(
+		waiting
+			? serverValuesOf(state, current.room.sessionId, current.game.online.tickHz).secondsLeft
 			: undefined,
 	);
 }
@@ -2847,6 +2864,11 @@ export function tickOnline(dtMs: number) {
 		Object.assign(raw, worldCamera?.shown ?? NOTHING_SHOWN);
 		const input = clampInput(raw, current.game.field);
 		if (input.moveX || input.moveY) current.facing = { x: input.moveX, y: input.moveY };
+		if (
+			(input.moveX || input.moveY || input.buttons || input.respawn) &&
+			stateOf(current.room).phase === 'running'
+		)
+			current.played = true;
 		const handle = current.room.input();
 		Object.assign(handle.data, input);
 		handle.send();
@@ -2998,6 +3020,7 @@ export function onlineProbe() {
 						screens: current.screens?.drawn() ?? null,
 						ask: current.ask.held(),
 						buttons: current.buttons,
+						played: current.played,
 						art: current.art
 							? {
 									regions: current.art.regions(),
