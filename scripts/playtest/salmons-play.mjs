@@ -43,7 +43,14 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees]
+//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees] [--bridge-component]
+//
+// `--bridge-component` plays ONE room too (prop components P5, docs/design/arcade-prop-components.md
+// §4–§5): page BF, a fisherman, in a room of the original's level (the wading's), its bridges drawn
+// by the seed `bridgeProp` (the code-drawn bridge is gone). The room stands him under a deck (the
+// water row behind it), on its near ramp and on its middle, then on the bank: each is screenshot,
+// and the page's probe (`online.bridges`) says each bridge's `occupied` and the `stepOn` / `stepOff`
+// it fired, scoped to the zone, with the deck's planks on screen where he stands on them.
 //
 // `--trees` plays ONE room too (zone art's scenery, docs/design/zone-art.md): page T boots the game
 // with `arcade.zoneArt['@trees']` set to a magenta frame of a stub sheet exported as a publish
@@ -149,6 +156,7 @@ const { values: opt } = parseArgs({
 		hold: { type: 'boolean', default: false },
 		turn: { type: 'boolean', default: false },
 		trees: { type: 'boolean', default: false },
+		'bridge-component': { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -1404,6 +1412,124 @@ const lookAt = (shot, arcade, id, lift) =>
 const mostly = (seen, test) => seen.length > 0 && seen.filter(test).length * 2 > seen.length;
 
 play: try {
+	if (opt['bridge-component']) {
+		const shotOf = async (game, file) => {
+			const png = await game.page.screenshot();
+			writeFileSync(join(out, file), png);
+			result.shots.push(file);
+			return PNG.sync.read(png);
+		};
+		const bf = await ready(
+			await boot('bf', {
+				rooms_name: 'Brin',
+				rooms_character: 'fisherman',
+				rooms_game: WADE_GAME,
+				editorDocBase: snapWade.origin,
+			}),
+		);
+		// A fisherman cannot stand under a deck: the water is solid to him but on the deck's row,
+		// where the rule lifts him. So the one under it is a bear (bears pass under), page BB.
+		const bb = await ready(
+			await boot('bb', {
+				rooms_name: 'Bo',
+				rooms_character: 'bear',
+				rooms_game: WADE_GAME,
+				editorDocBase: snapWade.origin,
+			}),
+		);
+		await settle(bf, 600);
+		await settle(bb, 300);
+		const { me } = await drawnOf(bf);
+		const { me: bear } = await drawnOf(bb);
+		const bridgesOf = async () => (await drawnOf(bf)).bridges;
+		for (let i = 0; i < 80 && !(await bridgesOf())?.pieces; i++) await settle(bf, 250);
+		const room = await roomOf(WADE_GAME);
+		const [deck] = wadeRiver.bridges;
+		const cell = wadeRiver.grid.cell;
+		const plank = deck.y + cell / 2;
+		const places = {
+			under: { x: deck.x + (deck.w * 3) / 4, y: plank - cell, who: 'bear' },
+			ramp: { x: deck.x - cell, y: plank },
+			deck: { x: deck.x + deck.w / 2, y: plank },
+			bank: { x: deck.x - 4 * cell, y: plank },
+		};
+		const log = [];
+		const shots = {};
+		for (const [name, { who, ...place }] of Object.entries(places)) {
+			const page = who === 'bear' ? bb : bf;
+			const id = who === 'bear' ? bear : me;
+			if (who === 'bear') await standAt(room, bf, me, places.bank);
+			const stood = await standAt(room, page, id, place);
+			await settle(page, 800);
+			const shot = await shotOf(page, `bridge-${name}.png`);
+			const arcade = (await bf.state()).arcade;
+			const bridges = arcade?.online?.bridges;
+			shots[name] = { shot, arcade };
+			log.push({
+				at: name,
+				stood,
+				who: who ?? 'fisherman',
+				// A bear is let be where the river's solids leave it: within a cell.
+				near: await (async () => {
+					const at = (await drawnOf(page)).drawn?.find((d) => d.id === id);
+					return !!at && Math.hypot(at.x - place.x, at.y - place.y) < cell;
+				})(),
+				z: room?.sim.players.get(id)?.z ?? 0,
+				occupied: bridges?.occupied?.bridge0,
+				fired: (bridges?.fired ?? []).map((f) => `${f.zone}:${f.signal}`),
+			});
+		}
+		writeFileSync(join(out, 'bridge-triggers.json'), JSON.stringify(log, null, 1));
+		const [under, ramp, onDeck, bank] = log;
+		verdict(
+			'bridge component: page BF publishes the seed bridge’s pieces for every bridge zone',
+			(await bridgesOf())?.pieces > 0,
+			{ bridges: await bridgesOf() },
+		);
+		verdict(
+			'…a bear under the deck is on the ground and the bridge is not occupied; nothing fired',
+			under.near && under.z === 0 && under.occupied === 0 && under.fired.length === 0,
+			under,
+		);
+		verdict(
+			'…on the near ramp he is aloft, bridge0 occupied, its stepOn fired once',
+			ramp.stood && ramp.z > 0 && ramp.occupied === 1 && ramp.fired.join() === 'bridge0:stepOn',
+			ramp,
+		);
+		verdict(
+			'…on the deck, still occupied, nothing more fired',
+			onDeck.stood && onDeck.occupied === 1 && onDeck.fired.join() === 'bridge0:stepOn',
+			onDeck,
+		);
+		verdict(
+			'…back on the bank, bridge0 is free and its stepOff fired',
+			bank.stood && bank.occupied === 0 && bank.fired.join() === 'bridge0:stepOn,bridge0:stepOff',
+			bank,
+		);
+		// The deck's planks (the seed's wood, red over green over blue, darker than his tan look)
+		// round where he is drawn on it (`online.drawn`'s ground and aloft), the screenshot's own.
+		const { shot, arcade } = shots.deck;
+		const cam = arcade?.camera;
+		const him = arcade?.online?.drawn.find((d) => d.id === me);
+		let wood = 0;
+		if (cam && him) {
+			const c = isoScreen(shot, cam, him, him.aloft ?? 0);
+			for (let dx = -80; dx <= 80; dx += 2)
+				for (let dy = -80; dy <= 80; dy += 2) {
+					const [r, g, b] = rgbAt(shot, { x: c.x + dx, y: c.y + dy }) ?? [0, 0, 0];
+					if (r > g && g > b && r - b > 50 && r < 200) wood += 1;
+				}
+		}
+		verdict('…the deck is drawn: its planks are on screen round him on it', wood > 200, {
+			wood,
+			him,
+		});
+		const errors = await bf.page.evaluate('window.__AR_ERRORS__');
+		verdict('page BF: no page error', errors.length === 0, errors);
+		await bf.page.close();
+		await bb.page.close();
+		break play;
+	}
 	if (opt.turn) {
 		const DEG = Math.PI / 180;
 		// Neither sheet names a `lean`: on an isometric view of eight facings the picture is tilted

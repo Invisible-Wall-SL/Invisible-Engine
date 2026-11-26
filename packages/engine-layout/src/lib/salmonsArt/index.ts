@@ -1,7 +1,10 @@
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
+import { BRIDGE_PROP_DEF, PROP_COMPONENTS, PROP_TIMELINES } from '../propComponents';
+import type { PropZone } from '../propPieces';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import type { CinematicDoc, ComponentDef } from '../types';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
 import { aloftDepth, aloftLift } from './bridge';
@@ -9,6 +12,7 @@ import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, type RiverArt } from './river';
+import { placeSalmonsBridges, type PlacedPiece } from './propPlacement';
 import {
 	createSalmonsScreens,
 	type CaughtShown,
@@ -92,6 +96,12 @@ export type SalmonsArt = {
 	/** The screens drawn in code (the win animation, the death screen, the lobby's note, the
 	 *  loading phrases), their buttons acting through `host`. */
 	screens: (host: SalmonsScreenHost) => SalmonsScreens;
+	/** The props a bridge is drawn with (the seed `bridgeProp` and its piece defs) and the
+	 *  timelines their machines play: what the arcade runtime registers before it publishes them. */
+	props: { defs: readonly ComponentDef[]; timelines: readonly CinematicDoc[] };
+	/** The pieces of every `bridge<i>` zone of `zones`, placed on the river's raised ground: what
+	 *  the arcade runtime publishes for the field's spawn layer before the river is drawn. */
+	bridges: (zones: readonly PropZone[]) => PlacedPiece[];
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
 	/** How many rivers are drawn now, whether the last one drawn is destroyed, and how many of its
@@ -183,6 +193,8 @@ export async function loadSalmonsArt(
 				{ golden: textures.region('salmon_golden'), pink: textures.region('salmon_pink') },
 				host,
 			),
+		props: { defs: PROP_COMPONENTS, timelines: PROP_TIMELINES },
+		bridges: (zones) => placeSalmonsBridges(BRIDGE_PROP_DEF, zones, (y) => elevation.at(y)),
 		regions: () => drawn?.regions() ?? {},
 		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,

@@ -1209,7 +1209,7 @@ globalThis.OffscreenCanvas ??= class {
 globalThis.document.createElement = () => new OffscreenCanvas(256, 256);
 registerHooks({
 	resolve: (specifier, context, next) =>
-		specifier.endsWith('/worldDrawing.svelte')
+		/\/(worldDrawing|arcadeProps)\.svelte$/.test(specifier)
 			? next(`${specifier}.ts`, context)
 			: next(specifier, context),
 });
@@ -1388,22 +1388,32 @@ check(
 // piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
 // biomes were data, and are the same of main's after its trees' art (#1922): a level with no
 // biomes block is drawn exactly as it was. Re-pinned 2026-11-26 for the bridge's near slope drawn
-// 2 cells as the rule ramps it, not 3 (`salmonsArt/bridge.ts` `slopeEnds`): with that one slope put
-// back at 3 cells both hashes are the old ones again.
+// 2 cells as the rule ramps it, not 3: with that one slope put back at 3 cells both hashes were the
+// old ones again. Re-pinned 2026-11-26 (P5) for the code bridge's deletion: the bridges are the
+// seed `bridgeProp`, published as the arcade runtime does (`art-fingerprint.mjs` `publishBridges`).
+// Piece by piece, against the river of c63f0be (which drew the code bridge):
+// - every piece that is not a bridge's is unchanged (`WITHOUT_BRIDGES`, the hashes of both rivers
+//   with the bridge pieces taken away, are c63f0be's);
+// - the water and the pillars are the same rows (place, depth and instructions);
+// - each slope (two a bridge) is drawn at its land cell's place with its path from there, where the
+//   code drew it at the layer's origin with its path in layer px: the same points on screen
+//   (`check:prop-depth`), its row's place and path numbers moved;
+// - the deck cells are no longer drawn by the river into the spawn layer: `<SpawnProps>` stands
+//   them among the players, each the code's (`check:prop-depth`), so their rows leave the hash.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
 const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
 const DRAWN_BEFORE_BIOMES = [
-	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '0abcb2c35cf439d05c58ff27' },
-	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: 'b6fe7442ecd04c077bb8e188' },
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '91478b97f7466c22e6d6322a' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '04d02b633ddd27ab5ebacea4' },
 	{
 		seed: 123,
 		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
 		projector: 'mirrored',
-		hash: 'a64394b6a9b6ddddd93806a8',
+		hash: '8fa0ee93e3dfc302d24d30fb',
 	},
-	{ seed: 42, levels: undefined, projector: 'plain', hash: 'a8faa150b086b2a674d9952f' },
+	{ seed: 42, levels: undefined, projector: 'plain', hash: '30b50e1efe10590c648440b9' },
 ];
 const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
 const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
@@ -1415,6 +1425,34 @@ for (const { seed, levels, projector, hash } of DRAWN_BEFORE_BIOMES) {
 check('biomes: with none authored the river is drawn as before them, piece for piece', () => {
 	for (const { seed, hash, drawn } of fingerprints)
 		assert.equal(drawn.hash, hash, `seed ${seed}: ${drawn.pieces} pieces`);
+});
+
+/** c63f0be's rivers with their bridge pieces taken away: the drawing but the bridges. */
+const WITHOUT_BRIDGES = [
+	'85168d6a9af855816b99e518',
+	'8239db40af691390cbf43683',
+	'60781290366ce0031238fb85',
+	'5d80bd1544eddb23804ba20c',
+];
+const firstColor = (g) => g.context?.instructions?.[0]?.data?.style?.color;
+const strip = (c, colors) => {
+	for (const g of [...c.children]) if (g.context && colors.includes(firstColor(g))) g.destroy();
+};
+/** The bridge pieces: the reflections, the pillars and slopes, and any deck cell in the layer. */
+const withoutBridges = (into, layer) => {
+	strip(into.children[4], [0x4a3020, 0x3a2412]);
+	strip(into.children[5], [0x5b3a20, 0x7a4f2a]);
+	strip(layer, [0x5b3a20]);
+};
+const bare = [];
+for (const { seed, levels, projector } of DRAWN_BEFORE_BIOMES)
+	bare.push(
+		await riverArtFingerprint(riverOf(seed, levels), PROJECTORS[projector], {
+			omit: withoutBridges,
+		}),
+	);
+check('the bridge drawn by its prop: every other piece of the river is as before', () => {
+	bare.forEach((drawn, i) => assert.equal(drawn.hash, WITHOUT_BRIDGES[i], `river ${i}`));
 });
 
 const AUTHORED = {

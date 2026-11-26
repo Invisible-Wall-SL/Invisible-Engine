@@ -50,8 +50,9 @@ import {
 	aloftDepth,
 	aloftLift,
 	deckLift,
-	slopeEnds,
 } from '../packages/engine-layout/src/lib/salmonsArt/bridge.ts';
+import { BRIDGE_PROP_DEF } from '../packages/engine-layout/src/lib/propComponents.ts';
+import { propCellOf } from '../packages/engine-layout/src/lib/propPieces.ts';
 import {
 	ISO_DEPTH_SPREAD,
 	isoDepth,
@@ -1060,7 +1061,6 @@ check(
 check(
 	"the bridge as drawn is the room's: the fisherman drawn on the deck, its slopes the rule's, over the deck",
 	() => {
-		assert.equal(BRIDGE.slope, BRIDGE_SLOPE, "the art's slope is the rule's");
 		assert.equal(BRIDGE.height, SALMONS_MAP.BRIDGE_HEIGHT, "the art's deck height is the map's");
 		const { p, run, river } = originalRoom(1, 'fisherman');
 		const bridge = river.bridges[1];
@@ -1069,7 +1069,18 @@ check(
 		const xOf = (i) => bridge.x + (i + 0.5) * CELL;
 		const deck = deckLift(bridge.height);
 		assert.equal(deck, bridge.height * 16 * (CELL / 32), 'the deck: 16 old px a cell, × K');
-		const ends = slopeEnds(n);
+		// The seed prop's slopes (`propComponents.ts`): each from its land cell `run` cells to the deck.
+		const ends = BRIDGE_PROP_DEF.root.children
+			.filter((c) => c.componentId === 'bridgePropSlope')
+			.map((c) => {
+				const land = propCellOf(c.propCell, { length: n });
+				return { land, end: land + c.params.run };
+			});
+		assert.deepEqual(
+			ends.map(({ end }) => end).sort((a, b) => a - b),
+			[0, n - 1],
+			'both ends',
+		);
 		for (const { land, end } of ends)
 			assert.equal(Math.abs(land - end), BRIDGE_SLOPE, `a slope runs ${BRIDGE_SLOPE} cells`);
 		// The height the art draws at x: the deck, and each slope straight from its foot to it.

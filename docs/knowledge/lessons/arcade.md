@@ -12,7 +12,8 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Cause:** the room put him on the deck (`z` 6 cells); his look ignored `z`, so he walked on the
   water-level reflections, behind the deck 144 px up. The art's near slope ran 3 cells, the rule 2.
 - **Fix:** a non-salmon's `z` raises its drawn place (`salmonsArt/bridge.ts`; look, rig, line,
-  carried salmon), a depth bias sorts it over the deck, both slopes are `BRIDGE.slope`.
+  carried salmon), a depth bias sorts it over the deck, both slopes run the rule's 2 cells (since P5
+  the seed `bridgeProp`'s, `run` ±2).
 - **Guard:** `check:salmons-levels` "the bridge as drawn is the room's" · branch `claude/bold-cannon-3a8unw` (2026-11-26)
 
 ### A new level was drawn, and the players collided against another

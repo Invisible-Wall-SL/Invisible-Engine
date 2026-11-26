@@ -1,22 +1,25 @@
-// THE SEED BRIDGE DRAWS AS THE CODE BRIDGE (`engine-layout` `propComponents.ts` against
-// `salmonsArt/river.ts`; docs/design/arcade-prop-components.md §5, §7 P5): both drawn in Node with
-// no GPU, as `salmons/art-fingerprint.mjs` draws the river, on Salmons' own levels, mirrored (as
-// Salmons is) and not:
-// - every piece of the code bridge has its seed piece, drawn with the same instructions (each fill
-//   and stroke: its colour, alpha and width, and every point of its path, at its place on screen):
-//   the water (reflections and the pillars' reflections, in the code's order), the pillars and the
-//   slopes (the upright layer), the deck cells (among the players: each one the code stands in its
-//   view, one seed cell per cell of every bridge);
-// - each seed piece sorts where the code's sorts: the pillars and slopes at the code's `zOf`
-//   (`Z.pillar` 400, `Z.slope` 500), the deck cells at its `amongZ` (`Z.deck` 1100);
-// - the reflections' sway is the code shimmer's, cell by cell, frame by frame (the piece's looping
-//   timeline from its `phase`);
+// THE BRIDGE IS THE SEED PROP, DRAWN AS THE CODE BRIDGE WAS (`engine-layout` `propComponents.ts`;
+// docs/design/arcade-prop-components.md §5, §7 P5). The code-drawn bridge is deleted (P5, owner §8
+// Q6): `salmonsArt/river.ts` draws the seed's water and behind pieces from what the arcade runtime
+// publishes (`arcadeProps.svelte.ts`, `propPlacement.ts` `placeSalmonsBridges`), and `<SpawnProps>`
+// the deck cells among the players. Held to the code bridge's drawing as it was RECORDED before the
+// deletion (`CODE_BRIDGE`, at c63f0be, where this gate proved the seed equal to the code), on
+// Salmons' own levels, mirrored (as Salmons is) and not, every piece with its instructions (each
+// fill and stroke: its colour, alpha and width, and every point of its path, at its place on
+// screen):
+// - the river's water (reflections and the pillars' reflections, in the code's order) and its
+//   upright pieces (pillars at `Z.pillar` 400 and slopes at `Z.slope` 500 of the code's `zOf`) are
+//   the recorded code's, and the seed's pieces as the runtime places them;
+// - the deck cells, one per cell of every bridge, at the code's `amongZ` (`Z.deck` 1100), are the
+//   recorded ones, and the river draws none of them itself;
+// - the reflections' sway is the code shimmer's, cell by cell, frame by frame;
 // - a character on the deck (`z > 0`) sorts over the deck cell it stands on, and under an `over`
 //   piece anywhere on that cell; one under the deck (`z` 0) sorts under the cell when behind it.
 //
 // Run: pnpm check:prop-depth
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createRequire, registerHooks } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -48,7 +51,7 @@ const { Container, Graphics, Texture, TextureSource } = await import(
 );
 registerHooks({
 	resolve: (specifier, context, next) =>
-		specifier.endsWith('/worldDrawing.svelte')
+		/\/(worldDrawing|arcadeProps)\.svelte$/.test(specifier)
 			? next(`${specifier}.ts`, context)
 			: next(specifier, context),
 });
@@ -61,6 +64,7 @@ const { SALMONS_FIELD_LAYER } = await import(
 const { mountSalmonsRiver } = await import(
 	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/river.ts')).href
 );
+const { clearSpawnProps, publishBridges } = await import('./salmons/art-fingerprint.mjs');
 globalThis.document ??= { createElement: () => ({ getContext: () => null }) };
 
 let passed = 0;
@@ -102,8 +106,9 @@ function drawn(g, at) {
 }
 const firstColor = (g) => g.context.instructions[0]?.data?.style?.color;
 
-/** The code bridge's pieces of `river` drawn by `river.ts`: its water, upright and among pieces. */
-function codeBridge(river, projector) {
+/** The bridge's pieces of `river` drawn by `river.ts` from the published seed: its water, upright
+ *  and among pieces. */
+function riverBridge(river, projector) {
 	const app = {
 		renderer: { generateTexture: () => named('made'), screen: { width: 1e7, height: 1e7 } },
 		ticker: { add: () => {}, remove: () => {} },
@@ -115,10 +120,12 @@ function codeBridge(river, projector) {
 	const from = Texture.from;
 	Texture.from = (source) => (source?.getContext ? named('canvas') : from.call(Texture, source));
 	let mounted;
+	publishBridges(river);
 	try {
 		mounted = mountSalmonsRiver(into, app, art, river, river.seed, projector);
 	} finally {
 		Texture.from = from;
+		clearSpawnProps();
 	}
 	const [, , , , reflections, upright] = into.children;
 	const graphics = (c) => c.children.filter((g) => g instanceof Graphics);
@@ -205,33 +212,77 @@ const PROJECTORS = [
 	['unmirrored', ISO_PROJECTOR],
 ];
 
+/**
+ * The code bridge's drawing, recorded at c63f0be (before its deletion) with this gate's readings:
+ * the hash of its water pieces in their order, of its upright pieces by depth, and of the seed's
+ * deck cells (then proven to hold every cell the code stood among the players), and the counts.
+ */
+const CODE_BRIDGE = {
+	'1:mirrored': {
+		water: '3a2f623cf64e86f84cf70730',
+		behind: '129ad0a5b9ab1592985fc3df',
+		sorted: '5ca3ba26b2858e3d30b694b4',
+		counts: [103, 34],
+	},
+	'1:unmirrored': {
+		water: '9625ce4b47b6a1825649b0c8',
+		behind: 'e968779ee09023698a8e2899',
+		sorted: 'af8c4adbab20f80a83dab743',
+		counts: [103, 34],
+	},
+	'2:mirrored': {
+		water: 'e57c3b46879c0efdb1c53873',
+		behind: '3498111468720080e03031f2',
+		sorted: '2b01e8cbb2ca61852ba6bfec',
+		counts: [111, 36],
+	},
+	'2:unmirrored': {
+		water: '48bd9b2b9571c0ba015d9b7e',
+		behind: '5481505a1c59e35bcba7ad6d',
+		sorted: 'ebc72ff3a0425c7ef5c62779',
+		counts: [111, 36],
+	},
+	'7:mirrored': {
+		water: 'e2d3ff4c66cb38de74281319',
+		behind: 'cbf185050633ae2a45014fa2',
+		sorted: '7d0fcf89136ff8deadbb8d50',
+		counts: [95, 32],
+	},
+	'7:unmirrored': {
+		water: 'c227a5e7e1f9e785eaac3934',
+		behind: 'aee161112f85d4b2a6f682fe',
+		sorted: '640355a56b49b21dda5ac918',
+		counts: [95, 32],
+	},
+};
+const hashOf = (v) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 24);
+const cellsOf = (list) => [...list].map((p) => JSON.stringify(p)).sort();
+
 for (const [seed, river] of RIVERS) {
 	for (const [name, projector] of PROJECTORS) {
-		const code = codeBridge(river, projector);
+		const drawnRiver = riverBridge(river, projector);
 		const seedArt = seedBridge(river, projector);
+		const code = CODE_BRIDGE[`${seed}:${name}`];
 		const label = `seed ${seed}, ${name}`;
 		check(`${label}: there are bridges to compare`, () => {
 			assert.ok(river.bridges?.length > 0);
-			assert.ok(code.sorted.length >= river.bridges.length);
+			assert.ok(code, 'a recorded code bridge');
 		});
 		check(`${label}: the water is the code's, piece for piece and in its order`, () => {
-			assert.equal(seedArt.water.length, code.water.length);
-			assert.deepEqual(
-				seedArt.water.map((p) => p.draw),
-				code.water.map((p) => p.draw),
-			);
+			assert.equal(drawnRiver.water.length, code.counts[0]);
+			assert.equal(hashOf(drawnRiver.water.map((p) => p.draw)), code.water, 'the river');
+			assert.equal(hashOf(seedArt.water.map((p) => p.draw)), code.water, 'the seed placed');
 		});
 		check(`${label}: the pillars and slopes are the code's, at its depths`, () => {
-			assert.equal(seedArt.behind.length, code.behind.length);
-			assert.deepEqual(byDepth(seedArt.behind), byDepth(code.behind));
+			assert.equal(drawnRiver.behind.length, code.counts[1]);
+			assert.equal(hashOf(byDepth(drawnRiver.behind)), code.behind, 'the river');
+			assert.equal(hashOf(byDepth(seedArt.behind)), code.behind, 'the seed placed');
 		});
 		check(`${label}: the deck cells are the code's, among the players at its depths`, () => {
-			// The code stands only the cells in its view among the players; each is the seed's.
 			const cells = river.bridges.reduce((n, b) => n + Math.max(1, Math.round(b.w / CELL)), 0);
 			assert.equal(seedArt.sorted.length, cells);
-			const seedCells = new Set(seedArt.sorted.map((p) => JSON.stringify(p)));
-			const missing = code.sorted.filter((p) => !seedCells.has(JSON.stringify(p)));
-			assert.deepEqual(missing, [], `${missing.length} of the code's ${code.sorted.length}`);
+			assert.equal(hashOf(cellsOf(seedArt.sorted)), code.sorted);
+			assert.deepEqual(drawnRiver.sorted, [], 'the river stands no deck cell among the players');
 		});
 	}
 }

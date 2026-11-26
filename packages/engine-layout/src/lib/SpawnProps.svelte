@@ -14,8 +14,17 @@
 	const { id }: { id: string } = $props();
 	const pieces = $derived(spawnPropsOf(id).filter((p) => p.band === 'sorted' || p.band === 'over'));
 	let target = $state.raw<Container | undefined>();
+	// Looked for again each frame until found: mounted inside `<ProjectedLayer>`, this effect runs
+	// before the layer registers itself (a child's effects run first) and before its instance
+	// container is drawn, so pieces published before a remount would otherwise never be placed.
+	let looks = $state(0);
 	$effect(() => {
-		if (pieces.length && !target) target = spawnInstancesOf(projectedLayer(id), ISO_DEPTH_SPREAD);
+		void looks;
+		if (!pieces.length || target) return;
+		target = spawnInstancesOf(projectedLayer(id), ISO_DEPTH_SPREAD);
+		if (target) return;
+		const frame = requestAnimationFrame(() => (looks += 1));
+		return () => cancelAnimationFrame(frame);
 	});
 </script>
 

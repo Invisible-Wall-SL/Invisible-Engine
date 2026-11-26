@@ -2573,6 +2573,43 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Prop components P5b: the bridge is the seed prop; the code-drawn bridge is
+  deleted** (design §7 P5, "Built (P5b)"; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`;
+  in review; runtime change, Salmons rooms only).
+  - **Publishing and inputs.** `online.ts` publishes every bridge zone's pieces (`showBridges`) and
+    feeds them from the room's state: `occupied` from `bridgeOccupancy` as the value source
+    `prop.<zone>.occupied`, and `stepOn` / `stepOff` from `occupancySteps`, fired scoped to the
+    zone.
+  - **The river** draws the seed's water and behind pieces (`salmonsArt/propDraw.ts`), and
+    `<SpawnProps>` stands the deck cells among the players. `river.ts` no longer draws a bridge, and
+    `bridge.ts` lost `slopeEnds` and `BRIDGE.slope`.
+  - **A fix to `<SpawnProps>`** (P5a's): it looks for the layer each frame until found. Without
+    that, the decks were not drawn in the browser.
+  - **The art is unchanged**, piece by piece:
+    - with the bridge pieces taken away, the river hashes as at c63f0be;
+    - the water and the pillars are the same rows;
+    - the 6 slopes of a 3-bridge level are drawn at their land cell with relative paths, the same
+      points on screen;
+    - the deck cells moved from the river's layer to `<SpawnProps>`, each the recorded code's.
+  - **Gates:**
+    - `check:prop-depth` 26, re-pointed at the code bridge as recorded at c63f0be.
+    - `check:salmons-art` 44 (re-pinned, plus a "without bridges, as before" check).
+    - `check:salmons-levels` 28 (the slopes are read off the seed). `check:prop-shape` 43.
+    - Unchanged: `check:salmons-heights` 24, `-jump` 37, `-throw` 21, `-course` 21; `check:arcade-motion`
+      18, `-characters` 53, `-platformer` 43, `-slide` 17, `-3d` 33, `-pointer` 22, `-touch` 55;
+      `check:room-bots` 56, `-lobby` 42, `-levels` 19, `-sim` 43, `-size` 20, `-sim-3d` 23;
+      `check:online-rules` 40.
+    - `check:svelte` at its baseline for `apps/lines` (145) and `packages/engine-layout` (290).
+    - Playbooks, in headless Chrome on an arcade build: `salmons-play.mjs --bridge-component` 7/7
+      (new; [playtest/salmons](../playtest/salmons.md)); `salmons-rejoin-play` 58 PASS, 0 FAIL.
+    - Runtime bytes (five `--out` builds, c63f0be against this): slot, match-3 and card are
+      byte-identical. Arcade is +4,336 B gzip: the main bundle +3,473 and the salmons-art chunk
+      +860. Arcade3d is +4,447 B. Deleting the code bridge did not make it smaller. The runtime now
+      carries the seed defs and their timelines (`propComponents.ts`), which P4/P5a kept out of
+      every runtime. They land in the main bundle because `builtinComponents.ts` reaches them
+      statically. Add to that `propDraw.ts` and the publishing in `online.ts`. Moving the prop defs
+      behind the art's dynamic import would put them in the lazy chunk; that is not done here.
+
 - 2026-11-26 — **Prop components P5: started; the mount is held for two decisions** (agent
   `arcade-games`; branch `claude/bold-cannon-3a8unw`).
   - **Built:** `engine-mechanics` `salmonsRules.js` `bridgeOccupancy(game, players)`. It counts,

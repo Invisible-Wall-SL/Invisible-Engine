@@ -2,29 +2,19 @@ import { cellsOf, liftOf } from './leap';
 import { CELL } from './scale';
 
 /**
- * SALMONS' BRIDGES AS THEY ARE DRAWN AND STOOD ON, in one place so the art and the room's rule
- * cannot drift (pinned by `scripts/check-salmons-levels.mjs` against `engine-mechanics`
- * `salmonsRules` `BRIDGE_SLOPE` and the map's `BRIDGE_HEIGHT`):
+ * SALMONS' BRIDGES AS THEY ARE STOOD ON, in one place so the art and the room's rule cannot drift
+ * (pinned by `scripts/check-salmons-levels.mjs` against the map's `BRIDGE_HEIGHT`). A bridge is
+ * drawn by the seed prop component (`propComponents.ts` `bridgeProp`, placed by `propPlacement.ts`);
+ * what stays here is what a character on one is drawn by:
  *
  * - `height`: a deck's height, grid cells, when the level names none (the original's 6);
- * - `slope`: how many cells each slope runs onto its bank, from the end deck cell's middle to the
- *   ground. The room ramps a fisherman over 2 on BOTH ends (the original server's `slopeLen`); the
- *   original's art drew the near one 3 long (`gyStart − 3`), so he stood a cell short of its foot.
- *   Drawn as the rule, both 2.
  * - `onDeckZ`: the original's z of a player on a bridge, `sortSY + 10000` (a player elsewhere is
  *   `sy + 1000`): over every deck and every player near it.
  */
-export const BRIDGE = Object.freeze({ height: 6, slope: 2, onDeckZ: 10000, playerZ: 1000 });
+export const BRIDGE = Object.freeze({ height: 6, onDeckZ: 10000, playerZ: 1000 });
 
 /** How far a deck `height` cells up is drawn over the ground under it, screen px. */
 export const deckLift = (height: number = BRIDGE.height): number => liftOf(height);
-
-/** Where each slope of a deck `n` cells long runs, in deck cells from its first: from the ground
- *  (`land`) to the deck (`end`). */
-export const slopeEnds = (n: number): readonly { land: number; end: number }[] => [
-	{ land: -BRIDGE.slope, end: 0 },
-	{ land: n - 1 + BRIDGE.slope, end: n - 1 },
-];
 
 /**
  * How far over the ground under it a character the room has put `zPx` high (world px) is drawn,

@@ -619,6 +619,31 @@ sheet exported as a publish exports one, named in `characterArt`
 - the frame is on screen (`trees.png`, over 500 magenta pixels);
 - no page error.
 
+## The bridge as a prop component (`--bridge-component`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-bridge \
+  --bridge-component
+```
+
+Pages BF (a fisherman) and BB (a bear) in a room of the original's level (the wading's, no bots).
+Its bridges are drawn by the seed `bridgeProp`, since the code-drawn bridge is gone
+([design/arcade-prop-components](../design/arcade-prop-components.md) §7 P5). The room stands the
+bear under the first deck: the water row behind it, which a fisherman cannot stand in. It then
+stands the fisherman on the near ramp, on the deck's middle and back on the bank. Each place is
+screenshot (`bridge-under.png`, `bridge-ramp.png`, `bridge-deck.png`, `bridge-bank.png`), and the
+probe's `online.bridges` (each zone's `occupied`, and the `stepOn` / `stepOff` fired, scoped to the
+zone) is written to `bridge-triggers.json`. 7 verdicts:
+
+- the pieces are published;
+- the bear under the deck is on the ground and nothing is occupied or fired;
+- on the ramp he is aloft, `bridge0` is occupied and its `stepOn` has fired once;
+- on the deck nothing more fires;
+- back on the bank `stepOff` fires;
+- the deck's planks are on screen round him on it;
+- no page error.
+
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 
 ```

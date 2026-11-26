@@ -110,6 +110,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-26 — **Prop components P5b (arcade side): the seed bridge drawn in the game** (agent
+  `arcade-games`; detail: [status/salmons](salmons.md)). `<SpawnProps>` looks for its layer's
+  instance container each frame until it is found. Its first look runs before `<ProjectedLayer>`
+  registers the layer, so pieces published before a remount were never drawn. The river draws a
+  prop's `water` / `behind` pieces itself (`salmonsArt/propDraw.ts`: `PropGraphic` nodes, the
+  settled machine's visibility, a looping state's property keys). The prop built-ins and their
+  timelines are registered by the arcade runtime once a page.
 - 2026-11-26 — **Prop components P5: the mount, and the seed bridge drawn as the code bridge**
   ([arcade-prop-components](../design/arcade-prop-components.md) §5 / §7 P5 As built, branch
   `claude/bold-cannon-3a8unw`, in review).

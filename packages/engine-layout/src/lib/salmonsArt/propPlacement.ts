@@ -61,3 +61,23 @@ export function placeSalmonsProp(
 		return placed;
 	});
 }
+
+/** A bridge zone of a room's game: `bridge<i>`, its index the code shimmer's bridge number. */
+const BRIDGE_ZONE = /^bridge(\d+)$/;
+
+/**
+ * Every bridge of a room drawn with `def` (the seed `bridgeProp` until zone art names another):
+ * the pieces of each `bridge<i>` zone of `zones`, each standing on the ground raised under its row
+ * (`groundAt(y)`, the river's elevation). What the arcade runtime publishes for the field's spawn
+ * layer (`setSpawnProps`), and the river draws the `water` and `behind` ones of.
+ */
+export function placeSalmonsBridges(
+	def: ComponentDef,
+	zones: readonly PropZone[],
+	groundAt: (y: number) => number,
+): PlacedPiece[] {
+	return zones.flatMap((zone) => {
+		const b = BRIDGE_ZONE.exec(zone.id);
+		return b ? placeSalmonsProp(def, zone, Number(b[1]), groundAt(zone.y + zone.h / 2)) : [];
+	});
+}

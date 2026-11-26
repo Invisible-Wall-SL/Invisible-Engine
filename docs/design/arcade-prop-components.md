@@ -2,8 +2,8 @@
 
 **Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26; P3 (one
 river on both sides) built 2026-11-26; P4 (the seed def) built 2026-11-26; P5's mount and the
-seed's code look built 2026-11-26, in review (the river swap, the inputs and the deletion next);
-P6–P8 planned; other obstacles (§9) planned after P8.** Owner ask of
+seed's code look built 2026-11-26; P5 built 2026-11-26, in review (the river draws the seed, the
+inputs are fed, the code-drawn bridge is deleted); P6–P8 planned; other obstacles (§9) planned after P8.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -460,6 +460,39 @@ the 2-cell near slope) has merged.
    - The river still draws its code bridge (`check:salmons-art` unchanged). **Next, the arcade
      agent:** `river.ts` takes its water / behind pieces from the registry, `online.ts` publishes
      `placeSalmonsProp`'s pieces and the inputs, and the code bridge is deleted.
+   *Built 2026-11-26 (P5b, in review):* the swap, the inputs and the deletion.
+   - **Publishing.** `online.ts` `showBridges` publishes the pieces of every `bridge<i>` zone for
+     the field's spawn layer (`setSpawnProps`) before the river is drawn. It uses the art kit's
+     `bridges(zones)`, which calls `propPlacement.ts` `placeSalmonsBridges`: the seed placed on the
+     river's raised ground. The prop built-ins are registered once a page, from the art's lazy
+     chunk. The defs go in as built-ins. The timelines are registered again as the engine's, the
+     props' and then the project's (`registerComponentTimelines`), because a registration replaces
+     the last one and the boot has already registered.
+   - **Inputs.** On every room state, `bridgeOccupancy` gives each zone's `occupied`. It is a value
+     source, `prop.<zone>.occupied`, that every piece follows. `occupancySteps` fires `stepOn` /
+     `stepOff` on the open bus scoped to the zone (`emitComponentSignal(signal, zone)`), so only
+     that zone's pieces hear it. The probe's `online.bridges` says the counts and the triggers fired.
+   - **The river** (`river.ts`) draws the published `water` and `behind` pieces in its own layers
+     (`salmonsArt/propDraw.ts`). There it draws each `PropGraphic` node, shows a node by the state
+     its machine settles in, and plays a looping state's property keys on its ticker (the sway).
+     Those layers are the river's, sorted once with the rocks and trees, and no
+     `<ComponentInstance>` is mounted in them. The deck cells stand among the players
+     (`<SpawnProps>`).
+   - **Deleted.** `river.ts`'s bridge drawing and shimmer, its `PILLAR_W`, and `Z.pillar`,
+     `Z.slope` and `Z.deck`. From `bridge.ts`, `slopeEnds` and `BRIDGE.slope`.
+     `check:salmons-levels` reads the slopes off the seed (`run` ±2 from their `propCell`).
+   - **`<SpawnProps>` fix.** It looks for the layer's instance container again each frame until
+     it is found. Mounted inside `<ProjectedLayer>`, its effect ran before the layer registered
+     (a child's effects run first), so pieces published before a remount were never placed:
+     the decks were missing in the browser.
+   - **Proof.**
+     - `check:prop-depth` 26 holds the river's water and behind pieces and the placed deck cells
+       to the code bridge's drawing as recorded at c63f0be.
+     - `check:salmons-art` 44 has its fingerprints re-pinned. With the bridge pieces taken away,
+       both rivers hash as at c63f0be. Of the bridge rows, only the slopes moved (drawn at their
+       land cell, path relative, the same points on screen), and the deck cells left the river's
+       layer for `<SpawnProps>`.
+     - `salmons-play.mjs --bridge-component`: 7 verdicts.
    **Then delete the code-drawn bridge** (owner, §8 Q6), in the same phase once the parity check
    passes: the seed component replaces `river.ts`'s bridge drawing, which is deleted, with what of
    `salmonsArt/bridge.ts` only that drawing used. No dual path is left. The no-component
