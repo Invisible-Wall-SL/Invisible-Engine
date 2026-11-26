@@ -415,8 +415,9 @@ check('biomes set each stretch’s density: rocks, whirlpools, sand, waterfalls,
 		assert.deepEqual(ONLINE_GENERATORS.salmonsMap.make(seed, levels), river, 'deterministic');
 		const original = salmonsMapRiver(seed);
 		const gxOf = (y) => Math.floor(y / CELL) - river.grid.sourceRows;
-		const at = (pieces, from, to) =>
-			pieces.filter((p) => gxOf(p.y) >= from && gxOf(p.y) < to).length;
+		/** A piece's column, by its centre (a rock's box starts above its cell). */
+		const colOf = (p) => gxOf(p.y + (p.h ?? 0) / 2);
+		const at = (pieces, from, to) => pieces.filter((p) => colOf(p) >= from && colOf(p) < to).length;
 		const pieces = (r) => [...r.rocks, ...r.whirlpools];
 		counts.rapids += at(pieces(river), 0, 150);
 		counts.base += at(pieces(original), 0, 150);
@@ -445,6 +446,90 @@ check('biomes set each stretch’s density: rocks, whirlpools, sand, waterfalls,
 	};
 	for (const [seed, want] of Object.entries(FIXTURE.maps))
 		assert.equal(levelOf(seed, { biomes: looks }).map, want.sha256, `looks only, "${seed}"`);
+});
+
+check('tuning one stretch’s density leaves every other stretch’s pieces where they were', () => {
+	const stretchA = (rocks, whirlpools) => ({
+		kinds: [{ id: 'a', rocks, whirlpools }, { id: 'b', rocks: 0.5 }, { id: 'c' }],
+		sequences: {
+			'*': [
+				{ from: 0, biome: 'a' },
+				{ from: 60, biome: 'b' },
+				{ from: 150, biome: 'c' },
+			],
+		},
+	});
+	const outside = (map) =>
+		JSON.stringify(map.obstacles.filter((o) => o.type !== 'sandbank' && o.x >= 60));
+	for (const seed of [3, 8, 21]) {
+		const make = (biomes) => generateSalmonsMap(String(seed), levelShape({ biomes }, seed));
+		const base = make(stretchA(1, 1));
+		for (const [rocks, whirlpools] of [
+			[0, 0],
+			[3, 1],
+			[0.2, 2.5],
+		]) {
+			const tuned = make(stretchA(rocks, whirlpools));
+			assert.equal(outside(tuned), outside(base), `seed ${seed}: ${rocks}, ${whirlpools}`);
+			assert.notEqual(JSON.stringify(tuned), JSON.stringify(base), 'and stretch a did change');
+		}
+	}
+});
+
+check('a generated rock always leaves water to pass beside it', () => {
+	const levels = {
+		generator: { sourceHalfWidth: 2, mouthHalfWidth: 4, rockSize: 4, whirlpoolRadius: 120 },
+	};
+	for (const seed of [2, 5, 9]) {
+		const river = ONLINE_GENERATORS.salmonsMap.make(seed, levels);
+		assert.ok(river.rocks.length > 10, `seed ${seed}: ${river.rocks.length} rocks`);
+		for (const rock of river.rocks) {
+			const row = rock.y + rock.h / 2;
+			const band = river.bands.find((b) => row >= b.y && row < b.y + b.h);
+			const gap = Math.max(rock.x - band.left, band.right - (rock.x + rock.w));
+			assert.ok(gap >= 2 * CELL - 1e-9, `seed ${seed}: ${gap} px beside a rock`);
+		}
+		assert.ok(
+			river.rocks.some((r) => r.w < 4 * CELL),
+			'some are drawn smaller',
+		);
+	}
+	const issues = validateLevelsShape({
+		arcade: { online: { generator: 'salmonsMap', levels } },
+	}).map((i) => i.path);
+	assert.deepEqual(issues, [
+		'arcade.online.levels.generator.rockSize',
+		'arcade.online.levels.generator.whirlpoolRadius',
+	]);
+	// The original's rocks are never held.
+	assert.deepEqual(
+		salmonsMapRiver(4).rocks.map((r) => r.w),
+		salmonsMapRiver(4).rocks.map(() => 1.5 * CELL),
+	);
+});
+
+check('a level at every limit plays in a room: bounded, stepped, no throw', () => {
+	const top = Object.fromEntries(
+		Object.entries(SALMONS_GENERATOR_LIMITS).map(([k, [, hi]]) => [k, hi]),
+	);
+	const biomes = {
+		kinds: [
+			{ id: 'max', rocks: 3, whirlpools: 3, sand: 3, waterfalls: 1, grass: 12, forest: 24 },
+			{ id: 'none', rocks: 0, whirlpools: 0, sand: 0, waterfalls: 0, bridges: false },
+		],
+		cycle: 1,
+	};
+	const online = onlineGameOf(authored).online;
+	for (const levels of [
+		{ generator: top, biomes },
+		{ generator: top, biomes, river: {}, waterfalls: { count: 12, heightMax: 16 } },
+	]) {
+		const game = { ...onlineGameOf(authored), online: { ...online, levels } };
+		const sim = createRoomSim(game, { seed: 17 });
+		assert.ok(sim.game.zones.length > 0);
+		for (let i = 0; i < 120; i++) sim.step(() => []);
+		assert.equal(sim.made.world.h, (20 + 800 + 20) * CELL);
+	}
 });
 
 check('a biome’s density the level has no room for is told as an orphan, never dropped', () => {
@@ -483,6 +568,37 @@ check('a biome’s density the level has no room for is told as an orphan, never
 		'the level lists them with the overlay’s',
 	);
 	assert.deepEqual(salmonsMapRiver(1).orphans, [], 'none without biomes');
+	// The generator's own settings place none: a density above 1 multiplies nothing.
+	const off = levelShape(
+		{
+			generator: { whirlpoolShare: 0, sandSeed: 0 },
+			biomes: { kinds: [{ id: 'wild', whirlpools: 3, sand: 3 }] },
+		},
+		3,
+	);
+	assert.deepEqual(biomeOrphans(off), [
+		{ op: 'biome', biome: 'wild', kind: 'whirlpool', rows: [0, 399], reason: 'generator-off' },
+		{ op: 'biome', biome: 'wild', kind: 'sandbank', rows: [0, 399], reason: 'generator-off' },
+	]);
+	assert.deepEqual(
+		salmonsMapRiver(3, undefined, off).orphans.map((o) => o.reason),
+		['generator-off', 'generator-off'],
+	);
+	// One cause, one orphan: stretches of one kind in a row are one run.
+	const twice = levelShape(
+		{
+			biomes: {
+				kinds: [{ id: 'top', sand: 3 }],
+				cycle: 20,
+			},
+			generator: { sandSeed: 0.5 },
+		},
+		3,
+	);
+	assert.deepEqual(
+		biomeOrphans(twice).map((o) => [o.kind, o.rows, o.reason]),
+		[['sandbank', [0, 399], 'capped']],
+	);
 	const stretches = biomeStretches(shape.biomes, 0, 400).map(({ from, to, kind }) => [
 		from,
 		to,

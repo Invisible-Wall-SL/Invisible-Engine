@@ -150,8 +150,8 @@ export const SALMONS_GENERATOR = Object.freeze({
  *  a config to the same: it imports them). */
 export const SALMONS_GENERATOR_LIMITS = Object.freeze({
 	riverLength: Object.freeze([120, 800]),
-	sourceHalfWidth: Object.freeze([1, 20]),
-	mouthHalfWidth: Object.freeze([1, 60]),
+	sourceHalfWidth: Object.freeze([2, 20]),
+	mouthHalfWidth: Object.freeze([2, 60]),
 	deltaStart: Object.freeze([0.5, 0.99]),
 	deltaFlare: Object.freeze([0, 80]),
 	meanderAmp: Object.freeze([0, 40]),
@@ -633,13 +633,18 @@ export function generateSalmonsMap(seed, shape) {
 	const nearWaterfall = (gx) =>
 		waterfallColumns.some((w) => Math.abs(gx - w) <= P.waterfallClearance);
 	const nearBridge = (gx) => bridgeCols.some((b) => Math.abs(gx - b) <= 1);
+	// A biome that changes the pieces' density draws each column's from its own stream, so tuning
+	// one stretch leaves every other stretch's pieces where they were; with none, the original's
+	// one stream.
+	const ownStreams = !!biomes?.kinds.some((k) => k.rocks !== 1 || k.whirlpools !== 1);
 	for (let gx = P.obstacleFrom; gx < sandStart; gx++) {
 		if (nearWaterfall(gx) || nearBridge(gx)) continue;
 		const { chance, whirlpools } = pieceChances(P, biomes && biomeAt(biomes, gx));
-		if (rng() < chance) {
+		const draw = ownStreams ? seedRandom(`${key}_pieces_${gx}`) : rng;
+		if (draw() < chance) {
 			const { span, mid } = across(gx);
-			const offset = Math.floor((rng() * 2 - 1) * (span / 2 - P.obstacleMargin));
-			const type = rng() < whirlpools ? 'whirlpool' : 'rock';
+			const offset = Math.floor((draw() * 2 - 1) * (span / 2 - P.obstacleMargin));
+			const type = draw() < whirlpools ? 'whirlpool' : 'rock';
 			obstacles.push({ x: gx, y: mid + offset, z: 0, type });
 		}
 	}
@@ -680,8 +685,8 @@ export function generateSalmonsMap(seed, shape) {
 /**
  * A column's chance of a rock or a whirlpool and, of those, the whirlpools' share: the generator's
  * own (`obstacleChance`, `whirlpoolShare`) where its biome keeps both densities at 1 (or there is
- * no biome), else each density times its own part of the generator's, at most 1 in all. The same
- * draws either way, so a biome moves only the columns it changes.
+ * no biome), else each density times its own part of the generator's, at most 1 in all. Where any
+ * biome changes them, each column draws from its own stream (`generateSalmonsMap`).
  */
 function pieceChances(P, kind) {
 	if (!kind || (kind.rocks === 1 && kind.whirlpools === 1))
@@ -694,10 +699,12 @@ function pieceChances(P, kind) {
 
 /**
  * What a level's biomes ask of it and it has no place for, told as overlay orphans are (`op:
- * 'biome'`): a stretch that asks for more rocks, whirlpools or sand than the generator's (a
- * density above 1) where the level places none of them (rocks and whirlpools only from
- * `obstacleFrom` to the sand, sand only in the delta), or for more than every column or cell (its
- * chance held at 1). Nothing is dropped: the stretch plays the density it can.
+ * 'biome'`), once for each run of stretches of one kind: a stretch that asks for more rocks,
+ * whirlpools or sand than the generator's (a density above 1) where the level places none of them
+ * (`no-room`: rocks and whirlpools only from `obstacleFrom` to the sand, sand only in the delta),
+ * where the generator's own settings place none (`generator-off`: a chance or a share of 0), or
+ * for more than every column or cell (`capped`: its chance held at 1). Nothing is dropped: the
+ * stretch plays the density it can.
  */
 export function biomeOrphans(shape) {
 	const biomes = shape?.biomes;
@@ -705,18 +712,35 @@ export function biomeOrphans(shape) {
 	const P = shape.generator ?? G;
 	const sandStart = sandStartOf(P);
 	const sandEnd = P.riverLength - P.sandEndGap;
+	const runs = [];
+	for (const stretch of biomeStretches(biomes, 0, P.riverLength)) {
+		const last = runs[runs.length - 1];
+		if (last && last.kind.id === stretch.kind.id) last.to = stretch.to;
+		else runs.push({ ...stretch });
+	}
+	const made = {
+		rock: P.obstacleChance > 0 && P.whirlpoolShare < 1,
+		whirlpool: P.obstacleChance > 0 && P.whirlpoolShare > 0,
+		sandbank: P.sandSeed > 0,
+	};
 	const orphans = [];
-	for (const { from, to, kind } of biomeStretches(biomes, 0, P.riverLength)) {
+	for (const { from, to, kind } of runs) {
 		const tell = (piece, reason) =>
 			orphans.push({ op: 'biome', biome: kind.id, kind: piece, rows: [from, to - 1], reason });
-		const pieces = from < sandStart && to > P.obstacleFrom;
-		const sand = from <= sandEnd && to > sandStart;
-		if (kind.rocks > 1 && !pieces) tell('rock', 'no-room');
-		if (kind.whirlpools > 1 && !pieces) tell('whirlpool', 'no-room');
-		if (pieceChances(P, kind).wanted > 1 && pieces)
+		const room = {
+			rock: from < sandStart && to > P.obstacleFrom,
+			whirlpool: from < sandStart && to > P.obstacleFrom,
+			sandbank: from <= sandEnd && to > sandStart,
+		};
+		const asked = { rock: kind.rocks, whirlpool: kind.whirlpools, sandbank: kind.sand };
+		for (const piece of ['rock', 'whirlpool', 'sandbank']) {
+			if (asked[piece] <= 1) continue;
+			if (!room[piece]) tell(piece, 'no-room');
+			else if (!made[piece]) tell(piece, 'generator-off');
+		}
+		if (room.rock && pieceChances(P, kind).wanted > 1)
 			tell(kind.rocks >= kind.whirlpools ? 'rock' : 'whirlpool', 'capped');
-		if (kind.sand > 1 && !sand) tell('sandbank', 'no-room');
-		if (P.sandSeed * kind.sand > 1 && sand) tell('sandbank', 'capped');
+		if (room.sandbank && P.sandSeed * kind.sand > 1) tell('sandbank', 'capped');
 	}
 	return orphans;
 }
@@ -845,6 +869,21 @@ export function seedLevels(levels, seed) {
 	};
 }
 
+/** The water a rock leaves beside it at the least, cells: a salmon (90 px) passes in two. */
+export const ROCK_PASS = 2;
+
+/**
+ * A rock's size on cell `gy` of a column (`{ lo, hi }`), cells: the setting's, but never so big
+ * that the wider side of it leaves less than {@link ROCK_PASS} cells of water. The river is at
+ * least five cells wide (a half width of 2 at the least), so a rock on any cell of it keeps at
+ * least a cell; the original's (1.5 cells, two clear of the banks) are never held.
+ */
+function rockSizeAt(size, column, gy) {
+	if (!column) return size;
+	const wider = Math.max(gy + 0.5 - column.lo, column.hi + 0.5 - gy);
+	return Math.max(0.5, Math.min(size, 2 * (wider - ROCK_PASS)));
+}
+
 /** A waterfall's thickness, px, straddling the top of its column (as `salmons.js`). */
 const FALL_H = 40;
 /** The original's catcher fallback when no try finds a place (`server/index.js`): column 200 (or
@@ -936,7 +975,7 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay, shape) {
 	}));
 	const rocks = byType('rock').map((o) => {
 		const c = centreOf(o);
-		const size = CELL * P.rockSize;
+		const size = CELL * rockSizeAt(P.rockSize, columns[o.x], o.y);
 		return { x: c.x - size / 2, y: c.y - size / 2, w: size, h: size };
 	});
 	const sandCells = byType('sandbank')

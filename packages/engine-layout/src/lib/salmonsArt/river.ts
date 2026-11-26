@@ -71,7 +71,7 @@ const REPLACED_FAMILIES = ['rock#', 'whirlpool#'];
  * whose level has no biomes block is drawn by the original's six, in turn every 35 columns.
  */
 const ORIGINAL_BIOMES: SalmonsBiomes = {
-	kinds: SALMONS_BIOMES as SalmonsBiome[],
+	kinds: SALMONS_BIOMES,
 	cycle: SALMONS_BIOME_CYCLE,
 };
 const UNTINTED = '#ffffff';
@@ -416,13 +416,14 @@ export function mountSalmonsRiver(
 	flat.rotation = projector.ground.rotation;
 	flat.scale.set(flip * Math.SQRT2, Math.SQRT2);
 	turn.addChild(flat);
-	const floors = new Container();
 	const bed = new Container();
 	const seaLayer = new Container();
 	const tint = new Container();
 	const grass = new Container();
 	const sand = new Container();
-	if (river.biomes) flat.addChild(floors);
+	// An authored river's floor, biome by biome, under everything else on the ground.
+	const floors = river.biomes ? new Container() : undefined;
+	if (floors) flat.addChild(floors);
 	flat.addChild(bed, seaLayer, tint, grass, sand);
 	const cliffs = new Container();
 	const reflections = new Container();
@@ -473,7 +474,7 @@ export function mountSalmonsRiver(
 	};
 	// An authored river's floor, biome by biome: a strip of each stretch's floor across the world
 	// and the forest's reach past it, cut at each waterfall's line and raised with the ground.
-	if (river.biomes) {
+	if (floors) {
 		const first = -FOREST_CAP - sourceRows;
 		const last = rows + SEA_MARGIN + FOREST_CAP - sourceRows;
 		const stretches = biomeStretches(biomes, first, last);
@@ -565,13 +566,13 @@ export function mountSalmonsRiver(
 	const walled = !!river.grid;
 	/** How a dry cell of row `r` is drawn: by how far it is from the water (`out`, cells). */
 	const dryKind = (c: number, r: number, lo: number, hi: number, beach: number) => {
-		const kind = kindOf(r);
 		if (!walled)
 			return c >= 0 && c < cols
 				? 'grass'
 				: c >= -EDGE_FOREST && c < cols + EDGE_FOREST
 					? 'forest'
 					: 'floor';
+		const kind = kindOf(r);
 		const out = c < lo ? lo - c : c > hi ? c - hi : 0;
 		if (out > kind.grass) return out <= forestTo(kind) ? 'forest' : 'floor';
 		if (beach && out <= beach) return 'beach';

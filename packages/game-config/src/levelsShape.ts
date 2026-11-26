@@ -18,6 +18,8 @@ import {
 	SALMONS_GENERATOR_LIMITS,
 	SALMONS_GENERATOR_PAIRS,
 	SALMONS_GENERATOR_WHOLE,
+	SALMONS_CELL,
+	SALMONS_ROCK_PASS,
 	type SalmonsBiome,
 	type SalmonsBiomeStart,
 } from 'engine-mechanics';
@@ -138,7 +140,7 @@ function normalizeBiome(raw: unknown): LevelsBiome | undefined {
 	const riverbed = Array.isArray(raw.riverbed)
 		? raw.riverbed.map(colour).filter((c): c is string => c !== undefined)
 		: [];
-	const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 40) : '';
+	const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 40).trim() : '';
 	return kept({
 		id: raw.id,
 		name: name || undefined,
@@ -326,6 +328,21 @@ export function validateLevelsShape(rawDoc: unknown): GameConfigIssue[] {
 				);
 		}
 		const kept = normalizeLevelsGenerator(raw.generator) ?? {};
+		const at = (key: LevelsGeneratorParam) => kept[key] ?? SALMONS_GENERATOR[key];
+		// The water is narrowest where its half width is least (the source, unless the mouth is set
+		// narrower); a piece as wide as that less a cell leaves no way past.
+		const narrowest = 2 * Math.min(at('sourceHalfWidth'), at('mouthHalfWidth')) + 1;
+		if (at('rockSize') >= narrowest - 1)
+			warn(
+				'generator.rockSize',
+				`A rock of ${at('rockSize')} cells fills the river where it is ${narrowest} cells wide; a level draws each rock smaller there, leaving ${SALMONS_ROCK_PASS} cells to pass.`,
+			);
+		const whirlpool = (2 * at('whirlpoolRadius')) / SALMONS_CELL;
+		if (whirlpool >= narrowest - 1)
+			warn(
+				'generator.whirlpoolRadius',
+				`A whirlpool ${Math.round(whirlpool * 10) / 10} cells across spans the river where it is ${narrowest} cells wide: no way past it there is out of its pull.`,
+			);
 		for (const [lo, hi] of LEVELS_GENERATOR_PAIRS) {
 			const a = kept[lo] ?? SALMONS_GENERATOR[lo];
 			const b = kept[hi] ?? SALMONS_GENERATOR[hi];

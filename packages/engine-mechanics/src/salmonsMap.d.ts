@@ -34,14 +34,15 @@ export type SalmonsOverlayOrphan = {
 	kind?: string;
 };
 /** A biome's density the level has no place for (`biomeOrphans`): over its stretch's columns
- *  `rows` (first and last), `no-room` where the level places none of `kind`, `capped` where it
- *  asks for more than every column or cell. */
+ *  `rows` (first and last), `no-room` where the level places none of `kind`, `generator-off`
+ *  where the generator's own settings place none, `capped` where it asks for more than every
+ *  column or cell. */
 export type SalmonsBiomeOrphan = {
 	op: 'biome';
 	biome: string;
 	kind: 'rock' | 'whirlpool' | 'sandbank';
 	rows: [number, number];
-	reason: 'no-room' | 'capped';
+	reason: 'no-room' | 'generator-off' | 'capped';
 };
 export type SalmonsOrphan = SalmonsOverlayOrphan | SalmonsBiomeOrphan;
 
@@ -116,6 +117,8 @@ export const SALMONS_GENERATOR_PAIRS: readonly (readonly [
 	SalmonsGeneratorParam,
 ])[];
 export function generatorParams(raw: unknown): SalmonsGeneratorParams;
+/** The water a rock leaves beside it at the least, cells. */
+export const ROCK_PASS: 2;
 /** A config's `arcade.online.levels`: pinned seeds, and overlays by seed (`'*'`: every level). */
 export type SalmonsLevels = {
 	seeds?: number[];

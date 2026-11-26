@@ -112,6 +112,10 @@ const colourOf = (v, fallback) => {
 	return COLOUR.test(c) ? c : fallback;
 };
 
+/** A biome's name as kept: at most 40 characters, trimmed after the cut so it reads back as
+ *  itself; '' for none. */
+const nameOf = (v) => (typeof v === 'string' ? v.trim().slice(0, 40).trim() : '');
+
 /** One authored kind, whole: a field left out (or out of its limits) takes the built-in kind of
  *  its id's, or for a new id {@link SALMONS_BIOME_LOOK} / {@link SALMONS_BIOME_PLAY} and all six
  *  trees. `undefined` for one with no usable id. */
@@ -131,9 +135,7 @@ function kindOf(raw) {
 		: [];
 	return {
 		id: raw.id,
-		...(typeof raw.name === 'string' && raw.name.trim()
-			? { name: raw.name.trim().slice(0, 40) }
-			: {}),
+		...(nameOf(raw.name) ? { name: nameOf(raw.name) } : {}),
 		trees: trees.length ? trees : [...base.trees],
 		treeChance: clampTo(L.treeChance, raw.treeChance, base.treeChance),
 		grass: clampTo(L.grass, raw.grass, base.grass, true),

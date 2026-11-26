@@ -5,7 +5,7 @@ export type SalmonsBiome = {
 	id: string;
 	name?: string;
 	/** Tree variants (0–5) it grows. */
-	trees: number[];
+	trees: readonly number[];
 	treeChance: number;
 	/** Cells of grass past the water. */
 	grass: number;
@@ -14,7 +14,7 @@ export type SalmonsBiome = {
 	/** `#rrggbb`: the grass's tint (white: the art's own), the floor beyond, the riverbed's sands. */
 	grassTint: string;
 	forestFloor: string;
-	riverbed: string[];
+	riverbed: readonly string[];
 	/** Densities as a multiple of the generator's (1: its own). */
 	rocks: number;
 	whirlpools: number;
@@ -27,13 +27,13 @@ export type SalmonsBiome = {
 export type SalmonsBiomeStart = { from: number; biome: string };
 /** A config's `levels.biomes`, as authored: every part optional. */
 export type SalmonsBiomesBlock = {
-	kinds?: (Partial<SalmonsBiome> & { id: string })[];
+	kinds?: readonly (Partial<SalmonsBiome> & { id: string })[];
 	cycle?: number;
 	sequences?: Record<string, SalmonsBiomeStart[]>;
 };
 /** The biomes the level of one seed plays. */
 export type SalmonsBiomes = {
-	kinds: SalmonsBiome[];
+	kinds: readonly SalmonsBiome[];
 	cycle: number;
 	sequence?: SalmonsBiomeStart[];
 };
@@ -46,7 +46,7 @@ export const SALMONS_BIOME_LOOK: Readonly<
 export const SALMONS_BIOME_PLAY: Readonly<
 	Pick<SalmonsBiome, 'rocks' | 'whirlpools' | 'sand' | 'waterfalls' | 'bridges'>
 >;
-export const SALMONS_BIOMES: readonly Readonly<SalmonsBiome>[];
+export const SALMONS_BIOMES: readonly SalmonsBiome[];
 export const SALMONS_BIOME_CYCLE: 35;
 export const SALMONS_BIOME_LIMITS: Readonly<
 	Record<
@@ -66,7 +66,11 @@ export const SALMONS_BIOME_LIMITS: Readonly<
 		readonly [number, number]
 	>
 >;
-export function resolveBiomes(raw: unknown, seed: string | number): SalmonsBiomes | undefined;
+/** A biomes block (an object, even empty) always resolves; anything else may be none. */
+export function resolveBiomes<R>(
+	raw: R,
+	seed: string | number,
+): R extends SalmonsBiomesBlock ? SalmonsBiomes : SalmonsBiomes | undefined;
 export function biomeStretchAt(
 	biomes: SalmonsBiomes,
 	gx: number,
