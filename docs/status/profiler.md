@@ -418,6 +418,10 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
     `check:profiler` 80/80 (61 before; the three profiler files, each new rule with a planted
     mutant), `check:arcade-motion` 19, `check:arcade-camera` 90 (the sinks change no body, camera,
     signal or step). svelte-check at baseline for `apps/lines` (145) and `apps/launcher-api` (44).
+  - **Bundles** (`check:runtime-bytes`, Linux manifests from CI's artifact): lines / match-3 / card
+    main bundle +16 / +13 / +18 B gzip, the lazy `?perf=1` chunk +1.25 KB (loaded only with the
+    flag); arcade main bundle +1.1 KB and arcade3d +1.2 KB (the counters in the arcade runtime),
+    each runtime +1.3–2.4 KB in all.
   - **Played locally** (a release-env `apps/lines` build, headless shell): Salmons against a real
     game server with `?perf=1` read `kind: arcade`, menu 850 frames then play 1,527 (the lobby,
     then the river running), 73 bodies, 0.5 steps a frame at 30 Hz, room states late p50 1.3 /
