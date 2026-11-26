@@ -1,28 +1,23 @@
 <script lang="ts">
 	import type { Scene } from 'engine-layout';
 	import {
-		LEVELS_RIVER_DEFAULTS,
-		LEVELS_SHAPE_LIMITS,
 		LEVEL_OVERLAY_KINDS,
 		type ShapedLevels as ArcadeOnlineLevels,
 		type LevelOverlayKind,
-		type LevelsRiver,
-		type LevelsWaterfalls,
 	} from 'game-config';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import {
 		addPiece,
 		canGenerate,
 		dropEntry,
 		loadConfig,
+		orphanText,
 		regenerate,
 		removeGenerated,
 		saveLevels,
-		setRiver,
-		setWaterfalls,
 		togglePinned,
 		type GeneratedNode,
 		type LevelOrphan,
@@ -30,12 +25,16 @@
 		type OverlayScope,
 	} from '$lib/editor/generatedLevel';
 	import { MAX_SEED, validSeed } from '$lib/editor/generatedLevelCore';
+	import EditorLevelBiomes from './EditorLevelBiomes.svelte';
+	import EditorLevelGenerator from './EditorLevelGenerator.svelte';
 
 	/**
 	 * A screen's GENERATED LEVEL (`docs/design/salmons-levels.md` §2 c–d): pick a seed and the stage
 	 * shows the level a room plays for it, made by the room's own generator with the config's
 	 * overlays on top. The level itself is read-only; additions and removals are stored in the
 	 * project's Game Config (`arcade.online.levels`), apart from it, and a new seed never clears them.
+	 * Below it, every setting of the generator (`EditorLevelGenerator.svelte`) and the biomes
+	 * (`EditorLevelBiomes.svelte`), saved with the overlays.
 	 */
 	type Props = {
 		scene: Scene;
@@ -103,11 +102,18 @@
 		show(at < 0 ? list[by > 0 ? 0 : list.length - 1] : list[(at + by + list.length) % list.length]);
 	}
 
+	let redraw = 0;
+	onDestroy(() => cancelAnimationFrame(redraw));
+	/** Take `next` and redraw the stage with it once a frame at most (a slider sends many). */
 	function edit(next: ArcadeOnlineLevels): void {
 		levels = next;
 		dirty = true;
 		status = '';
-		show(seed);
+		if (redraw) return;
+		redraw = requestAnimationFrame(() => {
+			redraw = 0;
+			show(seed);
+		});
 	}
 
 	async function save(): Promise<void> {
@@ -125,29 +131,6 @@
 		}
 	}
 
-	const L = LEVELS_SHAPE_LIMITS;
-	const river = $derived(levels?.river);
-	const falls = $derived(levels?.waterfalls);
-	/** A typed number as a setting, held to its limits (and whole, for a count or a height) and
-	 *  written back to the field, so the field never shows a value the level does not play.
-	 *  Nothing typed leaves the setting out (its default plays). */
-	const typed = (e: Event, [least, most]: readonly [number, number], whole = false) => {
-		const field = e.currentTarget as HTMLInputElement;
-		if (field.value === '' || Number.isNaN(Number(field.value))) {
-			field.value = '';
-			return undefined;
-		}
-		const held = Math.min(most, Math.max(least, Number(field.value)));
-		const value = whole ? Math.round(held) : held;
-		field.value = String(value);
-		return value;
-	};
-	const editRiver = (patch: LevelsRiver) => edit(setRiver(levels, { ...river, ...patch }));
-	const editFalls = (patch: LevelsWaterfalls) =>
-		edit(setWaterfalls(levels, { ...falls, ...patch }));
-	/** A waterfall's cliff as drawn, px, for a height in cells (`engine-layout` `salmonsElevation`). */
-	const cliffPx = (cells: number) => (32 + 16 * cells) * 1.5;
-
 	const scopeLabel = (s: string) => (s === '*' ? 'every level' : `seed ${s}`);
 	const cellText = (c: [number, number]) => `${c[0]}, ${c[1]}`;
 </script>
@@ -159,8 +142,9 @@
 		remove goes in the Game Config's level overlays, laid on top of the generated level in every room
 		and here, and kept when you pick another seed. Cells are the generator's grid: gx down the river from
 		the source, gy across it. A waterfall is a whole column: removing, re-heighting or adding one acts
-		on the column of its cell. A seed's own removals cannot take away an every-level addition. The river's
-		shape and its waterfalls are settings of every level, saved with the overlays.
+		on the column of its cell. A seed's own removals cannot take away an every-level addition. The cards
+		below set every number the generator reads and the biomes along the river, for every level, and are
+		saved with the overlays.
 	{/snippet}
 	{#if !usable}
 		<p class="warn">No generator called "{node.generated.generator}" is known to the editor.</p>
@@ -215,134 +199,6 @@
 				? `${pinned.length} pinned: ${pinned.join(', ')}`
 				: 'No seed pinned: a random level per room'}
 		</p>
-
-		<div class="row">
-			<label class="check">
-				<input
-					type="checkbox"
-					checked={!!river}
-					disabled={!loaded}
-					onchange={(e) => edit(setRiver(levels, e.currentTarget.checked ? {} : undefined))}
-				/>
-				Winding river
-				<InfoTip>
-					Off: the generator's own river, a gentle meander that always runs the same way across the
-					screen. On: the river bends from side to side, so some reaches run the other way across
-					the screen, with a straight run at the source, each side of a waterfall and through the
-					delta. It applies to every level, in every room, once the config is published; a config
-					saved without it keeps the river it has.
-				</InfoTip>
-			</label>
-		</div>
-		{#if river}
-			<div class="row">
-				<label>
-					Winding
-					<InfoTip>
-						The share of reaches that bend, {L.winding[0]} to {L.winding[1]}; the others run nearly
-						straight. Default {LEVELS_RIVER_DEFAULTS.winding}.
-					</InfoTip>
-					<input
-						type="number"
-						min={L.winding[0]}
-						max={L.winding[1]}
-						step="0.05"
-						placeholder={String(LEVELS_RIVER_DEFAULTS.winding)}
-						value={river.winding ?? ''}
-						onchange={(e) => editRiver({ winding: typed(e, L.winding) })}
-					/>
-				</label>
-				<label>
-					Sharpest turn (°)
-					<InfoTip>
-						The most a bend turns the river, {L.sharpestTurn[0]} to {L.sharpestTurn[1]} degrees. Past
-						90 the reaches either side of a bend run opposite ways across the screen. Default
-						{LEVELS_RIVER_DEFAULTS.sharpestTurn}.
-					</InfoTip>
-					<input
-						type="number"
-						min={L.sharpestTurn[0]}
-						max={L.sharpestTurn[1]}
-						step="5"
-						placeholder={String(LEVELS_RIVER_DEFAULTS.sharpestTurn)}
-						value={river.sharpestTurn ?? ''}
-						onchange={(e) => editRiver({ sharpestTurn: typed(e, L.sharpestTurn) })}
-					/>
-				</label>
-				<label>
-					Towards the source
-					<InfoTip>
-						How much of the sharpness is kept for the source, {L.sourceBias[0]} to {L
-							.sourceBias[1]}. 0: bends are as sharp all the way down. 1: the sharp bends are round
-						the source and the river straightens towards the sea. Default {LEVELS_RIVER_DEFAULTS.sourceBias}.
-					</InfoTip>
-					<input
-						type="number"
-						min={L.sourceBias[0]}
-						max={L.sourceBias[1]}
-						step="0.05"
-						placeholder={String(LEVELS_RIVER_DEFAULTS.sourceBias)}
-						value={river.sourceBias ?? ''}
-						onchange={(e) => editRiver({ sourceBias: typed(e, L.sourceBias) })}
-					/>
-				</label>
-			</div>
-		{/if}
-		<div class="row">
-			<label>
-				Waterfalls
-				<InfoTip>
-					How many waterfalls a level has, {L.waterfallCount[0]} to {L.waterfallCount[1]}, spread
-					evenly above the delta. Empty: the generator's own six.
-				</InfoTip>
-				<input
-					type="number"
-					min={L.waterfallCount[0]}
-					max={L.waterfallCount[1]}
-					step="1"
-					placeholder="6"
-					disabled={!loaded}
-					value={falls?.count ?? ''}
-					onchange={(e) => editFalls({ count: typed(e, L.waterfallCount, true) })}
-				/>
-			</label>
-			<label>
-				Lowest (cells)
-				<InfoTip>
-					Every waterfall is a whole number of cells high between Lowest and Highest,
-					{L.waterfallHeight[0]} to {L.waterfallHeight[1]}; a salmon climbs it a tap at a time. A
-					waterfall of 1 is a {cliffPx(1)} px cliff, of 8 {cliffPx(8)} px, of 16 {cliffPx(16)} px. Both
-					empty: the generator's own heights, 1 to 8 and lowest towards the sea.
-				</InfoTip>
-				<input
-					type="number"
-					min={L.waterfallHeight[0]}
-					max={L.waterfallHeight[1]}
-					step="1"
-					disabled={!loaded}
-					value={falls?.heightMin ?? ''}
-					onchange={(e) => editFalls({ heightMin: typed(e, L.waterfallHeight, true) })}
-				/>
-			</label>
-			<label>
-				Highest (cells)
-				<input
-					type="number"
-					min={L.waterfallHeight[0]}
-					max={L.waterfallHeight[1]}
-					step="1"
-					disabled={!loaded}
-					value={falls?.heightMax ?? ''}
-					onchange={(e) => editFalls({ heightMax: typed(e, L.waterfallHeight, true) })}
-				/>
-			</label>
-		</div>
-		{#if falls?.heightMin !== undefined && falls.heightMax !== undefined && falls.heightMin > falls.heightMax}
-			<p class="warn">
-				Lowest is above Highest: a level plays them the other way round, {falls.heightMax} to
-				{falls.heightMin} cells.
-			</p>
-		{/if}
 
 		<div class="row">
 			<label>
@@ -421,15 +277,18 @@
 		{#if orphans.length}
 			<p class="warn">
 				{orphans.length} authored {orphans.length === 1 ? 'entry has' : 'entries have'} no place in this
-				level (kept, not applied): {orphans
-					.map((o) => `${o.op} ${o.kind ?? ''} ${cellText(o.cell)}`.replace(/\s+/g, ' '))
-					.join('; ')}
+				level (kept, not applied): {orphans.map(orphanText).join('; ')}
 			</p>
 		{/if}
 		{#if status}<p class="note">{status}</p>{/if}
 		{#if error}<p class="warn">{error}</p>{/if}
 	{/if}
 </SectionCard>
+
+{#if usable && loaded}
+	<EditorLevelGenerator {levels} disabled={!loaded} onEdit={edit} />
+	<EditorLevelBiomes {levels} {seed} disabled={!loaded} onEdit={edit} />
+{/if}
 
 <style>
 	.row {

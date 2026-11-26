@@ -56,7 +56,8 @@ its record of each merge made from here (who merged, the approvals that counted,
    one; Dependabot's updates are listed apart under **Dependabot · N**, folded). Each card shows
    the branch, the title, who opened it and when, a `draft` tag on a draft pull request, an
    `agent definition` tag on a change that carries the `agent-definition` label (one opened from
-   the Agents tab, step 9), a `BUG-<n>` tag for each bug its title or branch names (step 14), and
+   the Agents tab, step 9), a `BUG-<n>` tag for each bug its title or branch names (step 14; a fix run's change reads
+   **fix run · BUG-<n>** instead), and
    its status:
    - **Testing · done of total** — checks are still running. On an agent-definition change the
      evaluation counts as one more check.
@@ -184,6 +185,17 @@ its record of each merge made from here (who merged, the approvals that counted,
      change leaves the list (the detail stays until you pick another). The merge is recorded: who
      merged, the approvals that counted (game, screen, approver, note), when, the head and the
      merge commit.
+   - A change a fix run built (its branch is `bug-<n>-fix-<id>` and that run opened the pull
+     request) shows a **What you're approving** card above the change summary: what you
+     reported, what was wrong, the option you chose (and who chose it, when, their note), what
+     changed, how to check it yourself, the risks, the other options (folded, absent when there
+     are none) and **Open BUG-<n>**. A part the change does not have (a build from before
+     diagnose-first) reads "Not recorded for this change". It is plain text, never markup. When
+     the decision is no longer current (no recorded decision, a newer decision on the bug, or a
+     newer diagnosis), the card shows why in red and the Mark ready and merge bars show the same
+     sentence instead of their buttons; the server refuses both too (409), so a stale page
+     cannot get past it. Build again from the bug to get a change that answers to the current
+     decision.
    - A **draft** has no merge button. A bar above says "Draft: This change is a draft, and a draft
      cannot merge. Marking it ready for review does not merge it." (whatever its checks say).
      With Merge pipeline changes it has **Mark ready for review**: a dialog, then GitHub's

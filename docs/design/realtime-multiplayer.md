@@ -410,6 +410,12 @@ run on the server.
   published flow keeps a start-up event that holds its whole start, since the restart runs that
   event and not `load` (`apps/lines/src/game/roomFlow.ts`).
   Nothing of this is the server's: a won room is locked, so the join lands in another.
+  Since 2026-11-26 (owner: "it should starts automatically") the win screen of a person who
+  played the round does it by itself after a 10 s count, unless the page was hidden meanwhile;
+  an idle device waits for the press ([salmons-levels §4.2](salmons-levels.md)).
+- **The lobby's clock (owner, 2026-11-26).** The room's `endsAt` is round 1's start from the
+  lobby's first person, so a device shows the whole wait, not only the countdown; red and
+  pulsing in the last 10 s ([salmons-levels §4.2](salmons-levels.md)).
 - **Leaving and rejoining:** the 60 s grace stays. A dropped player's body stays where it was until
   it rejoins or the grace runs out, as today. Joining a running round stays allowed.
 

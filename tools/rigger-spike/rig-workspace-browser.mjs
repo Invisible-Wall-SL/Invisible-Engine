@@ -125,6 +125,7 @@ const MUTANTS = [
 		'g.arc(px, py, wsPx(6), 0, Math.PI * 2)',
 		'g.arc(px, py, wsPx(6) * b.k / wsPx(1), 0, Math.PI * 2)',
 	],
+	['◧ Arranged forgets its zoom when the dialog opens again', 'const k = !s2r.aview && cam.manual ? cam.k : null;', 'const k = null;'],
 	[
 		'◧ Arranged forgets its zoom on ▭ One part and back',
 		'if (s2r.aview && !s2r.aview.manual) s2r.aview = null;',
@@ -825,6 +826,8 @@ try {
 	}
 
 	// ---- The zoom stays when the dialog closes and opens again ---------------------------------------
+	// A new rig's dialog opens as the first time (its mapping guessed again), so ◧ Arranged shows a new
+	// arrangement: at the zoom it had, about its middle; ▭ One part keeps its view as it was.
 	{
 		await evaluate('__w.zoomTo("s2rStage", [20, 20], 250)');
 		const ab = await box('s2rArrange');
@@ -833,10 +836,14 @@ try {
 		await press('Escape');
 		const closed = await evaluate('!document.getElementById("s2rModal").classList.contains("open")');
 		await evaluate('openSheetToRig(); true');
-		await waitFor('document.getElementById("s2rModal").classList.contains("open")', 10000);
+		await waitFor('document.getElementById("s2rModal").classList.contains("open") && !!s2r.aview', 15000);
 		await frames(2);
 		const back = { part: await cam('s2rStage'), arranged: await cam('s2rArrange') };
-		ok('🗺: Esc closes it; opened again, both views keep their zoom', closed && back.part.manual && back.arranged.manual && q(back) === q(keep), q({ keep, back }));
+		ok(
+			'🗺: Esc closes it; opened again, ▭ One part keeps its view and ◧ Arranged its zoom',
+			closed && keep.part.manual && q(back.part) === q(keep.part) && keep.arranged.manual && back.arranged.manual && near(back.arranged.k, keep.arranged.k, 1e-9),
+			q({ keep, back }),
+		);
 		await evaluate('closeSheetToRig(); true');
 	}
 

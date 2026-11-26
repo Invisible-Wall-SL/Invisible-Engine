@@ -9,7 +9,7 @@
 //   - Animate: at every key the page's own player draws the order the key had, the copy beside its
 //     source, and the page throws nothing while it plays them;
 //   - 💾 Save: engine-rig plays the saved file the same way at every key;
-//   - ↓ on the bottom slot swaps the setup order only: the page's player and the saved file draw each
+//   - ↑ on the bottom slot (the back; the list shows the front at the top) swaps the setup order only: the page's player and the saved file draw each
 //     key as it was keyed, a key back to the setup the new setup.
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -274,15 +274,15 @@ try {
 		}
 	});
 
-	await step('4. Setup: ↓ on the bottom slot changes the setup order only', async () => {
+	await step('4. Setup: ↑ on the bottom slot (the back) changes the setup order only', async () => {
 		await evaluate('document.querySelector(\'#modeSeg button[data-mode="setup"]\').click(); true');
 		const clicked = await evaluate(
-			'(() => { const b = [...document.querySelectorAll(\'#slotList .trow[data-slot="back"] button\')].find((x) => x.textContent === "↓"); if (b) b.click(); return !!b; })()',
+			'(() => { const b = [...document.querySelectorAll(\'#slotList .trow[data-slot="back"] button\')].find((x) => x.textContent === "↑"); if (b) b.click(); return !!b; })()',
 		);
 		const setup = ['body', 'back', 'arm', COPY, 'head', 'hat'];
 		const moved = (order) => (order ? want(order) : setup);
 		const slots = JSON.parse(await evaluate('JSON.stringify(rawDoc.slots.map((s) => s.name))'));
-		ok('↓ swaps the bottom two slots', clicked && q(slots) === q(setup), q(slots));
+		ok('↑ (to the front) swaps the bottom two slots', clicked && q(slots) === q(setup), q(slots));
 		await evaluate(
 			'document.querySelector(\'#modeSeg button[data-mode="animate"]\').click(); setCurAnim("walk"); true',
 		);

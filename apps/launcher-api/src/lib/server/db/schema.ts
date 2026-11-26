@@ -18,6 +18,7 @@ import {
 import { sql } from 'drizzle-orm';
 import type {
 	FixRunChoice,
+	FixRunExplanation,
 	FixRunDiagnosis,
 	FixRunMode,
 	FixRunOutcome,
@@ -1198,6 +1199,7 @@ export const bugFixRuns = pgTable(
 		secondBug: jsonb('second_bug').$type<FixRunSecondBug>(),
 		diagnosis: jsonb('diagnosis').$type<FixRunDiagnosis>(),
 		chosenOption: jsonb('chosen_option').$type<FixRunChoice>(),
+		explanation: jsonb('explanation').$type<FixRunExplanation>(),
 		parentRunId: text('parent_run_id').references((): AnyPgColumn => bugFixRuns.id),
 		/** What the run's result reported, priced; 0 for a run that ended before its brief (it never ran
 		 *  Claude Code); null while none was reported ("spend unknown"). */
