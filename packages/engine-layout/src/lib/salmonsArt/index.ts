@@ -4,6 +4,7 @@ import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
+import { aloftDepth, aloftLift } from './bridge';
 import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
@@ -76,6 +77,13 @@ export type SalmonsArt = {
 	/** How far the ground at a world place is drawn raised by the waterfalls below it, screen px:
 	 *  a character there is drawn as high (`referenceLayouts/salmonsElevation.ts`). */
 	ground: (x: number, y: number) => number;
+	/** How far over that ground a character the room has put `zPx` high (world px) is drawn, screen
+	 *  px, by its place (a fisherman on a bridge's deck); 0 for a salmon, whose look draws its own
+	 *  height (`bridge.ts` `aloftLift`). */
+	aloft: (character: string, zPx: number) => number;
+	/** The depth bias of a body drawn `lift` up by {@link aloft}: over the deck it stands on
+	 *  (`bridge.ts` `aloftDepth`). */
+	aloftDepth: (lift: number) => number;
 	/** This frame's bloodstains (the room's `stains`), and the trail's fade, at `nowMs`. */
 	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
@@ -158,6 +166,8 @@ export async function loadSalmonsArt(
 		floats: floats.frame,
 		floating: floats.drawn,
 		ground: (_x, y) => elevation.at(y),
+		aloft: aloftLift,
+		aloftDepth,
 		stains: blood.frame,
 		line: (sinceCastMs, nowMs, fromDx) => {
 			const k = Math.min(1, Math.max(0, sinceCastMs / CAST_MS));

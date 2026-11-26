@@ -929,4 +929,4 @@ refuses the pass, and the pass's place on the screen at four zooms and resolutio
   levels a bank is a wall, but a salmon pressed into it slides along it where the original's stops
   dead (the engine's solids move x then y).
 - A fisherman's bridge (its row and its height) is the server's: its own device sees it as a
-  correction. Nothing draws the bridges yet, nor a fisherman's height on one.
+  correction. He is drawn on the deck since 2026-11-26 (the probe's `drawn` has `aloft` 144 there).

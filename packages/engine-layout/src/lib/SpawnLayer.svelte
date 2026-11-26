@@ -26,7 +26,7 @@
 		type FlipbookClipEntry,
 	} from './registerFlipbooks';
 	import { linksOf, markOf, marksOn, type InstanceLink } from './arcadeMarks.svelte';
-	import { codeLookOf } from './arcadeArt.svelte';
+	import { codeLookOf, depthOf } from './arcadeArt.svelte';
 	import MountedArt from './MountedArt.svelte';
 	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
@@ -270,7 +270,7 @@
 		<Container
 			x={at.x}
 			y={at.y}
-			zIndex={projection.depth(place.x, place.y, seq)}
+			zIndex={projection.depth(place.x, place.y, seq, depthOf(instance.id))}
 			visible={!culling || !isCulled(instance.id)}
 		>
 			{#if lift}

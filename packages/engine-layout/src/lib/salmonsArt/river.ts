@@ -18,6 +18,7 @@ import { SALMONS_FIELD_LAYER, type SalmonsRiverDrawing } from '../referenceLayou
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
+import { BRIDGE, deckLift, slopeEnds } from './bridge';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
 import { TINT_ALPHA, tintOf, wetAt, type Wet } from './water';
@@ -102,7 +103,6 @@ const LIP = { w: 64, h: 24 };
 const SPLASH = { w: 64, h: 32 };
 const SPLASHES = 3;
 const PILLAR_W = 64 * 0.45;
-const BRIDGE_HEIGHT = 6;
 /** The old client's z offsets over a piece's screen y (old px), in ground depth (`x + y` world
  *  px: an old px of screen y is 3 of them): a player's is `+1000`. */
 const Z = {
@@ -822,7 +822,7 @@ export function mountSalmonsRiver(
 		const n = Math.max(1, Math.round(bridge.w / CELL));
 		const y = bridge.y + CELL / 2;
 		const lift = elevation.at(y);
-		const deck = (bridge.height ?? BRIDGE_HEIGHT) * 16 * K;
+		const deck = deckLift(bridge.height ?? BRIDGE.height);
 		const xOf = (i: number) => bridge.x + (i + 0.5) * CELL;
 		const diamondAt = (g: Graphics, cx: number, cy: number) => {
 			const pts = [
@@ -902,7 +902,7 @@ export function mountSalmonsRiver(
 				at: { x: base.x, y: base.y - deck },
 			});
 		}
-		// The slopes up to the deck from both banks.
+		// The slopes up to the deck from both banks, as long as the room's (`bridge.ts`).
 		const slope = (land: number, end: number) => {
 			const ground = placed(xOf(land), y);
 			const top = project(xOf(end), y);
@@ -923,8 +923,7 @@ export function mountSalmonsRiver(
 			g.zIndex = zOf(xOf(land), y, Z.slope);
 			standUp(g, boxOf(g));
 		};
-		slope(-3, 0);
-		slope(n + 1, n - 1);
+		for (const { land, end } of slopeEnds(n)) slope(land, end);
 	}
 
 	// Sorted once by the old client's z; nothing in it moves (a zIndex turns sorting on per frame).

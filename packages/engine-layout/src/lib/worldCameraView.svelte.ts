@@ -78,7 +78,8 @@ export type WorldProjection = {
 	tilemap: Component<{ node: TilemapNode }>;
 	project: (x: number, y: number) => Point2D;
 	unproject: (x: number, y: number) => Point2D;
-	depth: (x: number, y: number, seq: number) => number;
+	/** `bias`: ground depth px it is drawn deeper than its place (`arcadeArt.svelte.ts` `depthOf`). */
+	depth: (x: number, y: number, seq: number, bias?: number) => number;
 };
 
 const PROJECTION_KEY = Symbol('engine-layout:worldProjection');

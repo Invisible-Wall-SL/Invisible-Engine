@@ -6,6 +6,15 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A fisherman on a bridge seemed to collide with its shadows
+
+- **Symptom:** owner, 2026-11-26: "the player seems to collide mainly with the shadows".
+- **Cause:** the room put him on the deck (`z` 6 cells); his look ignored `z`, so he walked on the
+  water-level reflections, behind the deck 144 px up. The art's near slope ran 3 cells, the rule 2.
+- **Fix:** a non-salmon's `z` raises its drawn place (`salmonsArt/bridge.ts`; look, rig, line,
+  carried salmon), a depth bias sorts it over the deck, both slopes are `BRIDGE.slope`.
+- **Guard:** `check:salmons-levels` "the bridge as drawn is the room's" · branch `claude/bold-cannon-3a8unw` (2026-11-26)
+
 ### A new level was drawn, and the players collided against another
 
 - **Symptom:** owner, 2026-11-25: "changing the seed generates a new level, but does not update
@@ -265,15 +274,6 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   shared level, silent / dropped players, 0 corrections on resume).
 - **PR:** fix for #1717 (2026-11-18, branch `fix/1717-game-server-freeze`) · source:
   `docs/status/3d.md`
-
-### The owner was never asked to approve the Salmons art pass
-
-- **Symptom:** S0 waited on an owner go that no session ever raised.
-- **Cause:** S0 was written as "not a build step", so it had no row in game-families §8 (the
-  table the coordinator walks) and no entry in STATUS.md's owner list.
-- **Fix:** S0 got a §8 row and a `docs/STATUS.md` owner entry.
-- **Guard:** none; an owner step needs a §8 row or an owner-list entry to be seen.
-- **PR:** not recorded (2026-10-26) · source: `docs/status/salmons.md`
 
 ### A rig named only by a character sheet shipped, and the game never loaded it
 

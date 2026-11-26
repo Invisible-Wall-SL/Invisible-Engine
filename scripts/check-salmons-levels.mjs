@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { seedRandom } from '../packages/engine-mechanics/src/seedrandom.js';
 import {
 	CELL,
+	SALMONS_MAP,
 	SALMONS_MAP_SEED,
 	applySalmonsOverlay,
 	buildMeanderTable,
@@ -31,6 +32,20 @@ import {
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
+import { BRIDGE_SLOPE } from '../packages/engine-mechanics/src/salmonsRules.js';
+import {
+	BRIDGE,
+	aloftDepth,
+	aloftLift,
+	deckLift,
+	slopeEnds,
+} from '../packages/engine-layout/src/lib/salmonsArt/bridge.ts';
+import {
+	ISO_DEPTH_SPREAD,
+	isoDepth,
+	isoDepthOrder,
+} from '../packages/engine-layout/src/lib/projection.ts';
+import { riverElevation } from '../packages/engine-layout/src/lib/referenceLayouts/salmonsElevation.ts';
 import {
 	ONLINE_GENERATORS,
 	generatedOnlineGame,
@@ -553,6 +568,64 @@ check(
 		assert.ok(slope && slope[1] > 0 && slope[1] < bridge.height * CELL, 'part way up the slope');
 		run(30, { moveX: 0, moveY: M });
 		assert.equal(p.z, 0, 'off the bridge: on the ground');
+	},
+);
+
+check(
+	"the bridge as drawn is the room's: the fisherman drawn on the deck, its slopes the rule's, over the deck",
+	() => {
+		assert.equal(BRIDGE.slope, BRIDGE_SLOPE, "the art's slope is the rule's");
+		assert.equal(BRIDGE.height, SALMONS_MAP.BRIDGE_HEIGHT, "the art's deck height is the map's");
+		const { p, run, river } = originalRoom(1, 'fisherman');
+		const bridge = river.bridges[1];
+		const n = Math.round(bridge.w / CELL);
+		const plank = bridge.y + CELL / 2;
+		const xOf = (i) => bridge.x + (i + 0.5) * CELL;
+		const deck = deckLift(bridge.height);
+		assert.equal(deck, bridge.height * 16 * (CELL / 32), 'the deck: 16 old px a cell, × K');
+		const ends = slopeEnds(n);
+		for (const { land, end } of ends)
+			assert.equal(Math.abs(land - end), BRIDGE_SLOPE, `a slope runs ${BRIDGE_SLOPE} cells`);
+		// The height the art draws at x: the deck, and each slope straight from its foot to it.
+		const drawnAt = (x) => {
+			if (x >= xOf(0) && x <= xOf(n - 1)) return deck;
+			for (const { land, end } of ends) {
+				const t = (x - xOf(land)) / (xOf(end) - xOf(land));
+				if (t >= 0 && t <= 1) return deck * t;
+			}
+			return 0;
+		};
+		// Every tile's deck, at the original's z (`sy + 1100`: 100 old px over a player, 3 depth each).
+		const decks = Array.from(
+			{ length: n },
+			(_, i) => (Math.floor(isoDepth(xOf(i), plank)) + 300) * ISO_DEPTH_SPREAD,
+		);
+		const ground = riverElevation(river.waterfalls).at(plank);
+		Object.assign(p.body, { x: bridge.x - 4 * CELL, y: plank });
+		let onDeck = 0;
+		let onSlope = 0;
+		for (let i = 0; i < 400 && p.body.x < bridge.x + bridge.w + 4 * CELL; i++) {
+			run(1, { moveX: M, moveY: 0 });
+			const lift = aloftLift('fisherman', p.z ?? 0);
+			near(lift, drawnAt(p.body.x), 1e-6, `drawn at the art's height at ${p.body.x}`);
+			if (lift === deck) onDeck += 1;
+			else if (lift > 0) onSlope += 1;
+			if (lift > 0) {
+				// Drawn raised by its place (`online.ts` `raisedPlace`), sorted with its bias.
+				const raise = ground + lift;
+				const z = isoDepthOrder(p.body.x - raise, p.body.y - raise, 0, aloftDepth(lift));
+				assert.ok(
+					decks.every((d) => z > d),
+					`over every tile of the deck at ${p.body.x}`,
+				);
+			}
+		}
+		assert.ok(onDeck > 5 && onSlope > 2, `walked the slopes and the deck (${onSlope}, ${onDeck})`);
+		assert.equal(aloftLift('salmon', bridge.height * CELL), 0, "a salmon's look draws its own z");
+		assert.equal(aloftDepth(0), 0, 'on the ground: no bias');
+		// A salmon under the deck (on its row, at a tile's middle) stays under it.
+		for (let i = 0; i < n; i++)
+			assert.ok(isoDepthOrder(xOf(i) - ground, plank - ground, 0) < decks[i], 'a salmon under');
 	},
 );
 

@@ -1226,7 +1226,8 @@ upload.
   biomes; rocks 119.5 × K wide; lips 64K × 24K, three hashed splashes a cell (two more past the
   up-river end), the face at the texture's size × K; bridges drawn from the level's `bridges` in
   placeholder shapes (reflections that shimmer, pillars at the ends and every third tile, decks
-  among the players, slopes; no bridge art ships, and fishermen do not walk them yet). The camera:
+  among the players, slopes; no bridge art ships; a fisherman on one is drawn on its deck since
+  2026-11-26, Recent changes). The camera:
   no dead zone, smoothing 0.1 s, not held in the world, a cell drawn 64 × 32 window px (zoom 2/3 in
   window px, 1/3 on a phone or tablet by the original's test), following the own player's leap as
   well as the waterfalls' lift (owner decision 6). P10.16's band river keeps its grass world.
@@ -2037,9 +2038,8 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 - **Owner: look at the live bear.** The waterline's numbers were judged on the bear sprite and a
   stand-in rig. If `R_Bear`'s body is much narrower than its box the curve will read flatter
   than here; `WADE.reach` and `WADE.sag` are the two to move.
-- **A fisherman on a bridge is drawn at the water's level**, behind the deck: his code look does
-  not take the room's height (`z`). Seen while standing one there; as before this change
-  ([playtest/salmons](../playtest/salmons.md), Known gaps).
+- ~~A fisherman on a bridge is drawn at the water's level~~: resolved 2026-11-26 (Recent
+  changes, "Bridge collisions drawn where they are").
 
 ### Open after the room of 100 by shares (2026-11-21)
 
@@ -2461,6 +2461,47 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-26 — **Bridge collisions drawn where they are** (owner: "the collisions on the bridge
+  are wrong; the player seems to collide mainly with the shadows — maybe an offset"; branch
+  `claude/bold-cannon-3a8unw`; in review; runtime change, Salmons rooms only). The collision was
+  right (`salmonsRules` `bridges` and `salmons.js`'s holes agree); the drawing was not:
+  1. **His height was never drawn.** The room puts a fisherman on a deck 6 cells up (`z` 288 world
+     px), but his code look ignored `z`, so he walked on the water-level reflections (the
+     "shadows"), behind a deck drawn 144 px up. Now a non-salmon character's `z` raises its drawn
+     PLACE (`engine-layout` `salmonsArt/bridge.ts` `aloftLift` = `liftOf(cellsOf(z))`: 144 px on
+     a deck, exactly `deckLift`), eased in `online.ts` `easeLift` beside the waterfalls' lift. So
+     whatever draws him (code look, a sheet's rig, a published clip, the placeholder), his line
+     (it starts at his instance's place), his rising text and Flow signals stand on the deck; a
+     salmon in his hands is raised with its holder (`aloftOf` reads the holder's). A salmon keeps
+     drawing its own leap and climb from `z` in its look (aloft 0, as before). The camera follows
+     the height, as the original's (`camSY − lz·HU`); a tap's aim is still read on the ground
+     (`fieldPoint` uses the ground part only), so a cast from the deck lands where tapped.
+  2. **He is sorted over the deck.** A raised place sorts lower (back on both axes), and the deck
+     stands at the original's `sy + 1100`. A new depth bias per instance (`engine-layout`
+     `arcadeArt.svelte.ts` `setDepths` / `depthOf`, read by `<SpawnLayer>` through
+     `isoDepthOrder`'s new `bias` argument, default 0) undoes the raise and adds the original's
+     `sortSY + 10000` for a player on a bridge (`aloftDepth`). Published only while a player is
+     aloft, so no other game or player changes order.
+  3. **The slopes are the rule's.** The art's near slope ran 3 cells (`slope(-3, 0)`, the
+     original's art `gyStart − 3`) while the rule ramps 2 on both ends (the original server's
+     `slopeLen`), so he rose a cell short of the drawn foot. Both slopes now come from
+     `BRIDGE.slope` (2), a deviation from the original's art noted in
+     [reference/salmons-original.md](../reference/salmons-original.md) §9.6. `engine-layout` does
+     not depend on `engine-mechanics`, so the gate holds `BRIDGE.slope` = `BRIDGE_SLOPE` and
+     `BRIDGE.height` = the map's `BRIDGE_HEIGHT`.
+  - **Proof.** `check:salmons-levels` 19 (one new: a room's fisherman walked across level 1's
+    second bridge; at every step his drawn height equals the art's deck and slopes, he sorts over
+    every deck tile, a salmon under it stays under, a salmon's `z` raises nothing). Unchanged:
+    `check:online-rules` 40, `check:salmons-heights` 24, `check:salmons-art` 39,
+    `check:salmons-jump` 37, `check:salmons-throw` 21, `check:salmons-course` 21, the arcade and
+    room gates; `check:svelte` at baseline for `engine-layout` and `apps/lines`. Bundle: slot
+    first visit +31 B gzip, arcade online boot +190 B; the lazy art chunk +0.1 KB.
+  - **Not seen in a browser** (no browser in the session): play a fisherman across a bridge on
+    the original's level ([playtest/salmons](../playtest/salmons.md)); the probe's `drawn` carries
+    `aloft` (144 on a deck) and `depth` for him. Left: the own device still predicts neither the
+    deck's row nor its height (a short correction onto it); a salmon thrown from the deck starts
+    its arc from the water's level as its lift eases down.
 
 - 2026-11-26 — **Browser check of the published link** (cloud deploy session): start menu, joins
   as all three classes, bot catches, the win and the room's lock all seen live; a person's own
