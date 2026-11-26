@@ -1768,7 +1768,8 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     Empty = the first second, so start a take with a resting face, or type the moment it has one.
   - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
     face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
-    **Head** also sets the head's turn and nod.
+    **Head** also sets the head's tilt, turn and nod — in 3D the head's whole 3D turn (2× turns it
+    twice as far from the neutral).
   - **Shorten / Behind / Turn / Nearer** (2D only) — the depth the performance has, each shown when the
     template takes it (hover one for what it does): **Shorten** a limb pointing toward or away from
     the camera (off, ½×, 1×, 1½×), **Behind** a hand passing behind the body or the head (on or
