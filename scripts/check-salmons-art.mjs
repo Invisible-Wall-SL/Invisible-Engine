@@ -18,6 +18,9 @@
 //   sandbank, a rock or the sea does not, nor a fisherman on a bridge's deck, nor a salmon; on land
 //   its look has no filter; under the line its colour is `underTint`'s, and the pass finds the
 //   look's place at any zoom and resolution; the runtime wraps every mount it publishes.
+// - biomes (2026-11-26): a river with none authored is drawn piece for piece as at main a404522
+//   (`salmons/art-fingerprint.mjs`), and an authored stretch draws its own trees, floor, grass
+//   tint and riverbed.
 //
 // Run: pnpm check:salmons-art
 
@@ -1172,5 +1175,92 @@ check(
 		);
 	},
 );
+
+// Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
+// piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
+// biomes were data: a level with no biomes block is drawn exactly as it was.
+const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
+const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
+const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
+const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
+const DRAWN_BEFORE_BIOMES = [
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: 'ebbbba01c8ade7bf5fe89463' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: 'b56a21b4022d3b82bb2cfe7d' },
+	{
+		seed: 123,
+		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
+		projector: 'mirrored',
+		hash: '7fbbc5604e2e2cdf3b20dcde',
+	},
+	{ seed: 42, levels: undefined, projector: 'plain', hash: '116464db97ef75359b1d1df4' },
+];
+const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
+const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
+const fingerprints = [];
+for (const { seed, levels, projector, hash } of DRAWN_BEFORE_BIOMES) {
+	const drawn = await riverArtFingerprint(riverOf(seed, levels), PROJECTORS[projector]);
+	fingerprints.push({ seed, hash, drawn });
+}
+check('biomes: with none authored the river is drawn as before them, piece for piece', () => {
+	for (const { seed, hash, drawn } of fingerprints)
+		assert.equal(drawn.hash, hash, `seed ${seed}: ${drawn.pieces} pieces`);
+});
+
+const AUTHORED = {
+	kinds: [
+		{
+			id: 'birch',
+			trees: [4],
+			forestFloor: '#6a5a2a',
+			grassTint: '#e0f0a0',
+			riverbed: ['#101010', '#202020'],
+			grass: 2,
+			forest: 4,
+		},
+		{ id: 'forest1' },
+	],
+	sequences: {
+		'*': [
+			{ from: 0, biome: 'birch' },
+			{ from: 200, biome: 'forest1' },
+		],
+	},
+};
+const authoredRiver = riverOf(7, { ...SALMONS_LEVELS, biomes: AUTHORED });
+const authoredArt = await riverArtFingerprint(authoredRiver, ISO_PROJECTOR_MIRRORED);
+const builtInArt = await riverArtFingerprint(
+	riverOf(7, { ...SALMONS_LEVELS, biomes: {} }),
+	ISO_PROJECTOR_MIRRORED,
+	{ omit: (into) => into.children[3].children[0].children[0].destroy() },
+);
+check(
+	'biomes: the built-in six, authored as a block, draw the river as before but its floor',
+	() => {
+		assert.equal(builtInArt.hash, fingerprints[1].hash);
+	},
+);
+check('biomes: an authored stretch draws its own trees, floor, grass tint and riverbed', () => {
+	const rows = authoredArt.rows;
+	const trees = rows.filter((r) => /^tree_\d$/.test(r.at(-1) ?? ''));
+	assert.ok(trees.length > 1000, `${trees.length} trees`);
+	const fills = rows.filter((r) => r[0] === 'Graphics').map((r) => r.at(-1));
+	const floor = (hex) => fills.some((f) => f.includes(`"fill",${parseInt(hex.slice(1), 16)},`));
+	assert.ok(floor('#6a5a2a'), 'the birch floor is drawn');
+	assert.ok(floor('#28591e'), 'and the original floor below it');
+	const made = rows.filter((r) => typeof r.at(-1) === 'string' && r.at(-1).startsWith('made:'));
+	assert.ok(
+		made.some((r) => r.at(-1).includes(`"fill",${0x101010},`)),
+		'the birch riverbed is drawn',
+	);
+	const tinted = rows.filter((r) => r[7] === 0xe0f0a0 && /^grass_/.test(r.at(-1)));
+	assert.ok(tinted.length > 100, `${tinted.length} tinted grass tiles`);
+	assert.ok(
+		rows.filter((r) => /^grass_/.test(r.at(-1) ?? '') && r[7] === 0xffffff).length > 100,
+		'the stretch below is untinted',
+	);
+	// The birch grows tree 4 alone, the original's first stretch below it trees 0 and 1.
+	const variants = new Set(trees.map((r) => r.at(-1)));
+	assert.deepEqual([...variants].sort(), ['tree_0', 'tree_1', 'tree_4']);
+});
 
 console.log(`check:salmons-art: ${passed} passed`);

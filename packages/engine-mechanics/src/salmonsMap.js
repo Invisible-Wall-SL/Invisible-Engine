@@ -16,6 +16,13 @@
  * Pure and dependency-free: no `Math.random`, no I/O.
  */
 
+import {
+	biomeAt,
+	biomeStretchAt,
+	biomeStretches,
+	resolveBiomes,
+	seedBiomes,
+} from './salmonsBiomes.js';
 import { seedRandom } from './seedrandom.js';
 
 /** The original's map constants (`server/shared/constants.js`). */
@@ -45,12 +52,231 @@ export const SALMONS_MAP_SEED = 1;
 
 const C = SALMONS_MAP;
 
+/**
+ * EVERY NUMBER THAT SHAPES A LEVEL, FROM THE CONFIG (`arcade.online.levels.generator`; owner,
+ * 2026-11-26: "I would like to have more control over the level generation, so I can control all
+ * of its parameters"; `docs/design/salmons-levels.md` §6). These are the original's and the port's
+ * own values, so a config with no `generator` block plays exactly the level it played before.
+ *
+ * - The river: its length in columns, its half width at the source and at the mouth (cells), where
+ *   the delta flares and by how much, and the original meander's amplitude and frequency.
+ * - The sand: where the delta's sand starts (a share of the length) and how far above the sea it
+ *   stops, the share of cells seeded, the cellular automaton's passes, birth and survival counts,
+ *   and the cells kept clear of the banks.
+ * - Rocks and whirlpools: the first column, a column's chance of a piece, the whirlpools' share,
+ *   the cells kept clear of the banks, a rock's size (cells) and a whirlpool's radius (px).
+ * - Waterfalls (with `levels.waterfalls`' count and heights): the original's columns, every
+ *   `waterfallEvery` from `waterfallFrom`, the columns kept clear of pieces each side, and how far
+ *   under its place's cap the original's height may fall.
+ * - Bridges: how many at most, their height, the first column, how far from a waterfall, from each
+ *   other and above the sand.
+ * - A winding course (`levels.river`): the straight run at the source and each side of a waterfall,
+ *   where the bends end, a reach's length (clamped, and in river widths at the source and at the
+ *   end), how far the axis wanders, a bending and a quiet reach's share of the angle, the reaches
+ *   below the source that always bend, and how fast the sharpness falls towards the sea.
+ * - The world: rows above the source and below the sea, cells of bank past the widest water.
+ * - Spawns: the salmon's line above the sea and its spread, and the catchers' places (how many,
+ *   tries per place, columns kept clear at each end, how far past the water, how far apart).
+ *
+ * Plain values, not read off {@link SALMONS_MAP} (whose same-named numbers they are, as
+ * `check:salmons-levels` holds): a bundle that never makes a level drops a literal it never reads.
+ *
+ * Left out, as not the level's: the current (`CURRENT_STRENGTH`, a speed the movement step pushes
+ * at), a waterfall's thickness and the bank limit (the rules' bounds, `salmons.js`), the sea's
+ * length (it moves no cell of the map), and the course's sampling step (arithmetic, not a look).
+ */
+export const SALMONS_GENERATOR = Object.freeze({
+	riverLength: 400,
+	sourceHalfWidth: 3,
+	mouthHalfWidth: 28,
+	deltaStart: 0.85,
+	deltaFlare: 30,
+	meanderAmp: 10,
+	meanderFreq: 0.025,
+	sandStart: 0.7,
+	sandEndGap: 10,
+	sandSeed: 0.28,
+	sandPasses: 4,
+	sandBirth: 4,
+	sandSurvive: 3,
+	sandMargin: 2,
+	obstacleFrom: 20,
+	obstacleChance: 0.3,
+	whirlpoolShare: 0.2,
+	obstacleMargin: 2,
+	rockSize: 1.5,
+	whirlpoolRadius: 90,
+	waterfallFrom: 21,
+	waterfallEvery: 40,
+	waterfallClearance: 4,
+	waterfallDrop: 4,
+	bridgeCount: 3,
+	bridgeHeight: 6,
+	bridgeFrom: 25,
+	bridgeFallClearance: 10,
+	bridgeSpacing: 50,
+	bridgeSandGap: 5,
+	sourceRun: 4,
+	fallRunMin: 3,
+	fallRunMax: 6,
+	windingEnd: 0.75,
+	reachMin: 14,
+	reachMax: 60,
+	reachSourceMin: 3,
+	reachSourceMax: 5,
+	reachEndMin: 1.2,
+	reachEndMax: 2.4,
+	wander: 34,
+	bendMin: 0.9,
+	bendMax: 1,
+	quietMin: 0.08,
+	quietMax: 0.25,
+	firstBends: 2,
+	falloff: 1.5,
+	sourceRows: 5,
+	seaRows: 6,
+	bankCells: 14,
+	salmonSpawnAbove: 10,
+	salmonSpread: 0.4,
+	catcherPlaces: 32,
+	catcherTries: 30,
+	catcherEnds: 30,
+	catcherPast: 3,
+	catcherSpread: 5,
+	catcherApart: 15,
+});
+
+/** The values each of {@link SALMONS_GENERATOR}'s may take, `[least, most]` (`game-config` holds
+ *  a config to the same: it imports them). */
+export const SALMONS_GENERATOR_LIMITS = Object.freeze({
+	riverLength: Object.freeze([120, 800]),
+	sourceHalfWidth: Object.freeze([1, 20]),
+	mouthHalfWidth: Object.freeze([1, 60]),
+	deltaStart: Object.freeze([0.5, 0.99]),
+	deltaFlare: Object.freeze([0, 80]),
+	meanderAmp: Object.freeze([0, 40]),
+	meanderFreq: Object.freeze([0, 0.2]),
+	sandStart: Object.freeze([0.3, 0.95]),
+	sandEndGap: Object.freeze([0, 60]),
+	sandSeed: Object.freeze([0, 1]),
+	sandPasses: Object.freeze([0, 12]),
+	sandBirth: Object.freeze([0, 9]),
+	sandSurvive: Object.freeze([0, 9]),
+	sandMargin: Object.freeze([0, 10]),
+	obstacleFrom: Object.freeze([0, 800]),
+	obstacleChance: Object.freeze([0, 1]),
+	whirlpoolShare: Object.freeze([0, 1]),
+	obstacleMargin: Object.freeze([0, 10]),
+	rockSize: Object.freeze([0.5, 4]),
+	whirlpoolRadius: Object.freeze([24, 240]),
+	waterfallFrom: Object.freeze([0, 800]),
+	waterfallEvery: Object.freeze([5, 400]),
+	waterfallClearance: Object.freeze([0, 40]),
+	waterfallDrop: Object.freeze([0, 16]),
+	bridgeCount: Object.freeze([0, 10]),
+	bridgeHeight: Object.freeze([1, 16]),
+	bridgeFrom: Object.freeze([0, 800]),
+	bridgeFallClearance: Object.freeze([0, 100]),
+	bridgeSpacing: Object.freeze([1, 400]),
+	bridgeSandGap: Object.freeze([0, 100]),
+	sourceRun: Object.freeze([0, 40]),
+	fallRunMin: Object.freeze([0, 20]),
+	fallRunMax: Object.freeze([0, 20]),
+	windingEnd: Object.freeze([0.3, 0.95]),
+	reachMin: Object.freeze([2, 200]),
+	reachMax: Object.freeze([2, 200]),
+	reachSourceMin: Object.freeze([0.5, 10]),
+	reachSourceMax: Object.freeze([0.5, 10]),
+	reachEndMin: Object.freeze([0.5, 10]),
+	reachEndMax: Object.freeze([0.5, 10]),
+	wander: Object.freeze([0, 80]),
+	bendMin: Object.freeze([0, 1]),
+	bendMax: Object.freeze([0, 1]),
+	quietMin: Object.freeze([0, 1]),
+	quietMax: Object.freeze([0, 1]),
+	firstBends: Object.freeze([0, 10]),
+	falloff: Object.freeze([0.25, 4]),
+	sourceRows: Object.freeze([1, 20]),
+	seaRows: Object.freeze([1, 20]),
+	bankCells: Object.freeze([13, 40]),
+	salmonSpawnAbove: Object.freeze([1, 60]),
+	salmonSpread: Object.freeze([0, 1]),
+	catcherPlaces: Object.freeze([1, 100]),
+	catcherTries: Object.freeze([1, 200]),
+	catcherEnds: Object.freeze([0, 60]),
+	catcherPast: Object.freeze([0, 20]),
+	catcherSpread: Object.freeze([0, 20]),
+	catcherApart: Object.freeze([0, 100]),
+});
+
+/** The parameters that are whole numbers (counts, columns, cells, passes). */
+export const SALMONS_GENERATOR_WHOLE = Object.freeze([
+	'riverLength',
+	'sourceHalfWidth',
+	'mouthHalfWidth',
+	'sandEndGap',
+	'sandPasses',
+	'sandBirth',
+	'sandSurvive',
+	'sandMargin',
+	'obstacleFrom',
+	'obstacleMargin',
+	'waterfallFrom',
+	'waterfallEvery',
+	'waterfallClearance',
+	'waterfallDrop',
+	'bridgeCount',
+	'bridgeHeight',
+	'bridgeFrom',
+	'bridgeFallClearance',
+	'bridgeSpacing',
+	'bridgeSandGap',
+	'sourceRun',
+	'fallRunMin',
+	'fallRunMax',
+	'firstBends',
+	'sourceRows',
+	'seaRows',
+	'bankCells',
+	'salmonSpawnAbove',
+	'catcherPlaces',
+	'catcherTries',
+	'catcherEnds',
+	'catcherPast',
+	'catcherApart',
+]);
+
+/** The pairs whose least must not pass their most: two given the wrong way round are swapped. */
+export const SALMONS_GENERATOR_PAIRS = Object.freeze([
+	Object.freeze(['fallRunMin', 'fallRunMax']),
+	Object.freeze(['reachMin', 'reachMax']),
+	Object.freeze(['reachSourceMin', 'reachSourceMax']),
+	Object.freeze(['reachEndMin', 'reachEndMax']),
+	Object.freeze(['bendMin', 'bendMax']),
+	Object.freeze(['quietMin', 'quietMax']),
+]);
+
+/** A config's `levels.generator` whole: every parameter held to its limits (whole ones rounded,
+ *  pairs in order), a missing or unusable one its default. */
+export function generatorParams(raw) {
+	const params = {};
+	for (const [key, fallback] of Object.entries(SALMONS_GENERATOR)) {
+		const v = clampTo(SALMONS_GENERATOR_LIMITS[key], raw?.[key], fallback);
+		params[key] = SALMONS_GENERATOR_WHOLE.includes(key) ? Math.round(v) : v;
+	}
+	for (const [lo, hi] of SALMONS_GENERATOR_PAIRS)
+		if (params[lo] > params[hi]) [params[lo], params[hi]] = [params[hi], params[lo]];
+	return params;
+}
+
+const G = SALMONS_GENERATOR;
+
 /** The original's `buildMeanderTable`: the river's axis offset per column (a Float32Array). */
-export function buildMeanderTable(seed) {
+export function buildMeanderTable(seed, P = G) {
 	const rng = seedRandom(`${seed}_meander`);
-	const len = C.RIVER_LENGTH + C.SEA_LENGTH + 10;
-	const amp = C.RIVER_MEANDER_AMP;
-	const freq = C.RIVER_MEANDER_FREQ;
+	const len = P.riverLength + C.SEA_LENGTH + 10;
+	const amp = P.meanderAmp;
+	const freq = P.meanderFreq;
 	const phase1 = rng() * Math.PI * 2;
 	const phase2 = rng() * Math.PI * 2;
 	const phase3 = rng() * Math.PI * 2;
@@ -59,20 +285,20 @@ export function buildMeanderTable(seed) {
 		const wave1 = Math.sin(u * freq + phase1) * amp;
 		const wave2 = Math.sin(u * freq * 2.3 + phase2) * amp * 0.4;
 		const wave3 = Math.sin(u * freq * 0.5 + phase3) * amp * 0.3;
-		const taper = Math.min(1.0, (u / C.RIVER_LENGTH) * 4);
+		const taper = Math.min(1.0, (u / P.riverLength) * 4);
 		table[u] = (wave1 + wave2 + wave3) * taper;
 	}
 	return table;
 }
 
 /** The original's `getRiverHalfWidth`: half the river's width at column `u`, in cells. */
-export function riverHalfWidth(u) {
-	const rl = C.RIVER_LENGTH;
+export function riverHalfWidth(u, P = G) {
+	const rl = P.riverLength;
 	const progress = Math.max(0, Math.min(1, u / rl));
-	let width = C.RIVER_WIDTH_END * (1 - progress) + C.RIVER_WIDTH_START * progress;
-	if (progress > C.DELTA_START_FRAC) {
-		const delta = (progress - C.DELTA_START_FRAC) / (1 - C.DELTA_START_FRAC);
-		width += delta * delta * 30;
+	let width = P.sourceHalfWidth * (1 - progress) + P.mouthHalfWidth * progress;
+	if (progress > P.deltaStart) {
+		const delta = (progress - P.deltaStart) / (1 - P.deltaStart);
+		width += delta * delta * P.deltaFlare;
 	}
 	if (u >= rl) width = 200;
 	return Math.floor(width);
@@ -108,43 +334,29 @@ export const RIVER_SHAPE_LIMITS = Object.freeze({
 	waterfallHeight: Object.freeze([1, 16]),
 });
 
-/** How a winding course is laid out, cells: the straight run at the source, the straight run each
- *  side of a waterfall (its face stands square across the water), where the bends end (the delta
- *  below runs straight, as the original's sand and spawns expect), a reach's length as a multiple
- *  of the river's width there (more of them where it is narrow: a bend reads as sharp only between
- *  reaches a few widths long), how far the axis may wander, and a bending and a quiet reach's share
- *  of the angle (two quiet reaches never follow each other). */
-const COURSE = Object.freeze({
-	sourceRun: 4,
-	fallRun: Object.freeze({ min: 3, max: 6 }),
-	endFrac: 0.75,
-	reach: Object.freeze({
-		min: 14,
-		max: 60,
-		atSource: Object.freeze([3, 5]),
-		atEnd: Object.freeze([1.2, 2.4]),
-	}),
-	wander: 34,
-	bend: Object.freeze([0.9, 1]),
-	quiet: Object.freeze([0.08, 0.25]),
-	/** The first reaches below the source always bend: every river has its sharp turn there. */
-	firstBends: 2,
-	sample: 0.25,
-	bankReach: 11.5,
-	/** How the sharpness falls from the source to the bends' end: above 1 keeps it near the source. */
-	falloff: 1.5,
-});
+/** A winding course's sampling step along its line, cells, and how far past its own column's
+ *  water a bank place may lie (`salmons.js` `SALMONS_BOUNDS.bank`, less half a cell). The rest of
+ *  its layout is {@link SALMONS_GENERATOR}'s. */
+const COURSE = Object.freeze({ sample: 0.25, bankReach: 11.5 });
 
 const clampTo = ([lo, hi], v, fallback) =>
 	typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback;
 
-/** A config's `levels` as the generator reads it: `undefined` for the original's level. */
-export function levelShape(levels) {
+const isBlock = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** A config's `levels` as the level of `seed` reads them: `undefined` for the original's level.
+ *  `generator` is every parameter ({@link generatorParams}) and `biomes` the seed's
+ *  (`salmonsBiomes.js` `resolveBiomes`), each only when the config has its block. */
+export function levelShape(levels, seed) {
 	const river = levels?.river;
 	const falls = levels?.waterfalls;
-	if (!river && !falls) return undefined;
+	const generator = isBlock(levels?.generator) ? generatorParams(levels.generator) : undefined;
+	const biomes = resolveBiomes(levels?.biomes, seed);
+	if (!river && !falls && !generator && !biomes) return undefined;
 	const L = RIVER_SHAPE_LIMITS;
 	const shape = {};
+	if (generator) shape.generator = generator;
+	if (biomes) shape.biomes = biomes;
 	if (river)
 		shape.river = {
 			winding: clampTo(L.winding, river.winding, RIVER_SHAPE.winding),
@@ -170,16 +382,30 @@ export function levelShape(levels) {
 	return shape;
 }
 
-/** The columns a level's waterfalls stand on, from the source down: the original's (every 40th
- *  above the sand), or `count` of them spread the same way (6 are the original's). */
-function waterfallColumnsOf(sandStart, count) {
+/** Where a level's sand starts, its first column: no waterfall, rock or bridge from there down. */
+const sandStartOf = (P) => Math.floor(P.riverLength * P.sandStart);
+
+/** The columns a level's waterfalls stand on, from the source down: the original's (every
+ *  `waterfallEvery`th from `waterfallFrom` above the sand), or `count` of them spread the same way
+ *  (6 are the original's); then, with biomes, each stretch keeps its `waterfalls` share of its own,
+ *  spread evenly (no random draw: a level whose biomes keep them all is the level without). */
+function waterfallColumnsOf(P, shape) {
+	const sandStart = sandStartOf(P);
+	const count = shape?.waterfalls?.count;
 	const columns = [];
 	if (count === undefined) {
-		for (let gx = 21; gx < sandStart; gx++) if (gx % 40 === 0) columns.push(gx);
-		return columns;
-	}
-	for (let k = 1; k <= count; k++) columns.push(Math.round((k * sandStart) / (count + 1)));
-	return columns;
+		for (let gx = P.waterfallFrom; gx < sandStart; gx++)
+			if (gx % P.waterfallEvery === 0) columns.push(gx);
+	} else for (let k = 1; k <= count; k++) columns.push(Math.round((k * sandStart) / (count + 1)));
+	const biomes = shape?.biomes;
+	if (!biomes) return columns;
+	const seen = new Map();
+	return columns.filter((gx) => {
+		const { stretch, kind } = biomeStretchAt(biomes, gx);
+		const k = seen.get(stretch) ?? 0;
+		seen.set(stretch, k + 1);
+		return Math.floor((k + 1) * kind.waterfalls) > Math.floor(k * kind.waterfalls);
+	});
 }
 
 /**
@@ -199,28 +425,32 @@ function waterfallColumnsOf(sandStart, count) {
  */
 export function riverCourse(seed, shape) {
 	const key = String(seed);
-	const meander = buildMeanderTable(key);
+	const P = shape?.generator ?? G;
+	const halfWidth = (u) => riverHalfWidth(u, P);
+	const meander = buildMeanderTable(key, P);
 	if (!shape?.river) {
 		const mid = (gx) => Math.round(meanderAt(meander, gx));
 		return {
 			winding: false,
-			lo: (gx) => mid(gx) - riverHalfWidth(gx),
-			hi: (gx) => mid(gx) + riverHalfWidth(gx),
+			rows: P.riverLength,
+			lo: (gx) => mid(gx) - halfWidth(gx),
+			hi: (gx) => mid(gx) + halfWidth(gx),
 			axis: (u) => meanderAt(meander, u),
-			edge: (u, side) => meanderAt(meander, u) + side * riverHalfWidth(u),
-			past: (u, side, by, more) => meanderAt(meander, u) + side * (riverHalfWidth(u) + by + more),
+			edge: (u, side) => meanderAt(meander, u) + side * halfWidth(u),
+			past: (u, side, by, more) => meanderAt(meander, u) + side * (halfWidth(u) + by + more),
 		};
 	}
 	const { winding, sharpestTurn, sourceBias } = shape.river;
 	const rng = seedRandom(`${key}_course`);
 	const K = COURSE;
-	const end = Math.floor(C.RIVER_LENGTH * K.endFrac);
-	const falls = waterfallColumnsOf(Math.floor(C.RIVER_LENGTH * 0.7), shape.waterfalls?.count);
+	const length = P.riverLength;
+	const end = Math.floor(length * P.windingEnd);
+	const falls = waterfallColumnsOf(P, shape);
 	const points = [
 		{ g: 0, y: 0 },
-		{ g: K.sourceRun, y: 0 },
+		{ g: P.sourceRun, y: 0 },
 	];
-	let g = K.sourceRun;
+	let g = P.sourceRun;
 	let y = 0;
 	let side = rng() < 0.5 ? 1 : -1;
 	let quiet = true;
@@ -228,7 +458,7 @@ export function riverCourse(seed, shape) {
 	// A wider river runs straight further each side of a waterfall, so the reaches' corners stay
 	// clear of its face.
 	const fallRun = (w) =>
-		Math.min(K.fallRun.max, Math.max(K.fallRun.min, Math.round(riverHalfWidth(w) / 2) + 1));
+		Math.min(P.fallRunMax, Math.max(P.fallRunMin, Math.round(halfWidth(w) / 2) + 1));
 	const between = ([a, b]) => a + (b - a) * rng();
 	while (g < end) {
 		const fall = falls.find((w) => w + fallRun(w) > g);
@@ -238,28 +468,31 @@ export function riverCourse(seed, shape) {
 			points.push({ g, y });
 			continue;
 		}
-		const most = (sharpestTurn / 2) * (1 - sourceBias * Math.min(1, g / end) ** K.falloff);
-		const bends = rng() < winding || quiet || reaches < K.firstBends;
+		const most = (sharpestTurn / 2) * (1 - sourceBias * Math.min(1, g / end) ** P.falloff);
+		const bends = rng() < winding || quiet || reaches < P.firstBends;
 		quiet = !bends;
 		reaches += 1;
-		const angle = (most * between(bends ? K.bend : K.quiet) * Math.PI) / 180;
-		const width = 2 * riverHalfWidth(g) + 1;
+		const share = bends ? [P.bendMin, P.bendMax] : [P.quietMin, P.quietMax];
+		const angle = (most * between(share) * Math.PI) / 180;
+		const width = 2 * halfWidth(g) + 1;
 		const t = g / end;
-		const widths = between(K.reach.atSource) * (1 - t) + between(K.reach.atEnd) * t;
-		const length = Math.min(K.reach.max, Math.max(K.reach.min, width * widths));
-		const rows = Math.min(stop - g, Math.max(2, length * Math.cos(angle)));
+		const widths =
+			between([P.reachSourceMin, P.reachSourceMax]) * (1 - t) +
+			between([P.reachEndMin, P.reachEndMax]) * t;
+		const reach = Math.min(P.reachMax, Math.max(P.reachMin, width * widths));
+		const rows = Math.min(stop - g, Math.max(2, reach * Math.cos(angle)));
 		let dy = side * Math.tan(angle) * rows;
 		// Past the limit it turns back towards the middle, and no further than the limit there.
-		if (Math.abs(y + dy) > K.wander) {
+		if (Math.abs(y + dy) > P.wander) {
 			const back = -(Math.sign(y) || side);
-			dy = back * Math.min(Math.abs(dy), K.wander + Math.abs(y));
+			dy = back * Math.min(Math.abs(dy), P.wander + Math.abs(y));
 		}
 		g += rows;
 		y += dy;
 		points.push({ g, y });
 		side = -Math.sign(dy) || -side;
 	}
-	points.push({ g: C.RIVER_LENGTH + C.SEA_LENGTH, y });
+	points.push({ g: length + C.SEA_LENGTH, y });
 	const axis = (u) => {
 		if (u <= 0) return points[0].y;
 		for (let i = 1; i < points.length; i++) {
@@ -269,8 +502,8 @@ export function riverCourse(seed, shape) {
 		}
 		return y;
 	};
-	const min = new Float64Array(C.RIVER_LENGTH).fill(Infinity);
-	const max = new Float64Array(C.RIVER_LENGTH).fill(-Infinity);
+	const min = new Float64Array(length).fill(Infinity);
+	const max = new Float64Array(length).fill(-Infinity);
 	for (let i = 1; i < points.length; i++) {
 		const a = points[i - 1];
 		const b = points[i];
@@ -278,8 +511,8 @@ export function riverCourse(seed, shape) {
 		for (let s = 0; s <= steps; s++) {
 			const u = a.g + ((b.g - a.g) * s) / steps;
 			const v = a.y + ((b.y - a.y) * s) / steps;
-			const r = riverHalfWidth(Math.min(u, C.RIVER_LENGTH - 1)) + 0.5;
-			for (let gx = Math.max(0, Math.ceil(u - r)); gx <= u + r && gx < C.RIVER_LENGTH; gx++) {
+			const r = halfWidth(Math.min(u, length - 1)) + 0.5;
+			for (let gx = Math.max(0, Math.ceil(u - r)); gx <= u + r && gx < length; gx++) {
 				const half = Math.sqrt(r * r - (gx - u) * (gx - u));
 				if (v - half < min[gx]) min[gx] = v - half;
 				if (v + half > max[gx]) max[gx] = v + half;
@@ -288,7 +521,7 @@ export function riverCourse(seed, shape) {
 	}
 	const lo = (gx) => Math.ceil(min[gx] - 1e-9);
 	const hi = (gx) => Math.floor(max[gx] + 1e-9);
-	const column = (u) => Math.min(C.RIVER_LENGTH - 1, Math.max(0, Math.floor(u)));
+	const column = (u) => Math.min(length - 1, Math.max(0, Math.floor(u)));
 	// The edge at a place is the outermost of its column's and its neighbours': a place is drawn
 	// half a cell down its column, and on a slanted reach the next column's water starts cells away.
 	const edge = (u, s) => {
@@ -304,6 +537,7 @@ export function riverCourse(seed, shape) {
 	}
 	return {
 		winding: true,
+		rows: length,
 		bends,
 		lo,
 		hi,
@@ -330,9 +564,11 @@ export function generateSalmonsMap(seed, shape) {
 	const rng = seedRandom(key);
 	const obstacles = [];
 	const bridges = [];
-	const riverLength = C.RIVER_LENGTH;
+	const P = shape?.generator ?? G;
+	const biomes = shape?.biomes;
+	const riverLength = P.riverLength;
 	const course = riverCourse(key, shape);
-	const sandStart = Math.floor(riverLength * 0.7);
+	const sandStart = sandStartOf(P);
 	/** A column's water: its first cell, how many cells wide less one, and its middle cell. */
 	const across = (gx) => {
 		const lo = course.lo(gx);
@@ -344,7 +580,7 @@ export function generateSalmonsMap(seed, shape) {
 	const told = shape?.waterfalls;
 	const Hmin = told?.heightMin ?? C.WATERFALL_HEIGHT_MIN;
 	const Hmax = told?.heightMax ?? C.WATERFALL_HEIGHT_MAX;
-	const waterfallColumns = waterfallColumnsOf(sandStart, told?.count);
+	const waterfallColumns = waterfallColumnsOf(P, shape);
 	const minWfGx = waterfallColumns[0] ?? 0;
 	const maxWfGx = waterfallColumns[waterfallColumns.length - 1] ?? 0;
 	const wfGxRange = Math.max(1, maxWfGx - minWfGx);
@@ -355,7 +591,7 @@ export function generateSalmonsMap(seed, shape) {
 			// and a waterfall is up to 4 cells under its cap.
 			const t = (gx - minWfGx) / wfGxRange;
 			const capH = Math.max(Hmin, Math.round(Hmax - (Hmax - Hmin) * t));
-			const minH = Math.max(Hmin, capH - 4);
+			const minH = Math.max(Hmin, capH - P.waterfallDrop);
 			H = minH + Math.floor(wfRng() * (capH - minH + 1));
 		} else H = Hmin + Math.floor(wfRng() * (Hmax - Hmin + 1));
 		const { hi, span } = across(gx);
@@ -365,15 +601,16 @@ export function generateSalmonsMap(seed, shape) {
 
 	const brRng = seedRandom(`${key}_bridges`);
 	const bridgeCandidates = [];
-	for (let gx = 25; gx < sandStart - 5; gx++) {
-		if (waterfallColumns.some((w) => Math.abs(gx - w) < C.BRIDGE_WATERFALL_CLEARANCE)) continue;
+	for (let gx = P.bridgeFrom; gx < sandStart - P.bridgeSandGap; gx++) {
+		if (waterfallColumns.some((w) => Math.abs(gx - w) < P.bridgeFallClearance)) continue;
+		if (biomes && !biomeAt(biomes, gx).bridges) continue;
 		bridgeCandidates.push(gx);
 	}
 	if (course.winding) {
 		// A bridge crosses where the river runs near straight, not along a reach; where it runs
 		// straight nowhere, anywhere.
 		const straight = bridgeCandidates.filter(
-			(gx) => across(gx).span <= 1.5 * (2 * riverHalfWidth(gx) + 1),
+			(gx) => across(gx).span <= 1.5 * (2 * riverHalfWidth(gx, P) + 1),
 		);
 		if (straight.length) bridgeCandidates.splice(0, bridgeCandidates.length, ...straight);
 	}
@@ -383,39 +620,44 @@ export function generateSalmonsMap(seed, shape) {
 	}
 	const bridgeCols = [];
 	for (const gx of bridgeCandidates) {
-		if (bridgeCols.length >= C.BRIDGE_MAX_COUNT) break;
-		if (bridgeCols.some((b) => Math.abs(b - gx) < C.BRIDGE_MIN_SPACING)) continue;
+		if (bridgeCols.length >= P.bridgeCount) break;
+		if (bridgeCols.some((b) => Math.abs(b - gx) < P.bridgeSpacing)) continue;
 		bridgeCols.push(gx);
 	}
 	bridgeCols.sort((a, b) => a - b);
 	for (const gx of bridgeCols) {
 		const { lo, hi } = across(gx);
-		bridges.push({ gx, gyStart: lo, gyEnd: hi, height: C.BRIDGE_HEIGHT });
+		bridges.push({ gx, gyStart: lo, gyEnd: hi, height: P.bridgeHeight });
 	}
 
 	const nearWaterfall = (gx) =>
-		waterfallColumns.some((w) => Math.abs(gx - w) <= C.WATERFALL_CLEARANCE);
+		waterfallColumns.some((w) => Math.abs(gx - w) <= P.waterfallClearance);
 	const nearBridge = (gx) => bridgeCols.some((b) => Math.abs(gx - b) <= 1);
-	for (let gx = 20; gx < sandStart; gx++) {
+	for (let gx = P.obstacleFrom; gx < sandStart; gx++) {
 		if (nearWaterfall(gx) || nearBridge(gx)) continue;
-		if (rng() < 0.3) {
+		const { chance, whirlpools } = pieceChances(P, biomes && biomeAt(biomes, gx));
+		if (rng() < chance) {
 			const { span, mid } = across(gx);
-			const offset = Math.floor((rng() * 2 - 1) * (span / 2 - 2));
-			const type = rng() < 0.2 ? 'whirlpool' : 'rock';
+			const offset = Math.floor((rng() * 2 - 1) * (span / 2 - P.obstacleMargin));
+			const type = rng() < whirlpools ? 'whirlpool' : 'rock';
 			obstacles.push({ x: gx, y: mid + offset, z: 0, type });
 		}
 	}
 
-	const sandEnd = riverLength - 10;
+	const sandEnd = riverLength - P.sandEndGap;
 	const sbRng = seedRandom(`${key}_sandCA`);
 	const validPos = new Set();
 	for (let gx = sandStart; gx <= sandEnd; gx++) {
 		const { lo, hi } = across(gx);
-		for (let gy = lo + 2; gy <= hi - 2; gy++) validPos.add(`${gx},${gy}`);
+		for (let gy = lo + P.sandMargin; gy <= hi - P.sandMargin; gy++) validPos.add(`${gx},${gy}`);
 	}
 	let sandSet = new Set();
-	for (const pos of validPos) if (sbRng() < 0.28) sandSet.add(pos);
-	for (let iter = 0; iter < 4; iter++) {
+	for (const pos of validPos) {
+		const gx = Number(pos.split(',')[0]);
+		const seeded = biomes ? P.sandSeed * biomeAt(biomes, gx).sand : P.sandSeed;
+		if (sbRng() < seeded) sandSet.add(pos);
+	}
+	for (let iter = 0; iter < P.sandPasses; iter++) {
 		const next = new Set();
 		for (const pos of validPos) {
 			const [gx, gy] = pos.split(',').map(Number);
@@ -424,7 +666,7 @@ export function generateSalmonsMap(seed, shape) {
 				for (let dy = -1; dy <= 1; dy++) {
 					if ((dx || dy) && sandSet.has(`${gx + dx},${gy + dy}`)) cnt++;
 				}
-			if (sandSet.has(pos) ? cnt >= 3 : cnt >= 4) next.add(pos);
+			if (sandSet.has(pos) ? cnt >= P.sandSurvive : cnt >= P.sandBirth) next.add(pos);
 		}
 		sandSet = next;
 	}
@@ -435,18 +677,62 @@ export function generateSalmonsMap(seed, shape) {
 	return { obstacles, bridges };
 }
 
+/**
+ * A column's chance of a rock or a whirlpool and, of those, the whirlpools' share: the generator's
+ * own (`obstacleChance`, `whirlpoolShare`) where its biome keeps both densities at 1 (or there is
+ * no biome), else each density times its own part of the generator's, at most 1 in all. The same
+ * draws either way, so a biome moves only the columns it changes.
+ */
+function pieceChances(P, kind) {
+	if (!kind || (kind.rocks === 1 && kind.whirlpools === 1))
+		return { chance: P.obstacleChance, whirlpools: P.whirlpoolShare, wanted: P.obstacleChance };
+	const rocks = P.obstacleChance * (1 - P.whirlpoolShare) * kind.rocks;
+	const pools = P.obstacleChance * P.whirlpoolShare * kind.whirlpools;
+	const both = rocks + pools;
+	return { chance: Math.min(1, both), whirlpools: both > 0 ? pools / both : 0, wanted: both };
+}
+
+/**
+ * What a level's biomes ask of it and it has no place for, told as overlay orphans are (`op:
+ * 'biome'`): a stretch that asks for more rocks, whirlpools or sand than the generator's (a
+ * density above 1) where the level places none of them (rocks and whirlpools only from
+ * `obstacleFrom` to the sand, sand only in the delta), or for more than every column or cell (its
+ * chance held at 1). Nothing is dropped: the stretch plays the density it can.
+ */
+export function biomeOrphans(shape) {
+	const biomes = shape?.biomes;
+	if (!biomes) return [];
+	const P = shape.generator ?? G;
+	const sandStart = sandStartOf(P);
+	const sandEnd = P.riverLength - P.sandEndGap;
+	const orphans = [];
+	for (const { from, to, kind } of biomeStretches(biomes, 0, P.riverLength)) {
+		const tell = (piece, reason) =>
+			orphans.push({ op: 'biome', biome: kind.id, kind: piece, rows: [from, to - 1], reason });
+		const pieces = from < sandStart && to > P.obstacleFrom;
+		const sand = from <= sandEnd && to > sandStart;
+		if (kind.rocks > 1 && !pieces) tell('rock', 'no-room');
+		if (kind.whirlpools > 1 && !pieces) tell('whirlpool', 'no-room');
+		if (pieceChances(P, kind).wanted > 1 && pieces)
+			tell(kind.rocks >= kind.whirlpools ? 'rock' : 'whirlpool', 'capped');
+		if (kind.sand > 1 && !sand) tell('sandbank', 'no-room');
+		if (P.sandSeed * kind.sand > 1 && sand) tell('sandbank', 'capped');
+	}
+	return orphans;
+}
+
 /** The kinds an overlay can add: the original's obstacle types. */
 export const OVERLAY_KINDS = Object.freeze(['rock', 'whirlpool', 'sandbank', 'waterfall']);
 
 /** Whether grid cell (gx, gy) is in the river's water (the original's `isInWater`). */
-export function inRiver(meander, gx, gy) {
-	if (gx < 0 || gx >= C.RIVER_LENGTH) return false;
-	return Math.abs(gy - Math.round(meanderAt(meander, Math.max(0, gx)))) <= riverHalfWidth(gx);
+export function inRiver(meander, gx, gy, P = G) {
+	if (gx < 0 || gx >= P.riverLength) return false;
+	return Math.abs(gy - Math.round(meanderAt(meander, Math.max(0, gx)))) <= riverHalfWidth(gx, P);
 }
 
 /** Whether grid cell (gx, gy) is in a course's water ({@link riverCourse}). */
 export function inCourse(course, gx, gy) {
-	if (!Number.isInteger(gx) || gx < 0 || gx >= C.RIVER_LENGTH) return false;
+	if (!Number.isInteger(gx) || gx < 0 || gx >= course.rows) return false;
 	return gy >= course.lo(gx) && gy <= course.hi(gx);
 }
 
@@ -547,68 +833,48 @@ function overlayRead(overlay) {
  * when the config says something of it.
  */
 export function seedLevels(levels, seed) {
-	const shape = levelShape(levels);
+	const shape = levelShape(levels, seed);
 	const falls = shape?.waterfalls;
 	const overlay = overlayRead(levelOverlay(levels, seed));
 	return {
 		...(shape?.river ? { river: shape.river } : {}),
 		...(falls && Object.keys(falls).length ? { waterfalls: falls } : {}),
 		...(overlay ? { overlays: { '*': overlay } } : {}),
+		...(shape?.generator ? { generator: shape.generator } : {}),
+		...(shape?.biomes ? { biomes: seedBiomes(shape.biomes) } : {}),
 	};
 }
 
-/** Rows of world above the river's first column (the source) and below its last (the sea). */
-const SOURCE_ROWS = 5;
-const SEA_ROWS = 6;
-/** Cells of bank and forest past the widest water on each side: the bears' and fishermen's room. */
-const BANK_CELLS = 14;
-/** Where the original spawns salmon: ten columns above the sea. */
-const SPAWN_GX = C.RIVER_LENGTH - 10;
 /** A waterfall's thickness, px, straddling the top of its column (as `salmons.js`). */
 const FALL_H = 40;
-/** The whirlpool's drawn radius, px (the art's own size). */
-const WHIRLPOOL_R = 90;
-/** The original's catcher spawn (`server/index.js` `findCatcherSpawn`), cells: tries per place,
- *  the columns it keeps clear at each end, how far past the water's edge (`halfW + 3 + rand · 5`),
- *  how far from another catcher, and the fallback (column 200, `halfW + 5` off the axis). */
-const CATCHER_SPAWN = Object.freeze({
-	tries: 30,
-	ends: 30,
-	past: 3,
-	spread: 5,
-	apart: 15,
-	fallbackGx: 200,
-	fallbackPast: 5,
-});
-/** How many catcher places a level offers at most: the room picks one at random at each spawn. */
-const CATCHER_PLACES = 32;
-/** How far across the axis the original spawns a salmon: `(rand − 0.5) · halfW · 0.8`. */
-const SALMON_SPREAD = 0.4;
+/** The original's catcher fallback when no try finds a place (`server/index.js`): column 200 (or
+ *  the last, on a shorter river), `halfW + 5` off the axis. */
+const CATCHER_FALLBACK = Object.freeze({ gx: 200, past: 5 });
 
 /**
  * The original's catcher spawns (`server/index.js` `findCatcherSpawn`), drawn from the seed: each
- * place is its first of {@link CATCHER_SPAWN}`.tries` tries at least `apart` cells from the places
- * before it, else the list ends (the original's fallback when there is none). Grid cells.
+ * place is its first of `catcherTries` tries at least `catcherApart` cells from the places before
+ * it, `catcherEnds` columns clear of each end and `catcherPast` + up to `catcherSpread` cells past
+ * the water's edge, else the list ends (the original's fallback when there is none). Grid cells.
  */
-function catcherPlaces(key, course) {
+function catcherPlaces(key, course, P) {
 	const rng = seedRandom(`${key}_catchers`);
-	const S = CATCHER_SPAWN;
 	const places = [];
-	while (places.length < CATCHER_PLACES) {
+	while (places.length < P.catcherPlaces) {
 		let found;
-		for (let t = 0; t < S.tries && !found; t++) {
-			const gx = S.ends + rng() * (C.RIVER_LENGTH - 2 * S.ends);
+		for (let t = 0; t < P.catcherTries && !found; t++) {
+			const gx = P.catcherEnds + rng() * (P.riverLength - 2 * P.catcherEnds);
 			const side = rng() < 0.5 ? -1 : 1;
-			const gy = course.past(gx, side, S.past, rng() * S.spread);
-			if (places.every((p) => (p.gx - gx) ** 2 + (p.gy - gy) ** 2 >= S.apart ** 2))
+			const gy = course.past(gx, side, P.catcherPast, rng() * P.catcherSpread);
+			if (places.every((p) => (p.gx - gx) ** 2 + (p.gy - gy) ** 2 >= P.catcherApart ** 2))
 				found = { gx, gy };
 		}
 		if (!found) break;
 		places.push(found);
 	}
 	if (!places.length) {
-		const gx = S.fallbackGx;
-		places.push({ gx, gy: course.edge(gx, 1) + S.fallbackPast });
+		const gx = Math.min(CATCHER_FALLBACK.gx, P.riverLength - 1);
+		places.push({ gx, gy: course.edge(gx, 1) + CATCHER_FALLBACK.past });
 	}
 	return places;
 }
@@ -625,18 +891,22 @@ function catcherPlaces(key, course) {
  */
 export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay, shape) {
 	const key = String(seed);
+	const P = shape?.generator ?? G;
 	const course = riverCourse(key, shape);
-	const { map, orphans } = applySalmonsOverlay(generateSalmonsMap(key, shape), overlay, key, shape);
+	const applied = applySalmonsOverlay(generateSalmonsMap(key, shape), overlay, key, shape);
+	const { map } = applied;
+	const orphans = [...applied.orphans, ...biomeOrphans(shape)];
 	const columns = [];
-	for (let gx = 0; gx < C.RIVER_LENGTH; gx++)
+	for (let gx = 0; gx < P.riverLength; gx++)
 		columns.push({ gx, lo: course.lo(gx), hi: course.hi(gx) });
-	const gyMin = Math.min(...columns.map((c) => c.lo)) - BANK_CELLS;
-	const gyMax = Math.max(...columns.map((c) => c.hi)) + BANK_CELLS;
+	const gyMin = Math.min(...columns.map((c) => c.lo)) - P.bankCells;
+	const gyMax = Math.max(...columns.map((c) => c.hi)) + P.bankCells;
 	const xOf = (gy) => (gy - gyMin) * CELL;
-	const yOf = (gx) => (gx + SOURCE_ROWS) * CELL;
+	const yOf = (gx) => (gx + P.sourceRows) * CELL;
+	const spawnGx = P.riverLength - P.salmonSpawnAbove;
 	const world = {
 		w: (gyMax - gyMin + 1) * CELL,
-		h: (SOURCE_ROWS + C.RIVER_LENGTH + SEA_ROWS) * CELL,
+		h: (P.sourceRows + P.riverLength + P.seaRows) * CELL,
 	};
 	const current = Math.round(C.CURRENT_STRENGTH * CELL);
 
@@ -661,12 +931,12 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay, shape) {
 	const centreOf = (o) => ({ x: xOf(o.y) + CELL / 2, y: yOf(o.x) + CELL / 2 });
 	const whirlpools = byType('whirlpool').map((o) => ({
 		...centreOf(o),
-		r: WHIRLPOOL_R,
+		r: P.whirlpoolRadius,
 		spin: (o.x + o.y) % 2 ? 1 : -1,
 	}));
 	const rocks = byType('rock').map((o) => {
 		const c = centreOf(o);
-		const size = CELL * 1.5;
+		const size = CELL * P.rockSize;
 		return { x: c.x - size / 2, y: c.y - size / 2, w: size, h: size };
 	});
 	const sandCells = byType('sandbank')
@@ -683,16 +953,16 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay, shape) {
 		.map((f) => ({ x: 0, y: yOf(f.gx) - FALL_H / 2, w: world.w, h: FALL_H, height: f.height }));
 
 	const top = bands[0];
-	const spawnCol = columns[SPAWN_GX];
+	const spawnCol = columns[spawnGx];
 	const at = ({ gx, gy }) => ({
 		x: Math.round(xOf(gy) + CELL / 2),
 		y: Math.round(yOf(gx) + CELL / 2),
 	});
-	const botSpawns = catcherPlaces(key, course).map(at);
-	const spread = Math.floor(SALMON_SPREAD * riverHalfWidth(SPAWN_GX));
+	const botSpawns = catcherPlaces(key, course, P).map(at);
+	const spread = Math.floor(P.salmonSpread * riverHalfWidth(spawnGx, P));
 	const salmonSpawns = [];
 	for (let k = -spread; k <= spread; k++)
-		salmonSpawns.push(at({ gx: SPAWN_GX, gy: course.axis(SPAWN_GX) + k }));
+		salmonSpawns.push(at({ gx: spawnGx, gy: course.axis(spawnGx) + k }));
 	return {
 		seed: typeof seed === 'number' ? seed : key,
 		generator: 'salmonsMap',
@@ -707,9 +977,9 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay, shape) {
 			h: CELL,
 		})),
 		waterfalls,
-		source: { x: top.left, y: 0, w: top.right - top.left, h: SOURCE_ROWS * CELL },
-		sea: { x: 0, y: yOf(C.RIVER_LENGTH), w: world.w, h: SEA_ROWS * CELL },
-		spawn: { x: xOf(Math.round((spawnCol.lo + spawnCol.hi) / 2)) + CELL / 2, y: yOf(SPAWN_GX) },
+		source: { x: top.left, y: 0, w: top.right - top.left, h: P.sourceRows * CELL },
+		sea: { x: 0, y: yOf(P.riverLength), w: world.w, h: P.seaRows * CELL },
+		spawn: { x: xOf(Math.round((spawnCol.lo + spawnCol.hi) / 2)) + CELL / 2, y: yOf(spawnGx) },
 		salmonSpawns,
 		botSpawns,
 		bridges: map.bridges.map((b) => ({
@@ -719,8 +989,9 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay, shape) {
 			h: CELL,
 			height: b.height,
 		})),
-		grid: { cell: CELL, gyMin, sourceRows: SOURCE_ROWS },
+		grid: { cell: CELL, gyMin, sourceRows: P.sourceRows },
 		orphans,
+		...(shape?.biomes ? { biomes: shape.biomes } : {}),
 	};
 }
 
@@ -743,7 +1014,7 @@ const ACROSS_DEG = 45;
  * - `passage`: the least run of cells two neighbouring columns share, cells (a salmon's centre
  *   needs one cell).
  */
-export function courseFacts(river) {
+export function courseFacts(river, P = G) {
 	const rows = [];
 	for (const band of river.bands)
 		for (let k = 0; k < Math.round(band.h / CELL); k++)
@@ -783,7 +1054,7 @@ export function courseFacts(river) {
 	};
 	const across = [];
 	for (let i = 0; i < n; i++) {
-		narrowest = Math.min(narrowest, widthAt(i) / (2 * riverHalfWidth(i) + 1));
+		narrowest = Math.min(narrowest, widthAt(i) / (2 * riverHalfWidth(i, P) + 1));
 		if (i)
 			passage = Math.min(
 				passage,

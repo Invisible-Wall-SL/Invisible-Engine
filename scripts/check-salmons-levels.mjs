@@ -20,16 +20,29 @@ import { fileURLToPath } from 'node:url';
 import { seedRandom } from '../packages/engine-mechanics/src/seedrandom.js';
 import {
 	CELL,
+	SALMONS_MAP,
 	SALMONS_MAP_SEED,
 	applySalmonsOverlay,
 	buildMeanderTable,
 	generateSalmonsMap,
+	SALMONS_GENERATOR,
+	SALMONS_GENERATOR_LIMITS,
+	biomeOrphans,
+	generatorParams,
 	inRiver,
 	levelOverlay,
+	levelShape,
 	meanderAt as meanderAtOf,
 	riverHalfWidth,
 	salmonsMapRiver,
+	seedLevels,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
+import {
+	SALMONS_BIOMES,
+	biomeAt,
+	biomeStretches,
+	resolveBiomes,
+} from '../packages/engine-mechanics/src/salmonsBiomes.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import {
 	ONLINE_GENERATORS,
@@ -39,9 +52,16 @@ import {
 import { FIELD_DRAWINGS } from '../packages/engine-layout/src/lib/referenceLayouts/salmonsRiver.ts';
 import { drawGeneratedLevel } from '../apps/launcher-api/src/lib/editor/generatedLevelCore.ts';
 import {
+	LEVELS_GENERATOR_DEFAULTS,
 	normalizeGameConfigDoc,
+	normalizeLevelsBiomes,
+	normalizeLevelsGenerator,
+	normalizeShapedLevels,
 	onlineGameOf,
 	playedOnlineGame,
+	shapedOnlineGame,
+	validateLevelsShape,
+	withLevelsShape,
 } from '../packages/game-config/index.ts';
 import { normalizeLevels } from '../packages/game-config/src/family.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
@@ -100,7 +120,7 @@ check("a seed makes the original's map, piece for piece (and its meander)", () =
 });
 
 check('the generator is pure: no Math.random, no I/O', () => {
-	for (const file of ['salmonsMap.js', 'seedrandom.js']) {
+	for (const file of ['salmonsMap.js', 'salmonsBiomes.js', 'seedrandom.js']) {
 		const code = readFileSync(join(ROOT, 'packages/engine-mechanics/src', file), 'utf8')
 			.replace(/\/\*[\s\S]*?\*\//g, '')
 			.replace(/\/\/.*$/gm, '');
@@ -165,6 +185,357 @@ check('a room, a device and /editor make the same level from the same seed', () 
 		assert.deepEqual(editor.node.generated, { generator: 'salmonsMap', seed });
 		assert.equal(editor.node.locked, true, 'read-only in /editor');
 	}
+});
+
+// --- The generator's settings and the biomes, from the config (2026-11-26) ---------------------
+
+/** A river without the field only an authored biomes block adds. */
+const bare = (river) => {
+	const plain = { ...river };
+	delete plain.biomes;
+	return plain;
+};
+/** What a seed's level is made of: the generator's map, and the river the engine plays. */
+const levelOf = (seed, levels) => {
+	const shape = levelShape(levels, seed);
+	return {
+		map: sha(JSON.stringify(generateSalmonsMap(String(seed), shape))),
+		river: sha(JSON.stringify(bare(salmonsMapRiver(seed, levelOverlay(levels, seed), shape)))),
+	};
+};
+
+check('every generator setting defaults to the original’s: the recorded maps do not move', () => {
+	assert.deepEqual(generatorParams({}), { ...SALMONS_GENERATOR });
+	assert.deepEqual(generatorParams(undefined), { ...SALMONS_GENERATOR });
+	assert.equal(LEVELS_GENERATOR_DEFAULTS, SALMONS_GENERATOR, 'Game Config reads the same table');
+	const M = SALMONS_MAP;
+	const G = SALMONS_GENERATOR;
+	assert.deepEqual(
+		[G.riverLength, G.sourceHalfWidth, G.mouthHalfWidth, G.deltaStart, G.meanderAmp],
+		[
+			M.RIVER_LENGTH,
+			M.RIVER_WIDTH_END,
+			M.RIVER_WIDTH_START,
+			M.DELTA_START_FRAC,
+			M.RIVER_MEANDER_AMP,
+		],
+	);
+	assert.deepEqual(
+		[G.meanderFreq, G.waterfallClearance, G.bridgeCount, G.bridgeHeight, G.bridgeFallClearance],
+		[
+			M.RIVER_MEANDER_FREQ,
+			M.WATERFALL_CLEARANCE,
+			M.BRIDGE_MAX_COUNT,
+			M.BRIDGE_HEIGHT,
+			M.BRIDGE_WATERFALL_CLEARANCE,
+		],
+	);
+	assert.equal(G.bridgeSpacing, M.BRIDGE_MIN_SPACING);
+	for (const [key, [lo, hi]] of Object.entries(SALMONS_GENERATOR_LIMITS))
+		assert.ok(lo <= SALMONS_GENERATOR[key] && SALMONS_GENERATOR[key] <= hi, `${key} in its limits`);
+	assert.deepEqual(Object.keys(SALMONS_GENERATOR_LIMITS), Object.keys(SALMONS_GENERATOR));
+	const every = { generator: { ...SALMONS_GENERATOR } };
+	for (const [seed, want] of Object.entries(FIXTURE.maps)) {
+		for (const levels of [{ generator: {} }, every, { biomes: {} }, { generator: {}, biomes: {} }])
+			assert.equal(
+				levelOf(seed, levels).map,
+				want.sha256,
+				`map "${seed}" with ${JSON.stringify(levels).slice(0, 40)}`,
+			);
+		assert.equal(levelOf(seed, every).river, levelOf(seed, undefined).river, `river "${seed}"`);
+	}
+	// A winding river (Salmons' shipped one) too.
+	const shipped = { river: {}, waterfalls: { count: 6, heightMin: 5, heightMax: 10 } };
+	for (const seed of [3, 77])
+		assert.deepEqual(
+			levelOf(seed, { ...shipped, ...every, biomes: {} }),
+			levelOf(seed, shipped),
+			`winding seed ${seed}`,
+		);
+});
+
+check('authored generator settings take effect, deterministically, held to their limits', () => {
+	const tuned = {
+		riverLength: 300,
+		sourceHalfWidth: 5,
+		obstacleChance: 0.6,
+		whirlpoolShare: 0.5,
+		rockSize: 2,
+		whirlpoolRadius: 60,
+		bridgeCount: 0,
+		sourceRows: 8,
+		seaRows: 9,
+		bankCells: 20,
+		sandSeed: 0.4,
+		salmonSpawnAbove: 20,
+		catcherPlaces: 5,
+	};
+	const make = (seed) => ONLINE_GENERATORS.salmonsMap.make(seed, { generator: tuned });
+	const river = make(11);
+	const original = salmonsMapRiver(11);
+	assert.deepEqual(make(11), river, 'the same settings make the same level');
+	assert.equal(river.world.h, (8 + 300 + 9) * CELL);
+	assert.equal(river.grid.sourceRows, 8);
+	assert.equal(river.sea.y, (8 + 300) * CELL);
+	assert.equal(river.bridges.length, 0);
+	assert.ok(
+		river.rocks.every((r) => r.w === 2 * CELL && r.h === 2 * CELL),
+		'rocks 2 cells',
+	);
+	assert.ok(
+		river.whirlpools.every((w) => w.r === 60),
+		'whirlpools of radius 60',
+	);
+	const pieces = (r) => r.rocks.length + r.whirlpools.length;
+	assert.ok(pieces(river) > pieces(original), 'a higher chance, more pieces');
+	assert.ok(river.whirlpools.length > original.whirlpools.length, 'a larger share, more pools');
+	assert.ok(river.botSpawns.length <= 5, 'at most 5 catcher places');
+	assert.equal(river.spawn.y, (300 - 20 + 8) * CELL, 'the salmon line 20 above the sea');
+	assert.equal(river.bands[0].right - river.bands[0].left, (2 * 5 + 1) * CELL, 'a wider source');
+	// The rules' bounds follow the river's own length.
+	const game = generatedOnlineGame(onlineGameOf(authored), 11);
+	const shaped = generatedOnlineGame(
+		{
+			...onlineGameOf(authored),
+			online: { ...onlineGameOf(authored).online, levels: { generator: tuned } },
+		},
+		11,
+	);
+	const seaBear = (g) => g.zones.find((z) => z.id === 'seabear');
+	assert.ok(seaBear(shaped.game).y < seaBear(game.game).y, 'the sea bound moves up the world');
+	// Out of the limits: held to them, never broken.
+	const held = generatorParams({ riverLength: 5, sandSeed: 9, fallRunMin: 9, fallRunMax: 2 });
+	assert.equal(held.riverLength, SALMONS_GENERATOR_LIMITS.riverLength[0]);
+	assert.equal(held.sandSeed, 1);
+	assert.deepEqual([held.fallRunMin, held.fallRunMax], [2, 9], 'a pair the wrong way is swapped');
+	assert.deepEqual(normalizeLevelsGenerator({ riverLength: 5, sandSeed: 0.5, bankCells: 13.5 }), {
+		sandSeed: 0.5,
+	});
+	const doc = {
+		arcade: {
+			online: { generator: 'salmonsMap', levels: { generator: { riverLength: 5, nope: 1 } } },
+		},
+	};
+	assert.deepEqual(
+		validateLevelsShape(doc).map((i) => i.path),
+		['arcade.online.levels.generator.riverLength', 'arcade.online.levels.generator.nope'],
+	);
+	// At the limits' corners the level is still made whole.
+	for (const pick of [0, 1]) {
+		const corner = Object.fromEntries(
+			Object.entries(SALMONS_GENERATOR_LIMITS).map(([k, l]) => [k, l[pick]]),
+		);
+		for (const levels of [{ generator: corner }, { generator: corner, river: {} }]) {
+			const r = ONLINE_GENERATORS.salmonsMap.make(5, levels);
+			assert.ok(r.bands.length > 0 && r.salmonSpawns.length > 0 && r.botSpawns.length > 0);
+		}
+	}
+});
+
+/** The original's forest, as `salmonsArt/river.ts` drew it before biomes were data (a404522). */
+const OLD_PAIRS = [
+	[0, 1],
+	[2, 3],
+	[4, 5],
+	[0, 3],
+	[1, 4],
+	[2, 5],
+];
+const OLD_RIVERBED = [
+	0xb89968, 0xc4a576, 0xa88858, 0xd0b487, 0xb09060, 0xc8a878, 0xa07050, 0xb88f5d, 0xc59f70,
+];
+
+check('the default biomes are the original’s cycle: six pairs of trees, every 35 columns', () => {
+	const biomes = resolveBiomes({}, 1);
+	assert.equal(biomes.cycle, 35);
+	assert.equal(biomes.sequence, undefined);
+	for (let gx = -120; gx < 700; gx++) {
+		const old = OLD_PAIRS[((Math.floor(gx / 35) % 6) + 6) % 6];
+		assert.deepEqual(biomeAt(biomes, gx).trees, old, `column ${gx}`);
+	}
+	for (const kind of biomes.kinds) {
+		assert.equal(kind.forestFloor, '#28591e');
+		assert.deepEqual(
+			kind.riverbed.map((c) => parseInt(c.slice(1), 16)),
+			OLD_RIVERBED,
+		);
+		assert.deepEqual(
+			[kind.treeChance, kind.grass, kind.grass + 1, kind.grass + kind.forest, kind.grassTint],
+			[0.07, 5, 6, 17, '#ffffff'],
+			'TREE_CHANCE, GRASS_CELLS, FOREST_FROM, FOREST_TO, no tint',
+		);
+		assert.deepEqual(
+			[kind.rocks, kind.whirlpools, kind.sand, kind.waterfalls, kind.bridges],
+			[1, 1, 1, 1, true],
+		);
+	}
+	assert.deepEqual(
+		biomes.kinds.map((k) => k.id),
+		SALMONS_BIOMES.map((b) => b.id),
+	);
+	assert.equal(resolveBiomes(undefined, 1), undefined, 'no block: no biomes');
+});
+
+/** Two authored biomes and their sequence along the river. */
+const BIOMES = {
+	kinds: [
+		{ id: 'rapids', rocks: 3, whirlpools: 3, trees: [2], forestFloor: '#3A2F1E' },
+		{ id: 'meadow', rocks: 0, whirlpools: 0, sand: 0, waterfalls: 0, bridges: false },
+		{ id: 'forest1', treeChance: 0.2 },
+	],
+	sequences: {
+		'*': [
+			{ from: 150, biome: 'meadow' },
+			{ from: 0, biome: 'rapids' },
+			{ from: 270, biome: 'forest1' },
+			{ from: 300, biome: 'nowhere' },
+		],
+		12: [{ from: 0, biome: 'meadow' }],
+	},
+};
+
+check('biomes set each stretch’s density: rocks, whirlpools, sand, waterfalls, bridges', () => {
+	const biomes = resolveBiomes(BIOMES, 5);
+	assert.deepEqual(biomes.sequence, [
+		{ from: 0, biome: 'rapids' },
+		{ from: 150, biome: 'meadow' },
+		{ from: 270, biome: 'forest1' },
+	]);
+	assert.deepEqual(resolveBiomes(BIOMES, 12).sequence, [{ from: 0, biome: 'meadow' }]);
+	assert.equal(biomeAt(biomes, -40).id, 'rapids', 'above the first entry: the first');
+	assert.equal(biomeAt(biomes, 2000).id, 'forest1');
+	const kind = biomes.kinds.find((k) => k.id === 'forest1');
+	assert.deepEqual(kind.trees, [0, 1], 'a built-in id keeps the rest of its own');
+	assert.equal(kind.treeChance, 0.2);
+	assert.equal(biomes.kinds[0].forestFloor, '#3a2f1e');
+	const counts = { rapids: 0, meadow: 0, base: 0 };
+	for (const seed of [1, 2, 3, 4, 5, 6]) {
+		const levels = { biomes: BIOMES };
+		const river = ONLINE_GENERATORS.salmonsMap.make(seed, levels);
+		assert.deepEqual(ONLINE_GENERATORS.salmonsMap.make(seed, levels), river, 'deterministic');
+		const original = salmonsMapRiver(seed);
+		const gxOf = (y) => Math.floor(y / CELL) - river.grid.sourceRows;
+		const at = (pieces, from, to) =>
+			pieces.filter((p) => gxOf(p.y) >= from && gxOf(p.y) < to).length;
+		const pieces = (r) => [...r.rocks, ...r.whirlpools];
+		counts.rapids += at(pieces(river), 0, 150);
+		counts.base += at(pieces(original), 0, 150);
+		counts.meadow += at(pieces(river), 150, 270);
+		assert.equal(at(river.waterfalls, 151, 270), 0, 'the meadow keeps none of its waterfalls');
+		assert.equal(at(river.bridges, 150, 270), 0, 'no bridge crosses the meadow');
+		assert.equal(at(river.sandbanks, 150, 270), 0, 'no sand in the meadow');
+		assert.equal(
+			sha(JSON.stringify(river.sandbanks.filter((b) => gxOf(b.y) >= 270))),
+			sha(JSON.stringify(original.sandbanks.filter((b) => gxOf(b.y) >= 270))),
+			'below the meadow, the sand of the original',
+		);
+	}
+	assert.equal(counts.meadow, 0, 'the meadow has no rocks or whirlpools');
+	assert.ok(
+		counts.rapids > 2 * counts.base,
+		`${counts.rapids} pieces in the rapids, ${counts.base}`,
+	);
+	// Densities of 1 are the generator's own: looks alone move nothing a room plays.
+	const looks = {
+		kinds: [
+			{ id: 'pale', trees: [3], forestFloor: '#101010', grassTint: '#ffeecc', grass: 2 },
+			{ id: 'dark', riverbed: ['#000000'], forest: 3 },
+		],
+		cycle: 20,
+	};
+	for (const [seed, want] of Object.entries(FIXTURE.maps))
+		assert.equal(levelOf(seed, { biomes: looks }).map, want.sha256, `looks only, "${seed}"`);
+});
+
+check('a biome’s density the level has no room for is told as an orphan, never dropped', () => {
+	const shape = levelShape(
+		{
+			biomes: {
+				kinds: [
+					{ id: 'top', sand: 3 },
+					{ id: 'delta', rocks: 3, whirlpools: 2 },
+					{ id: 'flood', sand: 3 },
+					{ id: 'plain' },
+				],
+				sequences: {
+					'*': [
+						{ from: 0, biome: 'top' },
+						{ from: 250, biome: 'plain' },
+						{ from: 300, biome: 'delta' },
+						{ from: 350, biome: 'flood' },
+					],
+				},
+			},
+			generator: { sandSeed: 0.5 },
+		},
+		1,
+	);
+	assert.deepEqual(biomeOrphans(shape), [
+		{ op: 'biome', biome: 'top', kind: 'sandbank', rows: [0, 249], reason: 'no-room' },
+		{ op: 'biome', biome: 'delta', kind: 'rock', rows: [300, 349], reason: 'no-room' },
+		{ op: 'biome', biome: 'delta', kind: 'whirlpool', rows: [300, 349], reason: 'no-room' },
+		{ op: 'biome', biome: 'flood', kind: 'sandbank', rows: [350, 399], reason: 'capped' },
+	]);
+	const river = salmonsMapRiver(1, undefined, shape);
+	assert.deepEqual(
+		river.orphans.filter((o) => o.op === 'biome'),
+		biomeOrphans(shape),
+		'the level lists them with the overlay’s',
+	);
+	assert.deepEqual(salmonsMapRiver(1).orphans, [], 'none without biomes');
+	const stretches = biomeStretches(shape.biomes, 0, 400).map(({ from, to, kind }) => [
+		from,
+		to,
+		kind.id,
+	]);
+	assert.deepEqual(stretches, [
+		[0, 250, 'top'],
+		[250, 300, 'plain'],
+		[300, 350, 'delta'],
+		[350, 400, 'flood'],
+	]);
+});
+
+check('a room, a device and /editor make the same level and biomes for authored settings', () => {
+	const raw = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED), {
+		levels: { generator: { riverLength: 280, bridgeCount: 2 }, biomes: BIOMES },
+	});
+	const doc = normalizeGameConfigDoc(raw);
+	const game = shapedOnlineGame(onlineGameOf(doc), raw);
+	// The launcher's load (normalized, carried back), the editor's own read of it.
+	const stored = withLevelsShape(doc, raw);
+	const editorLevels = normalizeShapedLevels(stored.arcade.online.levels);
+	assert.deepEqual(editorLevels.generator, { riverLength: 280, bridgeCount: 2 });
+	assert.deepEqual(editorLevels.biomes, normalizeLevelsBiomes(BIOMES));
+	for (const seed of [0, 12, 99]) {
+		const sim = createRoomSim(game, { seed });
+		const device = generatedOnlineGame(game, seed);
+		assert.deepEqual(sim.game.zones, device.game.zones, `room vs device zones, seed ${seed}`);
+		assert.deepEqual(sim.made.biomes, device.made.biomes, `room vs device biomes, seed ${seed}`);
+		const editor = drawGeneratedLevel(
+			ONLINE_GENERATORS,
+			FIELD_DRAWINGS,
+			'salmonsMap',
+			seed,
+			editorLevels,
+		);
+		assert.deepEqual(editor.made, device.made, `editor vs device level, seed ${seed}`);
+		assert.ok(
+			editor.node.children.some((c) => c.id === 'river-biome-0-left'),
+			'the editor marks the stretches',
+		);
+		// What a room says is itself again: a device reading it makes the very same level.
+		const said = JSON.parse(JSON.stringify(seedLevels(game.online.levels, seed)));
+		assert.deepEqual(levelShape(said, seed), levelShape(game.online.levels, seed));
+		assert.deepEqual(ONLINE_GENERATORS.salmonsMap.make(seed, said), device.made);
+	}
+	assert.deepEqual(
+		validateLevelsShape({
+			arcade: { online: { generator: 'salmonsMap', levels: { biomes: BIOMES } } },
+		}).map((i) => i.path),
+		['arcade.online.levels.biomes.sequences.*'],
+		'a sequence entry naming no biome is warned of',
+	);
 });
 
 const meander = buildMeanderTable('5');

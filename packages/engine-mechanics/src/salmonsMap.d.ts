@@ -1,6 +1,7 @@
 /** Types for `salmonsMap.js`, Salmons' original level generator. Pinned by `scripts/check-salmons-levels.mjs`. */
 
 import type { SalmonsRect, SalmonsRiver } from './salmons';
+import type { SalmonsBiomes, SalmonsBiomesBlock } from './salmonsBiomes';
 
 export const SALMONS_MAP: Readonly<Record<string, number>>;
 export const CELL: 48;
@@ -27,18 +28,110 @@ export type SalmonsOverlay = {
 	set?: { cell: SalmonsCell; height: number }[];
 };
 /** An overlay entry the level it was applied to has no place for: kept, not applied. */
-export type SalmonsOrphan = { op: 'add' | 'remove' | 'set'; cell: SalmonsCell; kind?: string };
+export type SalmonsOverlayOrphan = {
+	op: 'add' | 'remove' | 'set';
+	cell: SalmonsCell;
+	kind?: string;
+};
+/** A biome's density the level has no place for (`biomeOrphans`): over its stretch's columns
+ *  `rows` (first and last), `no-room` where the level places none of `kind`, `capped` where it
+ *  asks for more than every column or cell. */
+export type SalmonsBiomeOrphan = {
+	op: 'biome';
+	biome: string;
+	kind: 'rock' | 'whirlpool' | 'sandbank';
+	rows: [number, number];
+	reason: 'no-room' | 'capped';
+};
+export type SalmonsOrphan = SalmonsOverlayOrphan | SalmonsBiomeOrphan;
+
+/** Every number that shapes a level (`levels.generator`). */
+export type SalmonsGeneratorParams = Record<SalmonsGeneratorParam, number>;
+export type SalmonsGeneratorParam =
+	| 'riverLength'
+	| 'sourceHalfWidth'
+	| 'mouthHalfWidth'
+	| 'deltaStart'
+	| 'deltaFlare'
+	| 'meanderAmp'
+	| 'meanderFreq'
+	| 'sandStart'
+	| 'sandEndGap'
+	| 'sandSeed'
+	| 'sandPasses'
+	| 'sandBirth'
+	| 'sandSurvive'
+	| 'sandMargin'
+	| 'obstacleFrom'
+	| 'obstacleChance'
+	| 'whirlpoolShare'
+	| 'obstacleMargin'
+	| 'rockSize'
+	| 'whirlpoolRadius'
+	| 'waterfallFrom'
+	| 'waterfallEvery'
+	| 'waterfallClearance'
+	| 'waterfallDrop'
+	| 'bridgeCount'
+	| 'bridgeHeight'
+	| 'bridgeFrom'
+	| 'bridgeFallClearance'
+	| 'bridgeSpacing'
+	| 'bridgeSandGap'
+	| 'sourceRun'
+	| 'fallRunMin'
+	| 'fallRunMax'
+	| 'windingEnd'
+	| 'reachMin'
+	| 'reachMax'
+	| 'reachSourceMin'
+	| 'reachSourceMax'
+	| 'reachEndMin'
+	| 'reachEndMax'
+	| 'wander'
+	| 'bendMin'
+	| 'bendMax'
+	| 'quietMin'
+	| 'quietMax'
+	| 'firstBends'
+	| 'falloff'
+	| 'sourceRows'
+	| 'seaRows'
+	| 'bankCells'
+	| 'salmonSpawnAbove'
+	| 'salmonSpread'
+	| 'catcherPlaces'
+	| 'catcherTries'
+	| 'catcherEnds'
+	| 'catcherPast'
+	| 'catcherSpread'
+	| 'catcherApart';
+export const SALMONS_GENERATOR: Readonly<SalmonsGeneratorParams>;
+export const SALMONS_GENERATOR_LIMITS: Readonly<
+	Record<SalmonsGeneratorParam, readonly [number, number]>
+>;
+export const SALMONS_GENERATOR_WHOLE: readonly SalmonsGeneratorParam[];
+export const SALMONS_GENERATOR_PAIRS: readonly (readonly [
+	SalmonsGeneratorParam,
+	SalmonsGeneratorParam,
+])[];
+export function generatorParams(raw: unknown): SalmonsGeneratorParams;
 /** A config's `arcade.online.levels`: pinned seeds, and overlays by seed (`'*'`: every level). */
 export type SalmonsLevels = {
 	seeds?: number[];
 	overlays?: Record<string, SalmonsOverlay>;
 	river?: { winding?: number; sharpestTurn?: number; sourceBias?: number };
 	waterfalls?: { count?: number; heightMin?: number; heightMax?: number };
+	generator?: Partial<SalmonsGeneratorParams>;
+	biomes?: SalmonsBiomesBlock;
 };
-/** `levels` as the generator reads it: every river field set, heights whole and ordered. */
+/** `levels` as the generator reads it: every river field set, heights whole and ordered, every
+ *  generator parameter set, and the seed's biomes. */
 export type SalmonsShape = {
 	river?: { winding: number; sharpestTurn: number; sourceBias: number };
 	waterfalls?: { count?: number; heightMin?: number; heightMax?: number };
+	generator?: SalmonsGeneratorParams;
+	biomes?: SalmonsBiomes;
 };
 export const RIVER_SHAPE: Readonly<{ winding: number; sharpestTurn: number; sourceBias: number }>;
 export const RIVER_SHAPE_LIMITS: Readonly<
@@ -47,10 +140,16 @@ export const RIVER_SHAPE_LIMITS: Readonly<
 		readonly [number, number]
 	>
 >;
-export function levelShape(levels: SalmonsLevels | undefined): SalmonsShape | undefined;
+export function levelShape(
+	levels: SalmonsLevels | undefined,
+	seed?: string | number,
+): SalmonsShape | undefined;
+export function biomeOrphans(shape: SalmonsShape | undefined): SalmonsBiomeOrphan[];
 /** Where a river's water is, column by column (`salmonsMap.js` `riverCourse`). */
 export type SalmonsCourse = {
 	winding: boolean;
+	/** The river's columns. */
+	rows: number;
 	/** A winding course's turns, from the source down: where, and by how many degrees. */
 	bends?: { gx: number; deg: number }[];
 	lo(gx: number): number;
@@ -70,7 +169,10 @@ export type SalmonsCourseFacts = {
 	narrowest: number;
 	passage: number;
 };
-export function courseFacts(river: Pick<SalmonsRiver, 'bands'>): SalmonsCourseFacts;
+export function courseFacts(
+	river: Pick<SalmonsRiver, 'bands'>,
+	params?: SalmonsGeneratorParams,
+): SalmonsCourseFacts;
 
 export type SalmonsMapRiver = SalmonsRiver & {
 	generator: 'salmonsMap';
@@ -81,13 +183,23 @@ export type SalmonsMapRiver = SalmonsRiver & {
 	/** World px of grid cell (gx, gy): x = (gy − gyMin) · cell, y = (gx + sourceRows) · cell. */
 	grid: { cell: number; gyMin: number; sourceRows: number };
 	orphans: SalmonsOrphan[];
+	/** The seed's biomes, when the config has a `biomes` block. */
+	biomes?: SalmonsBiomes;
 };
 
-export function buildMeanderTable(seed: string | number): Float32Array;
-export function riverHalfWidth(u: number): number;
+export function buildMeanderTable(
+	seed: string | number,
+	params?: SalmonsGeneratorParams,
+): Float32Array;
+export function riverHalfWidth(u: number, params?: SalmonsGeneratorParams): number;
 export function meanderAt(table: Float32Array, u: number): number;
 export function generateSalmonsMap(seed: string | number, shape?: SalmonsShape): SalmonsMap;
-export function inRiver(meander: Float32Array, gx: number, gy: number): boolean;
+export function inRiver(
+	meander: Float32Array,
+	gx: number,
+	gy: number,
+	params?: SalmonsGeneratorParams,
+): boolean;
 export function applySalmonsOverlay(
 	map: SalmonsMap,
 	overlay: SalmonsOverlay | undefined,
@@ -104,6 +216,8 @@ export type SalmonsSeedLevels = {
 	river?: { winding: number; sharpestTurn: number; sourceBias: number };
 	waterfalls?: { count?: number; heightMin?: number; heightMax?: number };
 	overlays?: { '*': SalmonsOverlay };
+	generator?: SalmonsGeneratorParams;
+	biomes?: SalmonsBiomesBlock;
 };
 export function seedLevels(
 	levels: SalmonsLevels | undefined,

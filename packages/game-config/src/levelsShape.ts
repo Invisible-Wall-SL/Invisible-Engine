@@ -11,7 +11,17 @@
  * ({@link withLevelsShape}).
  */
 
-import { normalizeLevels, type ArcadeOnlineLevels } from './family';
+import {
+	SALMONS_BIOMES,
+	SALMONS_BIOME_LIMITS,
+	SALMONS_GENERATOR,
+	SALMONS_GENERATOR_LIMITS,
+	SALMONS_GENERATOR_PAIRS,
+	SALMONS_GENERATOR_WHOLE,
+	type SalmonsBiome,
+	type SalmonsBiomeStart,
+} from 'engine-mechanics';
+import { normalizeLevels, seedKey, type ArcadeOnlineLevels } from './family';
 import type { GameConfigIssue } from './validate';
 
 /** Present ⇒ the river winds; a field left out takes its default. Absent ⇒ the generator's own. */
@@ -41,7 +51,39 @@ export type LevelsWaterfalls = {
 	heightMax?: number;
 };
 
-export type LevelsShape = { river?: LevelsRiver; waterfalls?: LevelsWaterfalls };
+/** A parameter of the generator (`engine-mechanics` `SALMONS_GENERATOR`, its defaults). */
+export type LevelsGeneratorParam = keyof typeof SALMONS_GENERATOR;
+/** Every number that shapes a level; one left out takes its default. Absent ⇒ every default. */
+export type LevelsGenerator = Partial<Record<LevelsGeneratorParam, number>>;
+export const LEVELS_GENERATOR_DEFAULTS = SALMONS_GENERATOR;
+export const LEVELS_GENERATOR_LIMITS = SALMONS_GENERATOR_LIMITS;
+export const LEVELS_GENERATOR_WHOLE: readonly LevelsGeneratorParam[] = SALMONS_GENERATOR_WHOLE;
+export const LEVELS_GENERATOR_PAIRS = SALMONS_GENERATOR_PAIRS;
+
+/** An authored biome: its id, and any of its looks and densities (one left out takes the
+ *  built-in biome of that id's, or for a new id the generator's own). */
+export type LevelsBiome = { id: string } & Partial<Omit<SalmonsBiome, 'id'>>;
+export type LevelsBiomeStart = SalmonsBiomeStart;
+/**
+ * The biomes (`engine-mechanics` `salmonsBiomes.js`): `kinds` (none: the six built-in ones,
+ * `forest1`…`forest6`), and the sequence each level lays along its river from the source, by seed
+ * or `'*'` (a seed's own wins whole). With no sequence the kinds take turns every `cycle` columns.
+ * Absent ⇒ the original's forest, and nothing a level plays or draws moves.
+ */
+export type LevelsBiomes = {
+	kinds?: LevelsBiome[];
+	cycle?: number;
+	sequences?: Record<string, LevelsBiomeStart[]>;
+};
+export const LEVELS_BIOMES_BUILT_IN = SALMONS_BIOMES;
+export const LEVELS_BIOME_LIMITS = SALMONS_BIOME_LIMITS;
+
+export type LevelsShape = {
+	river?: LevelsRiver;
+	waterfalls?: LevelsWaterfalls;
+	generator?: LevelsGenerator;
+	biomes?: LevelsBiomes;
+};
 
 /** A config's levels with their shape: what the launcher edits and the generator is given. */
 export type ShapedLevels = ArcadeOnlineLevels & LevelsShape;
@@ -69,9 +111,95 @@ const within = ([lo, hi]: readonly [number, number], v: unknown, whole = false) 
 const kept = <T extends object>(block: T): T =>
 	Object.fromEntries(Object.entries(block).filter(([, v]) => v !== undefined)) as T;
 
+const BIOME_ID = /^[a-z0-9_-]{1,32}$/;
+const COLOUR = /^#[0-9a-f]{6}$/i;
+const colour = (v: unknown) =>
+	typeof v === 'string' && COLOUR.test(v) ? v.toLowerCase() : undefined;
+
+/** A RAW `levels.generator` with only its values within {@link LEVELS_GENERATOR_LIMITS} (whole
+ *  where they must be); `undefined` for none. An empty block is kept (every default). */
+export function normalizeLevelsGenerator(raw: unknown): LevelsGenerator | undefined {
+	if (!isObject(raw)) return undefined;
+	const generator: LevelsGenerator = {};
+	for (const key of Object.keys(SALMONS_GENERATOR) as LevelsGeneratorParam[]) {
+		const v = within(LEVELS_GENERATOR_LIMITS[key], raw[key], LEVELS_GENERATOR_WHOLE.includes(key));
+		if (v !== undefined) generator[key] = v;
+	}
+	return generator;
+}
+
+/** One RAW biome with only its usable fields; `undefined` for one with no usable id. */
+function normalizeBiome(raw: unknown): LevelsBiome | undefined {
+	if (!isObject(raw) || typeof raw.id !== 'string' || !BIOME_ID.test(raw.id)) return undefined;
+	const L = LEVELS_BIOME_LIMITS;
+	const trees = Array.isArray(raw.trees)
+		? [...new Set(raw.trees.filter((t) => within(L.tree, t, true) !== undefined))]
+		: [];
+	const riverbed = Array.isArray(raw.riverbed)
+		? raw.riverbed.map(colour).filter((c): c is string => c !== undefined)
+		: [];
+	const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 40) : '';
+	return kept({
+		id: raw.id,
+		name: name || undefined,
+		trees: trees.length ? (trees as number[]) : undefined,
+		treeChance: within(L.treeChance, raw.treeChance),
+		grass: within(L.grass, raw.grass, true),
+		forest: within(L.forest, raw.forest, true),
+		grassTint: colour(raw.grassTint),
+		forestFloor: colour(raw.forestFloor),
+		riverbed: riverbed.length ? riverbed.slice(0, L.riverbed[1]) : undefined,
+		rocks: within(L.rocks, raw.rocks),
+		whirlpools: within(L.whirlpools, raw.whirlpools),
+		sand: within(L.sand, raw.sand),
+		waterfalls: within(L.waterfalls, raw.waterfalls),
+		bridges: typeof raw.bridges === 'boolean' ? raw.bridges : undefined,
+	});
+}
+
+/** A RAW `levels.biomes`: its usable kinds (first of an id), its cycle within its limits, and its
+ *  sequences keyed by seed or `'*'`, each entry naming a kind it has (or a built-in one when it
+ *  has none), at a whole column, one per column, in order. `undefined` for none; an empty block
+ *  is kept (the built-in biomes, as a level without). */
+export function normalizeLevelsBiomes(raw: unknown): LevelsBiomes | undefined {
+	if (!isObject(raw)) return undefined;
+	const L = LEVELS_BIOME_LIMITS;
+	const biomes: LevelsBiomes = {};
+	const seen = new Set<string>();
+	const kinds = (Array.isArray(raw.kinds) ? raw.kinds : [])
+		.map(normalizeBiome)
+		.filter((k): k is LevelsBiome => !!k && !seen.has(k.id) && !!seen.add(k.id))
+		.slice(0, L.kinds[1]);
+	if (kinds.length) biomes.kinds = kinds;
+	const cycle = within(L.cycle, raw.cycle, true);
+	if (cycle !== undefined) biomes.cycle = cycle;
+	const ids = (kinds.length ? kinds : LEVELS_BIOMES_BUILT_IN).map((k) => k.id);
+	if (isObject(raw.sequences)) {
+		const sequences: Record<string, LevelsBiomeStart[]> = {};
+		for (const [key, list] of Object.entries(raw.sequences)) {
+			if (key !== '*' && !seedKey(key)) continue;
+			const at = new Map<number, string>();
+			for (const entry of Array.isArray(list) ? list : []) {
+				if (!isObject(entry) || typeof entry.biome !== 'string' || !ids.includes(entry.biome))
+					continue;
+				const from = within(L.from, entry.from, true);
+				if (from !== undefined && !at.has(from)) at.set(from, entry.biome);
+			}
+			const sequence = [...at]
+				.sort((a, b) => a[0] - b[0])
+				.slice(0, L.sequence[1])
+				.map(([from, biome]) => ({ from, biome }));
+			if (sequence.length) sequences[key] = sequence;
+		}
+		if (Object.keys(sequences).length) biomes.sequences = sequences;
+	}
+	return biomes;
+}
+
 /** The shape in a RAW `levels` block, or `undefined` for none: a value outside
  *  {@link LEVELS_SHAPE_LIMITS} is dropped (its default plays), a `river` with none left is kept
- *  (it still winds), a `waterfalls` with none left is dropped. */
+ *  (it still winds), a `waterfalls` with none left is dropped; a `generator` and a `biomes` block
+ *  are kept even empty ({@link normalizeLevelsGenerator}, {@link normalizeLevelsBiomes}). */
 export function normalizeLevelsShape(rawLevels: unknown): LevelsShape | undefined {
 	if (!isObject(rawLevels)) return undefined;
 	const L = LEVELS_SHAPE_LIMITS;
@@ -90,7 +218,11 @@ export function normalizeLevelsShape(rawLevels: unknown): LevelsShape | undefine
 		});
 		if (Object.keys(falls).length) shape.waterfalls = falls;
 	}
-	return shape.river || shape.waterfalls ? shape : undefined;
+	const generator = normalizeLevelsGenerator(rawLevels.generator);
+	if (generator) shape.generator = generator;
+	const biomes = normalizeLevelsBiomes(rawLevels.biomes);
+	if (biomes) shape.biomes = biomes;
+	return shape.river || shape.waterfalls || shape.generator || shape.biomes ? shape : undefined;
 }
 
 /** A RAW `levels` block whole: its seeds and overlays (`normalizeLevels`) and its shape. */
@@ -135,14 +267,22 @@ export function shapedOnlineGame<G extends object | undefined>(game: G, rawDoc: 
 export function validateLevelsShape(rawDoc: unknown): GameConfigIssue[] {
 	const online = onlineOf(rawDoc);
 	const raw = online?.levels;
-	if (!isObject(raw) || (!isObject(raw.river) && !isObject(raw.waterfalls))) return [];
+	if (
+		!isObject(raw) ||
+		(!isObject(raw.river) &&
+			!isObject(raw.waterfalls) &&
+			!isObject(raw.generator) &&
+			!isObject(raw.biomes))
+	)
+		return [];
 	const issues: GameConfigIssue[] = [];
 	const warn = (path: string, message: string) =>
 		issues.push({ severity: 'warning', path: `arcade.online.levels.${path}`, message });
 	if (online?.generator !== 'salmonsMap')
 		warn(
-			isObject(raw.river) ? 'river' : 'waterfalls',
-			'A river shape and waterfalls are played only by the "salmonsMap" generator.',
+			(['river', 'waterfalls', 'generator', 'biomes'] as const).find((k) => isObject(raw[k])) ??
+				'river',
+			'A river shape, waterfalls, generator settings and biomes are played only by the "salmonsMap" generator.',
 		);
 	const L = LEVELS_SHAPE_LIMITS;
 	const held = (block: unknown, path: string, key: string, limit: readonly [number, number]) => {
@@ -169,5 +309,55 @@ export function validateLevelsShape(rawDoc: unknown): GameConfigIssue[] {
 			'waterfalls',
 			`The lowest waterfall (${falls.heightMin}) is higher than the highest (${falls.heightMax}); a level plays them the other way round.`,
 		);
+	if (isObject(raw.generator)) {
+		for (const key of Object.keys(raw.generator)) {
+			if (!(key in SALMONS_GENERATOR)) {
+				warn(`generator.${key}`, `"${key}" is not a generator setting; it is left out.`);
+				continue;
+			}
+			const param = key as LevelsGeneratorParam;
+			const whole = LEVELS_GENERATOR_WHOLE.includes(param);
+			const limit = LEVELS_GENERATOR_LIMITS[param];
+			const v = raw.generator[key];
+			if (within(limit, v, whole) === undefined)
+				warn(
+					`generator.${key}`,
+					`${JSON.stringify(v)} is not ${whole ? 'a whole number ' : ''}from ${limit[0]} to ${limit[1]}; it is left out.`,
+				);
+		}
+		const kept = normalizeLevelsGenerator(raw.generator) ?? {};
+		for (const [lo, hi] of LEVELS_GENERATOR_PAIRS) {
+			const a = kept[lo] ?? SALMONS_GENERATOR[lo];
+			const b = kept[hi] ?? SALMONS_GENERATOR[hi];
+			if (a > b)
+				warn(
+					`generator.${lo}`,
+					`${lo} (${a}) is above ${hi} (${b}); a level plays them the other way round.`,
+				);
+		}
+	}
+	if (isObject(raw.biomes)) {
+		const kinds = Array.isArray(raw.biomes.kinds) ? raw.biomes.kinds : [];
+		const usable = normalizeLevelsBiomes(raw.biomes);
+		if (kinds.length && (usable?.kinds?.length ?? 0) < kinds.length)
+			warn(
+				'biomes.kinds',
+				'A biome with no id (lower-case letters, digits, - and _), or the same id as one before it, is left out.',
+			);
+		const ids = (usable?.kinds ?? LEVELS_BIOMES_BUILT_IN).map((k) => k.id);
+		const sequences = isObject(raw.biomes.sequences) ? raw.biomes.sequences : {};
+		for (const [key, list] of Object.entries(sequences)) {
+			if (key !== '*' && !seedKey(key)) {
+				warn(`biomes.sequences.${key}`, `"${key}" is not a seed or "*"; it is left out.`);
+				continue;
+			}
+			for (const entry of Array.isArray(list) ? list : [])
+				if (!isObject(entry) || typeof entry.biome !== 'string' || !ids.includes(entry.biome))
+					warn(
+						`biomes.sequences.${key}`,
+						`${JSON.stringify(isObject(entry) ? entry.biome : entry)} is not one of the biomes; its entry is left out.`,
+					);
+		}
+	}
 	return issues;
 }

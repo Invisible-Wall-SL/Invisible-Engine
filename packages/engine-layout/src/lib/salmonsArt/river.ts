@@ -10,6 +10,14 @@ import {
 	type Application,
 	type Ticker,
 } from 'pixi.js';
+import {
+	SALMONS_BIOMES,
+	SALMONS_BIOME_CYCLE,
+	biomeAt,
+	biomeStretches,
+	type SalmonsBiome,
+	type SalmonsBiomes,
+} from 'engine-mechanics';
 
 import { projectedLayer } from '../worldDrawing.svelte';
 import { ISO_DEPTH_SPREAD, ISO_PROJECTOR, isoDepth, type IsoProjector } from '../projection';
@@ -56,27 +64,21 @@ import { zoneFrames, type SalmonsZoneArt, type ZoneFrames } from './zoneArt';
 /** The families whose built-in piece a stamp replaces; any other family's stamp is drawn too. */
 const REPLACED_FAMILIES = ['rock#', 'whirlpool#'];
 
-const FOREST_FLOOR = 0x28591e;
-const RIVERBED = [
-	0xb89968, 0xc4a576, 0xa88858, 0xd0b487, 0xb09060, 0xc8a878, 0xa07050, 0xb88f5d, 0xc59f70,
-];
-/** Each biome of the forest, `BIOME_ROWS` cells of the river long, grows two of the six trees. */
-const BIOME_TREE_PAIRS = [
-	[0, 1],
-	[2, 3],
-	[4, 5],
-	[0, 3],
-	[1, 4],
-	[2, 5],
-];
-const BIOME_ROWS = 35;
-const TREE_CHANCE = 0.07;
+/**
+ * BIOMES (`engine-mechanics` `salmonsBiomes.js`): each row of the river is drawn by the biome of its
+ * column, with that biome's trees, lone-tree chance, grass strip (the old client's `bankMargin` 5),
+ * forest wall past it (the old client's `FOREST_DEPTH` 12), grass tint, floor and riverbed. A river
+ * whose level has no biomes block is drawn by the original's six, in turn every 35 columns.
+ */
+const ORIGINAL_BIOMES: SalmonsBiomes = {
+	kinds: SALMONS_BIOMES as SalmonsBiome[],
+	cycle: SALMONS_BIOME_CYCLE,
+};
+const UNTINTED = '#ffffff';
+const colour = (hex: string) => parseInt(hex.slice(1), 16);
+/** The last cell out of a biome's forest wall (17, the original's). */
+const forestTo = (kind: SalmonsBiome) => kind.grass + kind.forest;
 const TREE_W = 96 * K;
-/** Cells of grass past the water, and the forest wall's first and last cell out (the old
- *  client's `bankMargin` 5 and `FOREST_DEPTH` 12). */
-const GRASS_CELLS = 5;
-const FOREST_FROM = 6;
-const FOREST_TO = 17;
 /** Rows of forest past the source and past the sea's margin (the old client's end caps). */
 const FOREST_CAP = 12;
 /** P10.16's band river (not the original's grid): cells of forest round its grass world. */
@@ -161,12 +163,13 @@ const diamond = (g: Graphics, w = 64, h = 32) =>
 		.lineTo(0, h / 2)
 		.closePath();
 
-/** The old client's riverbed variant `seed` (0–8): a sandy diamond with its pebbles. */
-function riverbedTexture(app: Application, seed: number): Texture {
+/** The old client's riverbed variant `seed` (0–8) in one of `sands`: a sandy diamond with its
+ *  pebbles. */
+function riverbedTexture(app: Application, seed: number, sands: readonly string[]): Texture {
 	return diamondTexture(app, (g) => {
 		const w = 64;
 		const h = 32;
-		diamond(g).fill(RIVERBED[seed % RIVERBED.length]);
+		diamond(g).fill(colour(sands[seed % sands.length]));
 		let s = (seed * 9301 + 49297) % 233280;
 		const rand = () => {
 			s = (s * 9301 + 49297) % 233280;
@@ -300,7 +303,18 @@ export function mountSalmonsRiver(
 	const forestRandom = seededRandom(`salmons-forest:${seed}`);
 	const made: Texture[] = [];
 	const own = (texture: Texture) => (made.push(texture), texture);
-	const beds = RIVERBED.map((_, i) => own(riverbedTexture(app, i)));
+	const biomes = river.biomes ?? ORIGINAL_BIOMES;
+	const bedSets = new Map<string, Texture[]>();
+	/** A biome's riverbed tiles, one per sand: made once per set of sands. */
+	const bedsOf = (kind: SalmonsBiome) => {
+		const key = kind.riverbed.join();
+		let set = bedSets.get(key);
+		if (!set) {
+			set = kind.riverbed.map((_, i) => own(riverbedTexture(app, i, kind.riverbed)));
+			bedSets.set(key, set);
+		}
+		return set;
+	};
 	const sea = own(seaTexture(app));
 	const noise = own(displacementTexture());
 	const used = new Map<string, number>();
@@ -372,9 +386,13 @@ export function mountSalmonsRiver(
 		return compassTile(by[0], by[1], by[2], by[3]);
 	};
 
+	/** The biome a row of the world is drawn by: its river column's (`gx` is the row less the rows
+	 *  above the source). */
+	const kindOf = (r: number) => biomeAt(biomes, r - sourceRows);
+	const deepest = Math.max(...biomes.kinds.map(forestTo));
 	const elevation = riverElevation(river.waterfalls);
 	const floor = new Graphics();
-	const out = SEA_MARGIN + FOREST_CAP + FOREST_TO;
+	const out = SEA_MARGIN + FOREST_CAP + deepest;
 	const corners = [
 		project(-out * CELL, -out * CELL),
 		project(river.world.w + out * CELL, river.world.h + out * CELL),
@@ -390,7 +408,7 @@ export function mountSalmonsRiver(
 			Math.max(...corners.map((p) => p.x)) - fx0,
 			Math.max(...corners.map((p) => p.y)) - fy0,
 		)
-		.fill(FOREST_FLOOR);
+		.fill(colour(kindOf(0).forestFloor));
 
 	const turn = new Container();
 	turn.scale.set(1, 0.5);
@@ -398,11 +416,13 @@ export function mountSalmonsRiver(
 	flat.rotation = projector.ground.rotation;
 	flat.scale.set(flip * Math.SQRT2, Math.SQRT2);
 	turn.addChild(flat);
+	const floors = new Container();
 	const bed = new Container();
 	const seaLayer = new Container();
 	const tint = new Container();
 	const grass = new Container();
 	const sand = new Container();
+	if (river.biomes) flat.addChild(floors);
 	flat.addChild(bed, seaLayer, tint, grass, sand);
 	const cliffs = new Container();
 	const reflections = new Container();
@@ -445,10 +465,31 @@ export function mountSalmonsRiver(
 			box: { x0: box.x0 - lift, y0: box.y0 - lift, x1: box.x1 - lift, y1: box.y1 - lift },
 		});
 	};
-	const tile = (layer: Container, texture: Texture, c: number, r: number) => {
+	const tile = (layer: Container, texture: Texture, c: number, r: number, tinted = UNTINTED) => {
 		const box = cellBox(c, r);
-		onGround(layer, groundTile(texture, box.x0, box.y0, CELL, CELL, flip), box);
+		const view = groundTile(texture, box.x0, box.y0, CELL, CELL, flip);
+		if (tinted !== UNTINTED) view.tint = colour(tinted);
+		onGround(layer, view, box);
 	};
+	// An authored river's floor, biome by biome: a strip of each stretch's floor across the world
+	// and the forest's reach past it, cut at each waterfall's line and raised with the ground.
+	if (river.biomes) {
+		const first = -FOREST_CAP - sourceRows;
+		const last = rows + SEA_MARGIN + FOREST_CAP - sourceRows;
+		const stretches = biomeStretches(biomes, first, last);
+		const lines = elevation.steps.map((s) => s.line);
+		stretches.forEach(({ from, to, kind }, i) => {
+			const y0 = i === 0 ? -out * CELL : (from + sourceRows) * CELL;
+			const y1 = i === stretches.length - 1 ? river.world.h + out * CELL : (to + sourceRows) * CELL;
+			const cuts = [y0, ...lines.filter((l) => l > y0 && l < y1).sort((a, b) => a - b), y1];
+			for (let k = 1; k < cuts.length; k++) {
+				const strip = new Graphics()
+					.rect(-out * CELL, cuts[k - 1], river.world.w + 2 * out * CELL, cuts[k] - cuts[k - 1])
+					.fill(colour(kind.forestFloor));
+				liftedIn(floors, elevation.at(cuts[k - 1])).addChild(strip);
+			}
+		});
+	}
 	/** A world point's projected place, raised with the ground under it. */
 	const placed = (x: number, y: number) => {
 		const at = project(x, y);
@@ -456,8 +497,10 @@ export function mountSalmonsRiver(
 	};
 	/** The old client's z of a piece at world (x, y), `offset` old px over its screen y. */
 	const zOf = (x: number, y: number, offset: number) => isoDepth(x, y) + offset * DEPTH_PER_OLD_PX;
-	const bedTile = (c: number, r: number) =>
-		beds[((Math.imul(c, 73856093) ^ Math.imul(r, 19349663)) >>> 0) % beds.length];
+	const bedTile = (c: number, r: number) => {
+		const beds = bedsOf(kindOf(r));
+		return beds[((Math.imul(c, 73856093) ^ Math.imul(r, 19349663)) >>> 0) % beds.length];
+	};
 	const tintTile = (c: number, r: number, color: number) => {
 		const square = new Sprite(Texture.WHITE);
 		square.position.set(c * CELL, r * CELL);
@@ -472,7 +515,11 @@ export function mountSalmonsRiver(
 		tile(bed, bedTile(c, r), c, r);
 		tintTile(c, r, tintOf(wet));
 	};
-	const biome = (r: number) => ((Math.floor((r - sourceRows) / BIOME_ROWS) % 6) + 6) % 6;
+	/** One of a biome's trees, by a draw of `rng` (of two, below a half the first). */
+	const treeOf = (r: number, rng: () => number) => {
+		const { trees } = kindOf(r);
+		return trees[Math.floor(rng() * trees.length)];
+	};
 	const treeSprite = (c: number, r: number, variant: number) => {
 		const texture = region(`tree_${variant}`);
 		const sprite = new Sprite(texture);
@@ -483,15 +530,13 @@ export function mountSalmonsRiver(
 		return sprite;
 	};
 	const scatteredTree = (c: number, r: number) => {
-		const pair = BIOME_TREE_PAIRS[biome(r)];
-		const sprite = treeSprite(c, r, pair[random() < 0.5 ? 0 : 1]);
+		const sprite = treeSprite(c, r, treeOf(r, random));
 		sprite.zIndex = zOf((c + 0.5) * CELL, (r + 0.5) * CELL, Z.tree);
 		standUp(sprite, boxOf(sprite));
 	};
 	/** A forest tree: in front of a player at its depth, so it stands among the players. */
 	const forestTree = (c: number, r: number) => {
-		const pair = BIOME_TREE_PAIRS[biome(r)];
-		const variant = pair[forestRandom() < 0.5 ? 0 : 1];
+		const variant = treeOf(r, forestRandom);
 		const x = (c + 0.5) * CELL;
 		const y = (r + 0.5) * CELL;
 		const at = project(x, y);
@@ -520,6 +565,7 @@ export function mountSalmonsRiver(
 	const walled = !!river.grid;
 	/** How a dry cell of row `r` is drawn: by how far it is from the water (`out`, cells). */
 	const dryKind = (c: number, r: number, lo: number, hi: number, beach: number) => {
+		const kind = kindOf(r);
 		if (!walled)
 			return c >= 0 && c < cols
 				? 'grass'
@@ -527,15 +573,16 @@ export function mountSalmonsRiver(
 					? 'forest'
 					: 'floor';
 		const out = c < lo ? lo - c : c > hi ? c - hi : 0;
-		if (out >= FOREST_FROM) return out <= FOREST_TO ? 'forest' : 'floor';
+		if (out > kind.grass) return out <= forestTo(kind) ? 'forest' : 'floor';
 		if (beach && out <= beach) return 'beach';
-		return out <= GRASS_CELLS ? 'grass' : 'floor';
+		return out <= kind.grass ? 'grass' : 'floor';
 	};
 	for (let r = 0; r < seaRow; r++) {
 		const { lo, hi } = spanOf(r);
 		const beach = beachOf(r);
-		const from = walled ? lo - FOREST_TO : -EDGE_FOREST;
-		const to = walled ? hi + FOREST_TO : cols - 1 + EDGE_FOREST;
+		const biome = kindOf(r);
+		const from = walled ? lo - forestTo(biome) : -EDGE_FOREST;
+		const to = walled ? hi + forestTo(biome) : cols - 1 + EDGE_FOREST;
 		for (let c = from; c <= to; c++) {
 			const wet = wetCell(c, r);
 			if (wet) {
@@ -555,8 +602,8 @@ export function mountSalmonsRiver(
 			}
 			// Under the shore's cut-out water: the water it meets.
 			if (near) water(c, r, near);
-			tile(grass, region(`grass_${compass(dry)}`), c, r);
-			if (random() < TREE_CHANCE) scatteredTree(c, r);
+			tile(grass, region(`grass_${compass(dry)}`), c, r, biome.grassTint);
+			if (random() < biome.treeChance) scatteredTree(c, r);
 		}
 	}
 	for (let r = seaRow; r < rows + SEA_MARGIN; r++)
@@ -564,13 +611,15 @@ export function mountSalmonsRiver(
 	// The forest's end caps: past the source, and (walled) past the sea's margin.
 	const top = spanOf(0);
 	const cap = walled ? FOREST_CAP : EDGE_FOREST;
-	for (let r = -cap; r < 0; r++)
+	for (let r = -cap; r < 0; r++) {
+		const reach = forestTo(kindOf(r));
 		for (
-			let c = walled ? top.lo - FOREST_TO : -EDGE_FOREST;
-			c <= (walled ? top.hi + FOREST_TO : cols - 1 + EDGE_FOREST);
+			let c = walled ? top.lo - reach : -EDGE_FOREST;
+			c <= (walled ? top.hi + reach : cols - 1 + EDGE_FOREST);
 			c++
 		)
 			forestTree(c, r);
+	}
 	if (walled)
 		for (let r = rows + SEA_MARGIN; r < rows + SEA_MARGIN + FOREST_CAP; r++)
 			for (let c = -SEA_MARGIN; c < cols + SEA_MARGIN; c++) forestTree(c, r);
@@ -677,9 +726,10 @@ export function mountSalmonsRiver(
 		const { lo, hi } = spanOf(r);
 		const x0 = lo * CELL;
 		const x1 = (hi + 1) * CELL;
-		// The cliff: the face and 17 cells each side, one texture high.
-		const c0 = x0 - (FOREST_TO + 0.5) * CELL;
-		const c1 = x1 + (FOREST_TO + 0.5) * CELL;
+		// The cliff: the face and the forest's reach each side (17 cells), one texture high.
+		const reach = forestTo(kindOf(r));
+		const c0 = x0 - (reach + 0.5) * CELL;
+		const c1 = x1 + (reach + 0.5) * CELL;
 		const cliff = along(c0, c1, line, step.top);
 		const rock = new TilingSprite({ texture: art.cliff, width: cliff.length, height: step.cliff });
 		rock.tileScale.set(step.cliff / art.cliff.height);
