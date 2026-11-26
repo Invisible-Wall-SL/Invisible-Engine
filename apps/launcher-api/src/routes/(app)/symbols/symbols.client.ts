@@ -20,6 +20,7 @@ import {
 	MATCH3_SYMBOL_STATES,
 	POTS_TOKEN_SYMBOL_STATES,
 	pruneCoinLabel,
+	pruneWinLineStyle,
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
@@ -41,6 +42,7 @@ import {
 	type SymbolStateName,
 	type TumblePatternConfig,
 	type TumblePatternName,
+	type WinLineStyleFields,
 } from 'engine-layout';
 import type { ElementFxEntry } from 'constants-shared/elementFx';
 import { pruneSymbolFx, type SymbolFxMap } from '$lib/symbolFx';
@@ -427,7 +429,7 @@ export interface SymbolTransition {
 /** Win-line overlay style — the line drawn across paying symbols. All optional/sparse:
  *  unset fields fall through to the game's coded defaults. Colours are CSS hex strings;
  *  `width` is a multiple of the symbol size; `speed` is a draw-speed multiplier. */
-export interface WinLineLineStyle {
+export interface WinLineLineStyle extends WinLineStyleFields {
 	color?: string;
 	width?: number;
 	glow?: boolean;
@@ -1381,7 +1383,7 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 	};
 	const next: WinLineConfig = {};
 	if (winLine.enabled === false) next.enabled = false;
-	const line = prune(winLine.line);
+	const line = prune(winLine.line ? pruneWinLineStyle(winLine.line) : undefined);
 	const text = prune(winLine.text);
 	if (line) {
 		// `useConfigColor` defaults ON (absent ⇒ config colour wins), so ONLY its OFF override
