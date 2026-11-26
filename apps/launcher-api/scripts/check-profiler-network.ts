@@ -4,11 +4,13 @@
  * launcher's modules:
  *
  * 19. The probe's network block: a file is named by its path only — the query (`perfsession`,
- *     `sid`, `k`) and the hash never reach the report, a token path segment reads `…` — its class,
+ *     `sid`, `k`) and the hash never reach the report, a token path segment reads `…`, by position
+ *     under every token-bearing launcher route whatever the token's format — its class,
  *     a cache hit, and a cross-origin file without `Timing-Allow-Origin` as "size unknown", never
  *     0 bytes; totals by class and load stage; the caps (the file list, the short form).
  * 20. The launcher reads it: a `perf: 9` report's summary (transfer MB, first frame) and facts, a
- *     `perf: 7` / `8` reading unchanged (no network), a path that arrives with a query keeps none;
+ *     `perf: 7` / `8` reading unchanged (no network), a path that arrives with a query keeps none,
+ *     and no route token reaches the stored report or its facts even from a probe that sent one;
  *     the transfer budgets per device class, judged only where a reading measured them; the
  *     transfer of the readings on a build; Compare's network rows.
  * 21. The network rules — heavy downloads, uncompressed text, downloaded again, before the first
@@ -16,13 +18,14 @@
  *     fail; owners from the real `owners.json` areas.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
 	classOf,
 	createNetworkMonitor,
 	FILES_KEPT,
 	safeUrl,
+	TOKEN_ROUTES as PROBE_TOKEN_ROUTES,
 	type NetworkBlock,
 	type ResourceLike,
 	type SocketTally,
@@ -39,6 +42,9 @@ import {
 	knownTransferMb,
 	networkSummary,
 	readNetwork,
+	redactReportText,
+	redactTokens,
+	TOKEN_ROUTES,
 	type NetworkFacts,
 } from '../src/lib/profilerNetwork.ts';
 import { reportFacts, type ReportFacts } from '../src/lib/profilerFindings/facts.ts';
@@ -180,6 +186,100 @@ test('19. a file is named by its path: no query, no hash, no token reaches the r
 	// Mutant: the URL kept as given (the query too) — the same check must catch it.
 	const kept = JSON.stringify({ path: new URL(`${PAGE}/g/?perfsession=${TOKEN}`).href });
 	assert.throws(() => assert.ok(!kept.includes(TOKEN)), assert.AssertionError);
+});
+
+/** 32 characters with no digit (~0.8% of `mintReadToken` tokens) and an operator's free-form secret. */
+const DIGITLESS = 'kQwErTyUiOpAsDfGhJkLzXcVbNmQwErT';
+const SECRET = 'correct horse battery staple';
+
+/**
+ * Every launcher route whose path carries a token, read off `src/routes`: for each `[token]` folder,
+ * the static path before the first dynamic segment, and how many segments from there to the token.
+ */
+function tokenRoutesOnDisk(): Record<string, number> {
+	const found: Record<string, number> = {};
+	const walk = (dir: URL, parts: string[]) => {
+		for (const d of readdirSync(dir, { withFileTypes: true })) {
+			if (!d.isDirectory()) continue;
+			const here = [...parts, d.name].filter((p) => !/^\(.*\)$/.test(p));
+			if (d.name === '[token]') {
+				const first = here.findIndex((p) => p.startsWith('['));
+				found[`/${here.slice(0, first).join('/')}`] = here.length - first;
+			}
+			walk(new URL(`${d.name}/`, dir), [...parts, d.name]);
+		}
+	};
+	walk(new URL('../src/routes/', import.meta.url), []);
+	return found;
+}
+
+test('19. a token-bearing route is redacted by position, whatever the token looks like', () => {
+	assert.deepEqual(
+		PROBE_TOKEN_ROUTES,
+		TOKEN_ROUTES,
+		'the probe and the launcher redact the same routes',
+	);
+	assert.deepEqual(
+		tokenRoutesOnDisk(),
+		TOKEN_ROUTES,
+		'every [token] route under src/routes is listed (a new one must join TOKEN_ROUTES)',
+	);
+	const urls = [
+		`${LAUNCHER}/api/published/f/${DIGITLESS}/borut/s7/editor-art/bg.webp`,
+		`${LAUNCHER}/api/published/f/${encodeURIComponent(SECRET)}/borut/s7/a.json`,
+		`${LAUNCHER}/api/deploy/f/${DIGITLESS}/iw/borut/editor-art/bg.webp`,
+		`${LAUNCHER}/api/deploy/f/${SECRET}/iw/borut/editor-art/bg.webp`,
+		`${LAUNCHER}/play/${DIGITLESS}`,
+		`${LAUNCHER}/profiler/go/${DIGITLESS}/${DIGITLESS}`,
+	];
+	const leaks = (text: string) =>
+		[DIGITLESS, SECRET, encodeURIComponent(SECRET), 'horse'].filter((t) => text.includes(t));
+	for (const u of urls) assert.deepEqual(leaks(safeUrl(u, PAGE).path), [], u);
+	assert.equal(
+		safeUrl(urls[0], PAGE).path,
+		'/api/published/f/…/borut/s7/editor-art/bg.webp',
+		'the rest of the path stays readable',
+	);
+	// Mutant: the probe before this gate (only the deploy tree by position) leaks the published token.
+	const guessOnly = (u: string) => new URL(u).pathname.replace(/^(\/api\/deploy\/f\/)[^/]+/, '$1…');
+	assert.throws(
+		() => assert.deepEqual(leaks(guessOnly(urls[0])), []),
+		assert.AssertionError,
+		'the check catches a probe that drops /api/published/f',
+	);
+});
+
+test('20. the launcher never stores a route token, even from a probe that sent one', () => {
+	// An old or untrusted device: the full URLs, every list, and the token elsewhere in the report.
+	const sent = JSON.stringify({
+		perf: 9,
+		note: `loaded ${LAUNCHER}/api/published/f/${SECRET}/borut/s7/x.webp`,
+		network: {
+			totals: { files: 3 },
+			files: [{ path: `/api/published/f/${DIGITLESS}/borut/s7/a.webp`, encoded: 9000 }],
+			heaviest: [{ path: `/api/deploy/f/${SECRET}/iw/borut/b.webp`, encoded: 8000 }],
+			repeats: [{ path: `/api/published/f/${DIGITLESS}/borut/s7/a.webp`, count: 2, bytes: 1 }],
+			rgs: { slowest: [{ path: `/profiler/go/${DIGITLESS}/${DIGITLESS}`, ms: 900 }] },
+		},
+	});
+	const kept = redactReportText(sent);
+	const leaked = (text: string) => [DIGITLESS, SECRET, 'horse'].filter((t) => text.includes(t));
+	assert.deepEqual(leaked(kept), [], 'the text kept in R2');
+	const facts = JSON.stringify(readNetwork(JSON.parse(sent), 50));
+	assert.deepEqual(leaked(facts), [], 'the facts and summary, read off the raw report');
+	assert.equal(
+		readNetwork(JSON.parse(sent), 50)?.heaviest[0]?.path,
+		'/api/published/f/…/borut/s7/a.webp',
+	);
+	assert.equal(
+		redactReportText('{"perf":9}'),
+		'{"perf":9}',
+		'a clean report is kept byte for byte',
+	);
+	assert.equal(redactTokens('/assets/play/button.png'), '/assets/play/button.png');
+	// Mutant: a launcher that redacts only the deploy tree keeps the published token.
+	const deployOnly = (t: string) => t.replace(/(\/api\/deploy\/f\/)[^/"]+/g, '$1…');
+	assert.throws(() => assert.deepEqual(leaked(deployOnly(sent)), []), assert.AssertionError);
 });
 
 test('19. a browser entry is read through its getters; a long folder name is not a token', () => {
@@ -729,3 +829,6 @@ test('21. every network finding’s owner is an agent owners.json names in its a
 	const summary = networkSummary(readNetwork(report(pageLoad()))!);
 	assert.equal(summary.trimmed, false);
 });
+
+// The probe's own fixture (`perfNetwork.fixture.ts`) throws on a failed check.
+await import('../../lines/src/game/perfNetwork.fixture.ts');

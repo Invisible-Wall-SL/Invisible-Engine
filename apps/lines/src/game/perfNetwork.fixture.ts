@@ -75,16 +75,39 @@ check(
 check(
 	'a JWT-like or hex segment is redacted; a hashed file name or a long folder name is not',
 	[
-		safeUrl(`${PAGE}/profiler/go/plain/${token}`, PAGE).path,
+		safeUrl(`${PAGE}/x/plain/${token}`, PAGE).path,
 		safeUrl(`${PAGE}/x/4f9a2c1d8e7b6a5f4e3d2c1b0a9f8e7d/y`, PAGE).path,
 		safeUrl(`${PAGE}/_app/immutable/chunks/Dk3jA9_x.js`, PAGE).path,
 		safeUrl(`${PAGE}/assets/spines/foregroundFeatureAnimation/mm_bg_feature.json`, PAGE).path,
 	],
 	[
-		'/profiler/go/plain/…',
+		'/x/plain/…',
 		'/x/…/y',
 		'/_app/immutable/chunks/Dk3jA9_x.js',
 		'/assets/spines/foregroundFeatureAnimation/mm_bg_feature.json',
+	],
+);
+/** 32 characters, no digit: the ~0.8% of `mintReadToken` tokens the shape guess cannot see. */
+const digitless = 'kQwErTyUiOpAsDfGhJkLzXcVbNmQwErT';
+/** The shared deploy token: an operator's `EDITOR_DOC_SECRET`, any format. */
+const secret = 'correct horse battery staple';
+check(
+	'a token-bearing route redacts by position, whatever the token looks like',
+	[
+		safeUrl(`https://app.invisiblewall.org/api/published/f/${digitless}/borut/s7/a.webp`, PAGE)
+			.path,
+		safeUrl(`https://app.invisiblewall.org/api/deploy/f/${encodeURIComponent(secret)}/iw/b`, PAGE)
+			.path,
+		safeUrl(`https://app.invisiblewall.org/api/published/f/${secret}/borut/s7/a.webp`, PAGE).path,
+		safeUrl(`https://app.invisiblewall.org/play/${digitless}`, PAGE).path,
+		safeUrl(`https://app.invisiblewall.org/profiler/go/link-1/${digitless}`, PAGE).path,
+	],
+	[
+		'/api/published/f/…/borut/s7/a.webp',
+		'/api/deploy/f/…/iw/b',
+		'/api/published/f/…/borut/s7/a.webp',
+		'/play/…',
+		'/profiler/go/…/…',
 	],
 );
 /** A browser's timing entry: its fields are prototype getters, so a spread of it copies nothing. */
@@ -342,6 +365,58 @@ console.log(`     (full ${kb(full)} KB, short ${kb(short)} KB)`);
 check('the readout lines', networkLines(staged), [
 	'3.0 MB in 4 files · first frame 1.2 s after 1.8 MB · largest runtime 1.1 MB',
 ]);
+
+console.log('7. a long soak stays bounded, and folding does not change the block');
+/** One page's files and a soak of RGS polls, with the first frame and boot noted at `settleAt`. */
+const soak = (settleAt: 'first' | 'afterFiles' | 'never') => {
+	const m = createNetworkMonitor(PAGE, 1);
+	const settle = () => {
+		m.firstFrame(900, 'tick');
+		m.booted(3000);
+	};
+	if (settleAt === 'first') settle();
+	for (let i = 0; i < 1800; i++) {
+		m.add(
+			entry(`${PAGE}/assets/f-${i % 600}.webp`, {
+				initiatorType: 'img',
+				startTime: i * 2,
+				encodedBodySize: 500 + i,
+			}),
+		);
+	}
+	if (settleAt === 'afterFiles') settle();
+	for (let i = 0; i < 20_000; i++) {
+		m.add(
+			entry(`${PAGE}/api/borut/rgs/engine?sid=s&seq=${i}`, {
+				startTime: 10_000 + i,
+				duration: 20 + (i % 97),
+			}),
+		);
+	}
+	return m.block();
+};
+const early = soak('first');
+check(
+	'a block is the same whether the stages settled before the files or after them',
+	early,
+	soak('afterFiles'),
+);
+const never = soak('never');
+check(
+	'a game that never boots still counts every file, past the unsettled cap too',
+	[never.totals.files, never.rgs.requests, never.files?.length],
+	[21_800, 20_000, FILES_KEPT],
+);
+check(
+	'every request counted; the percentiles say how many they cover; the list capped',
+	[early.rgs.requests, early.rgs.ms.count, early.files?.length, early.filesDropped],
+	[20_000, 4000, FILES_KEPT, 1800 - FILES_KEPT],
+);
+check(
+	'totals count every file, and a path fetched twice is a repeat',
+	[early.totals.files, early.byStage.play.files, early.repeats[0]?.count],
+	[21_800, 20_000 + 300, 3],
+);
 
 if (failures) throw new Error(`perfNetwork.fixture: ${failures} check(s) failed`);
 console.log('\nall perfNetwork checks passed');

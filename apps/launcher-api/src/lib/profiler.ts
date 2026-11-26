@@ -2,7 +2,8 @@
  * Invisible Profiler (`/profiler`, `docs/design/invisible-profiler.md`): what the browser and the
  * server both need — the readings' retention, the capture links' test switches, and the summary a
  * `?perf=1` report (`perf: 7` / `8` / `9`, `apps/lines/src/components/PerfHud.svelte`) is reduced to
- * for its `perf_reports` row (a `perf: 9` reading's `network` block: `profilerNetwork.ts`). Pure: the fixture gate (`scripts/check-profiler.ts`) runs it on plain JSON.
+ * for its `perf_reports` row (a `perf: 9` reading's `network` block: `profilerNetwork.ts`). Pure:
+ * the fixture gate (`scripts/check-profiler.ts`) runs it on plain JSON.
  */
 
 import { perfCounts, type PerfCounts } from './profilerLab';

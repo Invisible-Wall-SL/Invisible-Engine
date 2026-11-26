@@ -7,8 +7,8 @@
  * entry; Reset does not clear it (it is the page's load, not a slice of frames).
  *
  * A file is named by its PATH only: the query and the hash are dropped, since tokens travel there
- * (`perfsession`, `sid`, `k`), and a path segment that is a token (the deploy tree's
- * `/api/deploy/f/<token>/…`, or any long base64url/JWT-like segment) is replaced by `…`. Its host is
+ * (`perfsession`, `sid`, `k`), and a path segment that is a token (by position under one of
+ * {@link TOKEN_ROUTES}, or any long base64url/JWT-like segment) is replaced by `…`. Its host is
  * kept only when it is not the page's. A cross-origin response with no `Timing-Allow-Origin` reports
  * every size as 0: it is "size unknown" (`null`), never counted as 0 bytes.
  *
@@ -99,6 +99,7 @@ export interface MsStats {
 }
 
 export interface RgsStats {
+	/** Every RGS request of the load; `ms` covers the first {@link RGS_SAMPLES_KEPT} (`ms.count`). */
 	requests: number;
 	/** Response bytes of the requests whose size is known. */
 	bytes: number;
@@ -216,8 +217,18 @@ const DATA_API = /\/api\/editor\/(?:runtime|doc)$/;
 const isToken = (segment: string): boolean =>
 	/^[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}){1,2}$/.test(segment) ||
 	(/^[A-Za-z0-9_-]{24,}$/.test(segment) && /\d/.test(segment) && /[A-Za-z]/.test(segment));
-/** Segments that are tokens by position: the deploy tree's `/api/deploy/f/<token>/…`. */
-const TOKEN_AFTER = new Set(['/api/deploy/f']);
+/**
+ * The launcher routes whose path carries a credential, and how many segments after the prefix are
+ * one: the deploy tree, the published tree, a partner share link and a capture GO link. A token is
+ * redacted here by position whatever its format (a digit-less read token, an operator's secret).
+ * The launcher's `pathOnly` (`profilerNetwork.ts`) redacts the same list again on receipt.
+ */
+export const TOKEN_ROUTES: Readonly<Record<string, number>> = {
+	'/api/deploy/f': 1,
+	'/api/published/f': 1,
+	'/play': 1,
+	'/profiler/go': 2,
+};
 
 export interface SafeUrl {
 	path: string;
@@ -240,13 +251,14 @@ export function safeUrl(raw: string, pageOrigin: string): SafeUrl {
 	if (url.protocol === 'data:' || url.protocol === 'blob:') {
 		return { path: `${url.protocol}…`, rgsQuery: false };
 	}
-	const segments = url.pathname.split('/');
 	let prefix = '';
-	const path = segments
+	let tokens = 0;
+	const path = url.pathname
+		.split('/')
 		.map((segment, i) => {
-			const redacted = TOKEN_AFTER.has(prefix) || isToken(segment) ? '…' : segment;
+			tokens = Math.max(tokens - 1, TOKEN_ROUTES[prefix] ?? 0);
 			if (i > 0) prefix += `/${segment}`;
-			return redacted;
+			return tokens > 0 || isToken(segment) ? '…' : segment;
 		})
 		.join('/');
 	const params = url.searchParams;
@@ -408,8 +420,35 @@ export interface NetworkMonitor {
 	block(opts?: { short?: boolean; socket?: SocketTally }): NetworkBlock;
 }
 
+/**
+ * Files held unsettled, before the first frame and the boot load are both known (their stage can
+ * still move). Past this many (a game that never boots) a file is folded at the stage it reads now.
+ */
+const PENDING_MAX = 2000;
+/** Distinct paths watched for a second download. */
+const CROSSED_KEPT = 2000;
+
+/**
+ * Bounded over a long soak: a file is folded into running totals once its stage is settled, the
+ * list keeps only the heaviest {@link FILES_KEPT}, and an RGS request is summed as it arrives.
+ */
 export function createNetworkMonitor(pageOrigin: string, loadId: number): NetworkMonitor {
-	const files: RawFile[] = [];
+	let pending: RawFile[] = [];
+	const totals = zeroTotals();
+	const byClass: Partial<Record<NetClass, NetTotals>> = {};
+	const byStage = Object.fromEntries(NET_STAGES.map((s) => [s, zeroTotals()])) as Record<
+		NetStage,
+		NetTotals
+	>;
+	const crossed = new Map<string, { path: string; host?: string; count: number; bytes: number }>();
+	let listed = 0;
+	const rgs: Omit<RgsStats, 'ms'> = {
+		requests: 0,
+		bytes: 0,
+		unknown: 0,
+		largest: 0,
+		slowest: [],
+	};
 	const rgsMs: number[] = [];
 	let navType: string | null = null;
 	let firstFrameMs: number | null = null;
@@ -417,69 +456,123 @@ export function createNetworkMonitor(pageOrigin: string, loadId: number): Networ
 	let bootMs: number | null = null;
 	let full = false;
 
+	const settled = () => firstFrameMs !== null && bootMs !== null;
 	const stageOf = (at: number): NetStage =>
 		firstFrameMs !== null && at < firstFrameMs
 			? 'beforeFirstFrame'
 			: bootMs === null || at < bootMs
 				? 'boot'
 				: 'play';
+	const staged = ({ at, ...f }: RawFile): NetFile => ({ ...f, stage: stageOf(at) });
+
+	/** Adds a file to the given totals, repeats and list: the running ones, or a copy for a block. */
+	function tally(
+		f: NetFile,
+		into: {
+			totals: NetTotals;
+			byClass: Partial<Record<NetClass, NetTotals>>;
+			byStage: Record<NetStage, NetTotals>;
+			crossed: Map<string, { path: string; host?: string; count: number; bytes: number }>;
+			list: NetFile[];
+		},
+	): void {
+		addTo(into.totals, f);
+		addTo((into.byClass[f.class] ??= zeroTotals()), f);
+		addTo(into.byStage[f.stage], f);
+		if (f.rgs) return;
+		into.list.push(f);
+		if (f.cache !== 'network' || f.class === 'api') return;
+		const key = `${f.host ?? ''}${f.path}`;
+		const seen = into.crossed.get(key);
+		if (!seen && into.crossed.size >= CROSSED_KEPT) return;
+		const entry = seen ?? { path: f.path, ...(f.host ? { host: f.host } : {}), count: 0, bytes: 0 };
+		entry.count += 1;
+		entry.bytes += weightOf(f) ?? 0;
+		into.crossed.set(key, entry);
+	}
+	const running = { totals, byClass, byStage, crossed, list: [] as NetFile[] };
+	const fold = (f: RawFile) => {
+		if (!f.rgs) listed += 1;
+		tally(staged(f), running);
+		if (running.list.length > 2 * FILES_KEPT) {
+			running.list = running.list.sort(heavier).slice(0, FILES_KEPT);
+		}
+	};
+	const flush = () => {
+		if (!settled()) return;
+		for (const f of pending) fold(f);
+		pending = [];
+	};
+	const take = (f: RawFile) => {
+		if (settled() || pending.length >= PENDING_MAX) fold(f);
+		else pending.push(f);
+	};
+	const sumRgs = (f: RawFile) => {
+		rgs.requests += 1;
+		const weight = weightOf(f);
+		if (weight === null) rgs.unknown += 1;
+		else {
+			rgs.bytes += weight;
+			rgs.largest = Math.max(rgs.largest, weight);
+		}
+		if (rgsMs.length < RGS_SAMPLES_KEPT) rgsMs.push(f.ms);
+		rgs.slowest.push({
+			path: f.path,
+			...(f.host ? { host: f.host } : {}),
+			start: f.start,
+			ms: f.ms,
+		});
+		rgs.slowest = rgs.slowest.sort((x, y) => y.ms - x.ms).slice(0, SLOWEST_KEPT);
+	};
 
 	return {
 		add(entry) {
 			const f = readEntry(entry, pageOrigin);
-			files.push(f);
-			if (f.rgs && rgsMs.length < RGS_SAMPLES_KEPT) rgsMs.push(f.ms);
+			if (f.rgs) sumRgs(f);
+			take(f);
 		},
 		navigation(entry) {
 			if (!entry) return;
 			navType = typeof entry.type === 'string' ? entry.type.slice(0, 20) : null;
 			// Read through the entry itself: a browser's timing entry keeps its fields on its prototype,
 			// so a spread copies none of them.
-			files.push(readEntry(entry, pageOrigin, 'navigation'));
+			take(readEntry(entry, pageOrigin, 'navigation'));
 		},
 		firstFrame(ms, source) {
 			if (firstFrameMs !== null) return;
 			firstFrameMs = ms;
 			firstFrameSource = source;
+			flush();
 		},
 		booted(ms) {
-			if (bootMs === null) bootMs = ms;
+			if (bootMs !== null) return;
+			bootMs = ms;
+			flush();
 		},
 		bufferFull() {
 			full = true;
 		},
 		block(opts) {
-			const staged: NetFile[] = files.map(({ at, ...f }) => ({ ...f, stage: stageOf(at) }));
-			const totals = zeroTotals();
-			const byClass: Partial<Record<NetClass, NetTotals>> = {};
-			const byStage = Object.fromEntries(NET_STAGES.map((s) => [s, zeroTotals()])) as Record<
-				NetStage,
-				NetTotals
-			>;
-			const crossed = new Map<
-				string,
-				{ path: string; host?: string; count: number; bytes: number }
-			>();
-			for (const f of staged) {
-				addTo(totals, f);
-				addTo((byClass[f.class] ??= zeroTotals()), f);
-				addTo(byStage[f.stage], f);
-				if (f.cache !== 'network' || f.rgs || f.class === 'api') continue;
-				const key = `${f.host ?? ''}${f.path}`;
-				const seen = crossed.get(key) ?? {
-					path: f.path,
-					...(f.host ? { host: f.host } : {}),
-					count: 0,
-					bytes: 0,
-				};
-				seen.count += 1;
-				seen.bytes += weightOf(f) ?? 0;
-				crossed.set(key, seen);
+			const copy = (t: NetTotals): NetTotals => ({ ...t });
+			const view = {
+				totals: copy(totals),
+				byClass: Object.fromEntries(
+					Object.entries(byClass).map(([c, t]) => [c, copy(t)]),
+				) as Partial<Record<NetClass, NetTotals>>,
+				byStage: Object.fromEntries(NET_STAGES.map((s) => [s, copy(byStage[s])])) as Record<
+					NetStage,
+					NetTotals
+				>,
+				crossed: new Map([...crossed].map(([k, r]) => [k, { ...r }])),
+				list: [...running.list],
+			};
+			let files = listed;
+			for (const f of pending) {
+				if (!f.rgs) files += 1;
+				tally(staged(f), view);
 			}
-			const rgs = staged.filter((f) => f.rgs);
-			const known = rgs.map(weightOf).filter((w): w is number => w !== null);
-			const rest = staged.filter((f) => !f.rgs).sort(heavier);
-			const kept = opts?.short ? [] : rest.slice(0, FILES_KEPT);
+			const rest = view.list.sort(heavier);
+			const list = opts?.short ? [] : rest.slice(0, FILES_KEPT);
 			return {
 				v: 1,
 				loadId: Math.round(loadId),
@@ -487,35 +580,20 @@ export function createNetworkMonitor(pageOrigin: string, loadId: number): Networ
 				firstFrameMs: firstFrameMs === null ? null : Math.round(firstFrameMs),
 				firstFrameSource,
 				bootMs: bootMs === null ? null : Math.round(bootMs),
-				totals,
-				byClass,
-				byStage,
+				totals: view.totals,
+				byClass: view.byClass,
+				byStage: view.byStage,
 				heaviest: rest.slice(0, HEAVIEST_KEPT),
-				repeats: [...crossed.values()]
+				repeats: [...view.crossed.values()]
 					.filter((r) => r.count > 1)
 					.sort((a, b) => b.bytes - a.bytes)
 					.slice(0, REPEATS_KEPT),
-				rgs: {
-					requests: rgs.length,
-					bytes: known.reduce((n, w) => n + w, 0),
-					unknown: rgs.length - known.length,
-					largest: Math.max(0, ...known),
-					ms: msStats(rgsMs),
-					slowest: [...rgs]
-						.sort((a, b) => b.ms - a.ms)
-						.slice(0, SLOWEST_KEPT)
-						.map((f) => ({
-							path: f.path,
-							...(f.host ? { host: f.host } : {}),
-							start: f.start,
-							ms: f.ms,
-						})),
-				},
+				rgs: { ...rgs, slowest: [...rgs.slowest], ms: msStats(rgsMs) },
 				...(opts?.socket && opts.socket.inMessages + opts.socket.outMessages > 0
 					? { socket: socketStats(opts.socket) }
 					: {}),
-				...(opts?.short ? {} : { files: kept }),
-				filesDropped: rest.length - kept.length,
+				...(opts?.short ? {} : { files: list }),
+				filesDropped: files - list.length,
 				...(full ? { bufferFull: true as const } : {}),
 			};
 		},
