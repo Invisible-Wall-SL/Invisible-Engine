@@ -201,9 +201,10 @@ has no family control at all. Three more families exist
     - **Click a zone** to select it: it gets handles; drag it to move it, or a handle to resize it
       (stored in whole pixels). **Drag on the empty field** to draw a new zone (`zone<N>`, a
       number no zone has); hold **Shift** to draw over other zones. Under the map, the selected
-      zone's **Zone** id, **x**, **y**, **w**, **h** (type a value; a blank or taken id, or a size
-      that is not above 0, is put back), a bin that deletes it, and its rules on one line. While
-      someone else holds the project, the map only shows: a click names the zone.
+      zone's **Zone** id, **x**, **y**, **w**, **h** (type a value; a blank or taken id, an id with
+      an `@` (kept for Zone art's scenery), or a size that is not above 0, is put back), a bin
+      that deletes it, and its rules on one line. While someone else holds the project, the map
+      only shows: a click names the zone.
     - **The table** under the map lists every zone: **Zone** id, **x** / **y** (its top-left
       corner) and **Width** / **Height**. Past 50 zones it shows 50 at a time, with a **Filter
       zones** box (by id) and **Show 50 more** / **Show all N**; a zone just added is shown
@@ -439,9 +440,17 @@ has no family control at all. Three more families exist
     of the pictures, chosen by the room's seed and the zone, the same on every device. A variant's
     **Remove variant** takes it out. Setting the first picture to **Default** moves the first
     variant up.
-  - **Trees are not a zone.** Salmons' forest (past the source and the sea, and beyond the banks) is
-    scenery the river places itself, from `tree_0`–`tree_5` of the project's `salmons_props` sheet.
-    To change them, edit those regions in the Sheet Maker or Atlas Maker (same names and sizes).
+  - **Scenery → Trees** (Salmons' generators only): a row under the zone rows, with the same
+    **Drawn with**, **＋ Variant**, **Scale** and bin. Hover **Scenery** for what it does. Trees
+    are not a zone: the river places them itself (the forest past the source and the sea and
+    beyond the banks, and the trees on the grass). **Default** reads "Built-in trees, 6 kinds",
+    with `tree_0`–`tree_5` from the project's `salmons_props` sheet as thumbnails. With a picture
+    chosen, every tree draws it in place of the built-in tree. Each tree takes one of the pictures,
+    chosen by the room's seed and its place, the same on every device. It is drawn at a built-in
+    tree's width times the scale, with its own ratio kept, standing on its foot. A clip sways
+    on its own, and neighbouring trees start on different frames. A tree whose picture is not
+    loaded draws the built-in tree. A config of another game that still holds trees' art (pasted
+    in Raw JSON) shows the row in amber, to be binned: nothing draws it, and the save warns of it.
   - **Scale** (blank: 1; 0.05–20) multiplies the fitted size. Each picture is centred on its zone
     and fitted inside it, with its own ratio kept. In Salmons' river a rock's or a whirlpool's
     picture replaces the built-in one at its size times the scale. Any other family's picture
