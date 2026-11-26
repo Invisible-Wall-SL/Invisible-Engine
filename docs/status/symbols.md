@@ -185,7 +185,9 @@ or the effect is pruned as an orphan.
 13. **Styled payline is not yet seen in a running game** — core, additive glow, tail fade, tip
     (each end mode), trail and the two sounds, one at a time and all at once. The win line has no
     preview in `/symbols`. Open call: whether `drawSound` / `endSound` should move to Invisible
-    Sound's bindings with the other sound choices.
+    Sound's bindings with the other sound choices. The trail's banknote and ember effects start
+    from the `/fx` presets **Banknotes** and **Embers** (see `docs/status/fx.md`); each project
+    still has to make and save the two effects, with banknote art for the first.
 
 ## Blocked (owner / external)
 
