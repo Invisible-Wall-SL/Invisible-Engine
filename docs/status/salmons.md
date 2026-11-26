@@ -739,8 +739,8 @@ upload.
   `GET /rooms?game=salmons` lists a new room; a salmon, a bear and a fisherman join it by id; in
   one room a device declaring a 6400 × 6400 window was sent 65 players in every sample against
   62 → 23 for one declaring none, so the published config carries `max`. **In a browser
-  (2026-11-26)**, headless Chromium on the published link (game server and arcade runtime then on
-  `ceaeb16`): the start menu comes first with its river list ("1 players in Boiling Pot River");
+  (2026-11-26)**, headless Chromium on the published link (game server on `72a1b92`, arcade runtime on
+  `a404522`): the start menu comes first with its river list ("1 players in Boiling Pot River");
   three pages joined one room as Salmon, Catcher → Bear and Catcher → Fisherman, each past the
   boot screen's tap; the room's events showed bots catching and hooking (`caught` with `byName`,
   `hooked`, `held`, `thrown`); a salmon held on Up swims up-river through the lobby and the round.
