@@ -409,6 +409,11 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 			addLayerRefs({ kind: head.kind, assetKey: head.assetKey }, refs);
 		}
 	}
+	// The styled win line's sprite TIP is a frame like a layer's — through the same refs, or it
+	// shows in the tool and loads nothing in the game. A flipbook tip's clip rides the clip walk, an
+	// effect tip / burst / trail the effects keep-set (`winLineEffectIds`).
+	const tip = doc.winLine?.line?.tip;
+	if (tip?.kind === 'sprite') addLayerRefs({ kind: 'sprite', assetKey: tip.assetKey }, refs);
 	return refs;
 }
 

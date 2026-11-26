@@ -10,6 +10,7 @@ import {
 	bakedFontSrcBase,
 	bakedSymbolAssets,
 	bakedSymbolTransitionAssets,
+	bakedWinLineAssets,
 } from '../editor-scenes';
 import stockTable, { gameAssetsBase } from './assets';
 import { shippedStockTwins, stockAssetsOnTier } from './stockTwins';
@@ -48,5 +49,6 @@ export const { stateApp } = createApp({
 		...bakedBookVfxAssets(),
 		...bakedSymbolTransitionAssets(),
 		...bakedFlightAssets(),
+		...bakedWinLineAssets(),
 	},
 });

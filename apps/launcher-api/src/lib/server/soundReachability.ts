@@ -21,7 +21,8 @@
  *   - the choices made in `/sound` (`SoundsDoc.bindings`, as the export resolves them — so a
  *     project that never saved there reads its legacy config and symbols choices);
  *   - the game config (legacy slots, `winLevels[].sound`, a mode's `music`) and the symbols doc
- *     (legacy `symbolSounds`, the anticipation pair), walked whole;
+ *     (legacy `symbolSounds`, the anticipation pair, the win line's `winLine.line.drawSound` /
+ *     `endSound`), walked whole;
  *   - the layout doc (screen timelines' cues, the `win` instance's `<alias>Sfx` / `<alias>Bgm`
  *     params, a reel grid's anticipation `sound`);
  *   - every component def (built-in ◁ shared ◁ project, the latest of each) and the exact older
