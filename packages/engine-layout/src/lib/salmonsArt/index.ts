@@ -104,7 +104,8 @@ export type SalmonsArt = {
  * Load the art and make the kit that draws `river` (a room's own, from its `seed`): each region
  * from the project's published sheets (`sheets`) when they ship it, else the built-in copy.
  * `stains` is how see-through the game's config draws the blood (`arcade.online.rules.stains`);
- * `zoneArt` the room's zone stamps (Game Config `arcade.zoneArt`), none ⇒ the built-in art alone.
+ * `zoneArt` the room's zone stamps and its trees' art (Game Config `arcade.zoneArt`), none ⇒ the
+ * built-in art alone.
  */
 export async function loadSalmonsArt(
 	river: SalmonsRiverDrawing,

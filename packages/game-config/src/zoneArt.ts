@@ -4,7 +4,8 @@ import type { GameConfigIssue } from './validate';
 /**
  * ZONE ART (`docs/design/zone-art.md`): what an arcade game's zones are drawn with, by zone FAMILY
  * (`arcade.zoneArt`). A family is a zone id with its numbers as `#` ({@link zoneFamilyOf}), so
- * `rock0` … `rock99` are the one family `rock#`, as `/config`'s Zones chips group them.
+ * `rock0` … `rock99` are the one family `rock#`, as `/config`'s Zones chips group them. A few
+ * reserved keys name scenery a generator's art places on no zone ({@link ZONE_ART_SCENERY}).
  *
  * Cosmetic: no rule, no room and no fingerprint reads it (a device and its room agree on a level
  * whatever art it is drawn with). A family with no entry draws exactly as it did without one.
@@ -56,6 +57,19 @@ export const ZONE_ART_LIMITS = Object.freeze({
 
 /** A zone id's family: its numbers as `#` (`band12Water` → `band#Water`, `source` → `source`). */
 export const zoneFamilyOf = (id: string): string => id.replace(/\d+/g, '#');
+
+/**
+ * The SCENERY keys of the map: pieces a generator's own art places itself, on no zone (Salmons'
+ * forest trees, `@trees`), drawn as a family's stamps are, picked per piece by the seed and its
+ * cell ({@link sceneryArtSourceFor}). No zone a generator makes has an `@` in its id, `/config`
+ * refuses one in a zone it edits, and {@link zoneArtStamps} stamps no zone of such a family.
+ */
+export const ZONE_ART_SCENERY = Object.freeze(['@trees'] as const);
+
+export type ZoneArtScenery = (typeof ZONE_ART_SCENERY)[number];
+
+export const isZoneArtScenery = (key: string): key is ZoneArtScenery =>
+	(ZONE_ART_SCENERY as readonly string[]).includes(key);
 
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
@@ -136,6 +150,15 @@ export function zoneArtSourceFor(
 	return pool.length === 1 ? art.source : pool[hash(`${seed}\u0000${zoneId}`) % pool.length];
 }
 
+/** The picture a piece of scenery at cell (`c`, `r`) of a room seeded `seed` draws, of `art`'s
+ *  source and variants: by the seed and the cell alone, the same on every device. */
+export const sceneryArtSourceFor = (
+	art: ZoneArt,
+	c: number,
+	r: number,
+	seed: number | string,
+): ZoneArtSource => zoneArtSourceFor(art, `${c},${r}`, seed);
+
 /** One zone's stamp: the picture, and the box it is fitted in (world px, top-left and size): the
  *  zone's grown about its centre by `scale`. */
 export type ZoneStamp = {
@@ -152,7 +175,7 @@ export type ZoneStamp = {
 /**
  * Every stamp `zones` draw with `map` in a room seeded `seed`, in the zones' order: a zone whose
  * family has an entry, its box the zone's grown about its centre by the entry's `scale`. Empty
- * for an empty or absent map.
+ * for an empty or absent map. A scenery key is no zone's family.
  */
 export function zoneArtStamps(
 	zones: readonly { id: string; x: number; y: number; w: number; h: number }[],
@@ -163,6 +186,7 @@ export function zoneArtStamps(
 	const stamps: ZoneStamp[] = [];
 	for (const zone of zones) {
 		const family = zoneFamilyOf(zone.id);
+		if (isZoneArtScenery(family)) continue;
 		const art = Object.hasOwn(map, family) ? map[family] : undefined;
 		if (!art) continue;
 		const scale = art.scale ?? 1;
@@ -240,7 +264,8 @@ export function zoneArtClipRoots(rawDoc: unknown): string[] {
 }
 
 /**
- * What is wrong with a config's zone art: a family none of its stored zones has draws nothing. A
+ * What is wrong with a config's zone art: a family none of its stored zones has draws nothing, and
+ * scenery draws nothing in a game with no generator (only a generator's own art places it). A
  * game whose generator makes its zones is not checked here (its families are its generator's;
  * `/config` lists them from the level a seed makes).
  */
@@ -254,10 +279,12 @@ export function validateZoneArt(rawDoc: unknown): GameConfigIssue[] {
 		zones.flatMap((z) => (isObject(z) && typeof z.id === 'string' ? [zoneFamilyOf(z.id)] : [])),
 	);
 	return Object.keys(map)
-		.filter((family) => !families.has(family))
-		.map((family) => ({
+		.filter((key) => isZoneArtScenery(key) || !families.has(key))
+		.map((key) => ({
 			severity: 'warning' as const,
-			path: `arcade.zoneArt.${family}`,
-			message: `No zone of arcade.zones is of the family "${family}", so its art is never drawn.`,
+			path: `arcade.zoneArt.${key}`,
+			message: isZoneArtScenery(key)
+				? `"${key}" is scenery a generator's art places, and this game has no generator, so it is never drawn.`
+				: `No zone of arcade.zones is of the family "${key}", so its art is never drawn.`,
 		}));
 }

@@ -10,6 +10,7 @@ import {
 	type Application,
 	type Ticker,
 } from 'pixi.js';
+import { sceneryArtSourceFor, type ZoneArtSource } from 'game-config';
 
 import { projectedLayer } from '../worldDrawing.svelte';
 import { ISO_DEPTH_SPREAD, ISO_PROJECTOR, isoDepth, type IsoProjector } from '../projection';
@@ -49,12 +50,16 @@ import { zoneFrames, type SalmonsZoneArt, type ZoneFrames } from './zoneArt';
  *
  * ZONE ART (`zoneArt.ts`, Game Config `arcade.zoneArt`): a rock or a whirlpool whose zone has a
  * stamp is drawn with the stamp's picture in the built-in one's place, at its size times the
- * stamp's scale; any other stamp stands upright on its zone, fitted inside it. Every other piece,
- * and every seeded choice, is as without it.
+ * stamp's scale; any other stamp stands upright on its zone, fitted inside it. With the trees' art
+ * (`@trees`), every scattered and forest tree draws one of its pictures (by the seed and the
+ * tree's cell) in place of `tree_N`, a tree's width times its scale, on its foot. Every other
+ * piece, and every seeded choice, is as without it.
  */
 
 /** The families whose built-in piece a stamp replaces; any other family's stamp is drawn too. */
 const REPLACED_FAMILIES = ['rock#', 'whirlpool#'];
+/** The probe's count of the trees drawn with the trees' art (`regions()`). */
+const TREE_ART = 'zoneArt:@trees';
 
 const FOREST_FLOOR = 0x28591e;
 const RIVERBED = [
@@ -310,7 +315,8 @@ export function mountSalmonsRiver(
 	};
 	const stamps = zoneArt?.stamps ?? [];
 	const byZone = new Map(stamps.map((s) => [s.zone, s]));
-	const assets = stamps.length ? zoneArt?.assets() : undefined;
+	const trees = zoneArt?.trees;
+	const assets = stamps.length || trees ? zoneArt?.assets() : undefined;
 	/** A zone's stamp and its loaded frames; none ⇒ the built-in piece. */
 	const stampOf = (zone: string) => {
 		const stamp = byZone.get(zone);
@@ -318,6 +324,32 @@ export function mountSalmonsRiver(
 		if (!stamp || !frames) return undefined;
 		used.set(`zoneArt:${stamp.family}`, (used.get(`zoneArt:${stamp.family}`) ?? 0) + 1);
 		return { stamp, frames };
+	};
+	const ticking: AnimatedSprite[] = [];
+	const animate = (frames: Texture[], fps: number, frame = 0) => {
+		const sprite = new AnimatedSprite({ textures: frames, autoUpdate: false });
+		sprite.animationSpeed = fps / 60;
+		sprite.gotoAndPlay(((Math.floor(frame) % frames.length) + frames.length) % frames.length);
+		ticking.push(sprite);
+		return sprite;
+	};
+	const clip = (prefix: string, fps: number, frame = 0) =>
+		animate(
+			[0, 1, 2, 3].map((i) => region(`${prefix}_${i}`)),
+			fps,
+			frame,
+		);
+	/** A stamp's picture: a sprite of a sheet's frame, a clip's frames played on the ticker. */
+	const pictureOf = ({ textures, fps }: ZoneFrames, frame = 0): Sprite =>
+		textures.length > 1 ? animate(textures, fps, frame) : new Sprite(textures[0]);
+	const treeFrames = new Map<ZoneArtSource, ZoneFrames | undefined>();
+	/** The trees' picture the tree on cell (c, r) draws, its frames loaded; none ⇒ `tree_N`. */
+	const treeArtOf = (c: number, r: number) => {
+		if (!trees) return undefined;
+		const source = sceneryArtSourceFor(trees, c, r, seed);
+		if (!treeFrames.has(source)) treeFrames.set(source, zoneFrames(source, assets));
+		const frames = treeFrames.get(source);
+		return frames && { frames, scale: trees.scale ?? 1 };
 	};
 
 	const cols = Math.ceil(river.world.w / CELL);
@@ -474,11 +506,14 @@ export function mountSalmonsRiver(
 	};
 	const biome = (r: number) => ((Math.floor((r - sourceRows) / BIOME_ROWS) % 6) + 6) % 6;
 	const treeSprite = (c: number, r: number, variant: number) => {
-		const texture = region(`tree_${variant}`);
-		const sprite = new Sprite(texture);
+		const own = treeArtOf(c, r);
+		if (own) used.set(TREE_ART, (used.get(TREE_ART) ?? 0) + 1);
+		const texture = own ? own.frames.textures[0] : region(`tree_${variant}`);
+		// A clip's neighbouring trees start on different frames.
+		const sprite = own ? pictureOf(own.frames, c * 3 + r * 5) : new Sprite(texture);
 		const at = project((c + 0.5) * CELL, (r + 0.5) * CELL);
 		sprite.anchor.set(0.5, 1);
-		sprite.scale.set(TREE_W / texture.width);
+		sprite.scale.set((TREE_W * (own?.scale ?? 1)) / texture.width);
 		sprite.position.set(at.x, at.y + CELL / 4 - elevation.at(r * CELL));
 		return sprite;
 	};
@@ -496,12 +531,16 @@ export function mountSalmonsRiver(
 		const y = (r + 0.5) * CELL;
 		const at = project(x, y);
 		const lift = elevation.at(r * CELL);
-		const half = TREE_W / 2;
+		const own = treeArtOf(c, r);
+		const w = TREE_W * (own?.scale ?? 1);
+		const texture = own?.frames.textures[0];
+		const h = texture ? (w * texture.height) / texture.width : TREE_W * 1.5;
+		const half = w / 2;
 		among.push({
 			make: () => treeSprite(c, r, variant),
 			box: {
 				x0: at.x - half,
-				y0: at.y + CELL / 4 - lift - TREE_W * 1.5,
+				y0: at.y + CELL / 4 - lift - h,
 				x1: at.x + half,
 				y1: at.y + CELL / 4 - lift,
 			},
@@ -614,23 +653,6 @@ export function mountSalmonsRiver(
 			}
 	}
 
-	const ticking: AnimatedSprite[] = [];
-	const animate = (frames: Texture[], fps: number, frame = 0) => {
-		const sprite = new AnimatedSprite({ textures: frames, autoUpdate: false });
-		sprite.animationSpeed = fps / 60;
-		sprite.gotoAndPlay(((Math.floor(frame) % frames.length) + frames.length) % frames.length);
-		ticking.push(sprite);
-		return sprite;
-	};
-	const clip = (prefix: string, fps: number, frame = 0) =>
-		animate(
-			[0, 1, 2, 3].map((i) => region(`${prefix}_${i}`)),
-			fps,
-			frame,
-		);
-	/** A stamp's picture: a sprite of a sheet's frame, a clip's frames played on the ticker. */
-	const pictureOf = ({ textures, fps }: ZoneFrames, frame = 0): Sprite =>
-		textures.length > 1 ? animate(textures, fps, frame) : new Sprite(textures[0]);
 	function standUp(view: Container, box: Box) {
 		upright.addChild(view);
 		uprightCulled.push({ view, box });
@@ -991,7 +1013,7 @@ export function mountSalmonsRiver(
 			faces[i].tilePosition.y += 0.8 * frames;
 			faces[i + 1].tilePosition.y += 0.45 * frames;
 		}
-		for (const sprite of ticking) if (sprite.visible) sprite.update(ticker);
+		for (const sprite of ticking) if (sprite.visible && sprite.parent) sprite.update(ticker);
 		for (const s of shimmer) {
 			if (!s.view.visible) continue;
 			const t = frame * 0.04 + s.phase;
