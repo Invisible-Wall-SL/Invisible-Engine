@@ -7,9 +7,11 @@ import {
 	forgetChanges,
 	getChange,
 	harnessFilesOf,
+	fixRunOfChange,
 	listChanges,
 	repo,
 	type ChangeDetail,
+	type ChangeFixRun,
 } from './pipelineChanges';
 import {
 	claimMerge,
@@ -259,6 +261,13 @@ async function mergedOnGithub(change: ChangeDetail, app: GithubApp): Promise<Com
 	);
 }
 
+/** A fix run's change must answer to the decision recorded on its bug (ADR-0014 §3). */
+function requireDecision(fixRun: ChangeFixRun | null): void {
+	if (fixRun && !fixRun.decision.ok) {
+		throw error(409, { message: fixRun.decision.reason ?? '', code: 'fix_decision_mismatch' });
+	}
+}
+
 /** Merges of one pull request run one at a time: two clicks make one merge, and both answer it. */
 const merging = createKeyedMutex();
 
@@ -295,6 +304,7 @@ export async function mergeChange(
 		if (change.draft) {
 			throw error(409, 'This change is a draft: mark it ready for review first.');
 		}
+		requireDecision(change.fixRun);
 		if (change.filesTruncated || harnessFilesOf(change.files).length) {
 			throw error(409, change.harness.unapprovable ?? 'This change edits the harness.');
 		}
@@ -387,7 +397,9 @@ const READY_MUTATION = `mutation($id: ID!) {
  * `mergeChange` refuses a draft, so this is the owner's step between reading the diff and merging.
  * The caller has passed the `pipelineMerge` gate. The pull request is read first and anything but
  * an open draft is a 409 before GitHub is asked; GitHub's own refusal comes back as a
- * `GithubAppError`. It merges nothing and approves nothing.
+ * `GithubAppError`. A change a fix run built must also answer to the decision recorded on its
+ * bug (ADR-0014 §3): else 409 `fix_decision_mismatch`, before GitHub is asked. It merges nothing and
+ * approves nothing.
  */
 export async function markReadyForReview(
 	input: { number: number },
@@ -399,6 +411,7 @@ export async function markReadyForReview(
 		draft?: unknown;
 		state?: unknown;
 		merged?: unknown;
+		head?: { ref?: unknown };
 	}>(`/repos/${repo()}/pulls/${number}`);
 	if (pr.merged === true) throw error(409, `#${number} is already merged.`);
 	if (pr.state !== 'open') throw error(409, `#${number} is closed.`);
@@ -406,6 +419,7 @@ export async function markReadyForReview(
 	if (typeof pr.node_id !== 'string') {
 		throw new GithubAppError(`GitHub did not name #${number}'s GraphQL id.`);
 	}
+	if (typeof pr.head?.ref === 'string') requireDecision(await fixRunOfChange(pr.head.ref, number));
 	const res = await app.fetch('https://api.github.com/graphql', {
 		method: 'POST',
 		body: JSON.stringify({ query: READY_MUTATION, variables: { id: pr.node_id } }),

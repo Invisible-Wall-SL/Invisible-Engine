@@ -156,8 +156,8 @@ change says in plain words what it is. Nothing starts until the owner approves A
 | Card | What | Agent | Status |
 |---|---|---|---|
 | 14A | Diagnose mode, the options on the bug, Build, the decision event, the banner | director-backend + director-frontend | built 2026-11-26 (#1918, the owner merges; not yet clicked through live) |
-| 14B | Build mode, required plain-language sections, the "What you're approving" card, Mark-ready checks the decision | director-backend + director-frontend | next |
-| 14C | Pilot on the slow-phone bug; guides and status | regression-guardian + docs-keeper | after 14B (a live Diagnose can run as soon as #1918 merges) |
+| 14B | Build mode, required plain-language sections, the "What you're approving" card, Mark-ready checks the decision | director-backend + director-frontend | built 2026-11-26 (#1923, the owner merges; not yet clicked through live) |
+| 14C | Pilot on the slow-phone bug; guides and status | regression-guardian + docs-keeper | next: a live Diagnose → Build on the slow-phone bug once #1923 merges |
 
 ## Phase 6 — Pilot
 

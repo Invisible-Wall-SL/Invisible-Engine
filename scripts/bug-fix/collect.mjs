@@ -747,6 +747,7 @@ export const CAPS = {
 	scope: 40,
 	summary: 2_000,
 	lesson: 4_000,
+	explanation: 3_000,
 	command: 300,
 	area: 40,
 	evidence: 2_000,
@@ -815,6 +816,9 @@ export function readResultJson(path) {
 		scope: cut(v.scope, CAPS.scope),
 		summary: cut(v.summary, CAPS.summary),
 		lesson: cut(v.lesson, CAPS.lesson),
+		changed: cut(v.changed, CAPS.explanation),
+		howToCheck: cut(v.howToCheck, CAPS.explanation),
+		risks: cut(v.risks, CAPS.explanation),
 		gates,
 		...(diagnosis ? { diagnosis } : {}),
 		...(sb && typeof sb === 'object' && typeof sb.area === 'string' && typeof sb.title === 'string'

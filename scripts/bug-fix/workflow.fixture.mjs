@@ -643,6 +643,8 @@ export function problems(files) {
 			files.launcher.includes(
 				'export const fixRunName = (id: string): string => `Fix run ${id}`;',
 			) &&
+			files.launcher.includes('`${fixRunName(id)} · ${mode}`') &&
+			files.launcher.includes('title === fixRunRunName(id, mode) || title === fixRunName(id)') &&
 			files.launcher.includes("export const FIX_RUN_WORKFLOW = 'bug-fix.yml';"),
 	);
 	rule(
@@ -990,6 +992,23 @@ export function problems(files) {
 		m[1].split(' | '),
 	);
 	const marks = (re) => (files.coordinator.match(re) ?? []).length;
+	// ADR-0014 §2: a build's explanation is the launcher's three fields, at the launcher's cap, and
+	// the prompt says what a run that leaves one out ends with.
+	const explanationKeys = quoted(
+		/\nexport const EXPLANATION_KEYS = \[([\s\S]*?)\] as const/.exec(files.launcher)?.[1] ?? '',
+	);
+	const resultKeys = [...files.coordinator.matchAll(/^\t"(\w+)": "/gm)].map((m) => m[1]);
+	rule(
+		'explanation-fields',
+		explanationKeys.length === 3 &&
+			explanationKeys.every((k) => resultKeys.filter((r) => r === k).length === 1) &&
+			files.coordinator
+				.replace(/\s+/g, ' ')
+				.includes(`(the reason reads "${reasonOf('noExplanation')}")`) &&
+			files.coordinator
+				.replace(/\s+/g, ' ')
+				.includes('`changed`, `howToCheck` and `risks` 3,000 each'),
+	);
 	rule(
 		'diagnose-mode',
 		outcomes.length > 0 &&
@@ -1295,6 +1314,18 @@ const MUTANTS = [
 		'run-name: Bug fix ${{ inputs.fix_run }}',
 	],
 	[
+		'run-name',
+		'launcher',
+		'title === fixRunRunName(id, mode) || title === fixRunName(id)',
+		'title === fixRunRunName(id, mode)',
+	],
+	[
+		'run-name',
+		'launcher',
+		'title === fixRunRunName(id, mode) || title === fixRunName(id)',
+		'title === fixRunName(id)',
+	],
+	[
 		'audience',
 		'collect',
 		"export const AUDIENCE = 'invisible-launcher-bug-fix';",
@@ -1582,6 +1613,19 @@ const MUTANTS = [
 		'run: node scripts/bug-fix/prove-cli.mjs ${{ github.ref }}\n',
 	],
 	['coordinator', 'coordinator', '- Commit, push, merge', '- Push, merge'],
+	[
+		'explanation-fields',
+		'coordinator',
+		'\t"howToCheck": "steps a person can follow in a tool or a game to see the change",\n',
+		'',
+	],
+	['explanation-fields', 'coordinator', '`risks` 3,000 each', '`risks` 2,000 each'],
+	[
+		'explanation-fields',
+		'launcher',
+		"\t'howToCheck',\n\t'risks',\n] as const satisfies",
+		"\t'risks',\n] as const satisfies",
+	],
 	// The prompt and the deny list against the launcher's own lists (13D): a rule the launcher adds,
 	// a name the prompt drops, a list renamed out of reach.
 	[
@@ -2643,6 +2687,8 @@ writeFileSync(
 		...ok,
 		summary: 's'.repeat(9000),
 		title: 't'.repeat(500),
+		changed: 'c'.repeat(5000),
+		howToCheck: 'h',
 		gates: [{ command: 'c'.repeat(900), ok: true }],
 	}),
 );
@@ -2650,6 +2696,9 @@ const r3 = C.readResultJson(join(tmp, 'r3.json'));
 check(
 	r3.summary.length === C.CAPS.summary &&
 		r3.title.length === C.CAPS.title &&
+		r3.changed.length === C.CAPS.explanation &&
+		r3.howToCheck === 'h' &&
+		r3.risks === '' &&
 		r3.gates[0].command.length === C.CAPS.command,
 	'readResultJson cuts each field to the launcher’s cap',
 );
@@ -2660,13 +2709,15 @@ check(
 			scope: 40,
 			summary: 2000,
 			lesson: 4000,
+			explanation: 3000,
 			command: 300,
 			area: 40,
 			evidence: 2000,
 		}) &&
-		/title: 120,\n\tsummary: 2_000,\n\tlesson: 4_000,\n\tcommand: 300,\n\tarea: 40,\n\tscope: 40,/.test(
+		/title: 120,\n\tsummary: 2_000,\n\tlesson: 4_000,\n\texplanation: EXPLANATION_CAP,\n\tcommand: 300,\n\tarea: 40,\n\tscope: 40,/.test(
 			read('apps/launcher-api/src/lib/server/bugFixRunsChange.ts'),
-		),
+		) &&
+		/\nexport const EXPLANATION_CAP = 3_000;/.test(FILES.launcher),
 	"the job's caps are the launcher's TEXT_CAPS",
 );
 
@@ -2747,10 +2798,13 @@ check(
 	JSON.stringify(Object.keys(body).sort()) ===
 		JSON.stringify([
 			'baseSha',
+			'changed',
 			'files',
 			'gates',
+			'howToCheck',
 			'lesson',
 			'outcome',
+			'risks',
 			'scope',
 			'summary',
 			'title',

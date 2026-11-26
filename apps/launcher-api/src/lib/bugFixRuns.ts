@@ -111,6 +111,24 @@ export const MAX_OPTIONS = 4;
 /** A person's note on the option they choose. */
 export const MAX_BUILD_NOTE = 1_000;
 
+/**
+ * What a build run says about its change, in everyday words (ADR-0014 §2): what changed, steps a
+ * person can follow to see it, and what it could affect. The run's own untrusted text, cleaned like
+ * `summary`; each at most {@link EXPLANATION_CAP} characters.
+ */
+export interface FixRunExplanation {
+	changed: string;
+	howToCheck: string;
+	risks: string;
+}
+
+export const EXPLANATION_KEYS = [
+	'changed',
+	'howToCheck',
+	'risks',
+] as const satisfies readonly (keyof FixRunExplanation)[];
+export const EXPLANATION_CAP = 3_000;
+
 /** A second bug the run proposes; stored on the run, never filed by it (a triager files it). */
 export interface FixRunSecondBug {
 	area: string;
@@ -133,11 +151,31 @@ export const FIX_RUN_AGENT = 'bug-fix';
 /** A run's id: 10 lowercase hex characters, so a branch can never spell a second `bug-<n>`. */
 export const FIX_RUN_ID = /^[0-9a-f]{10}$/;
 
-/** How a run is named: the workflow's `run-name`, and the actor of what the run itself records. */
+/** How a run is named: the actor of what the run itself records, and the workflow's `run-name`. */
 export const fixRunName = (id: string): string => `Fix run ${id}`;
+
+/** The `run-name` a later workflow gives a run: the run and what it is (`Fix run <id> · diagnose`). */
+export const fixRunRunName = (id: string, mode: FixRunMode): string =>
+	`${fixRunName(id)} · ${mode}`;
+
+/**
+ * Whether an Actions run's title is this fix run's: the bare `Fix run <id>`, or the title that
+ * carries the run's own mode, so the workflow may be renamed at any time (a live run lasts 90
+ * minutes at most).
+ */
+export const isFixRunTitle = (title: string | undefined, id: string, mode: FixRunMode): boolean =>
+	title === fixRunRunName(id, mode) || title === fixRunName(id);
 
 /** The branch a run's pull request is opened from; `bug-<n>` is what the link sync reads. */
 export const fixRunBranch = (number: number, id: string): string => `bug-${number}-fix-${id}`;
+
+const FIX_RUN_BRANCH = /^bug-([1-9]\d{0,8})-fix-([0-9a-f]{10})$/;
+
+/** The bug and the run a branch name spells (`fixRunBranch`'s inverse), or null for any other. */
+export function parseFixRunBranch(branch: string): { bug: number; id: string } | null {
+	const m = FIX_RUN_BRANCH.exec(branch);
+	return m && { bug: Number(m[1]), id: m[2] };
+}
 
 /** The pull request's title, which the squash merge makes the commit on `main`. */
 export const fixRunTitle = (scope: string, number: number, title: string): string =>
@@ -305,6 +343,8 @@ export const FIX_RUN_REASONS = {
 	bugClosed: 'The bug was closed while the run was going.',
 	diagnoseChangedFiles: 'A diagnose run changed files; nothing was kept.',
 	noDiagnosis: 'The run did not explain its diagnosis.',
+	noExplanation: 'The run did not explain its change; nothing was opened.',
+	noDecision: 'This build has no recorded decision; nothing was opened.',
 } as const;
 
 /** A stored reason is at most this many characters: GitHub's messages can run long. */
@@ -371,6 +411,10 @@ export interface FixRunResultBody {
 	secondBug?: FixRunSecondBug;
 	/** A diagnose run's outcome `diagnosed` carries it; a build run's never does. */
 	diagnosis?: FixRunDiagnosis;
+	/** A build run's change, explained (ADR-0014 §2): all three, or nothing is opened. */
+	changed?: string;
+	howToCheck?: string;
+	risks?: string;
 	files: FixRunFile[];
 	usage: FixRunUsage[];
 }
@@ -391,6 +435,7 @@ export interface FixRunRecord {
 	secondBug: FixRunSecondBug | null;
 	diagnosis: FixRunDiagnosis | null;
 	chosenOption: FixRunChoice | null;
+	explanation: FixRunExplanation | null;
 	parentRunId: string | null;
 	spendUsd: number | null;
 	startedBy: string;
@@ -417,6 +462,8 @@ export interface FixRunView {
 	diagnosis: FixRunDiagnosis | null;
 	/** A build run: the option a person chose, who and when, and their note. */
 	chosenOption: FixRunChoice | null;
+	/** A build run that opened a change: what it changed, how to check it, its risks. Plain text. */
+	explanation: FixRunExplanation | null;
 	/** A build run: the diagnose run it came from. */
 	parentRunId: string | null;
 	/** Null: no result reported, so the spend is unknown. */
@@ -444,11 +491,81 @@ export function fixRunView(run: FixRunRecord, repo: string, mayAct: boolean): Fi
 		secondBug: run.secondBug,
 		diagnosis: run.diagnosis,
 		chosenOption: run.chosenOption,
+		explanation: run.explanation,
 		parentRunId: run.parentRunId,
 		spendUsd: run.spendUsd,
 		startedBy: run.startedBy,
 		createdAt: run.createdAt.toISOString(),
 		finishedAt: run.finishedAt?.toISOString() ?? null,
 		canStop: mayAct && isLiveFixRun(run.status) && run.resultAt === null,
+	};
+}
+
+// ── Whether a change was built for the option a person chose ──────────────────
+
+/** The fields of a run `fixDecisionState` reads; a stored run (`FixRunRecord`) has them all. */
+export interface DecisionRun {
+	id: string;
+	mode: FixRunMode;
+	createdAt: Date;
+	diagnosis: FixRunDiagnosis | null;
+	chosenOption: FixRunChoice | null;
+	explanation: FixRunExplanation | null;
+	parentRunId: string | null;
+}
+
+/** A `fix_decision` event of the bug: the build it started is `data.build`. */
+export interface DecisionEvent {
+	id: number;
+	data: Record<string, unknown>;
+}
+
+export const DECISION_REASONS = {
+	none: 'No decision is recorded for this change: it was built before fix runs asked first.',
+	newerDecision:
+		'A newer decision was recorded on the bug: this change was built for an earlier one.',
+	newerDiagnosis: 'A newer diagnosis replaced the one this change was built from.',
+} as const;
+
+export type FixDecisionState =
+	| {
+			ok: true;
+			choice: FixRunChoice;
+			explanation: FixRunExplanation | null;
+			diagnosis: FixRunDiagnosis | null;
+	  }
+	| { ok: false; reason: string };
+
+/**
+ * Whether `run`, a fix run's change, was built for what a person decided (ADR-0014 §3): it is a
+ * build with a chosen option; the bug's newest `fix_decision` names it as the build; and no diagnose
+ * run of the bug is newer than the diagnosis it came from. `bugRuns` are all the bug's runs, any
+ * order; `decisions` all its `fix_decision` events, any order. Pure: Mark ready and merge refuse
+ * a change whose answer is not `ok`.
+ */
+export function fixDecisionState(
+	run: DecisionRun,
+	bugRuns: DecisionRun[],
+	decisions: DecisionEvent[],
+): FixDecisionState {
+	const parent = run.parentRunId ? bugRuns.find((r) => r.id === run.parentRunId) : undefined;
+	if (run.mode !== 'build' || !run.chosenOption || !parent) {
+		return { ok: false, reason: DECISION_REASONS.none };
+	}
+	const newest = decisions.reduce<DecisionEvent | null>(
+		(best, d) => (!best || d.id > best.id ? d : best),
+		null,
+	);
+	if (!newest) return { ok: false, reason: DECISION_REASONS.none };
+	if (newest.data.build !== run.id) return { ok: false, reason: DECISION_REASONS.newerDecision };
+	const replaced = bugRuns.some(
+		(r) => r.mode === 'diagnose' && r.createdAt.getTime() > parent.createdAt.getTime(),
+	);
+	if (replaced) return { ok: false, reason: DECISION_REASONS.newerDiagnosis };
+	return {
+		ok: true,
+		choice: run.chosenOption,
+		explanation: run.explanation,
+		diagnosis: parent.diagnosis,
 	};
 }
