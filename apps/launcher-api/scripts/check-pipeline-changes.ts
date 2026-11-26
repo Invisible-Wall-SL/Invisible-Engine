@@ -7613,6 +7613,112 @@ check(
 
 // ── A change a fix run built answers to the decision on its bug (ADR-0014 §3) ──
 {
+	const choice = {
+		optionId: 'B',
+		name: 'Narrow the clamp',
+		change: 'Clamp only the bonus bar.',
+		note: 'keep the base bar',
+		decidedBy: 'Ana',
+		decidedAt: '2026-11-26T09:00:00Z',
+	};
+	const fixRun = {
+		bug: 12,
+		runId: '0123456789',
+		choice,
+		explanation: { changed: 'It clamps.', howToCheck: 'Open a game.', risks: 'None known.' },
+		diagnosis: {
+			reported: 'The bar overflows.',
+			cause: 'No clamp.',
+			otherOptions: [{ id: 'A', name: 'Clamp all', change: 'Clamp everything.' }],
+		},
+		decision: { ok: true, reason: null },
+	};
+	const now = Date.parse('2026-11-26T09:05:00Z');
+	const full = view.fixApprovalState({ fixRun }, now);
+	const bare = view.fixApprovalState(
+		{
+			fixRun: {
+				...fixRun,
+				choice: null,
+				explanation: null,
+				diagnosis: null,
+				decision: { ok: false, reason: 'A newer decision exists.' },
+			},
+		},
+		now,
+	);
+	const stale = { ...fixRun, decision: { ok: false, reason: 'A newer decision exists.' } };
+	const draft = { draft: true, state: 'open' as const };
+	const mergeable = { draft: false, headSha: 'a'.repeat(40), filesTruncated: false };
+	check(
+		'the page: a fix-run change shows the six parts, the other options and the bug link; an ordinary change shows nothing',
+		[
+			view.fixApprovalState({ fixRun: null }),
+			full?.rows.map((r) => r.label),
+			full?.rows[2]?.text,
+			full?.rows[3]?.text,
+			full?.others,
+			full?.blocked,
+			full?.bugRef,
+			full?.bugHref,
+		],
+		[
+			null,
+			[
+				'What you reported',
+				'What was wrong',
+				'The option you chose',
+				'What changed',
+				'How to check it yourself',
+				'Risks',
+			],
+			'B — Narrow the clamp\nClamp only the bonus bar.\nchosen by Ana · 5 min ago\nNote: keep the base bar',
+			'It clamps.',
+			['A — Clamp all: Clamp everything.'],
+			null,
+			'BUG-12',
+			'/bugs?bug=12',
+		],
+	);
+	check(
+		'the page: a legacy build keeps every row with no text, no other options, and the refusal',
+		[bare?.rows.map((r) => r.text), bare?.others, bare?.blocked],
+		[[null, null, null, null, null, null], [], 'A newer decision exists.'],
+	);
+	check(
+		'the page: a refused decision replaces the Mark ready and merge buttons with its sentence; a held one changes nothing',
+		[
+			view.readyBar({ ...draft, fixRun: stale }, true),
+			view.readyBar({ ...draft, fixRun: stale }, false)?.text,
+			view.readyBar({ ...draft, fixRun }, true)?.action,
+			view.mergeBar({ ...mergeable, fixRun: stale }, true, false),
+			view.mergeBar({ ...mergeable, fixRun }, true, false).action,
+			view.mergeBar({ ...mergeable, fixRun: null }, true, false).action,
+			view.fixDecisionBlock({ fixRun: { ...stale, decision: { ok: false, reason: null } } }),
+		],
+		[
+			{ action: null, text: 'A newer decision exists.' },
+			'A newer decision exists.',
+			'ready',
+			{ action: null, text: 'A newer decision exists.' },
+			'merge',
+			'merge',
+			'The decision this change answers to is not current.',
+		],
+	);
+	check(
+		'the list: only bug-<n>-fix-<10 hex> carries the fix run tag',
+		[
+			view.fixRunTag('bug-12-fix-0123456789'),
+			view.fixRunTag('bug-12'),
+			view.fixRunTag('bug-12-fix-01234'),
+		],
+		[{ bug: 12, text: 'fix run · BUG-12' }, null, null],
+	);
+}
+
+// ── A change a fix run built answers to the decision on its bug (ADR-0014 §3) ──
+{
 	const shared = await import(src('lib/bugFixRuns.ts'));
 	const T0 = Date.parse('2026-11-26T09:00:00Z');
 	const at = (n: number) => new Date(T0 + n * 60_000);

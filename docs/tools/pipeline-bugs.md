@@ -196,6 +196,8 @@ BUG-`<n>`." with **Open BUG-`<n>`**).
        another area adds "Proposed second bug: `<area>` — `<title>`" with **File it**, for triagers
        with this tool, which opens the report form filled in; nothing is filed until you press
        **Report bug**.
+     - The change a build opens carries its own **What you're approving** card in Invisible
+       Pipeline Changes (the option you chose, what changed, how to check it, the risks).
      - The activity shows "`<person>` chose option B — `<name>` (note: …)" for each choice.
      - The same button, banner (compact) and run line are on the bug's card in the **Bugs** tab of
        [Invisible Pipeline Changes](pipeline-changes.md). A run never changes the bug's status:

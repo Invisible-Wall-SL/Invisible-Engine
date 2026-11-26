@@ -275,6 +275,15 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-26 — **The change says what you are approving (ADR-0014 card 14B, UI side).** Pipeline
+  Changes' detail opens with a "What you're approving" `SectionCard` for a fix-run change (reads
+  `ChangeDetail.fixRun`): reported, cause, the chosen option (who, when, note), what changed,
+  how to check, risks, the other options folded, **Open BUG-n**; a missing part reads "Not
+  recorded for this change". A refused decision shows in red on the card and replaces the Mark
+  ready and merge buttons (`fixApprovalState`, `fixDecisionBlock`, `readyBar`/`mergeBar` in
+  `view.ts`); a 409 `fix_decision_mismatch` shows its message inline. The list tags such a
+  change **fix run · BUG-n** (`fixRunTag`, from the branch). Pinned in `check-pipeline-changes`.
+  Rendered nowhere (no local DB): type-checked only.
 - 2026-11-26 — **A build explains its change, and Mark ready checks the decision (ADR-0014 card
   14B, server, prompt and workflow side).** Migration `0049_fix_run_explanation`
   (`bug_fix_runs.explanation`). `coordinator.md`'s build result gains `changed`, `howToCheck`,
