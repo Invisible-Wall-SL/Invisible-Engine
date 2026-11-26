@@ -175,7 +175,9 @@ const lobby = (): Scene => ({
 	],
 });
 
-/** The lobby's countdown to the session, under the menu, on the room's clock. */
+/** The lobby's clock to the session, under the menu, on the room's clock: the whole time to round
+ *  1 from the room's first person (its wait and its countdown). The seconds are drawn in code once
+ *  the art is in (red and pulsing at the end); the node shows the plain number until then. */
 const countdown = (): Scene => ({
 	id: SALMONS_SCREENS.countdown,
 	name: 'Lobby countdown',
@@ -183,7 +185,7 @@ const countdown = (): Scene => ({
 	alwaysOnTop: true,
 	nodes: [
 		centred('sm-countdown-caption', 'Starting in', 210, 'STARTING IN', 24),
-		centred('sm-countdown-seconds', 'Seconds', 250, '0', 40, 'var:secondsLeft'),
+		centred(SALMONS_SCREEN_ART.clock, 'Seconds', 250, '0', 40, 'var:secondsLeft'),
 	],
 });
 

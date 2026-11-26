@@ -82,7 +82,8 @@ function irigDoc(text: string | undefined): Record<string, unknown> | null {
 
 /**
  * The sidecar as the precondition GET answers it, read leniently against the stored `.irig`:
- * `{ etag, doc }` without what names a bone or constraint the `.irig` lacks (listed in `dropped`),
+ * `{ etag, doc }` without what names a bone or constraint the `.irig` lacks (listed in `dropped`;
+ * old slot groups that could not become folders in `unconverted`),
  * or `{ etag, problems }`; `torn` when its mark is of another `.irig`. Null when the folder has none
  * of this rig's (another rig's is not shown; one that cannot say whose it is, is).
  */
@@ -98,6 +99,7 @@ export function controlsView(
 		etag: read.etag,
 		...(doc ? { doc: fit ? fit.doc : doc } : { problems }),
 		...(fit?.dropped.length ? { dropped: fit.dropped } : {}),
+		...(fit?.unconverted.length ? { unconverted: fit.unconverted } : {}),
 		...(torn ? { torn } : {}),
 	};
 }

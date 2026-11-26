@@ -25,7 +25,9 @@
  * score at 0 — unless `round.endsGame`: then the first round's end is the game's (`gameWon`, with
  * the winner's name), and no round follows. Players move in every phase, so a device's prediction holds through the pause. With a LOBBY (`rules.lobby`) the room waits
  * before its first round: each person who joins is told (`lobby`), and once `minPlayers` people are in or `maxWaitSeconds` have passed since the first,
- * a `countdown` of `countdownSeconds` runs (`endsAt` its end) and round 1 starts; a lobby every
+ * a `countdown` of `countdownSeconds` runs and round 1 starts. From the first person on, `endsAt`
+ * is when round 1 starts at the latest (the wait's end and the countdown); the countdown makes it
+ * its own end, which is sooner when enough people came early. A lobby every
  * person left starts over (one whose place is held after a drop still counts as there; it counts
  * towards the start again once it rejoins). Until round 1 starts, the countdown included, a person
  * in the lobby may change the class it plays in place ({@link OnlineRules.picking}): the room reads
@@ -338,6 +340,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				if (!lobbyOpen) {
 					lobbyOpen = true;
 					lobbyEndsAt = stamp + Math.round(lobby.maxWaitSeconds * tickHz);
+					endsAt = lobbyEndsAt + Math.round(lobby.countdownSeconds * tickHz);
 				}
 				emit({ type: 'lobby', id: player.id });
 			}
