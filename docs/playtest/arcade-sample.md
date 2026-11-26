@@ -62,11 +62,21 @@ vx / vy, tags), in spawn order. `?flowlog=1` traces every spawn, despawn and arc
 9. **No RGS.** The page requests nothing but the runtime bundle and the snapshot.
 
 10. **Zone art** (`scripts/playtest/zone-art-play.mjs`, same arguments; [zone-art](../design/zone-art.md)).
-    It plays the same sample with three zones and `arcade.zoneArt` in its config: a magenta sheet
-    frame on the two `reef#` zones and a two-frame green clip on `pond`, all from a stub sheet
-    exported as a publish exports one. With zone art, both pictures sit on their zones under the
-    salmon and the clip plays both frames. Without it, neither colour is on screen. Both rounds
-    play, and there is no page error.
+    It plays the same sample with five zones and `arcade.zoneArt` in its config: a magenta sheet
+    frame on the two `reef#` zones and a two-frame green clip on `pond`, from a stub sheet exported
+    as a publish exports one, and a stub RIG on two `lamp#` zones (`fixtures/zoneRigStubs.mjs`:
+    one slot whose `blink` shows cyan, then yellow, every second), exported as a publish exports a
+    rig and named in `characterArt` by the real `zoneArtArtNames`. The two lamps are the pair of
+    zone ids whose seed-picked starts are nearest half a cycle apart. With zone art, the pictures
+    sit on their zones under the salmon, the clip plays both frames, the rig is drawn on both
+    lamps, each lamp shows both of its drawings over two seconds, and the two lamps show different
+    drawings in at least 14 of 20 moments (not in lockstep). Without it, none of those colours is
+    on screen. Both rounds play, and there is no page error (8 verdicts).
+    `--cost` plays none of that: three pages of the sample with 430 zones of one family on one
+    screen (as many as Salmons' trees), drawn by nothing, by the frame, or by a tree rig of 8 bones
+    and 6 parts. It records each page's wall time per frame (120 frames without the GL draw, 20
+    drawn) and the rig updates a frame, and checks that the 430 rigs are drawn and moved on (2
+    verdicts). The finding is in [design/zone-art](../design/zone-art.md) §3.
 
 ## Known limits
 
