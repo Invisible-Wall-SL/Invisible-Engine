@@ -191,6 +191,7 @@
   /* A workspace (🎞 Frame to rig, 🗺 From my sheet): the whole window, its canvas filling the free space
      through its camera (`wsCamera`) and a side panel resized by its splitter and folded by ◨. */
   .rigModal.ws { background:var(--bg); }
+  html:has(.rigModal.ws.open), html:has(.rigModal.ws.open) body { overflow:hidden; }
   .rigModal.ws > .modal-box { margin:0; width:100%; height:100%; max-height:none; border:0; border-radius:0;
     box-shadow:none; padding:8px 10px; min-width:0; }
   .wsBody { display:flex; flex:1; min-height:0; margin-top:6px; }
@@ -10177,10 +10178,15 @@ let wsSpace = false;
 const wsPx = (n) => n * (window.devicePixelRatio || 1);
 function wsCamera(zoomId){ return { k: 1, x: 0, y: 0, fitK: 1, manual: false, key: null, zoomId }; }
 const WS_CAM = { f2r: wsCamera("f2rZoom"), s2r: wsCamera("s2rZoom") };
-// A pointer event's point on canvas `cv`, in canvas px.
+// A pointer event's point on canvas `cv`, in canvas px; and canvas px per CSS px, on each axis (each is
+// rounded to whole canvas px on its own).
 function wsAt(cv, e){
   const r = cv.getBoundingClientRect();
   return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height];
+}
+function wsScale(cv){
+  const r = cv.getBoundingClientRect();
+  return [cv.width / r.width, cv.height / r.height];
 }
 function wsShowZoom(cam){
   const el = cam.zoomId && document.getElementById(cam.zoomId);
@@ -10261,8 +10267,8 @@ function wsWheel(st, cv, e){
   const cam = st.cam();
   if (!cam) return;
   const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1, dx = e.deltaX * unit, dy = e.deltaY * unit;
-  const s = cv.width / cv.getBoundingClientRect().width;
-  if (!e.ctrlKey && e.deltaMode === 0 && (dx !== 0 || Math.abs(dy) < 50)) wsPan(cam, -dx * s, -dy * s);
+  const [sx, sy] = wsScale(cv);
+  if (!e.ctrlKey && e.deltaMode === 0 && (dx !== 0 || Math.abs(dy) < 50)) wsPan(cam, -dx * sx, -dy * sy);
   else wsZoomAt(cam, wsAt(cv, e), Math.exp(-dy * (Math.abs(dy) < 50 ? WS_WHEEL_FINE : WS_WHEEL)));
   st.draw();
 }
@@ -10283,8 +10289,8 @@ function wsWire(st){
   }, true);
   window.addEventListener("mousemove", (e) => {
     if (!pan) return;
-    const cam = st.cam(), s = cv.width / cv.getBoundingClientRect().width;
-    if (cam) wsPan(cam, (e.clientX - pan[0]) * s, (e.clientY - pan[1]) * s);
+    const cam = st.cam(), [sx, sy] = wsScale(cv);
+    if (cam) wsPan(cam, (e.clientX - pan[0]) * sx, (e.clientY - pan[1]) * sy);
     pan = [e.clientX, e.clientY];
     st.draw();
   });
@@ -10301,16 +10307,16 @@ function wsWire(st){
   cv.addEventListener("pointerdown", (e) => {
     if (e.pointerType !== "touch") return;
     touches.set(e.pointerId, [e.clientX, e.clientY]);
-    if (touches.size === 2){ penDragCancel(); pinch = pinchOf(); }
+    if (touches.size === 2){ penDragCancel([...touches.values()][0]); pinch = pinchOf(); }
   });
   window.addEventListener("pointermove", (e) => {
     if (!touches.has(e.pointerId)) return;
     touches.set(e.pointerId, [e.clientX, e.clientY]);
     const cam = st.cam();
     if (!pinch || touches.size !== 2 || !cam) return;
-    const now = pinchOf(), r = cv.getBoundingClientRect(), s = cv.width / r.width;
-    wsPan(cam, (now.c[0] - pinch.c[0]) * s, (now.c[1] - pinch.c[1]) * s);
-    wsZoomAt(cam, [(now.c[0] - r.left) * s, (now.c[1] - r.top) * s], now.d / pinch.d);
+    const now = pinchOf(), [sx, sy] = wsScale(cv);
+    wsPan(cam, (now.c[0] - pinch.c[0]) * sx, (now.c[1] - pinch.c[1]) * sy);
+    wsZoomAt(cam, wsAt(cv, { clientX: now.c[0], clientY: now.c[1] }), now.d / pinch.d);
     pinch = now;
     st.draw();
   });
@@ -25782,14 +25788,14 @@ function penMouseEvent(type, e, button, buttons){
     screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
     ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, button, buttons });
 }
-// A second finger on a workspace canvas starts a pinch: the first finger's drag goes back to where it
-// was pressed and is let go there.
-function penDragCancel(){
+// A second finger on a workspace canvas starts a pinch: the first finger (now at `at`) is let go
+// where it was pressed, its drag taken back there if it had moved.
+function penDragCancel(at){
   if (!penDrag) return;
-  const { button, buttons, from } = penDrag, at = { clientX: from[0], clientY: from[1], screenX: 0, screenY: 0 };
+  const { button, buttons, from } = penDrag, back = { clientX: from[0], clientY: from[1], screenX: 0, screenY: 0 };
   penDrag = null;
-  document.dispatchEvent(penMouseEvent("mousemove", at, 0, buttons));
-  document.dispatchEvent(penMouseEvent("mouseup", at, button, 0));
+  if (at[0] !== from[0] || at[1] !== from[1]) document.dispatchEvent(penMouseEvent("mousemove", back, 0, buttons));
+  document.dispatchEvent(penMouseEvent("mouseup", back, button, 0));
 }
 function wirePenDrags(){
   window.addEventListener("pointerdown", (e) => {

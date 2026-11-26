@@ -127,8 +127,9 @@ time field, and a **Speed** control.
 **Pen tablet (Wacom) and touch.** The pen drags wherever the mouse does: bones and the gizmo
 on the stage, keys and box selects in the dopesheet and the graph editor, the Picker, the
 frame-to-rig stage, both of 🗺 From my sheet's stages and the panel splitters. The tip is the left
-button, and so is the eraser end. On the stage the **barrel button pans**, like the middle mouse
-button, even over a bone,
+button, and so is the eraser end. On the stage and on the canvases of the two rig-building
+workspaces ([below](#the-rig-building-workspaces-zoom-pan-and-shortcuts)) the **barrel button
+pans**, like the middle mouse button, even over a bone or a joint,
 and neither the barrel's click nor a pen held still (Windows Ink's press-and-hold) opens the
 browser's menu. Elsewhere the barrel is the right button, so on a dopesheet key it opens the
 easing menu. Pressure is ignored. A finger on a touch screen works the same. Those surfaces no
@@ -1241,6 +1242,37 @@ template** below), listed as `<name> (template v<n>)`.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
+#### The rig-building workspaces: zoom, pan and shortcuts
+
+**🎞 From a Flipbook frame** and **🗺 From my sheet** (both below) each open as a workspace over the
+whole Rigger window. The canvas fills the space on the left; the side panel on the right holds the
+lists — a foldable **Frames** (🎞) or **Regions** (🗺) section first, then the parts, props or
+mapping table. Drag the splitter between them to resize the side panel (a double-click resets it);
+**◨** at the right end of the bar above the canvas hides or shows it, and both are remembered.
+**✕** or **Esc** goes back to the rig.
+
+The bar above the canvas holds the view (**◧ Assembled / ▣ This frame**, or **▭ One part /
+◧ Arranged**), 🎞's **🖌 Brush** and **◌ Lasso**, 🗺's **⟲ ⇅ ⤺**, and the zoom: **−**, the zoom
+readout, **+**, **Fit** and **1:1**. 100% is one pixel of the picture to one pixel of your screen.
+Until you zoom or pan, the canvas keeps the picture fitted to the window. After that each workspace
+keeps its zoom while the page is open (◧ Arranged keeps its own), and the next drawing you pick in
+▭ One part opens at the same zoom, centred.
+
+| To | Do |
+| --- | --- |
+| Zoom at the pointer | Mouse wheel, Ctrl+wheel, or pinch (trackpad or touch screen) |
+| Pan | Hold **Space** and drag; or drag with the middle button, the pen's barrel button, or two fingers (trackpad or touch screen) |
+| Fit the picture | **F**, or **Fit** |
+| 100% | **1**, or **1:1** |
+| Zoom in / out | **+** (or **=**) / **−**, or the bar's + and − |
+| Leave | **Esc**, or **✕** |
+
+Joint dots, handles and labels stay one size on the screen at any zoom. Past 200% the picture's
+pixels are drawn as squares, so you can see which pixel a joint is on. A dragged joint keeps the
+point you grabbed it by under the pointer, so at 400% it moves a quarter of a pixel at a time. A pan
+never moves a joint, even one under the pointer. The keys work anywhere in the workspace except
+while you type in a field.
+
 #### Make a rig from a Flipbook frame (🎞 From a Flipbook frame)
 
 A character that already exists as a Flipbook clip can be split into the template's parts and made
@@ -1249,8 +1281,9 @@ into a rig, instead of drawn part by part. Pick **Half body** (or a template sav
 of the panel. What each step does is the tooltip on the dialog's title.
 
 1. **Pick the clip.** Its frames are tracked in this browser (face, body and hands, as 🎥 Motion
-   does), and the strip shows every frame with a score: 1 means every arm segment lies flat in the
-   picture, nothing covers the body and everything was found. The best frame (★) is picked; hover a
+   does), and the **Frames** section of the side panel (the strip) shows every frame with a score:
+   1 means every arm segment lies flat in the picture, nothing covers the body and everything was
+   found. The best frame (★) is picked; hover a
    frame for why it scores lower — `right forearm at 0.27 of its length` (pointing at the camera, so
    the part would be cut short), `right upper arm, right forearm out of the picture` (a joint past
    the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
@@ -1405,7 +1438,8 @@ renaming or redrawing anything. Pick a template in **＋ New rig → Apply saved
 (Half body for the full result), pick the sheet in **Atlas (images)**, then click **🗺 From my
 sheet…**. What each step does is the tooltip on the dialog's title.
 
-1. **The regions.** The strip shows every region of the sheet with the part it is mapped to under it.
+1. **The regions.** The **Regions** section of the side panel shows every region of the sheet with the
+   part it is mapped to under it.
    Each template part is matched to the region its name says, read as words in any order or case
    (`L_arm_upper`, `arm_upper_left`, `ArmL1` and `brazo_izq_1` are all `upper_arm_l`; `ArmR2` is
    `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is

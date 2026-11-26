@@ -101,7 +101,7 @@ const PAGE_MUTANTS = [
 	],
 	[
 		'a dragged part not snapped',
-		'if (to && Math.hypot(to[0] - first[0], to[1] - first[1]) * s2r.aview.k <= S2R_SNAP){',
+		'if (to && Math.hypot(to[0] - first[0], to[1] - first[1]) * s2r.aview.k <= wsPx(S2R_SNAP)){',
 		'if (false){',
 	],
 	[
