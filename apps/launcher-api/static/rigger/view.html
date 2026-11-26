@@ -257,6 +257,15 @@
   .s2rRow canvas { width:20px; height:20px; border-radius:2px; background:#808080; flex:0 0 auto; }
   .s2rRow .s2rState { flex:0 0 18px; text-align:center; cursor:help; }
   .s2rRow.prop input { flex:0 0 110px; margin:0; }
+  /* 🗺 Layers: front at the top; ⋮⋮ drags (pointer events: a pen or a finger too) */
+  .s2rLayer { margin:1px 0; }
+  .s2rLayer .s2rName { flex:1 1 auto; }
+  .s2rLayer .s2rName i { color:var(--dim); font-style:normal; font-size:10px; margin-left:4px; }
+  .s2rLayer .slotGrip { width:14px; padding:0; cursor:grab; touch-action:none; user-select:none; text-align:center; letter-spacing:-2px; }
+  .s2rLayer.drag-src { opacity:.45; }
+  .s2rLayer.drop-before { box-shadow:inset 0 2px 0 var(--accent); }
+  .s2rLayer.drop-after { box-shadow:inset 0 -2px 0 var(--accent); }
+  body.slotDragging .s2rLayer .slotGrip { cursor:grabbing; }
   /* 📐 Save as template */
   .tplRow { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:3px 14px; font-size:11px; }
   .tplRow > .tplKey { flex:0 0 96px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1086,6 +1095,10 @@
           </details>
           <div id="s2rParts"></div>
           <div id="s2rProps"></div>
+          <details class="wsSec" id="s2rLayersSec" open>
+            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays).">Layers</summary>
+            <div id="s2rLayers"></div>
+          </details>
         </div>
       </div>
     </div>
@@ -11897,6 +11910,8 @@ const s2r = {
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
   view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
   aview: null, adrag: null, swap: false,
+  // layers: the author's Layers list, slot names front to back (null: the template's order, `sheetLayerList`).
+  layers: null, ldrag: null,
   // left: { mapping, at } a new rig's mapping closed unmade (↺ Reuse); undo: what ↺ Start over replaced.
   left: null, undo: null,
 };
@@ -11930,6 +11945,7 @@ async function openSheetToRig(edit){
     sel.appendChild(o);
     $("#s2rModal").classList.add("open");
     await s2rLoad(sheetSrc.doc.manifestKey, sheetSrc.doc, irigStem(selected));
+    s2rLayersFromRig();
     return;
   }
   s2r.edit = null;
@@ -11998,8 +12014,8 @@ async function s2rReuse(c){
 function s2rStartOver(){
   if (!s2r.sheet || !s2r.tpl) return;
   if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
-  s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
-  Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
+  Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
   s2rSuggest();
   s2rRender(); s2rDraw();
 }
@@ -12120,6 +12136,7 @@ function reportSheetUpdate(stem, rep){
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
     (removed.length ? "Removed (the mapping no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
+    (rep.layered && rep.layered.length ? "Drawn in the order of your Layers list: " + rep.layered.join(", ") + " moved.\n\n" : "") +
     (kept.length ? "Your own meshes kept: " + kept.join(", ") + ".\n\n" : "") +
     (rep.deformDropped.length ? "Deform keys dropped: " + rep.deformDropped.map((d) => d.part).join(", ") + ".\n\n" : "") +
     (rep.foldedBones.length ? "Bones you deleted, their share given to the bone above: " + rep.foldedBones.map((f) => f.bone + " → " + f.into).join(", ") + ".\n\n" : "") +
@@ -12156,7 +12173,7 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
   s2rSwapUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
@@ -12309,6 +12326,7 @@ function s2rKeep(kept){
   s2r.props = kept.props.filter((p) => names.has(p.region) && s2r.map[p.host]).map((p) => ({ ...p, at: [...p.at] }));
   const placed = Object.entries(kept.arrange || {}).filter(([p]) => s2r.map[p]);
   s2r.arrange = placed.length ? Object.fromEntries(placed.map(([p, a]) => [p, { at: [...a.at], turn: a.turn }])) : null;
+  s2r.layers = Array.isArray(kept.layers) ? [...kept.layers] : null;
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
   const what = s2r.edit ? "“" + s2r.from + "”'s mapping: 🔄 Update rig rebuilds it from your changes"
@@ -12353,6 +12371,7 @@ function s2rMapping(){
     props: s2r.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
     ...(s2r.swap ? { swapSides: true } : {}),
+    ...s2rLayersOut(),
   };
 }
 
@@ -12469,7 +12488,7 @@ function s2rRender(){
   }
   const list = $("#s2rParts");
   list.innerHTML = "";
-  if (!has || !s2r.tpl) return s2rRenderProps();
+  if (!has || !s2r.tpl){ s2rRenderLayers(); return s2rRenderProps(); }
   const regions = s2r.sheet.regions.map((r) => r.name);
   const groups = [
     ["Body", (p) => s2rMain(p) && !S2R_FACE_PART.test(p.name) && !S2R_FINGER.test(p.name)],
@@ -12498,6 +12517,7 @@ function s2rRender(){
     list.appendChild(det);
   }
   s2rRenderProps();
+  s2rRenderLayers();
 }
 
 function s2rRow(p, regions){
@@ -12588,6 +12608,161 @@ function s2rRenderProps(){
     d.onclick = () => { s2r.sel = { prop: i }; s2rRender(); s2rDraw(); };
     box.appendChild(d);
   });
+}
+
+// ---- 🗺 Layers: which drawing is in front of which ------------------------------------------------
+// Every slot the mapping draws in (each mapped part's, each prop's), front at the top, as the launcher
+// makes the rig (RiggerMotion.sheetLayerList: the template's order, each prop over its part or behind
+// it where the artist's file says so, then the author's order). ⋮⋮ drags a row (pointer events: a pen
+// or a finger too); Ctrl+] / [ moves the picked one a place to the front / back, Shift all the way.
+// Sent as the mapping's `layers` while it differs from the template's order.
+const s2rSlotOf = (part) => s2rPart(part).slot;
+function s2rLayerList(own = true){
+  if (!s2r.tpl || !s2r.tpl.slots) return [];
+  const parts = {};
+  for (const [p, m] of Object.entries(s2r.map)) if (s2rPart(p)) parts[p] = { region: m.region };
+  const plain = { parts, props: s2r.props.map(({ name, region, host }) => ({ name, region, host })) };
+  const natural = window.RiggerMotion.sheetLayerList(s2r.tpl.slots, s2rSlotOf, plain);
+  if (!own || !s2r.layers) return natural;
+  const drawn = new Set(natural);
+  return window.RiggerMotion.sheetLayerList(s2r.tpl.slots, s2rSlotOf, { ...plain, layers: s2r.layers.filter((n) => drawn.has(n)) });
+}
+function s2rLayersOut(){
+  if (!s2r.layers || !s2r.tpl) return {};
+  const list = s2rLayerList();
+  return list.join() === s2rLayerList(false).join() ? {} : { layers: list };
+}
+// 🗺 Edit mapping: the list starts as the open rig draws its slots (a reorder in Setup's slots
+// included), so 🔄 Update rig keeps that order unless it is changed here.
+function s2rLayersFromRig(){
+  if (!rawDoc || !s2r.sheet || !s2r.tpl) return;
+  const drawn = new Set(s2rLayerList(false));
+  const own = rawDoc.slots.map((s) => s.name).filter((n) => drawn.has(n)).reverse();
+  if (own.length) s2r.layers = own;
+  s2rRender();
+}
+// The slot a pick draws in: a part's, a prop's own.
+function s2rSelSlot(){
+  const sel = s2r.sel;
+  if (!sel) return null;
+  if (sel.part && s2r.map[sel.part]) return s2rSlotOf(sel.part);
+  if (sel.prop !== undefined && s2r.props[sel.prop]) return s2r.props[sel.prop].name;
+  return null;
+}
+// A slot's row picks its main drawing (or the first mapped one), or its prop.
+function s2rPickSlot(slot){
+  const prop = s2r.props.findIndex((p) => p.name === slot);
+  if (prop >= 0){ s2r.sel = { prop }; return; }
+  const parts = s2r.tpl.parts.filter((p) => p.slot === slot && s2r.map[p.name]);
+  const main = parts.find((p) => s2rMain(p)) || parts[0];
+  if (main) s2r.sel = { part: main.name };
+}
+function s2rSetLayers(list){
+  if (list.join() === s2rLayerList().join()) return false;
+  s2r.layers = list;
+  s2r.dirty = true;
+  s2rRequestPreview();
+  return true;
+}
+function s2rStepLayer(dir){
+  const slot = s2rSelSlot();
+  if (!slot) return false;
+  const backToFront = s2rLayerList().reverse();
+  return s2rSetLayers(slotOrderStep(backToFront, [slot], dir).reverse());
+}
+function s2rRenderLayers(){
+  const box = $("#s2rLayers");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!s2r.sheet || !s2r.tpl) return;
+  const list = s2rLayerList(), at = s2rSelSlot();
+  const sum = $("#s2rLayersSec > summary");
+  sum.textContent = "Layers · " + list.length + (s2rLayersOut().layers ? " · yours" : "");
+  for (const slot of list){
+    const prop = s2r.props.find((p) => p.name === slot);
+    const parts = prop ? [] : s2r.tpl.parts.filter((p) => p.slot === slot && s2r.map[p.name]).map((p) => p.name);
+    const d = document.createElement("div");
+    d.className = "f2rRow part s2rRow s2rLayer" + (slot === at ? " pick" : "");
+    d.dataset.slot = slot;
+    const g = document.createElement("button");
+    g.type = "button"; g.className = "ctlIcon slotGrip"; g.textContent = "⋮⋮";
+    g.title = "Drag to another place: up is in front"; g.setAttribute("aria-label", "Drag " + slot + " to another layer");
+    g.onpointerdown = (e) => s2rLayerDragStart(e, slot);
+    const cv = document.createElement("canvas");
+    cv.width = 20; cv.height = 20;
+    const region = prop ? prop.region : parts.length ? s2r.map[parts.find((n) => n === slot) || parts[0]].region : null;
+    if (region) s2rThumb(cv, region);
+    const n = document.createElement("span");
+    n.className = "s2rName";
+    n.textContent = slot;
+    const more = prop ? "on " + prop.host : parts.filter((p) => p !== slot).join(", ");
+    if (more){ const i = document.createElement("i"); i.textContent = more; n.appendChild(i); }
+    n.title = slot + (prop ? ": a prop on " + prop.host : parts.length ? ": " + parts.join(", ") : "");
+    d.onclick = () => { s2rPickSlot(slot); s2rRender(); s2rDraw(); };
+    d.append(g, cv, n);
+    box.appendChild(d);
+  }
+  // The launcher's word on this order (a depth control it cannot stand with), when it has one.
+  if (/the Layers/.test(s2r.previewProblem)){
+    const w = document.createElement("div");
+    w.className = "pill s2rLayerWarn"; w.textContent = "⚠ " + s2r.previewProblem;
+    box.appendChild(w);
+  }
+}
+function s2rLayerDragStart(e, slot){
+  if (e.button !== 0 || !e.isPrimary || s2r.ldrag) return;
+  e.preventDefault(); e.stopPropagation();
+  s2r.ldrag = { id: e.pointerId, slot, x: e.clientX, y: e.clientY, moved: false, ins: null };
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  window.addEventListener("pointermove", s2rLayerDragMove);
+  window.addEventListener("pointerup", s2rLayerDragUp);
+  window.addEventListener("pointercancel", s2rLayerDragEnd);
+}
+function s2rLayerDragMove(e){
+  const d = s2r.ldrag;
+  if (!d || e.pointerId !== d.id) return;
+  if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
+  if (!d.moved){
+    d.moved = true;
+    document.body.classList.add("slotDragging");
+    for (const r of document.querySelectorAll("#s2rLayers .s2rLayer")) r.classList.toggle("drag-src", r.dataset.slot === d.slot);
+  }
+  // Before the first row whose middle is below the pointer, else at the bottom (the back).
+  const rows = [...document.querySelectorAll("#s2rLayers .s2rLayer")];
+  rows.forEach((r) => r.classList.remove("drop-before", "drop-after"));
+  let ins = rows.length;
+  for (let i = 0; i < rows.length; i++){ const r = rows[i].getBoundingClientRect(); if (e.clientY < r.top + r.height / 2){ ins = i; break; } }
+  d.ins = ins;
+  if (ins < rows.length) rows[ins].classList.add("drop-before"); else if (rows.length) rows[rows.length - 1].classList.add("drop-after");
+}
+function s2rLayerDragEnd(e){
+  const d = s2r.ldrag;
+  if (!d || (e && e.pointerId !== d.id)) return null;
+  s2r.ldrag = null;
+  window.removeEventListener("pointermove", s2rLayerDragMove);
+  window.removeEventListener("pointerup", s2rLayerDragUp);
+  window.removeEventListener("pointercancel", s2rLayerDragEnd);
+  document.body.classList.remove("slotDragging");
+  for (const r of document.querySelectorAll("#s2rLayers .s2rLayer")) r.classList.remove("drag-src", "drop-before", "drop-after");
+  return d;
+}
+function s2rLayerDragUp(e){
+  const d = s2rLayerDragEnd(e);
+  if (!d || !d.moved || d.ins == null) return;
+  s2rPickSlot(d.slot);
+  s2rSetLayers(slotOrderDrop(s2rLayerList(), [d.slot], d.ins));
+  s2rRender(); s2rDraw();
+}
+// Ctrl/Cmd+] / [ in the dialog moves the picked part's or prop's layer; never the open rig's slots
+// behind it (Setup's own Ctrl+] / [).
+function s2rLayerKey(e){
+  if (!$("#s2rModal").classList.contains("open") || !(e.ctrlKey || e.metaKey)) return;
+  const fwd = e.code === "BracketRight" || e.key === "]" || e.key === "}", back = e.code === "BracketLeft" || e.key === "[" || e.key === "{";
+  if (!fwd && !back) return;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+  e.preventDefault(); e.stopPropagation();
+  if (s2rStepLayer((fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1))){ s2rRender(); s2rDraw(); }
 }
 
 // The drawing `c` on the stage through its camera (fitted with a margin while it follows).
@@ -12729,6 +12904,11 @@ function s2rArrangeItems(){
     const place = s2rPlaceOf(name), c = s2rCanvas(m.region);
     if (place && c){ seen.add(name); items.push({ part: name, name, c, place }); }
   };
+  // Back to front as the Layers list has them now, a beat before the preview does.
+  for (const slot of s2rLayerList().reverse()){
+    add(slot);
+    for (const p of s2r.tpl.parts) if (p.slot === slot) add(p.name);
+  }
   for (const a of s2r.preview ? s2r.preview.art : []) add(a.name);
   for (const p of s2r.tpl.parts) add(p.name);
   for (const p of s2r.props) add(p.name);
@@ -12757,6 +12937,7 @@ async function s2rPreview(){
     s2r.previewProblem = e && e.message ? e.message : String(e);
   }
   if (s2r.view === "arranged") s2rDraw();
+  s2rRenderLayers();
 }
 
 // The camera everything is drawn through: the arrangement fitted inside the stage with a margin, or,
@@ -26229,6 +26410,7 @@ async function boot(){
   initResizers();
   wirePenDrags();
   wireWorkspaces();
+  window.addEventListener("keydown", s2rLayerKey, true);
   window.addEventListener("keydown", slotOrderKey);
   bindMotionRefHandles();
   renderTextList(); // the outline's Text section exists before any rig does — say so

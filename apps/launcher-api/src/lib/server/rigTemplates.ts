@@ -3788,6 +3788,8 @@ export interface RigTemplateSummary {
 	 * `bone`: the bone that slot is on (what a prop worn on it hangs from).
 	 */
 	parts: { name: string; required: boolean; slot: string; bone: string }[];
+	/** The slots, back to front (🗺 From my sheet's Layers list starts from them). */
+	slots: string[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
 	/** The skeleton and the motion map, for the motion import's solve. */
@@ -3811,6 +3813,7 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 			slot: p.slot,
 			bone: t.slots.find((s) => s.name === p.slot)?.bone ?? '',
 		})),
+		slots: t.slots.map((s) => s.name),
 		channels: t.channels,
 		clips: t.clips,
 		bones: t.bones,

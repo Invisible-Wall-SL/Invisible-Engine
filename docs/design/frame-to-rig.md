@@ -1455,8 +1455,8 @@ attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/
   own there (`RigFitProp.at`), drawn over the part (over the arm's last slot on an arm), turned and
   scaled with it. Where the artist's Photoshop layers order a prop against its part (Export Layers
   names, `psdBehind`: only two layers of one group compare), one drawn behind it there is drawn just
-  behind it, and a part's props keep the layers' order among themselves. Mapped parts always keep the
-  template's order.
+  behind it, and a part's props keep the layers' order among themselves. Mapped parts keep the
+  template's order unless the author's Layers say otherwise (§13.1e).
 - **Names** are read as words (`rigSheetMap.ts` `canonicalWords`: camelCase, digits, separators,
   a few Spanish words, `arm 1` / `arm 2` as the segments), each region given to the part it fits best,
   one each; an exact name wins. A region named like a worn thing is suggested as a prop.
@@ -1643,6 +1643,35 @@ reachable, offered and never applied by itself:
   - ↺ Start over (asked, the best frame, the cut offered) and ↶ (the cut, its labels, sources and
     the touch-up not yet kept, back).
 
+### 13.1e Layers — the author's draw order (2026-11-26)
+
+The owner, on `S_NellyAnimTest`: "I am also not able to set at which layer some of the added shapes
+are sitting, and I can't control that at setup phase. This is still a 2D rig in the end."
+
+- **One order, read by the page and the launcher.** `rigSheetMap.ts` `sheetSlotOrder`: the
+  template's slots, each prop's slot where `sheetPropPlaces` puts it (over its host, after an arm's
+  last slot on an arm, behind it where `psdBehind` says; moved there from `rigSheetFit.ts` so the
+  page bundles it), then the author's `layers`. `sheetLayerList` is the dialog's **Layers** list:
+  the slots the mapping draws in, front first. The page's list is the launcher's order by
+  construction, not by a copy (`vendor/rigger-motion.js` bundles it).
+- **Kept as `SheetMapping.layers`** (front to back, each slot once, only slots the mapping draws in:
+  a stray one is refused), sent only while it differs from the template's order. The fit carries it
+  as `RigFit.order` (back to front), which `fitTemplate` applies with `rigSlotOrder.ts` `inDrawOrder`:
+  the listed slots take the places they hold between them, every other slot stays. It rides
+  `template.json`'s fit (`parseRigFit` reads it), so the reopened template draws as the rig does.
+- **3D layers stay together** (`layersTogether`): a slot the author draws apart from its draw-order
+  layer (a hand moved away from its fingers) leaves it, keeping the layer's longest run, so the bake
+  never pulls it back and the fitted template's layers stay contiguous.
+- **The depth controls win.** Arm depth moves an arm from in front of the head and the torso to just
+  behind them, so an order drawing the arm behind either at setup is refused, naming the control
+  (`layersAgainstDepth`); the page shows the launcher's word under the list.
+- **🔄 Update rig** applies the list only when it changed since the kept mapping (`updateSheetRig`,
+  report `layered`), through `frameRigUpdate`'s `keepDrawOrders`, so every draw-order key keeps
+  drawing what it drew. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in
+  Setup's slots survives an update that does not touch the list.
+- **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
+  so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
+
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
 The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
@@ -1689,6 +1718,18 @@ prop dragged and turned), the create's body with the arrangement, the rig opened
 clip, the report, a new rig on the first guess and ↺ Reuse of the mapping and its arrangement, ↺
 Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:rigger-writes`: the preview route places as the create would, writes nothing, and
 refuses another client's sheet and a misfit.
+
+Layers (§13.1e): `sheet-rig.mjs` `layers` (the page's list is the order the rig is made in; the
+author's order is the rig's, engine-rig's and the reopened `template.json` fit's; every other slot
+in place; the 3D layers together, the hand moved away out of its own; the arm behind the head refused
+naming the depth control; bad and stray layers refused; 10 mutants). `sheet-rig-update.mjs` `layers`
+(a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
+every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-rig-browser.mjs` (the list
+as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,
+Ctrl+Shift+] / [; ◧ Arranged in the new order before the launcher answers; the depth control's word
+under the list; sent with the create and the rig drawn so; ↺ Reuse brings it back; Setup's ⋮⋮ drags a
+sheet's prop slot; 🗺 Edit mapping opens the rig's own order; Ctrl+] in the dialog never moves the
+rig's slots; 🔄 Update rig keeps Setup's order; 12 page mutants).
 
 ### 13.4 Owed
 

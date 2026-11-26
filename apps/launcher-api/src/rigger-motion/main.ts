@@ -39,6 +39,7 @@ import {
 	mirroredName,
 	propName,
 	sheetKind,
+	sheetLayerList,
 	sheetSide,
 	sheetSnapTargets,
 	suggestProp,
@@ -464,7 +465,9 @@ const api = {
 	refitRig3d,
 	templateOnRig,
 	// 🗺 From my sheet (frame-to-rig §13): regions to parts by name (⇄ its sides read mirrored),
-	// joints from a drawing's shape, where a part's first joint snaps to on the arrange canvas.
+	// joints from a drawing's shape, where a part's first joint snaps to on the arrange canvas, and
+	// the Layers list: the slots the mapping draws in, front to back, as the rig is made.
+	sheetLayerList,
 	SHEET_JOINTS,
 	SHEET_JOINT_LABELS,
 	sheetKind,

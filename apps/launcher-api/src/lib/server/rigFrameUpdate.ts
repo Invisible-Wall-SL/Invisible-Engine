@@ -538,7 +538,10 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
  * reads it (`skeletonJson`), into its whole order; the returned function writes it back over the slots
  * as they are then — a removed slot left out, a new one drawn just after the slot before it in setup.
  */
-function keepDrawOrders(doc: Doc): () => void {
+export function keepDrawOrders(doc: {
+	slots?: { name: string }[];
+	animations?: Record<string, unknown>;
+}): () => void {
 	const before = (doc.slots ?? []).map((s) => s.name);
 	const keys: { key: Json; order: string[] }[] = [];
 	for (const a of Object.values(doc.animations ?? {}))

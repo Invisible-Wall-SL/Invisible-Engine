@@ -28,7 +28,7 @@
  * The mapping is kept in the bundle's `sheet.json` (`SHEET_SIDECAR`), so it opens again and a rig can
  * be made from it again.
  */
-import { armTail, PROP_NAME } from './rigCutEdits';
+import { PROP_NAME } from './rigCutEdits';
 import { apartFace, faceNote, frameFace } from './rigFrameFace';
 import { fitFromJoints, framePose, skinBends, turnedAtSetup, type Fitted } from './rigFrameFit';
 import {
@@ -49,6 +49,7 @@ import {
 import {
 	SHEET_JOINTS,
 	sheetKind,
+	sheetPropPlaces,
 	sheetSide,
 	type P,
 	type SheetKind,
@@ -68,6 +69,8 @@ const NAME = /^[^\0/\\]{1,200}$/;
 /** The face mesh the tracker finds (468, or 478 with the irises). */
 const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
+/** The slots a mapping's layers may list: every template slot and every prop. */
+const MAX_LAYERS = 256;
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
 const MAX_PX = 100_000;
 /** A turn on the arrange canvas, degrees either way. */
@@ -86,6 +89,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		'scale',
 		'arrange',
 		'swapSides',
+		'layers',
 	]);
 	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
 	if (raw.swapSides !== undefined && typeof raw.swapSides !== 'boolean')
@@ -163,6 +167,17 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 			arrange[part] = { at: [o.at[0], o.at[1]], turn: o.turn };
 		}
 	}
+	let layers: string[] | undefined;
+	if (raw.layers !== undefined) {
+		if (
+			!Array.isArray(raw.layers) ||
+			raw.layers.length > MAX_LAYERS ||
+			!raw.layers.every((n) => typeof n === 'string' && NAME.test(n)) ||
+			new Set(raw.layers).size !== raw.layers.length
+		)
+			return no(`\`layers\` is a list of up to ${MAX_LAYERS} slot names, front to back, each once`);
+		layers = [...(raw.layers as string[])];
+	}
 	const mapping: SheetMapping = {
 		sheet: 1,
 		manifestKey: raw.manifestKey,
@@ -172,52 +187,9 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),
 		...(arrange ? { arrange } : {}),
 		...(raw.swapSides === true ? { swapSides: true as const } : {}),
+		...(layers ? { layers } : {}),
 	};
 	return { mapping };
-}
-
-/**
- * The layer a region was exported from by Photoshop's Export Layers (`<file>_0002s_0003s_0001_Lid`:
- * the third set's fourth set's second layer), each index counted from the top of the layers panel,
- * so a lower one is drawn in front. Sets (`0002s`) and layers (`0002`) are counted apart, so only
- * two layers of one set compare; null for a name that is not one.
- */
-export function psdLayer(name: string): string[] | null {
-	const m = /(?:^|_)((?:\d{4}s_)*\d{4})_./.exec(name);
-	return m ? m[1].split('_') : null;
-}
-
-/**
- * Whether the artist's file draws region `a` behind region `b`: known only for two layers of one
- * set (or both at the top), whose indices are counted together; null otherwise.
- */
-export function psdBehind(a: string, b: string): boolean | null {
-	const [pa, pb] = [psdLayer(a), psdLayer(b)];
-	if (!pa || !pb || pa.length !== pb.length || pa.join() === pb.join()) return null;
-	const last = pa.length - 1;
-	if (pa.slice(0, last).join() !== pb.slice(0, last).join()) return null;
-	return parseInt(pa[last], 10) > parseInt(pb[last], 10);
-}
-
-/**
- * `list` with the layers of each set put back to front among the places they hold (`psdBehind`);
- * anything the file does not order keeps its place.
- */
-function psdOrdered<T>(list: readonly T[], region: (x: T) => string): T[] {
-	const out = [...list];
-	const sets = new Map<string, number[]>();
-	list.forEach((x, i) => {
-		const layer = psdLayer(region(x));
-		if (!layer) return;
-		const set = `${layer.length}:${layer.slice(0, -1).join('_')}`;
-		sets.set(set, [...(sets.get(set) ?? []), i]);
-	});
-	const index = (x: T) => parseInt(psdLayer(region(x))!.at(-1)!, 10);
-	for (const at of sets.values()) {
-		const backToFront = at.map((i) => list[i]).sort((a, b) => index(b) - index(a));
-		at.forEach((i, k) => (out[i] = backToFront[k]));
-	}
-	return out;
 }
 
 /** A part's kind, side and the bones its joints sit on, by its slot. */
@@ -269,6 +241,13 @@ export function sheetMappingProblem(
 		if (!m.parts[p.host]) return `the prop ${p.name} sits on "${p.host}", which is not mapped`;
 		if (!bones.has(p.bone) || controlTarget(p.bone))
 			return `the prop ${p.name} hangs from a bone the template has (not a control)`;
+	}
+	if (m.layers) {
+		const slotOf = (part: string) => partOf(t, part).slot.name;
+		const drawn = new Set([...parts.map(slotOf), ...m.props.map((p) => p.name)]);
+		const stray = m.layers.find((n) => !drawn.has(n));
+		if (stray !== undefined)
+			return `the layers list "${stray}", which no mapped part or prop is drawn in`;
 	}
 	return null;
 }
@@ -582,23 +561,19 @@ export function sheetRig(
 				)
 			: null);
 
-	// Props: a bone of their own where they sit on their host's drawing, drawn just over it (on the
-	// skeleton with the face's bones where the drawn face has them), turned against it as they say.
-	// Where the artist's file orders a prop against its part (`psdBehind`), one drawn behind it there
-	// is drawn just behind it, and the props on one part keep the file's order among themselves.
+	// Props: a bone of their own where they sit on their host's drawing (on the skeleton with the
+	// face's bones where the drawn face has them), turned against it as they say, their slots where
+	// `sheetPropPlaces` draws them; the author's layers then order every slot the mapping draws.
 	const Wf = drawn
 		? frameWorld(fitTemplate(t, { bones, features: drawn.features }).bones, frame)
 		: posedW;
 	const slots = t.slots.map((s) => s.name);
-	const behind = (p: SheetProp) =>
-		psdBehind(p.region, mapped.find((x) => x.part === p.host)!.map.region) === true;
-	const backToFront = psdOrdered(m.props, (p) => p.region);
-	const after = new Map<string, string>();
+	const hostOf = (part: string) => {
+		const x = mapped.find((y) => y.part === part)!;
+		return { slot: x.slot.name, region: x.map.region };
+	};
 	const props: RigFitProp[] = [];
-	for (const p of [
-		...backToFront.filter((q) => !behind(q)),
-		...backToFront.filter(behind).reverse(),
-	]) {
+	for (const { prop: p, before, after } of sheetPropPlaces(slots, m.props, hostOf)) {
 		const host = mapped.find((x) => x.part === p.host)!;
 		const pivot = imagePoint(host.r, p.at);
 		const where = apply(art[host.part].matrix, pivot);
@@ -606,17 +581,8 @@ export function sheetRig(
 		const det = bw[0] * bw[3] - bw[1] * bw[2];
 		const [dx, dy] = [where[0] - bw[4], where[1] - bw[5]];
 		const local: P = [(bw[3] * dx - bw[1] * dy) / det, (bw[0] * dy - bw[2] * dx) / det];
-		const side = /^(hand|lower_arm)_([lr])$/.exec(host.slot.name)?.[2];
-		const beside = side ? armTail(slots, side) : host.slot.name;
 		const at: P = [Math.round(local[0] * 1e4) / 1e4, Math.round(local[1] * 1e4) / 1e4];
-		if (behind(p)) {
-			const key = `-${host.slot.name}`;
-			props.push({ name: p.name, bone: p.bone, before: after.get(key) ?? host.slot.name, at });
-			after.set(key, p.name);
-		} else {
-			props.push({ name: p.name, bone: p.bone, after: after.get(beside) ?? beside, at });
-			after.set(beside, p.name);
-		}
+		props.push({ name: p.name, bone: p.bone, ...(before ? { before } : { after: after! }), at });
 		art[p.name] = {
 			region: p.region,
 			matrix: compose(
@@ -633,7 +599,10 @@ export function sheetRig(
 		...(frame ? { frame } : {}),
 		...(drawn ? { features: drawn.features } : {}),
 		...(props.length ? { props } : {}),
+		...(m.layers ? { order: [...m.layers].reverse() } : {}),
 	};
+	const against = layersAgainstDepth(t, fit);
+	if (against) return no(against);
 	const mains = mapped.filter((x) => x.main).map((x) => x.part);
 	const posed = framePose(t, fit, mains);
 	if (!posed.ok) return posed;
@@ -666,6 +635,25 @@ export function sheetRig(
 			origin,
 		},
 	};
+}
+
+/**
+ * Why the author's layers (`RigFit.order`) cannot stand with the template's depth controls, or null:
+ * a control such as Arm depth moves its limb from in front of a slot (the head, the torso) to just
+ * behind it, so the limb must be drawn in front of that slot at setup.
+ */
+function layersAgainstDepth(t: RigTemplate, fit: RigFit): string | null {
+	if (!fit.order) return null;
+	const ft = fitTemplate(t, fit);
+	const at = new Map(ft.slots.map((s, i) => [s.name, i]));
+	for (const c of ft.channels) {
+		if (!c.order) continue;
+		const back = c.order.slots.reduce((a, b) => (at.get(b)! < at.get(a)! ? b : a));
+		for (const st of c.order.steps)
+			if (!(at.get(st.behind)! < at.get(back)!))
+				return `the Layers draw "${back}" behind "${st.behind}", but the control "${c.label}" moves it from in front of "${st.behind}" to behind it: keep ${back} in front of ${st.behind}`;
+	}
+	return null;
 }
 
 /** What the 🗺 dialog's ◧ Arranged view draws: the rig a sheet makes, as `sheetRig` places it. */

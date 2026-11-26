@@ -1531,7 +1531,16 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    the rig is bound in that pose — each chain bone turned to lie as its drawing does — and keeps it
    as its clip **frame**, as a rig made from a video frame does; a part left where it was rides its
    bones into that pose.
-6. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
+6. **Layers** (the side panel, under Props). Which drawing is in front of which: every mapped part
+   and prop, front at the top, in the slot it is drawn in (a hand pose shares its hand's row). It
+   starts as the template's order with each prop over its part (or behind it where your Photoshop
+   layers say so). Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
+   **Ctrl+]** / **Ctrl+[** to move it one place to the front / back (**Shift** goes all the way);
+   ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
+   draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
+   list: the template's arm-depth control moves the arm from in front of them to behind them, so
+   it must start in front. The order is kept with the rig's mapping.
+7. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
    template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
    turned onto its bone (an arm drawn lying out hangs at rest) — or, arranged, sits where you put
@@ -1575,6 +1584,10 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   the Controls and the 3D data, and your own slots.
 - **The arrangement.** The clip **frame** takes the new arrangement, unless you keyed that clip
   yourself: then yours stays and the report says so.
+- **The layers.** The Layers list opens as the rig draws its slots now, a reorder in Setup's
+  **Slots** included (a sheet's props are slots of their own there, so their **⋮⋮** drags them too).
+  The rig keeps its own order unless you change the list here; then the slots it lists take its
+  order, and each draw-order key you made still draws what it drew.
 - **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
   taken off goes with the keys on its bone, and you are shown those keys before anything changes.
 - **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone

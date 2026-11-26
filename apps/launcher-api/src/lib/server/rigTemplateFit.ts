@@ -8,6 +8,7 @@ import type {
 	RigTemplate3d,
 	RigTemplateTimelines,
 } from './rigTemplates';
+import { inDrawOrder, layersTogether } from '../rigSlotOrder';
 
 /**
  * A rig template fitted to one character (docs/design/frame-to-rig.md §4.6, §4.7): the template's
@@ -26,6 +27,11 @@ export interface RigFit {
 	frame?: Record<string, { rotate: number; scaleY?: number; x?: number; y?: number }>;
 	/** Worn things (§4.3a), each a slot of its own drawn just before or after the slot it names. */
 	props?: RigFitProp[];
+	/**
+	 * Slots drawn in this order (back to front) in the places they hold between them, props
+	 * included (`inDrawOrder`): the author's layers (frame-to-rig §13.1e). Every other slot stays.
+	 */
+	order?: string[];
 	/** Parts drawn as one bending piece, by part name (§4.7). */
 	bends?: Record<string, RigFitBend>;
 	/**
@@ -272,7 +278,7 @@ const extraKey = (o: Record<string, unknown>, keys: readonly string[]) =>
 export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string } {
 	const no = (problem: string) => ({ problem });
 	if (!isRecord(raw)) return no('a fit is an object');
-	const extra = extraKey(raw, ['bones', 'frame', 'props', 'bends', 'fingers', 'features']);
+	const extra = extraKey(raw, ['bones', 'frame', 'props', 'order', 'bends', 'fingers', 'features']);
 	if (extra !== undefined) return no(`a fit has no field "${extra}"`);
 	if (!isRecord(raw.bones)) return no('a fit needs `bones`: { name: { x, y } }');
 	const offsets = (o: Record<string, unknown>, what: string) => {
@@ -357,6 +363,16 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 			});
 		}
 		fit.props = props;
+	}
+	if (raw.order !== undefined) {
+		if (
+			!Array.isArray(raw.order) ||
+			raw.order.length > 256 ||
+			!raw.order.every((n) => typeof n === 'string' && NAME.test(n)) ||
+			new Set(raw.order).size !== raw.order.length
+		)
+			return no('`order` is a list of up to 256 slot names, back to front, each once');
+		fit.order = [...(raw.order as string[])];
 	}
 	if (raw.bends !== undefined) {
 		if (!isRecord(raw.bends))
@@ -573,6 +589,8 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 		slots.add(p.name);
 		parts.add(p.name);
 	}
+	const stray = fit.order?.find((n) => !slots.has(n));
+	if (stray !== undefined) return `it orders a slot "${stray}" the rig does not have`;
 	// The bend itself (its grid, bones, ramp and covers) is the template's contract, checked on the
 	// fitted template: here only that it names a part to bend.
 	for (const part of Object.keys(fit.bends ?? {}))
@@ -797,6 +815,18 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 			);
 	}
 
+	if (fit.order) {
+		const byName = new Map(slots.map((s) => [s.name, s]));
+		slots = inDrawOrder(
+			slots.map((s) => s.name),
+			fit.order,
+		).map((n) => byName.get(n)!);
+		if (layers)
+			layers = layersTogether(
+				layers,
+				slots.map((s) => s.name),
+			);
+	}
 	const rig3d = lengthened.rig3d && { ...lengthened.rig3d, ...(layers ? { layers } : {}) };
 	return {
 		...t,

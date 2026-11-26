@@ -38,6 +38,12 @@
 //    the drawing it is, its joints guessed again as that side's (a joint dragged by hand kept on its
 //    drawing); a part mapped by hand asked about and moved; a prop goes with its drawing; a moved
 //    part starts over in ◧ Arranged; sent with the mapping, read back from it, off on a new one;
+//  - 🗺 Layers: the list is the launcher's order for the page's mapping; ⋮⋮ dragged with a mouse and
+//    a pen (real pointer input), Ctrl+[ and Ctrl+Shift+] / [ reorder it, ◧ Arranged draws the new
+//    order at once; the arm put behind the head shows the launcher's word under the list; the order
+//    goes out with the create and the rig draws it; ↺ Reuse brings it back; on the made rig, Setup's
+//    ⋮⋮ drags a sheet's prop as the slot it is; 🗺 Edit mapping opens the rig's own order, Ctrl+] in
+//    the dialog never moves the rig's slots behind it, and 🔄 Update rig keeps Setup's order;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -115,8 +121,8 @@ const PAGE_MUTANTS = [
 	],
 	[
 		'↺ Start over keeping the arrangement',
-		'Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {},',
-		'Object.assign(s2r, { map: {}, props: [], faces: {},',
+		'Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {},',
+		'Object.assign(s2r, { map: {}, props: [], layers: null, faces: {},',
 	],
 	[
 		'↺ Start over not guessing again',
@@ -206,6 +212,57 @@ const PAGE_MUTANTS = [
 		'⇄ a new rig starting as the dialog left it',
 		'swap: !!kept && kept.swapSides === true });',
 		'swap: kept ? kept.swapSides === true : s2r.swap });',
+	],
+	[
+		'↺ Start over keeping the Layers',
+		'Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {},',
+		'Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {},',
+	],
+	['🗺 Layers: the order not sent', '    ...s2rLayersOut(),\n', ''],
+	[
+		'🗺 Layers: the list without the props',
+		'const plain = { parts, props: s2r.props.map(({ name, region, host }) => ({ name, region, host })) };',
+		'const plain = { parts, props: [] };',
+	],
+	[
+		'🗺 Layers: a drag dropping one place off',
+		's2rSetLayers(slotOrderDrop(s2rLayerList(), [d.slot], d.ins));',
+		's2rSetLayers(slotOrderDrop(s2rLayerList(), [d.slot], d.ins + 1));',
+	],
+	[
+		'🗺 Layers: a pen never dragging a row',
+		'if (e.button !== 0 || !e.isPrimary || s2r.ldrag) return;',
+		'if (e.button !== 0 || !e.isPrimary || s2r.ldrag || e.pointerType === "pen") return;',
+	],
+	[
+		"🗺 Layers: Ctrl+] in the dialog reaching the rig's slots behind it",
+		'window.addEventListener("keydown", s2rLayerKey, true);',
+		'window.addEventListener("keydown", s2rLayerKey);',
+	],
+	[
+		'🗺 Layers: Ctrl+] / [ the wrong way',
+		'if (s2rStepLayer((fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1))){',
+		'if (s2rStepLayer((fwd ? -1 : 1) * (e.shiftKey ? Infinity : 1))){',
+	],
+	[
+		"🗺 Layers: 🗺 Edit mapping not opening the rig's own order",
+		'    s2rLayersFromRig();\n    return;',
+		'    return;',
+	],
+	[
+		"🗺 Layers: a kept mapping's layers not read back",
+		's2r.layers = Array.isArray(kept.layers) ? [...kept.layers] : null;',
+		's2r.layers = null;',
+	],
+	[
+		"🗺 Layers: the launcher's word on an order not shown",
+		'if (/the Layers/.test(s2r.previewProblem)){',
+		'if (false){',
+	],
+	[
+		'🗺 Layers: ◧ Arranged drawing in the last preview’s order, not the list’s',
+		'    add(slot);\n    for (const p of s2r.tpl.parts) if (p.slot === slot) add(p.name);',
+		'    void slot;',
 	],
 ];
 if (process.argv.includes('--mutants')) {
@@ -524,6 +581,43 @@ async function shot(name) {
 	if (!PNG) return;
 	const { data } = await send('Page.captureScreenshot', { format: 'png' });
 	writeFileSync(join(PNG, name), Buffer.from(data, 'base64'));
+}
+
+/** CDP modifier bits. */
+const MOD = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+/** A real pointer drag (CDP: the page gets pointer events) with a mouse or a pen, in client px. */
+async function pointerDrag(from, to, pointerType = 'mouse') {
+	const at = (type, p, extra) =>
+		send('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, pointerType, ...extra });
+	await at('mouseMoved', from, {});
+	await at('mousePressed', from, { button: 'left', buttons: 1, clickCount: 1 });
+	for (let i = 1; i <= 8; i++)
+		await at(
+			'mouseMoved',
+			{ x: from.x + ((to.x - from.x) * i) / 8, y: from.y + ((to.y - from.y) * i) / 8 },
+			{ button: 'left', buttons: 1 },
+		);
+	await at('mouseReleased', to, { button: 'left', buttons: 0, clickCount: 1 });
+	await evaluate(
+		'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))',
+	);
+}
+/** A key pressed and let go (CDP), with `modifiers` (MOD bits). */
+async function key(keyName, code, vk, modifiers = 0) {
+	await send('Input.dispatchKeyEvent', {
+		type: 'rawKeyDown',
+		key: keyName,
+		code,
+		windowsVirtualKeyCode: vk,
+		modifiers,
+	});
+	await send('Input.dispatchKeyEvent', {
+		type: 'keyUp',
+		key: keyName,
+		code,
+		windowsVirtualKeyCode: vk,
+		modifiers,
+	});
 }
 
 let pass = 0;
@@ -887,7 +981,10 @@ try {
 	})()`);
 	const moved = (a, b) => [a.at[0] - b.at[0], a.at[1] - b.at[1]];
 	// The drag asked for was (60, 40) stage px; the page got that to within a pixel.
-	const by = Math.hypot(got.dx - 60, got.dy - 40) < 1.5 ? [got.dx / before.k, got.dy / before.k] : [NaN, NaN];
+	const by =
+		Math.hypot(got.dx - 60, got.dy - 40) < 1.5
+			? [got.dx / before.k, got.dy / before.k]
+			: [NaN, NaN];
 	const near = (a, b, e = 0.02) => Math.abs(a[0] - b[0]) <= e && Math.abs(a[1] - b[1]) <= e;
 	ok(
 		'a part dragged moves by the drag and carries the part it holds; its parent stays',
@@ -990,6 +1087,116 @@ try {
 			Math.abs(propTurned - propBefore.turn + 20) < MOUSE_TURN,
 		q({ propBefore, propMoved, propTurned }),
 	);
+	// 🗺 Layers: the list is the order the launcher makes the rig in (its shipped `sheetLayerList` on
+	// the page's mapping); ⋮⋮ dragged with a mouse and with a pen, Ctrl+] / [ with and without Shift;
+	// an order a depth control cannot stand with says why; the order goes out with the create.
+	await evaluate(
+		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); document.getElementById("s2rLayersSec").open = true; true',
+	);
+	const rowsNow = () =>
+		evaluate('[...document.querySelectorAll("#s2rLayers .s2rLayer")].map((r) => r.dataset.slot)');
+	const tplSlots = S.HALF_BODY.slots.map((s) => s.name);
+	const slotOfPart = (p) => S.HALF_BODY.parts.find((x) => x.name === p)?.slot ?? p;
+	const launcherList = S.sheetLayerList(
+		tplSlots,
+		slotOfPart,
+		await evaluate('JSON.parse(JSON.stringify(s2rMapping()))'),
+	);
+	const rows0 = await rowsNow();
+	const CHAIN = rows0.find((n) => /chain/.test(n));
+	const WATCH = rows0.find((n) => /watch/.test(n));
+	ok(
+		'🗺 Layers lists every slot the mapping draws in, front first, as the launcher makes the rig',
+		q(rows0) === q(launcherList) && !!CHAIN && !!WATCH && rows0.includes('torso'),
+		q({ rows0, launcherList }),
+	);
+	const behindTorso = [...launcherList];
+	behindTorso.splice(behindTorso.indexOf(CHAIN), 1);
+	behindTorso.splice(behindTorso.indexOf('torso') + 1, 0, CHAIN);
+	/** Where to grab `slot`'s ⋮⋮ in `list`, and where to let go to drop it just behind `under`. */
+	const layerSpot = (list, slot, under) => `(() => {
+		const rows = [...document.querySelectorAll(${q(list)})];
+		const row = (n) => rows.find((r) => r.dataset.slot === n);
+		const next = rows[rows.indexOf(row(${q(under)})) + 1];
+		// Both rows in the middle of the list's scroller, clear of the edges a drag scrolls at.
+		row(${q(slot)}).scrollIntoView({ block: "center" });
+		let sc = row(${q(slot)}).parentElement;
+		while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+		if (sc){
+			const a = row(${q(slot)}).getBoundingClientRect(), b = (next || row(${q(under)})).getBoundingClientRect(), r = sc.getBoundingClientRect();
+			sc.scrollTop += (a.top + b.bottom) / 2 - (r.top + r.bottom) / 2;
+		}
+		const g = row(${q(slot)}).querySelector(".slotGrip").getBoundingClientRect();
+		const t = (next || row(${q(under)})).getBoundingClientRect();
+		const x = g.left + g.width / 2;
+		return { from: { x, y: g.top + g.height / 2 }, to: { x, y: next ? t.top + 2 : t.bottom + 4 } };
+	})()`;
+	const grabbed = await evaluate(layerSpot('#s2rLayers .s2rLayer', CHAIN, 'torso'));
+	await evaluate('window.__pv = s2r.preview; true');
+	await pointerDrag(grabbed.from, grabbed.to);
+	// Read against the launcher's answer from before the drag: what the page draws before it answers.
+	const afterDrag = await evaluate(`(() => {
+		const keep = s2r.preview; s2r.preview = window.__pv;
+		const items = s2rArrangeItems().map((i) => i.name);
+		s2r.preview = keep;
+		return { rows: [...document.querySelectorAll("#s2rLayers .s2rLayer")].map((r) => r.dataset.slot), sent: s2rMapping().layers, items };
+	})()`);
+	ok(
+		'⋮⋮ dragged with the mouse puts the chain just behind the torso, and the mapping sends that order',
+		q(afterDrag.rows) === q(behindTorso) && q(afterDrag.sent) === q(behindTorso),
+		q(afterDrag),
+	);
+	ok(
+		'◧ Arranged draws them in that order at once, before the launcher answers',
+		afterDrag.items.indexOf(CHAIN) < afterDrag.items.indexOf('torso'),
+		q(afterDrag.items),
+	);
+	const penSpot = await evaluate(`(() => {
+		const rows = [...document.querySelectorAll("#s2rLayers .s2rLayer")];
+		const row = (n) => rows.find((r) => r.dataset.slot === n);
+		const g = row(${q(CHAIN)}).querySelector(".slotGrip").getBoundingClientRect(), t = row("torso").getBoundingClientRect();
+		const x = g.left + g.width / 2;
+		return { from: { x, y: g.top + g.height / 2 }, to: { x, y: t.top + 2 } };
+	})()`);
+	await pointerDrag(penSpot.from, penSpot.to, 'pen');
+	const afterPen = await evaluate(
+		'({ rows: [...document.querySelectorAll("#s2rLayers .s2rLayer")].map((r) => r.dataset.slot), sent: "layers" in s2rMapping() })',
+	);
+	ok(
+		'a pen drags it back over the torso: the template’s order again, and no layers sent',
+		q(afterPen.rows) === q(launcherList) && afterPen.sent === false,
+		q(afterPen),
+	);
+	await evaluate(
+		`document.querySelector('#s2rLayers .s2rLayer[data-slot="${CHAIN}"] .s2rName').click(); document.activeElement && document.activeElement.blur(); true`,
+	);
+	await key('[', 'BracketLeft', 219, MOD.ctrl);
+	const stepBack = await rowsNow();
+	await key('}', 'BracketRight', 221, MOD.ctrl | MOD.shift);
+	const toFront = await rowsNow();
+	await key('{', 'BracketLeft', 219, MOD.ctrl | MOD.shift);
+	const toBack = await rowsNow();
+	ok(
+		'Ctrl+[ moves the picked layer one place back; Ctrl+Shift+] to the front, Ctrl+Shift+[ to the back',
+		q(stepBack) === q(behindTorso) &&
+			toFront[0] === CHAIN &&
+			toBack.at(-1) === CHAIN &&
+			toBack.length === launcherList.length,
+		q({ stepBack, toFront: toFront.slice(0, 3), toBack: toBack.slice(-3) }),
+	);
+	const armBehindHead = [...launcherList];
+	armBehindHead.splice(armBehindHead.indexOf('upper_arm_l'), 1);
+	armBehindHead.splice(armBehindHead.indexOf('head') + 1, 0, 'upper_arm_l');
+	await evaluate(`s2rSetLayers(${q(armBehindHead)}); s2rRender(); true`);
+	await waitFor('!!document.querySelector("#s2rLayers .s2rLayerWarn")', 15000);
+	const warned = await evaluate('document.querySelector("#s2rLayers .s2rLayerWarn").textContent');
+	ok(
+		'the arm put behind the head: the launcher’s word under the list, naming the depth control',
+		/the Layers draw "upper_arm_l" behind "head"/.test(warned) && /depth/i.test(warned),
+		warned,
+	);
+	await evaluate(`s2rSetLayers(${q(behindTorso)}); s2rRender(); true`);
+	await waitFor('!document.querySelector("#s2rLayers .s2rLayerWarn")', 15000);
 	const arranged = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
 
 	// 🦴 Create rig.
@@ -1027,6 +1234,14 @@ try {
 				(sent?.props.find((x) => x.region === 'Sunglasses')?.turn ?? Infinity) - propTurned,
 			) < 0.002,
 		q({ sent: sent?.arrange, page: arranged.arrange, propTurned }),
+	);
+	const rigLayers = await evaluate(
+		`rawDoc.slots.map((s) => s.name).filter((n) => ${q(behindTorso)}.includes(n)).reverse()`,
+	);
+	ok(
+		'🦴 Create rig sends the Layers, and the rig draws its slots in that order',
+		q(sent?.layers) === q(behindTorso) && q(rigLayers) === q(behindTorso),
+		q({ sent: sent?.layers, rigLayers }),
 	);
 	ok(
 		'the rig opens with its clip “frame”, the arranged pose',
@@ -1102,13 +1317,14 @@ try {
 	await evaluate('document.querySelector("#s2rReuse button").click(); true');
 	await waitFor(`s2r.gen > ${beforeReuse} && !!s2r.sheet && s2r.from === "Sheety"`, 20000);
 	const reopened = await evaluate(
-		`({ elbow: s2r.map.upper_arm_l && s2r.map.upper_arm_l.joints.elbow, props: s2r.props.length, note: document.getElementById("s2rNote").textContent })`,
+		`({ elbow: s2r.map.upper_arm_l && s2r.map.upper_arm_l.joints.elbow, props: s2r.props.length, note: document.getElementById("s2rNote").textContent, layers: [...document.querySelectorAll("#s2rLayers .s2rLayer")].map((r) => r.dataset.slot) })`,
 	);
 	ok(
-		'↺ Reuse “Sheety” brings the rig’s mapping back, every joint as placed',
+		'↺ Reuse “Sheety” brings the rig’s mapping back, every joint as placed, its Layers too',
 		Math.abs(reopened.elbow?.[1] - dragged.after[1]) < 1e-9 &&
 			reopened.props === TRUTH.props.length &&
-			/Sheety/.test(reopened.note),
+			/Sheety/.test(reopened.note) &&
+			q(reopened.layers) === q(behindTorso),
 		q(reopened),
 	);
 	await shot('sheet-rig-reopened.png');
@@ -1163,9 +1379,25 @@ try {
 	await waitFor('!!s2r.preview && s2r.preview.frame === false', 15000);
 	await shot('sheet-rig-unarranged.png');
 
+	// Setup's slots on the rig made from the sheet: its props are slots of their own, so ⋮⋮ drags the
+	// chain from behind the torso (as the Layers made it) back over it, just behind the neck.
+	await evaluate('closeSheetToRig(); true');
+	await evaluate(
+		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); if (!editMode) setEditMode(true); document.getElementById("secSlots").open = true; renderSlotList(); true',
+	);
+	const slotSpot = await evaluate(layerSpot('#slotList .trow[data-slot]', CHAIN, 'neck'));
+	await pointerDrag(slotSpot.from, slotSpot.to);
+	const setupOrder = await evaluate('rawDoc.slots.map((s) => s.name)');
+	ok(
+		'Setup’s slots: the chain, a prop of the sheet, is a slot its ⋮⋮ drags over the torso, just behind the neck',
+		setupOrder.indexOf('torso') + 1 === setupOrder.indexOf(CHAIN) &&
+			setupOrder.indexOf(CHAIN) + 1 === setupOrder.indexOf('neck'),
+		q({ order: setupOrder.slice(0, 8), slotSpot }),
+	);
+	const rigList = setupOrder.filter((n) => behindTorso.includes(n)).reverse();
+
 	// 🗺 Edit mapping → 🔄 Update rig: the neck re-mapped, merged into the open rig (the launcher's
 	// merge), one undo step with its mapping, the rig saved and then its mapping, on the ETag it read.
-	await evaluate('closeSheetToRig(); true');
 	await waitFor(
 		'!!sheetSrc.doc && document.getElementById("editMapBtn").style.display !== "none"',
 		15000,
@@ -1182,6 +1414,35 @@ try {
 		'🗺 Edit mapping opens the rig’s mapping with 🔄 Update rig in Create rig’s place, the sheet fixed',
 		mode.label === '🔄 Update rig' && mode.locked,
 		q(mode),
+	);
+	const editRows = await rowsNow();
+	ok(
+		'… its Layers as the rig draws them now: the chain over the torso as Setup put it',
+		q(editRows) === q(rigList),
+		q({ editRows, rigList }),
+	);
+	await evaluate(
+		`document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); selectSlot("torso"); document.querySelector('#s2rLayers .s2rLayer[data-slot="${CHAIN}"] .s2rName').click(); document.activeElement && document.activeElement.blur(); true`,
+	);
+	await key(']', 'BracketRight', 221, MOD.ctrl);
+	const keyedInDialog = {
+		rows: await rowsNow(),
+		rig: await evaluate('rawDoc.slots.map((s) => s.name)'),
+		sel: await evaluate('selSlot'),
+	};
+	await key('[', 'BracketLeft', 219, MOD.ctrl);
+	const keyedBack = await rowsNow();
+	ok(
+		'Ctrl+] in the dialog moves the picked layer, never the open rig’s slots behind it',
+		keyedInDialog.rows.indexOf(CHAIN) === rigList.indexOf(CHAIN) - 1 &&
+			keyedInDialog.sel === 'torso' &&
+			q(keyedInDialog.rig) === q(setupOrder) &&
+			q(keyedBack) === q(rigList),
+		q({
+			rows: keyedInDialog.rows.slice(0, 8),
+			same: q(keyedInDialog.rig) === q(setupOrder),
+			sel: keyedInDialog.sel,
+		}),
 	);
 	await evaluate('s2rSetRegion("neck", "bg_glow"); s2r.dirty = true; s2rRender(); true');
 	const steps = await evaluate('rigHist.past.length');
@@ -1206,6 +1467,15 @@ try {
 			seen.updates.length === 1 &&
 			seen.updates[0].kept?.parts?.neck?.region === 'Neck01',
 		q({ upd, updates: seen.updates.length }),
+	);
+	const updatedOrder = await evaluate('rawDoc.slots.map((s) => s.name)');
+	ok(
+		'🔄 Update rig keeps the order Setup gave (the template’s again here, so the list goes out as none, over the kept mapping’s chain behind the torso)',
+		q(updatedOrder.filter((n) => behindTorso.includes(n)).reverse()) === q(rigList) &&
+			q(rigList) === q(launcherList) &&
+			seen.updates[0]?.sheet?.layers === undefined &&
+			q(seen.updates[0]?.kept?.layers) === q(behindTorso),
+		q({ sent: seen.updates[0]?.sheet?.layers, kept: seen.updates[0]?.kept?.layers }),
 	);
 	ok(
 		'the rig is saved, then its mapping, conditional on the sheet.json it read',
