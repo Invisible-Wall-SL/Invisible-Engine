@@ -16,6 +16,8 @@
 // §2 (P2) the rules read the shape, in a real room (`services/game-server` `createRoomSim`) of a
 // config carrying `arcade.online.props` (`game-config` `onlineProps.ts`, through `shapedOnlineGame`
 // as the room and the device resolve it):
+// - a device reads a room's props (`readPropShapes`) as the config is normalized, and read again
+//   they are themselves;
 // - `normalizeOnlineProps` keeps what the compile writes and drops a default, a bad field, an
 //   entry with no stamp or kind, and a key that is no zone family; its lists and defaults (mirrored,
 //   so a slot runtime's normalizer carries none of the rules' constants) are `propShape.js`'s;
@@ -42,6 +44,7 @@ import {
 	PropShapeError,
 	compilePropShape,
 	propShapeErrors,
+	readPropShapes,
 } from '../packages/engine-mechanics/src/propShape.js';
 import { BRIDGE_SLOPE } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
@@ -390,6 +393,32 @@ check('normalizeOnlineProps drops what cannot be played', () => {
 	);
 	const proto = JSON.parse(`{"__proto__": ${JSON.stringify(FROM)}}`);
 	assert.equal(normalizeOnlineProps(proto), undefined);
+});
+
+check("a device's reading (readPropShapes) is the config's (normalizeOnlineProps)", () => {
+	const shapes = [
+		FROM,
+		compiled({ ramps: { near: { length: 3 }, far: { length: 2 } }, snap: 0.25, hole: 'none' }),
+		{ ...FROM, characters: ['fisherman', 'bear', 'bear'], height: 6, snap: 2, ramp: { near: 2 } },
+		{ ...FROM, solids: [{ x: 1, y: 0, w: 1, h: 1, collide: 'oneWay', side: 'left' }, 'post', {}] },
+		{ ...FROM, from: { component: 'x', version: 1.5 } },
+		{ zoneKind: 'log', from: FROM.from },
+	];
+	const raws = [
+		undefined,
+		null,
+		[],
+		'x',
+		...shapes.map((shape) => ({ 'bridge#': shape })),
+		{ 'bridge#': FROM, bridge0: FROM, '': FROM },
+		JSON.parse(`{"__proto__": ${JSON.stringify(FROM)}}`),
+	];
+	for (const raw of raws) {
+		assert.deepEqual(readPropShapes(raw), normalizeOnlineProps(raw), JSON.stringify(raw));
+		const read = readPropShapes(raw);
+		if (read)
+			assert.deepEqual(readPropShapes(JSON.parse(JSON.stringify(read))), read, 'read again');
+	}
 });
 
 // ── §2 the rules read the shape ──────────────────────────────────────────────────────────────

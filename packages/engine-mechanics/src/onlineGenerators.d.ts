@@ -53,7 +53,7 @@ export function roomLevels(game: GeneratedGame, seed: number): SalmonsSeedLevels
 export function levelHash(game: GeneratedGame, made: SalmonsRiver | undefined): string;
 
 /** The two fields a room's state carries beside its seed (`services/game-server` `schema.ts`). */
-export type RoomLevelState = { levels: string; levelHash: string };
+export type RoomLevelState = { levels: string; levelHash: string; props?: string };
 
 export function roomLevelState(
 	game: GeneratedGame,
@@ -62,13 +62,14 @@ export function roomLevelState(
 ): RoomLevelState | undefined;
 
 /** What a device read of them in a room's state: either is missing from an older game server. */
-export type RoomLevelSaid = { levels?: unknown; levelHash?: unknown };
+export type RoomLevelSaid = { levels?: unknown; levelHash?: unknown; props?: unknown };
 
 /** What a device did about its room's level (`roomLevelGame`). */
 export type RoomLevelReport = {
 	/** It plays the room's levels in place of its own config's. */
 	adopted: boolean;
-	/** The parts of its own config's levels that are not the room's, in name order. */
+	/** The parts of its own config's levels that are not the room's, and the kinds of prop whose
+	 *  colliders are not (`bridges`), in name order. */
 	differs: string[];
 	/** Its fingerprint of the level it made when the room said one ('' otherwise), and the room's. */
 	levelHash: string;

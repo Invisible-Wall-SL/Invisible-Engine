@@ -10,7 +10,6 @@
  * byte-identical until an author changes the collision.
  */
 import { BRIDGE_SLOPE } from './salmonsRules.js';
-import { SALMONS_MAP } from './salmonsMap.js';
 
 /** The zone kinds a prop compiles to: the ones with a rule that reads a shape. */
 export const PROP_ZONE_KINDS = Object.freeze(['bridge']);
@@ -28,11 +27,13 @@ export const PROP_MAX_SNAP = 1;
  * (`salmonsRules.js` `BRIDGE_SLOPE`), its height (`salmonsMap.js` `BRIDGE_HEIGHT`), the half-cell
  * snap of `bridges.deckOf`, the hole `salmons.js` `originalBounds` cuts, and the characters of the
  * bridge zone rule `salmonsGeometry` writes (`check:prop-shape` pins that these are the rule's).
+ * The height is written out, not read off `SALMONS_MAP`: a property read in this frozen object
+ * keeps it in every runtime that reaches the package (the slot runtime too, +55 B gzip measured).
  */
 export const PROP_SHAPE_DEFAULTS = Object.freeze({
 	bridge: Object.freeze({
 		characters: Object.freeze(['fisherman']),
-		height: SALMONS_MAP.BRIDGE_HEIGHT,
+		height: 6,
 		snap: 0.5,
 		ramp: Object.freeze({ near: BRIDGE_SLOPE, far: BRIDGE_SLOPE }),
 		hole: 'deckAndRamps',
@@ -192,4 +193,73 @@ function solid(s, what, fail) {
 	if (s.side) out.side = s.side;
 	if (s.characters) out.characters = [...new Set(s.characters)];
 	return out;
+}
+
+/** A zone family: a zone id with its numbers as `#` (no digit), and no key of `Object`'s. */
+const isFamily = (key) => key !== '' && !/\d/.test(key) && key !== '__proto__';
+const positive = (v) => (finite(v) && v > 0 ? v : undefined);
+const oneOf = (list, v) => list.find((item) => item === v);
+const idsOf = (v) => (names(v) ? [...new Set(v)] : undefined);
+
+function readSolid(raw) {
+	if (!isRecord(raw)) return undefined;
+	const { x, y } = raw;
+	const w = positive(raw.w);
+	const h = positive(raw.h);
+	const collide = oneOf(PROP_SOLID_COLLIDES, raw.collide);
+	if (!finite(x) || !finite(y) || !w || !h || !collide) return undefined;
+	const side = oneOf(PROP_SOLID_SIDES, raw.side);
+	if (collide === 'oneWay' ? !side : raw.side !== undefined) return undefined;
+	const out = { x, y, w, h, collide };
+	if (side) out.side = side;
+	const characters = idsOf(raw.characters);
+	if (characters) out.characters = characters;
+	return out;
+}
+
+function readShape(raw) {
+	if (!isRecord(raw)) return undefined;
+	const zoneKind = oneOf(PROP_ZONE_KINDS, raw.zoneKind);
+	const from = isRecord(raw.from) ? raw.from : undefined;
+	const component = typeof from?.component === 'string' ? from.component : '';
+	if (!zoneKind || !component || !Number.isInteger(from.version) || from.version < 1)
+		return undefined;
+	const d = PROP_SHAPE_DEFAULTS[zoneKind];
+	const shape = { from: { component, version: from.version }, zoneKind };
+	const characters = idsOf(raw.characters);
+	if (characters && !sameSet(characters, d.characters)) shape.characters = characters;
+	const height = positive(raw.height);
+	if (height !== undefined && height !== d.height) shape.height = height;
+	const snap = positive(raw.snap);
+	if (snap !== undefined && snap <= PROP_MAX_SNAP && snap !== d.snap) shape.snap = snap;
+	const ramp = isRecord(raw.ramp) ? raw.ramp : undefined;
+	const near = positive(ramp?.near);
+	const far = positive(ramp?.far);
+	if (near && far && (near !== d.ramp.near || far !== d.ramp.far)) shape.ramp = { near, far };
+	const hole = oneOf(PROP_HOLES, raw.hole);
+	if (hole && hole !== d.hole) shape.hole = hole;
+	const solids = (Array.isArray(raw.solids) ? raw.solids : []).flatMap((s) => {
+		const solid = readSolid(s);
+		return solid ? [solid] : [];
+	});
+	if (solids.length) shape.solids = solids;
+	return shape;
+}
+
+/**
+ * Compiled shapes by zone family (`arcade.online.props`) as the rules read them, from anything: a
+ * room's state, a config. A field equal to today's rule, or one that cannot be played, is dropped;
+ * an entry with no known zone kind or no `from` stamp, and a key that is no zone family, is none.
+ * `undefined` for none at all. The same reading as `game-config` `normalizeOnlineProps`, which
+ * mirrors it (`check:prop-shape` holds the two equal), so what a room played and sends is, read
+ * again on a device, itself.
+ */
+export function readPropShapes(raw) {
+	if (!isRecord(raw)) return undefined;
+	const props = {};
+	for (const [family, value] of Object.entries(raw)) {
+		const shape = isFamily(family) ? readShape(value) : undefined;
+		if (shape) props[family] = shape;
+	}
+	return Object.keys(props).length ? props : undefined;
 }

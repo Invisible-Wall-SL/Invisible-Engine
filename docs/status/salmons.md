@@ -2573,6 +2573,51 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Prop components P3: one river on both sides**
+  ([arcade-prop-components](../design/arcade-prop-components.md) §3 "One river on both sides", with
+  an "As built (P3)" note; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review;
+  room schema change, so the game server needs the owner's redeploy, per
+  [INFRA](../INFRA.md) "Invisible Game Server", before rooms send props).
+  - **Wire:** `services/game-server` `schema.ts` `roomFields` gains `props: t.string()`.
+    `arcadeRoom.ts` writes it once from `roomLevelState(sim.game, seed, sim.made).props`: the JSON
+    of the props the room's game played. It is written only when the game has props, so rooms of
+    every current game send exactly what they sent before. Props longer than `ROOM_LEVELS_MAX` are
+    not sent.
+  - **Device:** `roomLevelGame` reads `said.props` with the new `engine-mechanics` `propShape.js`
+    `readPropShapes`, the same reading as `game-config` `normalizeOnlineProps` (gated equal). It
+    plays the room's props, or none when the field is unset or unreadable. `differs` names
+    `bridges` when the colliders differ (a `from` stamp alone is not a difference), so the
+    authoring notice reads "different: bridges" with no change to its code. `online.ts` only gains
+    the field's type.
+  - **Older sides:**
+    - A game server older than P3 played no props, so its devices play none and make its level.
+    - A P2 runtime plays its own config's props. It plays on when they match the room's, and
+      otherwise its fingerprint differs and it leaves with its existing message.
+    - A runtime older than P2 makes today's bridges, and in a room with props it is refused by the
+      fingerprint.
+    - A server built at P2 (props played, not sent) would refuse its devices. It was never
+      deployed.
+  - **Bundle:** `propShape.js` wrote `height: SALMONS_MAP.BRIDGE_HEIGHT` in its frozen defaults.
+    Once `onlineGenerators.js` imported the module, that kept the object in the slot runtime (+54
+    B gzip, match-3 and card +136 B). It is the literal 6 now, already pinned to the map's by
+    `check:prop-shape`.
+  - **Gates:**
+    - `check:room-levels` 19, on main's 17 plus 2 here. The props are adopted both ways: a room
+      with props and a device without, the reverse, either with other levels, and a re-pin that
+      names nothing. That is 20 adoptions over four seeds, each to the room's level and hash, with
+      the props it plays the room's. An older server's state plays none. Unreadable or too-long
+      props read as none, and the hash still decides. Live: a ramped room sends `props` over a real
+      Colyseus room and a published device adopts "bridges". The source pins cover the new
+      `arcadeRoom.ts` line and the schema field.
+    - `check:prop-shape` 34 (a device's reading equals the config's, and is itself read again).
+    - Unchanged: `check:salmons-levels` 28, `check:online-rules` 40, `check:room-sim` 43,
+      `check:room-bots` 56, `check:room-lobby` 42, `check:salmons-heights` 24, and the game-server
+      typecheck. `check:svelte --only apps/lines` is at its baseline (145).
+    - `scripts/playtest/salmons-rejoin-play.mjs` ran in headless Chrome on an arcade build: 58
+      PASS, 0 FAIL.
+    - Runtime bytes, five `--out` builds of the merged base before and after: slot, match-3 and
+      card are byte-identical. Arcade is +736 B gzip, arcade3d +631 B.
+
 - 2026-11-26 — **Prop components P2: the rules read the bridge's shape**
   ([arcade-prop-components](../design/arcade-prop-components.md) §3, with an "As built" note; agent
   `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). Builds on P1's

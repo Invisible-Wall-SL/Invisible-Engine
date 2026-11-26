@@ -209,8 +209,9 @@ import { stateModes } from './stateModes.svelte';
  * the join waits for the room's first state, makes the room's own field from the seed it carries
  * (the very function the server ran) and draws it in place of the authored one
  * ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load. The state also carries the levels
- * the room's generator read and a fingerprint of the level it made, and the device makes its field
- * through `engine-mechanics` `roomLevelGame` alone: it plays the ROOM's levels, never its own
+ * the room's generator read, the prop colliders it laid in (a bridge's ramps) and a fingerprint of
+ * the level it made, and the device makes its field through `engine-mechanics` `roomLevelGame`
+ * alone: it plays the ROOM's levels and props, never its own
  * config's where the two differ (an authoring boot is told so, {@link showLevelsNotice}), and
  * leaves a room whose level it still cannot make ({@link otherLevel}). What it draws is what the
  * room collides against.
@@ -364,6 +365,9 @@ type RoomState = {
 	 *  no generator. */
 	levels?: string;
 	levelHash?: string;
+	/** The prop colliders it laid into the level, as JSON (`roomLevelState`); unset when it has
+	 *  none, or from an older server: the device then plays none. */
+	props?: string;
 	/** Whether the room lets its people change the class they play now (a lobby, until round 1
 	 *  starts); unset from an older server, or by a game with no lobby. */
 	picking?: boolean;

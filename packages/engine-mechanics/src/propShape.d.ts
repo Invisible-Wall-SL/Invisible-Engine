@@ -82,3 +82,7 @@ export class PropShapeError extends Error {
 export function propShapeErrors(def: PropShapeInput): string[];
 /** `def.prop` as the rules read it. Throws a {@link PropShapeError} when it does not compile. */
 export function compilePropShape(def: PropShapeInput): PropShape;
+
+/** Compiled shapes by zone family, read from anything (a room's state, a config), defaults and
+ *  unplayable fields dropped; `undefined` for none. */
+export function readPropShapes(raw: unknown): Readonly<Record<string, PropShape>> | undefined;

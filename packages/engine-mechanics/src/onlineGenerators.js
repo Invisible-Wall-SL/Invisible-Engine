@@ -24,6 +24,7 @@
  * room whose level it still cannot make ({@link roomLevelGame}).
  */
 
+import { readPropShapes } from './propShape.js';
 import { salmonsGeometry, salmonsRiver } from './salmons.js';
 import { levelOverlay, levelShape, salmonsMapRiver, seedLevels } from './salmonsMap.js';
 
@@ -167,14 +168,22 @@ export function levelHash(game, made) {
 /**
  * What a room of `seed` writes in its state beside the seed, for the level `made` by its own
  * {@link generatedOnlineGame}: `levels`, the JSON of {@link roomLevels} ('' when its generator
- * reads none, or past {@link ROOM_LEVELS_MAX}), and `levelHash`, its {@link levelHash}.
- * `undefined` for a game that names no generator: its room says nothing.
+ * reads none, or past {@link ROOM_LEVELS_MAX}), `levelHash`, its {@link levelHash}, and, only
+ * when the game has prop colliders (`online.props`), `props`, their JSON (left out past
+ * {@link ROOM_LEVELS_MAX}: its devices are held to the fingerprint alone). `undefined` for a game
+ * that names no generator: its room says nothing.
  */
 export function roomLevelState(game, seed, made) {
 	if (!generatorOf(game) || !made) return undefined;
 	const levels = roomLevels(game, seed);
 	const text = levels ? JSON.stringify(levels) : '';
-	return { levels: text.length > ROOM_LEVELS_MAX ? '' : text, levelHash: levelHash(game, made) };
+	const state = {
+		levels: text.length > ROOM_LEVELS_MAX ? '' : text,
+		levelHash: levelHash(game, made),
+	};
+	const props = game.online.props ? JSON.stringify(game.online.props) : '';
+	if (props && props.length <= ROOM_LEVELS_MAX) state.props = props;
+	return state;
 }
 
 /** The levels a room said, read again by the device's generator (so both sides' are in its one
@@ -197,13 +206,41 @@ const partsThatDiffer = (a, b) =>
 		.filter((part) => JSON.stringify(a[part]) !== JSON.stringify(b[part]))
 		.sort();
 
+/** The prop colliders a room said: none when it said none (a room of a game without them, or a
+ *  game server older than them), or nothing that reads as them. */
+function saidProps(said) {
+	if (typeof said !== 'string' || !said || said.length > ROOM_LEVELS_MAX) return undefined;
+	try {
+		return readPropShapes(JSON.parse(said));
+	} catch {
+		return undefined;
+	}
+}
+
+/** A shape as the rules play it: without the `from` stamp, which a re-pin changes alone. */
+const playedShape = (shape) => (shape ? JSON.stringify({ ...shape, from: undefined }) : '');
+
+/** The kinds of prop whose colliders differ between two sets (`bridges`), in name order. */
+const propsThatDiffer = (a = {}, b = {}) =>
+	[
+		...new Set(
+			[...new Set([...Object.keys(a), ...Object.keys(b)])]
+				.filter((family) => playedShape(a[family]) !== playedShape(b[family]))
+				.map((family) => `${(a[family] ?? b[family]).zoneKind}s`),
+		),
+	].sort();
+
 /**
  * THE DEVICE'S WHOLE DECISION: what a device plays in a room of `seed` whose state said `said`
- * (`{ levels, levelHash }` as {@link roomLevelState} wrote them), from its own resolved `game`.
+ * (`{ levels, levelHash, props }` as {@link roomLevelState} wrote them), from its own resolved `game`.
  *
  *  - The room said its levels ⇒ the device plays THEM. `differs` names the parts of its own
  *    config's that are not the room's (`river`, `waterfalls`, `overlays`), `adopted` whether any
  *    is; with none it plays its own config, which is the room's.
+ *  - The device plays the ROOM's prop colliders (`props`, `arcade.online.props`), and none when
+ *    the room said none (a game without them, or a game server older than them, which played
+ *    none). `differs` names the kinds whose colliders are not its own config's (`bridges`); a
+ *    shape that differs only in its `from` stamp is the same collider.
  *  - The room said a fingerprint ⇒ the level the device made must have it, or the answer is
  *    `{ refused }` and the device must leave: `'generator'` when it made the level from the room's
  *    own levels (its generator is not the room's: the runtime and the game server are of different
@@ -221,12 +258,18 @@ export function roomLevelGame(game, seed, said) {
 	if (!generator)
 		return { game, made: undefined, adopted: false, differs: [], levelHash: '', roomLevelHash: '' };
 	const theirs = saidLevels(generator, said?.levels, seed);
-	const differs = theirs ? partsThatDiffer(roomLevels(game, seed), theirs) : [];
+	const levelParts = theirs ? partsThatDiffer(roomLevels(game, seed), theirs) : [];
+	const theirProps = saidProps(said?.props);
+	const propParts = propsThatDiffer(game.online.props, theirProps);
+	const differs = [...levelParts, ...propParts].sort();
 	const adopted = differs.length > 0;
-	const played = generatedOnlineGame(
-		adopted ? { ...game, online: { ...game.online, levels: theirs } } : game,
-		seed,
-	);
+	let online = game.online;
+	if (levelParts.length) online = { ...online, levels: theirs };
+	if (propParts.length) {
+		online = { ...online, props: theirProps };
+		if (!theirProps) delete online.props;
+	}
+	const played = generatedOnlineGame(adopted ? { ...game, online } : game, seed);
 	const roomLevelHash = typeof said?.levelHash === 'string' ? said.levelHash : '';
 	const report = {
 		adopted,

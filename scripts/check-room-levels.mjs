@@ -19,7 +19,8 @@
 // A prop's collider (`arcade.online.props`, `docs/design/arcade-prop-components.md` §3) is part of
 // the level and its art is not: with no props (or a shape restating today's bridge, or zone art
 // alone) the fingerprints are main's, pinned; a ramp changed moves them on the room and the device
-// alike, and a device without the room's props is refused.
+// alike. The room's state says the props it played (`props`), and a device plays the room's, both
+// ways (P3): the room has props the device has not, and the reverse; none from an older server.
 //
 //   pnpm check:room-levels
 
@@ -591,13 +592,79 @@ try {
 			assertSame(levelOf(decided.game), levelOf(sim.game), `seed ${seed}`);
 			// A re-pin of the component with the same collider is the same level.
 			assert.equal((await roomOf('repinned', seed)).said.levelHash, said.levelHash);
-			// A device without the room's props cannot make its level, and is refused, never played
-			// on another; it adopts the room's props in P3.
-			for (const other of ['published', 'arted'])
-				assert.ok('refused' in roomLevelGame(deviceGame(SERVED[other]), seed, said), other);
-			assert.ok('refused' in roomLevelGame(deviceGame(SERVED.ramped), seed, plain.said));
+			// The room says the props it played, read again as themselves.
+			assert.equal(said.props, JSON.stringify({ 'bridge#': RAMPED }));
+			assert.equal(plain.said.props, undefined, 'a room without props says none');
 		}
 	});
+
+	await check(
+		'a device adopts the room’s props, both ways, and plays the room’s level',
+		async () => {
+			let adoptions = 0;
+			for (const seed of SEEDS) {
+				const ramped = await roomOf('ramped', seed);
+				const plain = await roomOf('published', seed);
+				const live = await roomOf('live', seed);
+				const cases = [
+					// The room has props the device has not, with and without other levels.
+					['ramped', 'published', ['bridges']],
+					['ramped', 'arted', ['bridges']],
+					['ramped', 'live', ['bridges', 'river', 'waterfalls']],
+					// The device has props the room has not.
+					['published', 'ramped', ['bridges']],
+					['live', 'ramped', ['bridges', 'river', 'waterfalls']],
+					// The same collider stamped by another version of its component: nothing differs.
+					['ramped', 'repinned', []],
+					['ramped', 'ramped', []],
+				];
+				for (const [roomName, deviceName, differs] of cases) {
+					const { sim, said } = { ramped, published: plain, live }[roomName];
+					const own = deviceGame(SERVED[deviceName]);
+					const decided = roomLevelGame(own, seed, said);
+					const what = `room "${roomName}", device "${deviceName}", seed ${seed}`;
+					assert.ok(!('refused' in decided), `${what}: refused (${decided.refused})`);
+					assert.deepEqual(decided.differs, differs, `${what}: the parts named`);
+					assert.equal(decided.adopted, differs.length > 0, `${what}: adopted`);
+					assert.equal(decided.levelHash, said.levelHash, `${what}: its fingerprint is the room's`);
+					assertSame(levelOf(decided.game), levelOf(sim.game), what);
+					if (differs.includes('bridges'))
+						assert.deepEqual(
+							decided.game.online.props,
+							sim.game.online.props,
+							`${what}: its props`,
+						);
+					else assert.equal(decided.game.online.props, own.online.props, `${what}: its own props`);
+					if (decided.adopted) adoptions += 1;
+				}
+				// A game server older than the field (it played no props) says none: the device plays
+				// none, and makes the room's level.
+				const older = { levels: plain.said.levels, levelHash: plain.said.levelHash };
+				const decided = roomLevelGame(deviceGame(SERVED.ramped), seed, older);
+				assert.deepEqual([decided.adopted, decided.differs], [true, ['bridges']]);
+				assert.equal(decided.levelHash, plain.said.levelHash);
+				assert.equal(decided.game.online.props, undefined);
+				// Props that do not read as props are none, and the fingerprint still decides.
+				for (const props of [
+					'{',
+					'[1]',
+					'null',
+					'{"bridge#":{"zoneKind":"bridge"}}',
+					'x'.repeat(ROOM_LEVELS_MAX + 1),
+				]) {
+					const odd = roomLevelGame(deviceGame(SERVED.ramped), seed, { ...plain.said, props });
+					assert.ok(!('refused' in odd) && odd.game.online.props === undefined, props.slice(0, 20));
+					assert.ok(
+						'refused' in
+							roomLevelGame(deviceGame(SERVED.published), seed, { ...ramped.said, props }),
+					);
+				}
+			}
+			console.log(
+				`      ${adoptions} adoptions of another room's props, every one the room's level`,
+			);
+		},
+	);
 
 	// --- 3. What must not change ------------------------------------------------------------------
 
@@ -825,6 +892,21 @@ try {
 				assert.equal(back.levelHash, winding.state.levelHash);
 				assertSame(levelOf(back.game), levelOf(there.game), 'the winding river, over the wire');
 				await winding.leave();
+				// Props cross the wire too: a room of the ramped config, a device of the published one,
+				// which adopts the room's bridges. A room without props sends no field.
+				const ramped = await joinRoom('ramped');
+				const held2 = matchMaker.getLocalRoomById(ramped.roomId).sim;
+				assert.equal(state.props, undefined, 'the published room sent no props');
+				assert.equal(ramped.state.props, JSON.stringify(held2.game.online.props));
+				const bridged = roomLevelGame(
+					deviceGame(SERVED.published),
+					ramped.state.seed,
+					ramped.state,
+				);
+				assert.deepEqual([bridged.adopted, bridged.differs], [true, ['bridges']]);
+				assert.equal(bridged.levelHash, ramped.state.levelHash);
+				assertSame(levelOf(bridged.game), levelOf(held2.game), 'the ramped bridges, over the wire');
+				await ramped.leave();
 			},
 		);
 
@@ -850,7 +932,7 @@ try {
 		// From the sim's own game and what its own generator made, into both fields.
 		assert.match(
 			room,
-			/const level = roomLevelState\(sim\.game, seed, sim\.made\);\s+if \(level\) \{\s+this\.state\.levels = level\.levels;\s+this\.state\.levelHash = level\.levelHash;\s+\}/,
+			/const level = roomLevelState\(sim\.game, seed, sim\.made\);\s+if \(level\) \{\s+this\.state\.levels = level\.levels;\s+this\.state\.levelHash = level\.levelHash;\s+if \(level\.props\) this\.state\.props = level\.props;\s+\}/,
 		);
 		assert.match(
 			read('services/game-server/src/roomSim.ts'),
@@ -860,7 +942,7 @@ try {
 		const schema = read('services/game-server/src/schema.ts');
 		assert.match(
 			schema,
-			/const roomFields = \{[\s\S]*?\n\tlevels: t\.string\(\),[\s\S]*?\n\tlevelHash: t\.string\(\),\n\};/,
+			/const roomFields = \{[\s\S]*?\n\tlevels: t\.string\(\),[\s\S]*?\n\tlevelHash: t\.string\(\),[\s\S]*?\n\tprops: t\.string\(\),\n\};/,
 		);
 		assert.match(schema, /export const RoomState = schema\(\{ \.\.\.roomFields,/);
 		assert.match(schema, /export const NearbyRoomState = schema\(\{ \.\.\.roomFields,/);

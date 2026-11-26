@@ -1,7 +1,7 @@
 # Arcade prop components — a component that carries its own collision (Salmons' bridge first)
 
-**Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26, in review;
-P3–P8 planned.** Owner ask of
+**Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26; P3 (one
+river on both sides) built 2026-11-26, in review; P4–P8 planned.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -199,9 +199,7 @@ As built (P2), where it differs from the steps above:
 - **The art still draws 2 and 2.** `salmonsArt/bridge.ts` `slopeEnds` and `BRIDGE.slope` draw
   today's ramps. Until P5 draws the shape, a non-default ramp plays right and is drawn wrong. No
   game has props yet.
-- **One river on both sides is P3.** Until then, a device whose config's props are not the
-  room's makes another level and is refused (`check:room-levels`). It is never played on the
-  wrong level.
+- **One river on both sides** is built in P3; see the as-built note under that heading below.
 
 **The fingerprint.** `levelHash` hashes the generator's geometry (field, zones, zone rules,
 spawns) and nothing else. The shape lands in zones and zone rules, so a collision change moves the
@@ -213,6 +211,29 @@ runs the published one ([salmons-levels §3](salmons-levels.md)). A collider sav
 published would make the device refuse the room. So the room state carries the props it played
 beside `levels`, and the device adopts them (`roomLevelGame`), as it adopts the levels. The existing
 notice names "bridges" when they differ.
+
+As built (P3):
+
+- **The wire.** The state field is `props`, a string beside `levels` and `levelHash` in
+  `services/game-server` `schema.ts` `roomFields`. It holds the JSON of the props the room's game
+  played (`roomLevelState`), and the room writes it once. It is written only for a game that has
+  props, so a room of any current game sends no new field. Props longer than `ROOM_LEVELS_MAX`
+  are not sent, and the fingerprint alone decides.
+- **The device** (`roomLevelGame`) reads the field with `engine-mechanics` `propShape.js`
+  `readPropShapes`, the same reading as `game-config` `normalizeOnlineProps` (`check:prop-shape`
+  holds the two equal). It plays the room's props, or none when the field is unset or unreadable.
+  `differs` names the kind (`bridges`) when the room's colliders are not the device's own. A shape
+  whose `from` stamp alone differs is the same collider and is not named.
+- **Older sides.**
+  - A room from before the field (a game server older than P3) played no props. Its devices play
+    none and make its level.
+  - A device from before P3 plays its own config's props. Where they match the room's it plays
+    on. Where they differ its level has another fingerprint, so a P2 runtime refuses the room
+    with its existing message. A runtime older than P2 reads no props: in a room that has some
+    it makes today's level, and it is refused if it holds the fingerprint (every runtime since
+    the levels change does).
+  - One gap: a game server built at P2, which plays props but does not send them, would get its
+    devices refused. P2 is not deployed.
 
 ## 4. Inputs, the state machine and who drives them
 
@@ -314,7 +335,8 @@ the 2-cell near slope) has merged.
 3. **P3 — one river on both sides.** The room state carries `props` beside `levels`, and the
    device adopts them. The authoring notice names bridges.
    *Proof:* `check:room-levels` (a new section). `scripts/playtest/salmons-rejoin-play.mjs` still
-   joins.
+   joins. **Built 2026-11-26, in review** (as built: §3 "One river on both sides";
+   detail: [status/salmons](../status/salmons.md)).
 4. **P4 — the seed def.** A shared built-in `bridgeProp` (`builtinComponents.ts`,
    `category: 'scenery'`, inert until a zone-art entry names it). Its collider is today's. Its art
    is placeholder nodes close to the code bridge (reflections `water`, pillars and slopes
