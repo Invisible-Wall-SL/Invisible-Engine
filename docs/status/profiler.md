@@ -25,7 +25,7 @@ tests cloud phones by hand on BrowserStack Live, through an ordinary capture ses
 "Arcade phases" built 2026-11-26** (#1933): an arcade game's reading (`perf: 8`, `kind:
 'arcade'`) is split into `menu` and `play` with what its sim and room did per frame, and the
 launcher shows, budgets and judges it so; a slot reading is unchanged. Step **P9 "Network" built
-2026-11-26** (in review): every reading (`perf: 9`) says what its page downloaded — each file's path
+2026-11-26** (#1939): every reading (`perf: 9`) says what its page downloaded — each file's path
 and sizes, by class and by load stage, the first frame, the RGS's requests and the arcade room's
 messages — and the launcher keeps its transfer MB, lists its files, compares it across builds,
 budgets it per device class and ranks five network findings.
@@ -368,8 +368,9 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Open items / next
 
-0. **P8 / P9 on a real phone.** Both are unverified on a real phone until the owner takes a fresh
-   `?perf=1` capture (Salmons, and a slot) after P9's runtime release. A 3D arcade game's reading
+0. **P8 / P9 on a real phone.** P9 was verified live on desktop Chrome (below); the first real-phone
+   `perf: 9` reading arrived the same evening (BS Live · Galaxy S24 · Android 16, Salmons: 4.9 MB,
+   first frame 4.2 s). A slot on a real phone is still owed. A 3D arcade game's reading
    (`arcade3d` runtime) counts its play frames only: no sim or room counts, and no room traffic in
    its network block (`online3d.ts` has no meter). Known blind spots of the network block: the
    partner's RGS host and the game server's matchmaking HTTP send no `Timing-Allow-Origin` (their
@@ -377,6 +378,19 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
    loses the earliest (`bufferFull`); the games host's `assets/` are `no-store`
    (`docs/INFRA.md`), so **Downloaded again** will name them on any device that loads a game twice —
    that is the finding, not a bug in it.
+   - **An arcade game's "first frame" is its first FIELD frame.** Salmons' title and join dialog are
+     HTML; the Pixi app draws only after Join, so the first frame (and "before the first frame") counts
+     the time a player spends on the title: 45.2 s on the live check. Read Salmons' first frame as
+     "join to field", or move the mark to the first paint of the HTML title for such games.
+   - **A partner-session capture link loses the probe.** BookOfBorutRemake's "Book of Borut —
+     Emanuele's RGS" card opens through `/api/partner-session?…&perf=1&perfsession=…`, and its
+     redirect lands on the game without `perf` or `perfsession` (checked 2026-11-26): that card can
+     never be profiled. Pre-existing (P1's capture links), not P9's.
+   - **Salmons downloads the slot's stock audio.** The live reading's heaviest files are
+     `assets/audio/stock/bgm_main.ogg` (1.4 MB), `bgm_freespin.ogg`, `winlevel_beds.ogg`,
+     `anticipation_coinloop.ogg` and `spines/bigwin/mm_bigwin.json`: 3.2 MB of slot audio and a
+     big-win rig an arcade game may never play (the stock asset table, `stateApp.ts`). For
+     `arcade-games` / `engine-pixi-svelte` to confirm and cut.
 1. **P6 tolerance across games.** Measured on one game on CI (above); widen or narrow
    `LAB_TOLERANCE` as the first nightlies of the other games come in. The
    forced-feature step is skipped online: a published game's player mock refuses `/force` (an
@@ -423,7 +437,7 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
-- 2026-11-26 — **P9 "Network" (in review; a runtime release on merge)**: the owner asked, after
+- 2026-11-26 — **P9 "Network" (#1939, merged as c6945262d; a runtime release)**: the owner asked, after
   profiling Salmons, to see whether anything is too heavy to transfer. Design:
   [invisible-profiler §8](../design/invisible-profiler.md).
   - **Probe (`perf: 9`).** `apps/lines/src/game/perfNetwork.ts` (no game import) + `PerfHud.svelte`:
@@ -458,6 +472,22 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   - **Bundles** (`check:runtime-bytes`, Linux manifests from CI's artifact): every runtime's lazy
     `?perf=1` chunk +2.7 KB gzip; main bundles lines / match-3 / card +6 B, arcade and arcade3d
     +220 B (the room tally and the metered `send`).
+  - **Verified live** (2026-11-26, after the merge, c6945262d): the launcher's `/api/health` names
+    `c6945262dc2f` with `schema: current` (migration 0051 applied); the Runtime release moved
+    `lines`, `card` and `arcade` to `@c6945262dc2f` (`X-Runtime-Release`). A capture on desktop
+    Chrome: **Salmons** sent `perf: 9` — 85 files, 4.58 MB (0.19 MB from the cache), 17 sizes hidden
+    (all `rooms.invisiblewall.org`: the lobby's `/rooms` poll and matchmaking, plus Typekit), the
+    bundle served gzip (0.77 MB as served, 2.54 MB decoded), the room 20 messages / 4.7 KB a second;
+    the readout's `net` and room lines showed, Send answered "sent", and the page hidden sent the
+    trimmed form too. The Readings list shows **4.6+** Transfer MB with "1st frame 45.2 s" (see the
+    open item on arcade first frames); clicking it opened the **Files** card with all 85 files, the
+    stages and classes, the `/api/published/f/<token>/` segment read `…`. **BookOfBorutRemake**
+    (mock RGS): 118 files, 8.0 MB (4.6 MB from the cache), 3 sizes hidden (Typekit only — every
+    `app.invisiblewall.org` file sized, so `Timing-Allow-Origin` works), RGS 2 requests p95 185 ms;
+    its Findings list **Heavy downloads** "1 file over 3 MB on desktop" — a 3.42 MB published
+    `sounds/snd_….mp3`, owner the project author. Salmons raised no network finding (4.6 MB, largest
+    1.4 MB, 1.1 MB before the first frame, text gzipped). A BS Live Galaxy S24 (Android 16) reading of
+    Salmons arrived as `perf: 9` too (4.9+ MB, first frame 4.2 s).
   - **Played locally** (a release-env `apps/lines` build, headless shell). `cg-lines` stand-in on the
     real test server: `perf: 9`, 91 files, 9.0 MB (2 sizes hidden: Typekit's pixel and the local
     snapshot server's runtime bundle, which sends no `Timing-Allow-Origin`), first frame 0.9 s
@@ -478,7 +508,7 @@ after 3.0 MB · largest bundle….js 2.6 MB` and `RGS 4 req · p50 4 · p95 12 m
   430 × 739 (page cannot scroll, canvas fills, readout shown); **not yet checked on the real
   iPhone**.
 
-- 2026-11-26 — **P8 "Arcade phases" (in review; a runtime release on merge)**: the owner's first
+- 2026-11-26 — **P8 "Arcade phases" (#1933; a runtime release)**: the owner's first
   Salmons reading (26 Nov 09:48, BS Live · Galaxy S24 Ultra, Adreno 750) put all 5,153 frames in
   `idle` and its findings named no arcade cause. Design: [invisible-profiler §7](../design/invisible-profiler.md).
   - **Probe (`perf: 8`).** Every report says `kind` (the config's family). An arcade game's frames
