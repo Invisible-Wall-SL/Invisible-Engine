@@ -190,11 +190,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   the clip; **↺ Start over** (icon) puts the first guess back as one step **↶** takes back, asking
   over hand edits not kept. (Review) Frame: ＋ New rig → 🎞 again resets as an undoable step
   (`f2rSnapshot`), so dragged joints, a part's frame picked by hand and the cuts made here come back
-  with ↶; a pending ↶ survives a close; opened while a cut runs, the dialog is left alone. Sheet:
+  with ↶; a pending ↶ survives a close, not a change of template (nor mid-cut); after ↶, ↺ Reuse
+  no longer offers the cut that is open. Opened while a cut runs, the dialog is left alone. Sheet:
   closed right after ↺ Start over, the mapping it replaced is left for ↺ Reuse what you left
   (`s2rMapping(st)`); Start over and ↶ move `s2r.gen` on, so a face track lands on neither, and a
   head restored mid-track is tracked again. Only one left mapping is remembered (`s2r.left`).
-  Guards: `frame-rig-browser.mjs` 43/43, 14 page mutants; `sheet-rig-browser.mjs` 3 new checks, 4
+  Guards: `frame-rig-browser.mjs` 45/45, 16 page mutants; `sheet-rig-browser.mjs` 3 new checks, 4
   new mutants. Its 3 drag checks (joint, part, prop) fail in the cloud container on `main` too,
   about 0.7 stage px off: open.
 

@@ -35,7 +35,8 @@
 //    the cut offered again; ↶ brings the cut back as it was, the touch-up with it;
 //  - ✕ and ＋ New rig again: after ↺ Start over its ↶ stays; over dragged joints and a part's frame
 //    picked by hand, ↶ brings them back; mid-cut the dialog is left as it is and the cut lands; over a
-//    cut made here, ↶ brings it back with the part it takes from a cut made here too;
+//    cut made here, ↶ brings it back with the part it takes from a cut made here too, and ↺ Reuse
+//    then offers the cut kept before, not that one; on another template, no ↶ to the last one's cut;
 //  - the page threw nothing.
 //   node tools/rigger-spike/frame-rig-browser.mjs [--png <dir>] [--mutants]
 //   F2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -76,19 +77,29 @@ const PAGE_MUTANTS = [
 	["＋ New rig keeping the dialog's cut", 'f2rFresh(); f2r.undo = undo;', 'f2r.undo = undo;'],
 	[
 		'＋ New rig dropping what was open, no ↶ for it',
-		'const undo = work ? f2rSnapshot() : f2r.undo;',
-		'const undo = f2r.undo;',
+		'const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;',
+		'const undo = !same ? null : f2r.undo;',
 	],
 	[
 		"＋ New rig dropping ↺ Start over's ↶",
-		'const undo = work ? f2rSnapshot() : f2r.undo;',
-		'const undo = work ? f2rSnapshot() : null;',
+		'const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;',
+		'const undo = !same ? null : work ? f2rSnapshot() : null;',
 	],
 	['＋ New rig starting over mid-cut', 'if (f2r.clip && !f2r.busy){', 'if (f2r.clip){'],
 	[
 		'↶ losing the cuts made here the clip no longer lists',
 		'for (const c of here) if',
 		'for (const c of []) if',
+	],
+	[
+		'↶ leaving the cut it brings back for ↺ Reuse',
+		'  f2r.kept = f2r.kept.filter((c) => !f2r.cutHere.has(c.job));\n',
+		'',
+	],
+	[
+		"＋ New rig on another template keeping ↶ to the last one's cut",
+		'const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;',
+		'const undo = work || !same ? f2rSnapshot() : f2r.undo;',
 	],
 	['↺ Reuse never offered', 'b.style.display = c ? "" : "none";', 'b.style.display = "none";'],
 	['↺ Reuse opening nothing', '  await f2rOpenSaved(c);\n}', '  void c;\n}'],
@@ -209,6 +220,9 @@ let etag = '"e1"';
 let made = null;
 /** How long a cut takes to answer, ms (a cut still running when the dialog opens again). */
 let cutDelay = 0;
+/** The cuts made in the dialog, newest first; listed with the clip's when `listMade` (as the route does). */
+const cutsMade = [];
+let listMade = false;
 let kept = structuredClone(CUT);
 let labelsNow = new Uint8Array(LABELS.data);
 const sharpOf = createRequire(join(APP, 'package.json'))('sharp');
@@ -284,7 +298,7 @@ const server = createServer(async (req, res) => {
 			const body = await readBody(req);
 			seen.cuts.push(body);
 			if (cutDelay) await new Promise((r) => setTimeout(r, cutDelay));
-			return json({
+			const made = {
 				...CUT,
 				job: body.job ?? `f2r-fresh-${String(seen.cuts.length).padStart(4, '0')}`,
 				clipId: CLIP.id,
@@ -296,13 +310,16 @@ const server = createServer(async (req, res) => {
 					overlay: '/fx/frame.png',
 					track: '/fx/track.json',
 				},
-			});
+			};
+			cutsMade.unshift({ ...made, saved: Date.now() });
+			return json(made);
 		}
 		if (p === '/api/rigger/from-frame' && req.method === 'GET')
 			return json({
 				cuts:
 					url.searchParams.get('clipId') === CLIP.id
 						? [
+								...(listMade ? cutsMade : []),
 								{
 									...kept,
 									root: `c/p/rig-from-frame/${CUT.job}`,
@@ -332,7 +349,7 @@ const server = createServer(async (req, res) => {
 										track: '/fx/track-2.json',
 									},
 								},
-							]
+							].filter((c, i, all) => all.findIndex((x) => x.frame === c.frame) === i)
 						: [],
 			});
 		if (p === '/api/rigger/from-frame/edits') {
@@ -1187,7 +1204,7 @@ try {
 	);
 
 	// ✕, then ＋ New rig → 🎞 again (the clip still picked): the clip's kept cuts read anew.
-	const reopenF2r = async () => {
+	const reopenF2r = async (tpl = 'half-body') => {
 		await evaluate(`(() => {
 			window.__keptWas = f2r.kept;
 			document.getElementById("f2rClose").click();
@@ -1199,7 +1216,7 @@ try {
 			15000,
 		);
 		await evaluate(
-			'document.getElementById("newRigApply").value = "template:half-body"; document.getElementById("newRigFromFrame").click(); true',
+			`document.getElementById("newRigApply").value = "template:${tpl}"; document.getElementById("newRigFromFrame").click(); true`,
 		);
 		await waitFor(
 			'document.getElementById("f2rModal").classList.contains("open") && f2r.kept !== window.__keptWas && !f2r.busy',
@@ -1339,6 +1356,39 @@ try {
 			hereBack.armFrame === 2 &&
 			/✂ a kept cut/.test(hereBack.kept),
 		q({ hereCut, hereShut, hereBack }),
+	);
+	// The same, the clip listing the cuts made here as the route does: after ↶, ↺ Reuse does not offer
+	// the cut that is open, only the one kept before.
+	listMade = true;
+	await reopenF2r();
+	const listedShut = await evaluate(
+		`({ cut: !!f2r.cut, undo: ${undoShown}, listed: f2r.kept.some((c) => c.job === ${q(hereCut.job)}) })`,
+	);
+	await evaluate('document.getElementById("f2rUndoStart").click(); true');
+	const listedBack = await evaluate(`({
+		job: f2r.cut && f2r.cut.job, here: f2r.kept.filter((c) => f2r.cutHere.has(c.job)).map((c) => c.job),
+		reuse: document.getElementById("f2rReuse").style.display !== "none" && document.getElementById("f2rReuse").textContent,
+	})`);
+	ok(
+		'… with the cuts made here listed: after ↶, ↺ Reuse offers the cut kept before, not the one open',
+		!listedShut.cut &&
+			listedShut.undo &&
+			listedShut.listed &&
+			listedBack.job === hereCut.job &&
+			listedBack.here.length === 0 &&
+			listedBack.reuse === `↺ Reuse frame ${KEPT}'s cut`,
+		q({ listedShut, listedBack }),
+	);
+	listMade = false;
+	// ✕ and ＋ New rig again on another template with the parts: no ↶ to this template's cut.
+	await reopenF2r('full-body');
+	const otherTpl = await evaluate(
+		`({ tpl: f2r.tpl.id, cut: !!f2r.cut, undo: ${undoShown}, here: f2r.cutHere.size })`,
+	);
+	ok(
+		'＋ New rig again on another template (Full body): the first guess, and no ↶ to the cut of the one before',
+		otherTpl.tpl === 'full-body' && !otherTpl.cut && !otherTpl.undo && otherTpl.here === 0,
+		q(otherTpl),
 	);
 	await evaluate('window.confirm = () => true; closeFrameToRig(); true');
 

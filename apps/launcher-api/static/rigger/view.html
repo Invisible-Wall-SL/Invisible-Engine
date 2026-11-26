@@ -10140,6 +10140,8 @@ function openFrameToRig(){
   }
   // A cut opened by ✂ Edit cut belongs to its rig: a new rig starts from a clip of its own.
   if (f2r.edit){ f2r.edit = null; f2rPickClip(""); }
+  const same = !!f2r.tpl && f2r.tpl.id === tpl.id;
+  if (f2r.busy && !same){ $("#newRigNote").textContent = "a ✂ Cut is still running in 🎞: open it again on " + f2r.tpl.label + ", or wait for it"; return; }
   f2r.tpl = tpl;
   f2rModeUi();
   $("#newRigNote").textContent = "";
@@ -10149,10 +10151,11 @@ function openFrameToRig(){
   f2rFillClips();
   if (projectClips === null) loadProjectClips().then(f2rFillClips);
   // A new rig starts as the first time, on the clip still picked: its kept cuts listed again, offered.
-  // What was open is one step ↶ takes back, as after ↺ Start over (whose own ↶ stays); not mid-cut.
+  // What was open is one step ↶ takes back, as after ↺ Start over (whose own ↶ stays); not mid-cut,
+  // and not another template's.
   if (f2r.clip && !f2r.busy){
-    const work = f2rDirty() || f2r.moved || f2rByHand() || !!f2r.cut;
-    const undo = work ? f2rSnapshot() : f2r.undo;
+    const work = same && (f2rDirty() || f2r.moved || f2rByHand() || !!f2r.cut);
+    const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;
     f2rFresh(); f2r.undo = undo;
     if (work) f2rNote("started over on the best frame: ↶ brings back what was open");
     f2rRenderStrip(); f2rRenderCut();
@@ -10227,6 +10230,9 @@ function f2rUndoStartOver(){
   Object.assign(f2r, state, { undo: null, composite: null });
   // The clip's kept cuts, read again since, may leave out cuts made here.
   for (const c of here) if (!f2r.saved.some((x) => x.job === c.job)) f2r.saved.push(c);
+  f2r.kept = f2r.kept.filter((c) => !f2r.cutHere.has(c.job));
+  // Taken before the clip was tracked, the cut has no plan yet.
+  if (f2r.cut && !f2r.plan && f2r.track) f2r.plan = f2rPlanFor(f2r.sel);
   const cut = f2r.cut;
   if (cut){
     f2r.saved = f2r.saved.some((x) => x.job === cut.job) ? f2r.saved.map((x) => (x.job === cut.job ? cut : x)) : [cut, ...f2r.saved];
