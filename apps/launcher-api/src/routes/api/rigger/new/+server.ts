@@ -254,6 +254,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		atlas_file: `${name}.atlas`,
 		regions: regionCount,
 		...(template ? { template: templateReport(template) } : {}),
-		...(made.sheet ? { sheet: { scale: made.sheet.scale, face: made.sheet.face } } : {}),
+		...(made.sheet
+			? { sheet: { scale: made.sheet.scale, face: made.sheet.face, hidden: made.sheet.hidden } }
+			: {}),
 	});
 };

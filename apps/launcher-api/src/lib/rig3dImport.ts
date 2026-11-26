@@ -13,6 +13,7 @@ import {
 	bake2p5d,
 	bakedBonesOf,
 	orientOf,
+	pose3d,
 	type Bake2p5d,
 	type BoneKeys3d,
 	type Curve,
@@ -46,6 +47,61 @@ export interface Template3d {
 	layers?: Record<string, string[]>;
 	/** Limbs solved in 3D (rig-controls §6.1, T12b), at mix 0. */
 	ik?: Rig3dIk[];
+}
+
+/**
+ * Half the depth of a body's slots, as shares of its shoulder width (a torso 24 cm deep on 36 cm
+ * shoulders): what moves in the draw order against them is read against their back face, so an arm
+ * at the body's side never drops behind it (rig-2p5d §4.5).
+ */
+export const BODY_DEPTH: Readonly<Record<string, number>> = {
+	torso: 0.33,
+	body: 0.33,
+	pelvis: 0.3,
+	neck: 0.15,
+	head: 0.28,
+};
+/**
+ * The draw order's hysteresis a capture import gives a rig, as a share of its shoulder width (about
+ * 4 cm of the performer): past a tracker's depth noise, so a still arm never flickers in front of and
+ * behind another.
+ */
+export const CAPTURE_HYSTERESIS = 0.11;
+
+/** The rig's shoulder width at setup, rig units (its arms' roots, else its shoulders), or null. */
+export function shoulderWidth(irig: Json, doc: Rig3dDoc): number | null {
+	const w = pose3d(rigOf(irig, doc), { name: 'setup', duration: 1, bones: {} }, 0);
+	for (const [l, r] of [
+		['upper_arm_l', 'upper_arm_r'],
+		['shoulder_l', 'shoulder_r'],
+		['clavicle_l', 'clavicle_r'],
+	]) {
+		const [a, b] = [w.get(l), w.get(r)];
+		if (a && b) {
+			const d = Math.hypot(a.o[0] - b.o[0], a.o[1] - b.o[1], a.o[2] - b.o[2]);
+			if (d > 1e-6) return d;
+		}
+	}
+	return null;
+}
+
+/**
+ * What a capture import sets on a rig's 3D data the author has not set: the body's depth (`thick`)
+ * and the draw order's hysteresis, both at its shoulder width's scale.
+ */
+export function withCaptureDepth(irig: Json, doc: Rig3dDoc): Rig3dDoc {
+	const width = shoulderWidth(irig, doc);
+	if (!width) return doc;
+	const out = structuredClone(doc);
+	const slots = new Set(list(irig.slots).map((s) => s.name as string));
+	const thick = Object.entries(BODY_DEPTH).filter(([s]) => slots.has(s) && !out.thick?.[s]);
+	if (thick.length)
+		out.thick = {
+			...out.thick,
+			...Object.fromEntries(thick.map(([s, k]) => [s, round4(k * width)])),
+		};
+	out.hysteresis ??= round4(CAPTURE_HYSTERESIS * width);
+	return out;
 }
 
 /** The attachments each slot of an irig has, in any skin. */
@@ -244,7 +300,10 @@ const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
 export function importClip3d(x: Import3d): Imported3d {
 	const from = x.at;
 	const to = x.at + x.length;
-	const doc: Rig3dDoc = structuredClone(x.doc ?? rig3dFromTemplate(x.stem, x.irig, x.template));
+	const doc: Rig3dDoc = withCaptureDepth(
+		x.irig,
+		structuredClone(x.doc ?? rig3dFromTemplate(x.stem, x.irig, x.template)),
+	);
 	const animation: Json = structuredClone(x.animation);
 	const animBones = isObj(animation.bones) ? animation.bones : (animation.bones = {});
 	for (const { bone, timeline } of x.replaced) {
