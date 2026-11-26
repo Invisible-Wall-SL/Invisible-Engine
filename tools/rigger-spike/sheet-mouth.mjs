@@ -751,11 +751,7 @@ const TPL = 'rigTemplates.ts';
 const TFACE = 'rigTemplateFace.ts';
 const MUTANTS = [
 	['names', 'an under-eyelid not read as the lower lid', [MAP, "\tunder: ['lower'],\n", '']],
-	[
-		'names',
-		'an eye named alone not read as its white',
-		[MAP, "\t\tout.add('white');\n", ''],
-	],
+	['names', 'an eye named alone not read as its white', [MAP, "\t\tout.add('white');\n", '']],
 	[
 		'names',
 		"a hoodie's hood worn on the head",
