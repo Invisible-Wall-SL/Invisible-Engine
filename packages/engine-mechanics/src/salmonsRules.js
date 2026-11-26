@@ -1152,6 +1152,23 @@ const goldenSalmon = {
 	},
 };
 
+/** The bridges of a game ({@link zonesOfKind}), each with its rule's ramps and snap: today's
+ *  where the rule names none. */
+const deckRules = (game) => {
+	const ids = new Set(game.zones.map((zone) => zone.id));
+	const rules = (game.online.rules.zones ?? []).filter(
+		(rule) => rule.kind === 'bridge' && ids.has(rule.zone),
+	);
+	return zonesOfKind(game, 'bridge').map((d, i) => ({
+		...d,
+		ramp: {
+			near: rules[i].ramp?.near ?? BRIDGE_SLOPE,
+			far: rules[i].ramp?.far ?? BRIDGE_SLOPE,
+		},
+		snap: rules[i].snap ?? 0.5,
+	}));
+};
+
 /**
  * A fisherman on a bridge (a zone of `kind: 'bridge'`: a row of cells across the water, as high
  * as its `height`, cells), as the original's `update`: with its centre within half a cell of the
@@ -1159,20 +1176,27 @@ const goldenSalmon = {
  * deck's row and as high as the deck (`z`), ramped down the slopes; off it, back on the ground. The
  * water is open to it under a bridge (`salmons.js` `salmonsGeometry`); a salmon and a bear pass
  * under.
+ *
+ * A prop component's collider (`propShape.js`, `docs/design/arcade-prop-components.md` §3) puts
+ * its own numbers on the zone rule: `ramp: { near, far }` (cells, the `x` end and the `x + w` end,
+ * each ramped over its own length) and `snap` (cells either side of the deck's row). A rule
+ * without them is today's bridge.
  */
 const bridges = {
 	create(game, api) {
-		const decks = zonesOfKind(game, 'bridge');
+		const decks = deckRules(game);
 		if (!decks.length) return {};
 		const deckOf = (p) => {
 			const { x, y } = p.body;
 			for (const d of decks) {
-				if (!appliesTo(d, p) || Math.abs(y - (d.y + CELL / 2)) > CELL / 2) continue;
+				if (!appliesTo(d, p) || Math.abs(y - (d.y + CELL / 2)) > d.snap * CELL) continue;
 				const from = d.x + CELL / 2;
 				const to = d.x + d.w - CELL / 2;
-				const off = Math.max(0, from - x, x - to) / CELL;
-				if (off <= BRIDGE_SLOPE)
-					return { deck: d, lift: (d.height ?? 0) * (1 - off / BRIDGE_SLOPE) };
+				const near = from - x;
+				const far = x - to;
+				const off = Math.max(0, near, far) / CELL;
+				const ramp = near > far ? d.ramp.near : d.ramp.far;
+				if (off <= ramp) return { deck: d, lift: (d.height ?? 0) * (1 - off / ramp) };
 			}
 			return undefined;
 		};

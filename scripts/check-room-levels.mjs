@@ -16,6 +16,11 @@
 // device's side is the decision `apps/lines` `online.ts` wires, on a game resolved its way;
 // the source pins at the end hold `online.ts` and `arcadeRoom.ts` to it.
 //
+// A prop's collider (`arcade.online.props`, `docs/design/arcade-prop-components.md` §3) is part of
+// the level and its art is not: with no props (or a shape restating today's bridge, or zone art
+// alone) the fingerprints are main's, pinned; a ramp changed moves them on the room and the device
+// alike, and a device without the room's props is refused.
+//
 //   pnpm check:room-levels
 
 import assert from 'node:assert/strict';
@@ -165,11 +170,31 @@ const NO_GENERATOR = rawOf(undefined, (online) => {
 	delete plain.nearby;
 	return plain;
 });
+/** A prop's collider (`arcade.online.props`, `engine-mechanics` `propShape.js`): Salmons' bridge
+ *  with a 3-cell near ramp, and the same stamped by a later version of its component. */
+const RAMPED = {
+	from: { component: 'bridgeProp', version: 1 },
+	zoneKind: 'bridge',
+	ramp: { near: 3, far: 2 },
+};
+const withProps = (props) => (online) => ({ ...online, props });
+/** Zone art alone (`arcade.zoneArt`): cosmetic, read by no rule or room. */
+const ARTED = rawOf(undefined);
+ARTED.arcade.zoneArt = {
+	'bridge#': { source: { kind: 'sprite', region: { assetKey: 'river', region: 'deck' } } },
+};
 const SERVED = {
 	...Object.fromEntries(Object.entries(CONFIGS).map(([name, { levels }]) => [name, rawOf(levels)])),
 	long: rawOf(LONG),
 	band: salmonsConfig(),
 	plain: NO_GENERATOR,
+	restated: rawOf(undefined, withProps({ 'bridge#': { ...RAMPED, ramp: { near: 2, far: 2 } } })),
+	ramped: rawOf(undefined, withProps({ 'bridge#': RAMPED })),
+	repinned: rawOf(
+		undefined,
+		withProps({ 'bridge#': { ...RAMPED, from: { ...RAMPED.from, version: 4 } } }),
+	),
+	arted: ARTED,
 };
 for (const [name, doc] of Object.entries(SERVED))
 	writeFileSync(join(dir, `${name}.json`), JSON.stringify(doc));
@@ -445,6 +470,55 @@ try {
 		// Levels a room should never have sent it are not read.
 		const told = roomLevelGame(deviceGame(SERVED.band), seed, { ...said, levels: '{"river":{}}' });
 		assert.deepEqual([told.adopted, told.differs], [false, []]);
+	});
+
+	// --- 2b. A prop's collider is the level's; its art is not (`arcade-prop-components.md` §3) --
+
+	await check('no props: the fingerprints are main’s, pinned', async () => {
+		// Recorded on main at 93bd20e, before the generator read props: a config without them, or
+		// with a shape that restates today's bridge, or with zone art alone, makes the same levels.
+		const PINNED = {
+			published: { 7: 'e3c893699f9ca446', 9: 'e9a23463d0fe0dd8', 31337: '6bb27fafd4829dd3' },
+			live: { 7: 'd60d7df885da40ee', 9: 'c40540d13d3f5a6c', 31337: 'fb0c258bca6d3224' },
+		};
+		for (const [name, bySeed] of Object.entries(PINNED))
+			for (const [seed, hash] of Object.entries(bySeed)) {
+				assert.equal((await roomOf(name, Number(seed))).said.levelHash, hash, `${name}, ${seed}`);
+				const device = generatedOnlineGame(deviceGame(SERVED[name]), Number(seed));
+				assert.equal(levelHash(device.game, device.made), hash, `${name}, ${seed}: the device`);
+			}
+		for (const name of ['restated', 'arted'])
+			for (const [seed, hash] of Object.entries(PINNED.published)) {
+				const { sim, said } = await roomOf(name, Number(seed));
+				assert.equal(said.levelHash, hash, `${name}, ${seed}`);
+				assertSame(
+					levelOf(sim.game),
+					levelOf((await roomOf('published', Number(seed))).sim.game),
+					name,
+				);
+			}
+	});
+
+	await check('a ramp changed: a new fingerprint, on the room and the device alike', async () => {
+		for (const seed of SEEDS) {
+			const { sim, said } = await roomOf('ramped', seed);
+			const plain = await roomOf('published', seed);
+			assert.notEqual(said.levelHash, plain.said.levelHash, `seed ${seed}`);
+			// The game server's read carried the props to its generator: its bridges ramp 3 and 2.
+			const decks = sim.game.online.rules.zones.filter((r) => r.kind === 'bridge');
+			assert.ok(decks.length > 0 && decks.every((r) => isDeepStrictEqual(r.ramp, RAMPED.ramp)));
+			// A device of the same config makes the room's level and plays it.
+			const decided = roomLevelGame(deviceGame(SERVED.ramped), seed, said);
+			assert.ok(!('refused' in decided), `seed ${seed}: refused (${decided.refused})`);
+			assertSame(levelOf(decided.game), levelOf(sim.game), `seed ${seed}`);
+			// A re-pin of the component with the same collider is the same level.
+			assert.equal((await roomOf('repinned', seed)).said.levelHash, said.levelHash);
+			// A device without the room's props cannot make its level, and is refused, never played
+			// on another; it adopts the room's props in P3.
+			for (const other of ['published', 'arted'])
+				assert.ok('refused' in roomLevelGame(deviceGame(SERVED[other]), seed, said), other);
+			assert.ok('refused' in roomLevelGame(deviceGame(SERVED.ramped), seed, plain.said));
+		}
 	});
 
 	// --- 3. What must not change ------------------------------------------------------------------

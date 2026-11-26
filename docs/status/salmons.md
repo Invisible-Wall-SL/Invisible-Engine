@@ -2462,6 +2462,58 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Prop components P2: the rules read the bridge's shape**
+  ([arcade-prop-components](../design/arcade-prop-components.md) §3, with an "As built" note; agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). Builds on P1's
+  `compilePropShape` ([status/component-editor](component-editor.md)). No game has `props` yet,
+  so every room plays and hashes as before.
+  - **Config:** `arcade.online.props: { [zoneFamily]: PropShape }`, normalized by `game-config`
+    `onlineProps.ts` `normalizeOnlineProps`, which drops defaults, bad fields and non-family keys.
+    It is **carried, not normalized** (as `levelsShape.ts`), so the slot, match-3 and card
+    runtimes do not change. The room (`services/game-server` `configSource.ts`) and the device
+    (`apps/lines` `online.ts`) both reach it through `shapedOnlineGame`, which sets
+    `online.props`. Neither call site changed.
+  - **Generator:** `salmonsGeometry(river, props)`, through `ONLINE_GENERATORS[...].geometry(made,
+    game.online.props)` in `generatedOnlineGame` and `levelHash`. A bridge's rule gains
+    `characters`, `ramp: {near, far}` and `snap`, its zone a `height`, and each `solids[k]` becomes
+    a solid zone `bridge<i>Solid<k>` (deck cells, from the zone's corner) for its characters, else
+    the bridge's. `originalBounds` cuts each fisherman water hole from the rule's ramps (near on the
+    `x` side, far on `x + w`), or over the deck alone or not at all by `hole`.
+  - **Rule:** `salmonsRules.js` `bridges` reads `rule.ramp?.near ?? BRIDGE_SLOPE`,
+    `rule.ramp?.far ?? BRIDGE_SLOPE` and `rule.snap ?? 0.5`, and ramps each end over its own
+    length. With no fields the arithmetic is the old one, operation for operation. The device
+    predicts with the same module.
+  - **Left for later phases:** the art still draws 2 and 2 ramps (`salmonsArt/bridge.ts`
+    `slopeEnds`, `BRIDGE.slope`), so a non-default ramp plays right and draws wrong until **P5**.
+    A device whose props are not its room's is refused (never played on another level) until
+    **P3** carries the room's props. The launcher's save does not carry `props` back yet: that is
+    **P6**, with the compile on save. The `/config` level preview (`config/zones.ts`) draws today's
+    bridges. Finding for the owner's Q3: a fisherman within `snap` of the row over a deck or ramp is
+    put back on the row every step, so a side railing stops nothing at today's snap and speed. A
+    post on the row, or a low bridge for bears (Q4), does.
+  - **Gates:** `check:prop-shape` 33 (9 new in §2: the normalizer and its mirror of the lists; no props or a shape of defaults
+    gives the same level; the lift at every eighth of a cell over both ramps and the deck, and past
+    them, equals the old formula to the bit across five row offsets; near 3 / far 2 lifts 23 and 15
+    eighths; holes exact for 2/2, 3/2, deck and none, and on a short bridge the 3-cell near ramp
+    opens a cell more of water; a snap and a height; a post stops a fisherman, a bears-only post
+    does not, a low bridge stops a bear). `check:room-levels` 17 (2 new: the fingerprints pinned
+    from main for seeds 7, 9 and 31337 of the published and live configs, a restated shape and a
+    zone-art-only config hash the same; a ramp change gives a new hash on the room and the device
+    alike, a re-pin with the same collider the same, and a device without the room's props is
+    refused). Unchanged: `check:online-rules` 40, `check:salmons-levels` 19,
+    `check:salmons-heights` 24, `check:room-sim` 43, `check:room-bots` 56,
+    `check:salmons-course` 21, `check:salmons-throw` 21, `check:arcade-touch` 55; launcher
+    `check:game-config-family` 573, `check:salmons-export` 39, `check:zone-art` 96,
+    `check:arcade-rules` 79, `check:save-keeps-unknown-blocks` 169; `family.fixture.ts` passes. A
+    geometry dump (zones and zone rules, five seeds, both configs) is byte-identical to main's.
+    Runtime bytes, five `--out` builds before and after (`check:runtime-bytes` itself fails on
+    this checkout's base, so the manifests were compared with each other): **slot, match-3 and
+    card are byte-identical**. Arcade is +1,002 B gzip in its bundle (the normalizer, the
+    geometry and the rule; other chunks only renamed, ±2 B), and arcade3d +986 B, the same code.
+    An import of `propShape.js` from `game-config` had cost the slot runtime +71 B, and match-3
+    and card +155 B. It is mirrored now (see [status/game-config](game-config.md)).
+    `check:svelte --only apps/lines` at baseline (145).
+
 - 2026-11-26 — **Bridge collisions drawn where they are** (owner: "the collisions on the bridge
   are wrong; the player seems to collide mainly with the shadows — maybe an offset"; branch
   `claude/bold-cannon-3a8unw`; in review; runtime change, Salmons rooms only). The collision was

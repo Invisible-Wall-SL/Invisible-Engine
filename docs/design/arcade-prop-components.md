@@ -1,6 +1,7 @@
 # Arcade prop components — a component that carries its own collision (Salmons' bridge first)
 
-**Status: P1 (model and compile) built 2026-11-26, in review; P2–P8 planned.** Owner ask of
+**Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26, in review;
+P3–P8 planned.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -164,6 +165,44 @@ The pipeline, server side (the server never loads a component):
    `solids` become ordinary solid zones in step 3, so the existing solid path (and the device's
    prediction) stops a body at them. No new rule kind is added.
 
+As built (P2), where it differs from the steps above:
+
+- **The block is carried, not normalized.** `normalizeArcadeOnline` is in every runtime's shared
+  normalizer, and the slot, match-3 and card runtimes must stay the same bytes
+  (`check:runtime-bytes`). So `normalizeOnlineProps` lives in `game-config` `onlineProps.ts`, as
+  the levels' shape lives in `levelsShape.ts`, and `normalizeGameConfigDoc` drops `props`. The
+  room and the device read it off the raw doc through `shapedOnlineGame`, which already gives both
+  their generator's inputs and now also sets `online.props` (`withOnlineProps`). The
+  normalizer drops a default field, as the compile does, so a shape that restates today's bridge
+  plays today's level. Its lists and defaults are mirrored (`ONLINE_PROP_*`), not imported from
+  `propShape.js`: the import kept `PROP_SHAPE_DEFAULTS` in the slot runtime. `check:prop-shape`
+  holds the mirror equal to `propShape.js`. The launcher's load and save do not yet carry the block back
+  (`withProps`, beside `withLevelsShape`). P6 adds that with the compile on save.
+- **The generator seam** is `geometry(made, props)`. `generatedOnlineGame` and `levelHash` pass
+  `game.online.props`, the same way `make(seed, levels)` gets `game.online.levels`. A shape
+  applies to the zones of its key's family (`bridge#` ⇒ `bridge0`, `bridge1`, …) when its
+  `zoneKind` is the zone's.
+- **Height.** The levels name no bridge height (no overlay sets one), and the generator writes
+  `BRIDGE_HEIGHT` on every bridge. A shape's `height` therefore replaces the generator's height on
+  the zone.
+- **Holes.** `hole` is read from the shape, not written on the rule. The ramps are read from the
+  rule. A generated bridge spans its water, so a ramp's hole lies on the bank, and a longer ramp
+  opens no more water there (`check:prop-shape` shows the extra cell with a bridge shorter than
+  its water).
+- **Solids** are zones `bridge<i>Solid<k>`, in cells from the bridge zone's top-left corner (`x`
+  along the deck, `y` across it). A one-way solid is a rule's `solid: '<side>'`. They stop a body
+  at any height, as every zone solid does. **For §8 Q3:** while a fisherman is within `snap` of
+  the row over the deck or a ramp, the rule puts him back on the row every step (his step is
+  about a sixth of a cell). So he cannot step off the side there today, and a side railing changes
+  nothing until a smaller snap or a higher speed lets him. A post on the row (stopping him short of
+  the bank) and a low bridge for bears (Q4) work now.
+- **The art still draws 2 and 2.** `salmonsArt/bridge.ts` `slopeEnds` and `BRIDGE.slope` draw
+  today's ramps. Until P5 draws the shape, a non-default ramp plays right and is drawn wrong. No
+  game has props yet.
+- **One river on both sides is P3.** Until then, a device whose config's props are not the
+  room's makes another level and is refused (`check:room-levels`). It is never played on the
+  wrong level.
+
 **The fingerprint.** `levelHash` hashes the generator's geometry (field, zones, zone rules,
 spawns) and nothing else. The shape lands in zones and zone rules, so a collision change moves the
 hash, and an art change cannot. A default shape adds no field, so its hash is today's.
@@ -270,7 +309,8 @@ the 2-cell near slope) has merged.
    is identical to today's with no props; an asymmetric near 3 / far 2 ramps as asked).
    `pnpm check:online-rules`, `check:salmons-levels`, `check:salmons-heights`, `check:room-sim`,
    `check:room-bots`. `check:room-levels`: no props gives the same hash as main, a ramp change
-   gives a new hash, and a zone-art-only change gives the same hash.
+   gives a new hash, and a zone-art-only change gives the same hash. **Built 2026-11-26, in review** (as built: §3;
+   detail: [status/salmons](../status/salmons.md)).
 3. **P3 — one river on both sides.** The room state carries `props` beside `levels`, and the
    device adopts them. The authoring notice names bridges.
    *Proof:* `check:room-levels` (a new section). `scripts/playtest/salmons-rejoin-play.mjs` still

@@ -13,13 +13,32 @@
 //   the zone's length, a zero or negative or non-numeric length, a param with no default, a snap
 //   out of range, an unknown hole, a malformed solid.
 //
+// §2 (P2) the rules read the shape, in a real room (`services/game-server` `createRoomSim`) of a
+// config carrying `arcade.online.props` (`game-config` `onlineProps.ts`, through `shapedOnlineGame`
+// as the room and the device resolve it):
+// - `normalizeOnlineProps` keeps what the compile writes and drops a default, a bad field, an
+//   entry with no stamp or kind, and a key that is no zone family; its lists and defaults (mirrored,
+//   so a slot runtime's normalizer carries none of the rules' constants) are `propShape.js`'s;
+// - with no props, and with a shape that only restates today's bridge, the level is the same; the
+//   lift at every eighth of a cell along the row, over both ramps and the deck and past them, is
+//   today's formula's (`height · (1 − off / BRIDGE_SLOPE)`, pinned here as it was), to the bit;
+// - an asymmetric ramp (near 3, far 2) lifts each end over its own length, and the water opens to
+//   fishermen exactly over the deck and those ramps (and over the deck alone, or not at all, by
+//   `hole`); a snap narrows who is put on the deck; a height raises it;
+// - a solid in the deck's cells stops a fisherman, and one for bears stops a bear and not him.
+//
 // Run: pnpm check:prop-shape
 
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
 	PROP_HOLES,
+	PROP_MAX_SNAP,
 	PROP_SHAPE_DEFAULTS,
+	PROP_SOLID_COLLIDES,
+	PROP_SOLID_SIDES,
+	PROP_ZONE_KINDS,
 	PropShapeError,
 	compilePropShape,
 	propShapeErrors,
@@ -30,7 +49,22 @@ import {
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
-import { salmonsGeometry } from '../packages/engine-mechanics/src/salmons.js';
+import { salmonsConfig, salmonsGeometry } from '../packages/engine-mechanics/src/salmons.js';
+import { CELL } from '../packages/engine-mechanics/src/salmonsMap.js';
+import { MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import { generatedOnlineGame } from '../packages/engine-mechanics/src/onlineGenerators.js';
+import {
+	ONLINE_PROP_DEFAULTS,
+	ONLINE_PROP_HOLES,
+	ONLINE_PROP_MAX_SNAP,
+	ONLINE_PROP_SOLID_COLLIDES,
+	ONLINE_PROP_SOLID_SIDES,
+	ONLINE_PROP_ZONE_KINDS,
+	normalizeOnlineProps,
+	playedOnlineGame,
+	shapedOnlineGame,
+} from '../packages/game-config/index.ts';
+import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 
 let passed = 0;
 const check = (name, fn) => {
@@ -290,6 +324,350 @@ check('a malformed solid', () => {
 check('every problem is named at once', () => {
 	const errors = refused(bridge({ snap: 0, hole: 'all', ramps: { near: { length: 0 } } }));
 	assert.equal(errors.length, 4, JSON.stringify(errors));
+});
+
+// ── §2 the normalizer keeps what the rules read ──────────────────────────────────────────────
+
+check("game-config's mirror of the lists and defaults is propShape.js's", () => {
+	assert.deepEqual(ONLINE_PROP_ZONE_KINDS, PROP_ZONE_KINDS);
+	assert.deepEqual(ONLINE_PROP_HOLES, PROP_HOLES);
+	assert.deepEqual(ONLINE_PROP_SOLID_COLLIDES, PROP_SOLID_COLLIDES);
+	assert.deepEqual(ONLINE_PROP_SOLID_SIDES, PROP_SOLID_SIDES);
+	assert.equal(ONLINE_PROP_MAX_SNAP, PROP_MAX_SNAP);
+	assert.deepEqual(ONLINE_PROP_DEFAULTS, PROP_SHAPE_DEFAULTS);
+});
+
+check('normalizeOnlineProps keeps a compiled shape and drops its defaults', () => {
+	const full = compiled({
+		characters: ['fisherman', 'bear'],
+		deck: { from: 0, to: { param: 'length', plus: -1 }, height: 4 },
+		snap: 0.25,
+		ramps: { near: { length: 3 }, far: { length: 2 } },
+		hole: 'deck',
+		solids: [{ x: 7, y: 0, w: 0.5, h: 1, collide: 'oneWay', side: 'left', characters: ['bear'] }],
+	});
+	assert.deepEqual(normalizeOnlineProps({ 'bridge#': full }), { 'bridge#': full });
+	assert.deepEqual(normalizeOnlineProps({ 'bridge#': compiled() }), { 'bridge#': FROM });
+	const restated = {
+		...FROM,
+		characters: ['fisherman'],
+		height: 6,
+		snap: 0.5,
+		ramp: { near: 2, far: 2 },
+		hole: 'deckAndRamps',
+		solids: [],
+	};
+	assert.deepEqual(normalizeOnlineProps({ 'bridge#': restated }), { 'bridge#': FROM });
+});
+
+check('normalizeOnlineProps drops what cannot be played', () => {
+	for (const raw of [undefined, null, [], 'x', {}])
+		assert.equal(normalizeOnlineProps(raw), undefined);
+	const bad = {
+		...FROM,
+		characters: [],
+		height: 0,
+		snap: 1.5,
+		ramp: { near: 3 },
+		hole: 'all',
+		solids: [
+			{ x: 0, y: 0, w: 0, h: 1, collide: 'solid' },
+			{ x: 0, y: 0, w: 1, h: 1, collide: 'oneWay' },
+		],
+	};
+	assert.deepEqual(normalizeOnlineProps({ 'bridge#': bad }), { 'bridge#': FROM });
+	for (const entry of [
+		{ zoneKind: 'bridge' },
+		{ ...FROM, zoneKind: 'log' },
+		{ ...FROM, from: { component: '', version: 1 } },
+		{ ...FROM, from: { component: 'x', version: 0 } },
+	])
+		assert.equal(normalizeOnlineProps({ 'bridge#': entry }), undefined, JSON.stringify(entry));
+	assert.equal(
+		normalizeOnlineProps({ bridge0: FROM, '': FROM }),
+		undefined,
+		'a zone id, not a family',
+	);
+	const proto = JSON.parse(`{"__proto__": ${JSON.stringify(FROM)}}`);
+	assert.equal(normalizeOnlineProps(proto), undefined);
+});
+
+// ── §2 the rules read the shape ──────────────────────────────────────────────────────────────
+
+const SEED = 1;
+const river = salmonsMapRiver(SEED);
+const BRIDGE = river.bridges[1];
+const PLANK = BRIDGE.y + CELL / 2;
+const FISHER = { x: 28, y: 44 };
+
+/** Salmons on the original's level of `SEED`, its config carrying `props` (none: as it ships). */
+const docWith = (props) => {
+	const doc = salmonsConfig(river);
+	delete doc.arcade.online.bots;
+	if (props) doc.arcade.online.props = props;
+	return doc;
+};
+const gameWith = (props) => {
+	const doc = docWith(props);
+	return shapedOnlineGame(playedOnlineGame(doc), doc);
+};
+const bridgeProps = (fields) => ({ 'bridge#': { ...FROM, ...fields } });
+/** What a room collides against and spawns by, as `levelHash` hashes it. */
+const levelOf = (props) => {
+	const { game } = generatedOnlineGame(gameWith(props), SEED);
+	return {
+		field: game.field,
+		zones: game.zones,
+		online: { rules: { zones: game.online.rules.zones } },
+	};
+};
+
+/** A room of the level, one player of `character` in it. */
+const roomWith = (props, character) => {
+	const sim = createRoomSim(gameWith(props), { seed: SEED });
+	const p = sim.join('p', { character });
+	let seq = 0;
+	const run = (n, move = { moveX: 0, moveY: 0 }) => {
+		for (let i = 0; i < n; i++) {
+			seq += 1;
+			sim.step(() => [clampInput({ seq, view: sim.steps, ...move, buttons: 0 }, sim.game.field)]);
+		}
+	};
+	return { sim, p, run };
+};
+
+/** A fisherman put at (`x`, `y`) for one still step: the lift the rule gave him, cells, and the
+ *  `x` it found him at (where a solid touching the deck's row, a rock, nudged him first). */
+const stepAt = (room, [x, y]) => {
+	Object.assign(room.p.body, { x, y, vx: 0, vy: 0 });
+	room.p.z = 0;
+	room.p.memo.bridge = 0;
+	room.p.memo.vz = 0;
+	room.run(1);
+	return { lift: room.p.z / CELL, x: room.p.body.x };
+};
+const liftsAt = (room, points) => points.map((point) => stepAt(room, point).lift);
+
+/** Today's rule, as it was before props (`bridges.deckOf` at 93bd20e), pinned here. */
+const todaysLift = (x, y, d) => {
+	if (Math.abs(y - (d.y + CELL / 2)) > CELL / 2) return 0;
+	const from = d.x + CELL / 2;
+	const to = d.x + d.w - CELL / 2;
+	const off = Math.max(0, from - x, x - to) / CELL;
+	return off <= BRIDGE_SLOPE ? (d.height * (1 - off / BRIDGE_SLOPE) * CELL) / CELL : 0;
+};
+
+/** Every eighth of a cell along the deck's row, from 4 cells before it to 4 past it. */
+const ROW = Array.from(
+	{ length: Math.round(((BRIDGE.w + 8 * CELL) / CELL) * 8) + 1 },
+	(_, i) => BRIDGE.x - 4 * CELL + (i * CELL) / 8,
+);
+
+check('no props, or a shape of only defaults: the level is the same', () => {
+	assert.ok(river.bridges.length >= 2, 'the level has bridges');
+	const plain = levelOf(undefined);
+	for (const props of [bridgeProps({}), { 'bridge#': compiled(), 'rock#': FROM }])
+		assert.ok(isDeepStrictEqual(levelOf(props), plain), JSON.stringify(props));
+	assert.ok(
+		isDeepStrictEqual(salmonsGeometry(river, bridgeProps({})), salmonsGeometry(river)),
+		'the geometry itself',
+	);
+	const rules = plain.online.rules.zones.filter((r) => r.kind === 'bridge');
+	for (const r of rules) assert.deepEqual(Object.keys(r).sort(), ['characters', 'kind', 'zone']);
+});
+
+check("no props: the lift at every eighth of a cell is today's, to the bit", () => {
+	const room = roomWith(undefined, 'fisherman');
+	let ramp = 0;
+	let deck = 0;
+	for (const dy of [-CELL / 2, -CELL / 4, 0, CELL / 8, CELL / 2]) {
+		const points = ROW.map((x) => [x, PLANK + dy]);
+		points.forEach(([x, y]) => {
+			const at = stepAt(room, [x, y]);
+			const want = todaysLift(at.x, y, BRIDGE);
+			assert.equal(at.lift, want, `at ${x - BRIDGE.x}, ${dy}: ${at.lift} vs ${want}`);
+			if (want === BRIDGE.height) deck += 1;
+			else if (want > 0) ramp += 1;
+		});
+	}
+	assert.ok(deck > 20 && ramp > 40, `over the deck (${deck}) and both ramps (${ramp})`);
+});
+
+check('near 3, far 2: each end ramps over its own length', () => {
+	const room = roomWith(bridgeProps({ ramp: { near: 3, far: 2 } }), 'fisherman');
+	const from = BRIDGE.x + CELL / 2;
+	const to = BRIDGE.x + BRIDGE.w - CELL / 2;
+	/** Cells off the deck's end and the ramp there: the near one before it, the far one after. */
+	const offOf = (x) => (x < from ? [(from - x) / CELL, 3] : x > to ? [(x - to) / CELL, 2] : [0, 1]);
+	let near = 0;
+	let far = 0;
+	for (const x of ROW) {
+		const at = stepAt(room, [x, PLANK]);
+		const [off, ramp] = offOf(at.x);
+		const want = off <= ramp ? BRIDGE.height * (1 - off / ramp) : 0;
+		assert.ok(Math.abs(at.lift - want) < 1e-12, `at ${x - BRIDGE.x}: ${at.lift} vs ${want}`);
+		if (want > 0 && at.x < from) near += 1;
+		if (want > 0 && at.x > to) far += 1;
+	}
+	assert.equal(near, 3 * 8 - 1, 'lifted up to 3 cells before the deck (23 eighths, 0 at the foot)');
+	assert.equal(far, 2 * 8 - 1, 'and up to 2 cells after it (15 eighths)');
+});
+
+/** The fisherman's water solids of a level, and its bridges' zones. */
+const waterOf = (game) => {
+	const ids = new Set(
+		game.online.rules.zones
+			.filter(
+				(r) =>
+					r.solid === true &&
+					r.characters?.join() === 'fisherman' &&
+					/Water\d*Fisherman$/.test(r.zone),
+			)
+			.map((r) => r.zone),
+	);
+	return game.zones.filter((z) => ids.has(z.id));
+};
+const area = (r) => r.w * r.h;
+const overlap = (a, b) => {
+	const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+	const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+	return w > 0 && h > 0 ? w * h : 0;
+};
+/** Each band's water, less the solids, is exactly the holes' part of it: the holes are cut there. */
+const assertHoles = (game, holes, what) => {
+	const solids = waterOf(game);
+	for (const h of holes)
+		for (const s of solids) assert.equal(overlap(s, h), 0, `${what}: ${s.id} in a hole`);
+	river.bands.forEach((band, i) => {
+		const water = { x: band.left, y: band.y, w: band.right - band.left, h: band.h };
+		const solid = solids
+			.filter((s) => s.id.startsWith(`band${i}Water`))
+			.reduce((a, s) => a + area(s), 0);
+		const open = holes.reduce((a, h) => a + overlap(water, h), 0);
+		assert.ok(Math.abs(solid + open - area(water)) < 1e-6, `${what}: band ${i}`);
+	});
+};
+const holeOf = (b, near, far) => ({
+	x: b.x - near * CELL,
+	y: b.y - FISHER.y,
+	w: b.w + (near + far) * CELL,
+	h: CELL + 2 * FISHER.y,
+});
+
+check('the water opens over the deck and its ramps: 2 and 2, 3 and 2, the deck, none', () => {
+	assertHoles(
+		levelOf(undefined),
+		river.bridges.map((b) => holeOf(b, 2, 2)),
+		'today',
+	);
+	const asym = levelOf(bridgeProps({ ramp: { near: 3, far: 2 } }));
+	assertHoles(
+		asym,
+		river.bridges.map((b) => holeOf(b, 3, 2)),
+		'near 3, far 2',
+	);
+	for (const r of asym.online.rules.zones.filter((z) => z.kind === 'bridge'))
+		assert.deepEqual(r.ramp, { near: 3, far: 2 }, 'on the zone rule');
+	assertHoles(levelOf(bridgeProps({ hole: 'none' })), [], 'none');
+	const deck = levelOf(bridgeProps({ hole: 'deck' }));
+	assertHoles(
+		deck,
+		river.bridges.map((b) => holeOf(b, 0, 0)),
+		'the deck',
+	);
+	// A generated bridge spans its water, so a ramp's hole is on the bank; a bridge shorter than
+	// its water (four cells in from each bank) has its ramps over the water, and there the longer
+	// near ramp opens a cell more of it.
+	const short = {
+		...river,
+		bridges: river.bridges.map((b) => ({ ...b, x: b.x + 4 * CELL, w: b.w - 8 * CELL })),
+	};
+	const cut = (props) => {
+		const g = salmonsGeometry(short, props);
+		return { zones: g.zones, online: { rules: { zones: g.zoneRules } } };
+	};
+	const holesOf = (near, far) => short.bridges.map((b) => holeOf(b, near, far));
+	const shortWith = (fields) => cut(bridgeProps(fields));
+	assertHoles(cut(), holesOf(2, 2), 'a short bridge, today');
+	assertHoles(shortWith({ ramp: { near: 3, far: 2 } }), holesOf(3, 2), 'a short bridge, 3 and 2');
+	assertHoles(shortWith({ ramp: { near: 2, far: 3 } }), holesOf(2, 3), 'a short bridge, 2 and 3');
+	const solidArea = (game) => waterOf(game).reduce((a, z) => a + area(z), 0);
+	const opened = solidArea(cut()) - solidArea(shortWith({ ramp: { near: 3, far: 2 } }));
+	assert.ok(opened > 0, `the near ramp's extra cell is opened (${opened} px²)`);
+	assertHoles(shortWith({ hole: 'deck' }), holesOf(0, 0), 'a short bridge, the deck');
+	assert.ok(solidArea(cut()) < solidArea(shortWith({ hole: 'deck' })), 'the deck alone opens less');
+	assert.ok(solidArea(shortWith({ hole: 'deck' })) < solidArea(shortWith({ hole: 'none' })));
+});
+
+check('a snap and a height', () => {
+	const tight = roomWith(bridgeProps({ snap: 0.25 }), 'fisherman');
+	const mid = BRIDGE.x + BRIDGE.w / 2;
+	assert.deepEqual(
+		liftsAt(tight, [
+			[mid, PLANK + CELL / 4],
+			[mid, PLANK + CELL / 4 + 1],
+		]),
+		[6, 0],
+	);
+	const plain = roomWith(undefined, 'fisherman');
+	assert.deepEqual(liftsAt(plain, [[mid, PLANK + CELL / 4 + 1]]), [6]);
+	const low = roomWith(bridgeProps({ height: 3 }), 'fisherman');
+	assert.deepEqual(liftsAt(low, [[mid, PLANK]]), [3]);
+	assert.ok(
+		levelOf(bridgeProps({ height: 3 }))
+			.zones.filter((z) => /^bridge\d+$/.test(z.id))
+			.every((z) => z.height === 3),
+	);
+});
+
+check('a solid in the deck’s cells stops a fisherman; one for bears stops a bear, not him', () => {
+	const n = Math.round(BRIDGE.w / CELL);
+	// A post on the row, a cell past the far end of the deck: on the far ramp.
+	const post = { x: n + 1, y: 0, w: 0.5, h: 1, collide: 'solid' };
+	const walk = (props, character, at, move, steps) => {
+		const room = roomWith(props, character);
+		Object.assign(room.p.body, at);
+		room.run(steps, move);
+		return room.p.body;
+	};
+	const across = (props) =>
+		walk(props, 'fisherman', { x: BRIDGE.x + CELL, y: PLANK }, { moveX: MOVE_SCALE, moveY: 0 }, 200)
+			.x;
+	const wall = BRIDGE.x + (n + 1) * CELL - FISHER.x;
+	assert.ok(across(undefined) > wall + 2 * CELL, 'with none he walks off the far ramp');
+	assert.ok(Math.abs(across(bridgeProps({ solids: [post] })) - wall) < 1e-6, 'the post stops him');
+	assert.ok(
+		across(bridgeProps({ solids: [{ ...post, characters: ['bear'] }] })) > wall + 2 * CELL,
+		'a bears-only post does not',
+	);
+	const level = levelOf(bridgeProps({ solids: [post] }));
+	const zone = level.zones.find((z) => z.id === 'bridge1Solid0');
+	assert.deepEqual(zone, {
+		id: 'bridge1Solid0',
+		x: BRIDGE.x + (n + 1) * CELL,
+		y: BRIDGE.y,
+		w: CELL / 2,
+		h: CELL,
+	});
+	assert.deepEqual(
+		level.online.rules.zones.find((r) => r.zone === 'bridge1Solid0'),
+		{ zone: 'bridge1Solid0', solid: true, characters: ['fisherman'] },
+	);
+	// Q4: a low bridge a bear cannot pass under, by `solids[].characters`.
+	const low = { x: 0, y: 0, w: n, h: 1, collide: 'solid', characters: ['bear'] };
+	const up = (props) =>
+		walk(
+			props,
+			'bear',
+			{ x: BRIDGE.x + BRIDGE.w / 2, y: PLANK + 4 * CELL },
+			{ moveX: 0, moveY: -MOVE_SCALE },
+			120,
+		).y;
+	assert.ok(up(undefined) < BRIDGE.y, 'with none a bear passes under');
+	assert.ok(
+		Math.abs(up(bridgeProps({ solids: [low] })) - (BRIDGE.y + CELL + 46)) < 1e-6,
+		'the low bridge stops it',
+	);
 });
 
 console.log(

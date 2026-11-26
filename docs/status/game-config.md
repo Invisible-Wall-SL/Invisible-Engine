@@ -790,6 +790,20 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-26 — **`arcade.online.props`: a prop's collider, carried** (agent `arcade-games`; branch
+  `claude/bold-cannon-3a8unw`, in review; prop components P2,
+  [arcade-prop-components](../design/arcade-prop-components.md) §3). New `src/onlineProps.ts`:
+  `normalizeOnlineProps` / `normalizePropShape` (defaults, bad fields, unstamped entries and keys
+  that are not zone families are dropped). The lists and defaults are mirrored as
+  `ONLINE_PROP_*`, and `check:prop-shape` holds them equal to `engine-mechanics` `propShape.js`'s.
+  Importing them made the slot runtime keep `PROP_SHAPE_DEFAULTS`' `Object.freeze` (+71 B gzip,
+  measured), so they are not imported, `onlinePropsOf(rawDoc)` and `withOnlineProps(game, rawDoc)`. `shapedOnlineGame` applies
+  it, so the room and the device get `online.props` with no new call. `ArcadeOnline.props` and
+  `ResolvedArcadeOnline.props` are typed. `normalizeGameConfigDoc` drops the block, as it drops
+  the levels' shape, so non-arcade runtimes stay the same bytes. **Not yet:** the launcher's
+  load, save and paste do not carry it back (`withProps` beside `withLevelsShape` in
+  `gameConfigStorage.ts` and `pageDoc.ts`). P6 adds it with the compile on save. Gates and the
+  rules side: [status/salmons](salmons.md).
 - 2026-11-26 — **Zone art: Scenery → Trees** (agent `arcade-games`; branch
   `claude/wizardly-galileo-kjszii`, in review). A Salmons project chooses what its forest and bank
   trees are drawn with, as a zone family's art. How to use it:

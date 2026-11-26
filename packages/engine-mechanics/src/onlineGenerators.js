@@ -7,7 +7,9 @@
  * generator made (`engine-layout` `FIELD_DRAWINGS`, by the same id).
  *
  * A generator decides the field's geometry only: its size, its zones and their rules, and where
- * players and bots start. Everything else (characters, speeds, abilities, the round, bots) stays
+ * players and bots start; the config's prop colliders (`arcade.online.props`, `propShape.js`) are
+ * laid into those zones and rules (`geometry(made, props)`), so a collider moves the fingerprint and
+ * the art a prop is drawn with cannot. Everything else (characters, speeds, abilities, the round, bots) stays
  * as the config says. Its zones and zone rules REPLACE the authored ones, whose river the editor
  * shows. Its field size may differ from the authored one: the device sizes the world scene that
  * holds the drawing to it (`online.ts` `withRoomField`). Plain ESM, like the rest of the package.
@@ -68,7 +70,7 @@ export function generatedOnlineGame(game, seed) {
 	const generator = generatorOf(game);
 	if (!generator) return { game, made: undefined };
 	const made = generator.make(seed, game.online.levels);
-	const g = generator.geometry(made);
+	const g = generator.geometry(made, game.online.props);
 	const { online } = game;
 	return {
 		game: {
@@ -156,7 +158,9 @@ function hashOf(text) {
 export function levelHash(game, made) {
 	const generator = generatorOf(game);
 	if (!generator || !made) return '';
-	return hashOf(`${game.online.generator}|${hashText(generator.geometry(made))}`);
+	return hashOf(
+		`${game.online.generator}|${hashText(generator.geometry(made, game.online.props))}`,
+	);
 }
 
 /**
