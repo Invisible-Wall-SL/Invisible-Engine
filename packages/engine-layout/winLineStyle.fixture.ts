@@ -17,6 +17,7 @@
  */
 
 import {
+	normalizeWinLineColor,
 	normalizeWinLineTip,
 	pathHeadPose,
 	pathLength,
@@ -203,6 +204,33 @@ const randomLine = (): WinLinePoint[] => {
 	check('no run is cut at a corner', clear, runs);
 	check('the runs brighten toward the tip', rising, runs);
 	check('an undrawn line has no runs', taperRuns(randomLine(), 0, 0.1, 0.4, clearance), []);
+
+	// A staircase whose corners sit closer together than the clearance: a cut pushed past one
+	// corner lands on the next, and must be pushed again until it is clear of every one.
+	const stairs: WinLinePoint[] = [{ x: 0, y: 0 }];
+	for (let i = 1; i <= 40; i += 1) {
+		const last = stairs[stairs.length - 1];
+		stairs.push(i % 2 ? { x: last.x + 8, y: last.y } : { x: last.x, y: last.y + 8 });
+	}
+	stairs.push({ x: stairs[stairs.length - 1].x + 400, y: stairs[stairs.length - 1].y });
+	const stairCorners: number[] = [];
+	for (let i = 1, acc = 0; i < stairs.length - 1; i += 1) {
+		acc += Math.hypot(stairs[i].x - stairs[i - 1].x, stairs[i].y - stairs[i - 1].y);
+		stairCorners.push(acc);
+	}
+	let stairsClear = 0;
+	const stairRuns = 200;
+	for (let n = 0; n < stairRuns; n += 1) {
+		const out = taperRuns(stairs, 0.2 + (0.8 * n) / stairRuns, 0.1, 0.4, clearance);
+		let at = 0;
+		let safe = true;
+		for (let k = 0; k < out.length - 1; k += 1) {
+			at += pathLength(out[k].points);
+			if (stairCorners.some((corner) => Math.abs(at - corner) < clearance - 1e-6)) safe = false;
+		}
+		if (safe) stairsClear += 1;
+	}
+	check('a cut pushed past one corner is pushed past the next too', stairsClear, stairRuns);
 }
 
 // 4. PRUNE
@@ -275,6 +303,14 @@ const randomLine = (): WinLinePoint[] => {
 		normalizeWinLineTip({ kind: 'flipbook', clipId: 'flare', assetKey: 'sheet', scale: 1 }),
 		{ kind: 'flipbook', clipId: 'flare' },
 	);
+	check(
+		'a hex colour is kept in each Pixi form, anything else dropped',
+		['#fff', '#ffcc00', '#FFCC0080', ' #abc ', 'red', '#ffcc0', 'rgb(0,0,0)', '#gggggg', 3].map(
+			normalizeWinLineColor,
+		),
+		['#fff', '#ffcc00', '#FFCC0080', '#abc', undefined, undefined, undefined, undefined, undefined],
+	);
+	check('a bad core colour never survives the prune', pruneWinLineStyle({ coreColor: 'x' }), {});
 	check(
 		'an unknown tip kind is no tip',
 		normalizeWinLineTip({ kind: 'rig', assetKey: 'x' }),

@@ -224,6 +224,13 @@ or the effect is pruned as an orphan.
   - **Gates:** `packages/engine-layout/winLineStyle.fixture.ts` (slice = old trace, head pose,
     taper coverage / corners, prune, effect ids) and the launcher's `check:win-line-style`
     (round-trip, refusal, client signature, every ship-chain link, sounds).
+  - **Review follow-ups (same day):** `winLineShow` gained `replay`, set by the resting cycle's
+    per-pass draw and its all-at-once re-send (`showAllWinLines({ replay })`) — a replay redraws
+    the line, tip and trail, but plays neither sound. A line cleared mid-draw (hide, next spin)
+    returns before its tip end and impact. `coreColor` must be a hex colour
+    (`normalizeWinLineColor`, re-checked by the game; the older colour fields are untouched). The
+    taper's corner push now repeats until the cut clears every corner. The card's ↺ also clears
+    the sounds, and the page's sound list is `soundOptionsFor(...).sfx`.
   - **Not verified:** the look and the sounds in a running game or the tool (no browser here);
     the owner should play a round with each setting. The draw / impact sounds live on the symbols
     doc, picked in `/symbols` as asked — the house convention moved other sound choices to

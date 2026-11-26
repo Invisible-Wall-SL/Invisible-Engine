@@ -42,7 +42,6 @@
 		type WinLineTipEnd,
 		type WinLineTipKind,
 	} from 'engine-layout';
-	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
@@ -2070,16 +2069,18 @@
 		setWinLineTip({ ...($state.snapshot(wlTip) as WinLineTip), ...fields });
 	}
 
+	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads
+	// (`data.soundNames`, the one-shots of `soundOptionsFor`).
 	const WL_SOUNDS = [
 		{
 			key: 'drawSound',
 			label: 'While it draws',
-			tip: 'Plays once as an animated line starts drawing — a whoosh. Every line plays its own when all win lines show at once. A skipped round draws the line at once and plays none.',
+			tip: 'Plays once as an animated line starts drawing — a whoosh. Every line plays its own when all win lines show at once. A skipped round draws the line at once and plays none, and the resting win cycle replays the line silently.',
 		},
 		{
 			key: 'endSound',
 			label: 'When it lands',
-			tip: 'Plays once as the line is drawn complete — an impact. A skipped round plays none.',
+			tip: 'Plays once as the line is drawn complete — an impact. A skipped round plays none, nor does a line cleared before it finished drawing or a resting win-cycle replay.',
 		},
 	] as const;
 
@@ -2099,6 +2100,8 @@
 			taper: undefined,
 			tip: undefined,
 			trailFx: undefined,
+			drawSound: undefined,
+			endSound: undefined,
 		});
 	}
 

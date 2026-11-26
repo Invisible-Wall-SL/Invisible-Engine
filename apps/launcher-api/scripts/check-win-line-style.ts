@@ -12,9 +12,13 @@
  *      the bake (by RUNNING `lib/bakeWinLine.mjs`) carries the block and keeps the same effects
  *      reachable as the runtime bundle; both keep-sets, the exporter, the export endpoint and the
  *      game's resolver, asset registration and renderer are wired.
+ *   1b. COLOURS — a non-hex core colour is dropped (Pixi would throw on it), the existing colour
+ *      fields keep accepting what they always did, and the game re-validates what it strokes.
  *   5. SOUND — the draw / impact sounds persist trimmed (a blank one drops), the sound export keeps
  *      the named library sounds (the symbols doc is a reachability source), and the renderer plays
- *      the draw sound only on an animated (never a slammed) draw and the impact only unskipped.
+ *      the draw sound only on an animated (never a slammed) draw and the impact only unskipped;
+ *      neither on a resting-cycle replay, nor the impact of a line cleared mid-draw; the card's
+ *      reset clears them.
  *
  * Run:  pnpm --filter launcher-api check:win-line-style
  */
@@ -128,6 +132,32 @@ const STYLED = {
 			},
 		}).winLine?.line,
 		{ tip: { kind: 'flipbook', clipId: 'clip-flare', scale: 0.05, atEnd: 'fade' } },
+	);
+}
+
+// 1b. COLOURS
+{
+	check(
+		'a bad core colour is dropped on save — it can never reach a stroke',
+		normalizeSymbolsDoc({ winLine: { line: { coreColor: 'hot', glow: true } } }).winLine?.line,
+		{ glow: true },
+	);
+	check(
+		'a hex core colour is kept',
+		normalizeSymbolsDoc({ winLine: { line: { coreColor: '#FFEEDD' } } }).winLine?.line,
+		{ coreColor: '#FFEEDD' },
+	);
+	check(
+		'the existing colour fields are NOT tightened: an already-saved non-hex colour still loads',
+		normalizeSymbolsDoc({ winLine: { line: { color: 'red', glowColor: 'gold' } } }).winLine?.line,
+		{ color: 'red', glowColor: 'gold' },
+	);
+	check(
+		'the game re-validates the core colour it strokes with',
+		read('apps/lines/src/editor-scenes.ts').includes(
+			'coreColor: normalizeWinLineColor(w?.line?.coreColor),',
+		),
+		true,
 	);
 }
 
@@ -334,7 +364,49 @@ const STYLED = {
 	);
 	check(
 		'the impact plays once the line is drawn, unskipped',
-		renderer.includes('if (showLine && !roundSkip.isSkipped()) playSound(line.endSound);'),
+		renderer.includes(
+			'if (showLine && !emitterEvent.replay && !roundSkip.isSkipped()) playSound(line.endSound);',
+		),
+		true,
+	);
+	check(
+		'a resting-cycle replay redraws the line silently: both sounds skip a replay',
+		animatedBranch.includes('if (!emitterEvent.replay) playSound(line.drawSound);') &&
+			renderer.includes('!emitterEvent.replay && !roundSkip.isSkipped()) playSound(line.endSound)'),
+		true,
+	);
+	const cycle = read('apps/lines/src/game/winSymbolCycle.ts');
+	const flowEffects = read('apps/lines/src/game/flowEffects.ts');
+	check(
+		'…and the cycle marks every re-send a replay — the per-pass draw and the all-at-once set',
+		cycle.includes('{ stamp: cfg.showText, replay: true },') &&
+			/\.\.\.stamp,\s*replay: true,\s*\}\);/.test(cycle) &&
+			flowEffects.includes('...(replay ? { replay: true } : {}),') &&
+			cycle.split("type: 'winLineShow'").length === 2,
+		true,
+	);
+	check(
+		'…while a round’s own show carries no replay flag',
+		!read('apps/lines/src/game/bookEventHandlerMap.ts').includes('replay: true') &&
+			!flowEffects.includes('replay: true,'),
+		true,
+	);
+	const landing = renderer.slice(renderer.indexOf('await entry.progress.set(1, { duration });'));
+	const cleared = landing.indexOf('if (!lines.some((drawn) => drawn.id === entry.id)) return;');
+	check(
+		'a line cleared while it drew lands nowhere: the check comes before the tip end and impact',
+		cleared > 0 &&
+			cleared < landing.indexOf('if (entry.head) landHead(entry.head);') &&
+			landing.indexOf('if (entry.head) landHead(entry.head);') <
+				landing.indexOf('playSound(line.endSound)'),
+		true,
+	);
+	const page = read('apps/launcher-api/src/routes/(app)/symbols/+page.svelte');
+	const reset = page.slice(page.indexOf('function resetWinLinePaylineStyle'));
+	const resetBody = reset.slice(0, reset.indexOf('\n\t}'));
+	check(
+		'the card’s reset clears its sounds too',
+		resetBody.includes('drawSound: undefined') && resetBody.includes('endSound: undefined'),
 		true,
 	);
 	check(

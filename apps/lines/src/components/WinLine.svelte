@@ -47,6 +47,10 @@
 				 *  currency formatter `amount` was built with, so every counting frame reads like the
 				 *  one that lands. Absent ⇒ no count is possible and `amount` is used as-is. */
 				amountAt?: WinAmountFormatter;
+				/** A RESTING-CYCLE replay of a line the round already showed (`winSymbolCycle.ts`): drawn
+				 *  as before, but its draw and impact sounds stay silent — they belong to the line's
+				 *  first show. Absent ⇒ a first show. */
+				replay?: boolean;
 		  }
 		| {
 				type: 'winLineHide';
@@ -338,8 +342,8 @@
 			}
 			if (animated) {
 				// The whoosh: once per animated line, as it starts drawing — never on a slammed round,
-				// which draws the line complete and so never takes this branch.
-				playSound(line.drawSound);
+				// which draws the line complete and so never takes this branch, nor on a replay.
+				if (!emitterEvent.replay) playSound(line.drawSound);
 				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
 				const len = pathLength(emitterEvent.points);
 				const duration = Math.min(
@@ -348,8 +352,11 @@
 				);
 				await entry.progress.set(1, { duration });
 			}
+			// Cleared while it drew (a hide, the next spin): it lands nowhere — no tip end, no impact
+			// sounding into the next round.
+			if (!lines.some((drawn) => drawn.id === entry.id)) return;
 			if (entry.head) landHead(entry.head);
-			if (showLine && !roundSkip.isSkipped()) playSound(line.endSound);
+			if (showLine && !emitterEvent.replay && !roundSkip.isSkipped()) playSound(line.endSound);
 			// The fade is deliberately NOT awaited: it runs WHILE the count does, so the number is
 			// already moving as the stamp arrives rather than starting once it is fully opaque.
 			if (fades) void entry.fade.set(1, { duration: tweenMs(fadeInMs) });

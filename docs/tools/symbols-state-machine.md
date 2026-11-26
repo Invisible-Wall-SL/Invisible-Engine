@@ -698,7 +698,7 @@ that sets nothing draws exactly the line it always did, silently. Its ↺ icon r
 card.
 
 - **Hot core** on/off and its **Core colour** (default white once on) — a thinner stroke on top
-  of the line, for a white-hot centre.
+  of the line, for a white-hot centre. A value that is not a hex colour is dropped on save.
 - **Additive glow** on/off (needs **Glow** on) — the glow adds light to the board instead of
   laying over it.
 - **Tail opacity** and **Tail width** (100% = no fade) — how opaque and how thick the line is
@@ -715,7 +715,9 @@ card.
   with its bin. It plays only with **Animated draw** on (the card says so otherwise).
 - **Sound** — **While it draws** (once as an animated line starts drawing, a whoosh) and **When
   it lands** (once as the line is drawn complete, an impact), picked from the project's sound
-  library plus the engine's own sounds. The draw sound needs **Animated draw** on.
+  library plus the engine's own sounds. The draw sound needs **Animated draw** on. Both play on a
+  line's first show only: the resting win cycle's replays redraw the line (tip and trail included)
+  silently, and a line cleared before it finished drawing plays no impact.
 
 Tip, trail, tail fade and draw sound apply to an ordinary payline (a traced path), not to the
 per-reel / per-cell bars of a ways or cluster win. With **Show all win lines at once** on, every

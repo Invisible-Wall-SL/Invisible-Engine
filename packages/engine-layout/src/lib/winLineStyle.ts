@@ -70,7 +70,8 @@ export type WinLineTaper = { alpha?: number; width?: number };
 
 /** The styled-payline fields of `winLine.line`. */
 export type WinLineStyleFields = {
-	/** An inner hot-core stroke (`#rrggbb`), thinner than the line and drawn on top of it. */
+	/** An inner hot-core stroke (a hex colour, validated by {@link normalizeWinLineColor}), thinner
+	 *  than the line and drawn on top of it. */
 	coreColor?: string;
 	/** The glow halo's blend. Absent ⇒ normal. */
 	blend?: WinLineBlend;
@@ -107,6 +108,16 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 const nonBlank = (value: unknown): string | undefined =>
 	typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+/** A CSS hex colour Pixi parses (`#rgb`, `#rrggbb`, `#rrggbbaa`) — anything else is dropped, so a
+ *  bad value can never reach a stroke. */
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+
+/** A valid hex colour, trimmed, or undefined. */
+export function normalizeWinLineColor(value: unknown): string | undefined {
+	const color = nonBlank(value);
+	return color && HEX_COLOR.test(color) ? color : undefined;
+}
 
 const finite = (value: unknown): number | undefined =>
 	typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -183,7 +194,7 @@ export function pruneWinLineStyle<T extends object>(style: T): T {
 		if (key === 'trailFx' || key === 'drawSound' || key === 'endSound') continue;
 		out[key] = value;
 	}
-	const coreColor = nonBlank(line.coreColor);
+	const coreColor = normalizeWinLineColor(line.coreColor);
 	if (coreColor) out.coreColor = coreColor;
 	if (line.blend === 'add') out.blend = 'add';
 	const taper = normalizeWinLineTaper(line.taper);
@@ -383,8 +394,13 @@ export function taperRuns(
 		const last = k === pieces.length - 1;
 		let cut = pieces[k].to * drawn;
 		if (!last) {
-			const near = corners.find((corner) => Math.abs(cut - corner) < clearance);
-			if (near !== undefined) cut = near + clearance;
+			// Pushed past one corner, a cut can land near the next: re-check until it is clear.
+			let near = corners.find((corner) => Math.abs(cut - corner) < clearance);
+			while (near !== undefined) {
+				const passed = near;
+				cut = passed + clearance;
+				near = corners.find((corner) => corner > passed && Math.abs(cut - corner) < clearance);
+			}
 			if (cut >= pieces[k + 1].to * drawn || cut >= drawn) continue;
 		} else cut = drawn;
 		if (cut <= from) continue;

@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
-import { SOUND_EFFECT_NAMES } from 'engine-flow-v2';
 import { roleHasTool } from '$lib/roles';
+import { soundOptionsFor } from '$lib/soundOptions';
 import { flowArmsAnticipation } from '$lib/server/anticipationArmed';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -113,15 +113,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		customElementFx,
 		anticipationArmed,
 		/** The one-shot sounds the win line can play: this project's library first, then the
-		 *  engine's own — the names a `soundOnce` resolves. */
-		soundNames: [
-			...new Set([
-				...(sounds.entries ?? [])
-					.filter((entry) => entry.kind !== 'music')
-					.map((entry) => entry.name)
-					.sort(),
-				...SOUND_EFFECT_NAMES,
-			]),
-		],
+		 *  engine's own — the launcher's one sound-picker source. */
+		soundNames: soundOptionsFor(sounds).sfx,
 	};
 };
