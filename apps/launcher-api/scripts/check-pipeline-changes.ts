@@ -193,6 +193,8 @@ const gh = {
 	artifacts: new Map<number, Artifact[]>(),
 	jobs: new Map<number, Json[]>(),
 	zips: new Map<number, Buffer>(),
+	/** A check run's annotations by its id, as `GET check-runs/<id>/annotations` answers. */
+	annotations: new Map<number, Json[]>(),
 	posts: [] as { sha: string; body: Json }[],
 	graphql: [] as { query: string; variables: { id: string } }[],
 	graphqlError: null as string | null,
@@ -285,6 +287,10 @@ const git = {
 	beforeRef: null as ((body: Json) => void) | null,
 	/** Runs once, just before the next PR is opened: another request opened it first. */
 	beforePull: null as (() => void) | null,
+	/** Every `PATCH git/refs/heads/<branch>` asked for, with its body, moved or refused. */
+	patches: [] as { name: string; body: Json }[],
+	/** Runs once, just before the next ref update: a push to the branch landing first. */
+	beforePatch: null as (() => void) | null,
 };
 let commitSeq = 0;
 /** The number the next PR GitHub opens gets; a scenario that opens one by hand takes one too. */
@@ -653,6 +659,9 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		const page = Number(url.searchParams.get('page') ?? 1);
 		return jsonResponse(200, pull.files.slice((page - 1) * perPage, page * perPage));
 	}
+	if (rest[0] === 'check-runs' && rest[2] === 'annotations') {
+		return jsonResponse(200, gh.annotations.get(Number(rest[1])) ?? []);
+	}
 	if (rest[0] === 'commits' && rest[2] === 'check-runs') {
 		const head = gh.heads.get(rest[1]);
 		return jsonResponse(200, { check_runs: head?.checkRuns ?? [] });
@@ -858,6 +867,27 @@ function gitRoutes(
 			],
 			truncated: t.truncated,
 		});
+	}
+	if (method === 'PATCH' && rest[0] === 'refs') {
+		const name = rest.slice(1).map(decodeURIComponent).join('/');
+		const body = JSON.parse(String(init?.body)) as { sha: string; force?: boolean };
+		git.patches.push({ name, body });
+		const hook = git.beforePatch;
+		git.beforePatch = null;
+		hook?.();
+		const current = git.refs.get(name);
+		if (!current) return notFound();
+		if (!git.commits.has(body.sha)) return invalid('the sha is not a commit');
+		let fastForward = false;
+		for (let at: string | undefined = body.sha; at; at = git.commits.get(at)?.parents[0]) {
+			if (at === current) fastForward = true;
+		}
+		if (!fastForward && body.force !== true) {
+			return jsonResponse(422, { message: 'Update is not a fast forward' });
+		}
+		git.refs.set(name, body.sha);
+		git.writes.push({ kind: 'ref' });
+		return jsonResponse(200, { ref: `refs/${name}`, object: { type: 'commit', sha: body.sha } });
 	}
 	if (method !== 'POST' || rest.length !== 1) {
 		return jsonResponse(404, { message: `fixture: no git route for ${method} ${rest.join('/')}` });
@@ -8018,6 +8048,534 @@ check(
 			shared.parseFixRunBranch('bug-12'),
 		],
 		[{ bug: 12, id: '0123456789' }, null, null, null, null, null],
+	);
+}
+
+// ── A failed job says what to do (annotations) ────────────────────────────────
+{
+	const annotations = await import(src('lib/server/pipelineAnnotations.ts'));
+	const note = (annotation_level: string, message: string | null) => ({
+		annotation_level,
+		message,
+	});
+	const GENERIC = 'Process completed with exit code 1.';
+	check(
+		'instructionOf: the first failure annotation that is not the generic exit-code line',
+		[
+			annotations.instructionOf([note('failure', GENERIC), note('failure', 'Re-record it.')]),
+			annotations.instructionOf([note('warning', 'Careful.'), note('failure', 'Re-record it.')]),
+			annotations.instructionOf([note('failure', GENERIC), note('notice', 'FYI')]),
+			annotations.instructionOf([note('failure', 'Process completed with exit code 137')]),
+			annotations.instructionOf([
+				note('failure', ''),
+				note('failure', null),
+				note('failure', '  '),
+			]),
+			annotations.instructionOf([]),
+		],
+		['Re-record it.', 'Re-record it.', null, null, null, null],
+	);
+	const long = annotations.instructionOf([note('failure', 'x'.repeat(900))]) as string;
+	check(
+		'instructionOf: capped at about 500 characters',
+		[long.length, long.endsWith('…')],
+		[500, true],
+	);
+	check(
+		'instructionOf: text stays text (markup is kept as written for the page to escape) and control characters go',
+		annotations.instructionOf([note('failure', '\u0007<b onclick=x>run</b>\u001b[31m\nthen\tgo')]),
+		'<b onclick=x>run</b>[31m\nthen\tgo',
+	);
+
+	const RB = 'check:runtime-bytes: a runtime is not the bytes it was. Re-record it.';
+	const H90 = hash('head 90 annotations');
+	const h90 = head(H90, [
+		['Lint', [{ name: 'lint', conclusion: 'failure' }]],
+		['Checks', [{ name: 'checks (1/3)' }, { name: 'checks (2/3)', conclusion: 'failure' }]],
+		['Secrets', [{ name: 'scan', conclusion: 'failure' }]],
+	]);
+	pull(90, 'launcher: annotated', { sha: H90 });
+	const idOf = (name: string): number => h90.checkRuns.find((c) => c.name === name)?.id as number;
+	gh.annotations.set(idOf('lint'), [note('failure', GENERIC), note('failure', RB)]);
+	gh.annotations.set(idOf('checks (2/3)'), [note('failure', GENERIC)]);
+	gh.failing.set(`/check-runs/${idOf('scan')}/annotations`, 500);
+	annotations.forgetInstructions();
+	changes.forgetChanges();
+	const asked = () => gh.requests.filter((r) => r.includes('/annotations')).length;
+	const before = asked();
+	const first = await detail(ADMIN, '90');
+	const jobs = (first.body.checks as { jobs: Json[] }[]).flatMap((g) => g.jobs);
+	const job = (name: string) => jobs.find((j) => j.name === name) as Json;
+	check(
+		'the detail: a failed job carries its own instruction; one with only the generic line has none; GitHub failing is a state, not an error',
+		[
+			first.status,
+			job('lint').instruction,
+			job('lint').instructionUnread,
+			job('checks (2/3)').instruction,
+			job('checks (2/3)').instructionUnread,
+			job('scan').instruction,
+			job('scan').instructionUnread,
+			job('checks (1/3)').instruction,
+		],
+		[200, RB, false, null, false, null, true, null],
+	);
+	check(
+		'…annotations are read for failed jobs only (three), one GET each',
+		[
+			asked() - before,
+			gh.requests.filter((r) => r.includes(`/check-runs/${idOf('checks (1/3)')}/`)).length,
+		],
+		[3, 0],
+	);
+	await detail(ADMIN, '90');
+	check(
+		'…a second read reuses what was read; the one GitHub would not give is asked again',
+		asked() - before,
+		4,
+	);
+	gh.failing.delete(`/check-runs/${idOf('scan')}/annotations`);
+}
+
+// ── Re-record runtime bytes ───────────────────────────────────────────────────
+{
+	const { RUNTIMES } = await import('constants-shared/runtimes');
+	type Row = (typeof RUNTIMES)[number];
+	const sum256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+	const rb = await import(src('lib/server/pipelineRuntimeBytes.ts'));
+	const rerecord = await import(
+		src('routes/api/pipeline/changes/[number]/runtime-bytes/+server.ts')
+	);
+	const post = (locals: Locals, number: string, body: unknown) =>
+		call(rerecord.POST, locals, { number }, body);
+
+	const manifestOf = (row: Row, salt: string, tweak: (m: Json) => void = () => {}): Json => {
+		const m: Json = {
+			runtime: row.id,
+			PUBLIC_IE_FAMILIES: row.families,
+			...('view' in row && row.view === '3d' ? { PUBLIC_IE_3D: '1' } : {}),
+			files: {
+				'index.html': { sha256: sum256(`${row.id}:index:${salt}`), gzip: 100 },
+				'_app/immutable/entry/app.js': { sha256: sum256(`${row.id}:app:${salt}`), gzip: 2000 },
+			},
+			other: { 'art/a.png': { sha256: sum256(`${row.id}:art`) } },
+			total: { files: 2, gzip: 2100 },
+		};
+		tweak(m);
+		return m;
+	};
+	const textOf = (m: Json): string => `${JSON.stringify(m, null, '\t')}\n`;
+	const manifestsFor = (salt: string): Record<string, string> =>
+		Object.fromEntries(RUNTIMES.map((r) => [`${r.id}.json`, textOf(manifestOf(r, salt))]));
+
+	const refuses = (zip: Buffer | Record<string, string>): [number, unknown] => {
+		try {
+			rb.validateArtifact(Buffer.isBuffer(zip) ? zip : zipOf(zip));
+		} catch (err) {
+			if (isHttpError(err)) return [err.status, (err.body as { code?: string }).code];
+			throw err;
+		}
+		return [200, null];
+	};
+	const good = manifestsFor('new');
+	check(
+		'validateArtifact: every runtime’s manifest, as the gate writes it, is read back byte for byte, in the list’s order',
+		rb
+			.validateArtifact(zipOf(good, ['lines.json']))
+			.map(([id, text]: [string, string]) => [id, text === good[`${id}.json`]]),
+		RUNTIMES.map((r) => [r.id, true]),
+	);
+	check(
+		'validateArtifact: a partial artifact is fine; an empty one is not',
+		[rb.validateArtifact(zipOf({ 'card.json': good['card.json'] })).length, refuses({})],
+		[1, [409, 'invalid_artifact']],
+	);
+	const bad = (name: string, zip: Buffer | Record<string, string>) =>
+		check(`validateArtifact refuses ${name}`, refuses(zip), [409, 'invalid_artifact']);
+	bad('a file that is not a runtime’s', { ...good, 'notes.json': '{}' });
+	bad('a runtime id that is not in the list', { 'unknown.json': good['lines.json'] });
+	bad('a folder', { 'built/lines.json': good['lines.json'] });
+	bad('a path above the root', { '../lines.json': good['lines.json'] });
+	bad('another extension', { 'lines.json.exe': good['lines.json'] });
+	bad('not a zip', Buffer.from('PK nothing'));
+	bad('a file over the per-file cap', { 'lines.json': 'x'.repeat(rb.MAX_MANIFEST_BYTES + 1) });
+	bad(
+		'an artifact over the whole cap',
+		zipOf(
+			Object.fromEntries(
+				RUNTIMES.map((r) => [`${r.id}.json`, 'x'.repeat(rb.MAX_MANIFEST_BYTES - 1)]),
+			),
+		),
+	);
+	bad('a manifest that is not JSON', { 'lines.json': 'not json' });
+	bad('a manifest that is an array', { 'lines.json': '[]' });
+	const lines = RUNTIMES[0];
+	const threeD = RUNTIMES.find((r) => 'view' in r) as Row;
+	const manifestBad = (name: string, tweak: (m: Json) => void, row: Row = lines) =>
+		bad(`a manifest ${name}`, { [`${row.id}.json`]: textOf(manifestOf(row, 'x', tweak)) });
+	const filesOf = (m: Json) => m.files as Json;
+	const otherOf = (m: Json) => m.other as Json;
+	manifestBad('that names another runtime', (m) => (m.runtime = 'card'));
+	manifestBad('with other families', (m) => (m.PUBLIC_IE_FAMILIES = 'arcade'));
+	manifestBad('with a key the gate does not write', (m) => (m.extra = 1));
+	manifestBad('missing its total', (m) => delete m.total);
+	manifestBad('whose total does not add up', (m) => (m.total = { files: 2, gzip: 1 }));
+	manifestBad('with a hash that is not sha256', (m) => {
+		filesOf(m)['index.html'] = { sha256: 'abc', gzip: 100 };
+	});
+	manifestBad('with a negative size', (m) => {
+		filesOf(m)['index.html'] = { sha256: sum256('x'), gzip: -1 };
+	});
+	manifestBad('with a field of a file the gate does not write', (m) => {
+		otherOf(m)['art/a.png'] = { sha256: sum256('x'), path: '/etc/passwd' };
+	});
+	manifestBad('with code outside the build’s code paths', (m) => {
+		filesOf(m)['static/x.js'] = { sha256: sum256('x'), gzip: 0 };
+	});
+	manifestBad('with an absolute path', (m) => {
+		otherOf(m)['/etc/passwd'] = { sha256: sum256('x') };
+	});
+	manifestBad('with a way out of the build', (m) => {
+		otherOf(m)['art/../../x'] = { sha256: sum256('x') };
+	});
+	manifestBad('with other files under the code paths', (m) => {
+		otherOf(m)['index.html'] = { sha256: sum256('x') };
+	});
+	manifestBad('of the 3D runtime without its switch', (m) => delete m.PUBLIC_IE_3D, threeD);
+
+	// A change whose branch holds the OLD manifests of three runtimes; the others already match CI's.
+	interface Scenario {
+		number: number;
+		headSha: string;
+		branch: string;
+		artifactId: number;
+	}
+	let seq = 100;
+	const scenario = (
+		opts: {
+			workflow?: [string, JobSpec[]][];
+			runExtra?: Json;
+			artifact?: Partial<Artifact> | null;
+			zip?: Buffer;
+			onBranch?: Record<string, string>;
+		} = {},
+	): Scenario => {
+		const number = ++seq;
+		const branch = `feat/rb-${number}`;
+		const onBranch = opts.onBranch ?? {
+			...manifestsFor('old'),
+			'card.json': good['card.json'],
+			'match3.json': good['match3.json'],
+		};
+		const files: Record<string, GitFile> = { ...filesAt(mainTip()) };
+		for (const [name, text] of Object.entries(onBranch)) {
+			files[`scripts/runtime-bytes/${name}`] = file(text);
+		}
+		const headSha = putCommit(tree(files), [mainTip()], `launcher: rb ${number}`);
+		git.refs.set(`heads/${branch}`, headSha);
+		const h = head(
+			headSha,
+			opts.workflow ?? [['runtime-bytes', [{ name: 'runtime-bytes', conclusion: 'failure' }]]],
+		);
+		const run = h.workflowRuns.find((r) => r.path === '.github/workflows/runtime-bytes.yml');
+		if (run && opts.runExtra) Object.assign(run, opts.runExtra);
+		pull(number, `launcher: runtime change ${number}`, {
+			sha: headSha,
+			head: { sha: headSha, ref: branch, repo: { full_name: REPO } },
+		});
+		const artifactId = 9000 + number;
+		if (opts.artifact !== null && run) {
+			gh.artifacts.set(run.id as number, [
+				{
+					id: artifactId,
+					name: 'runtime-bytes',
+					expired: false,
+					expires_at: null,
+					size_in_bytes: 1000,
+					...opts.artifact,
+				},
+			]);
+			gh.zips.set(artifactId, opts.zip ?? zipOf(good, Object.keys(good)));
+		}
+		changes.forgetChanges();
+		return { number, headSha, branch, artifactId };
+	};
+	const written = () => git.gitWrites.length;
+
+	userOverrides.delete('u-tester');
+	const ok = scenario();
+	check(
+		're-record: no session is a 401',
+		(await post(ANON, String(ok.number), { headSha: ok.headSha })).status,
+		401,
+	);
+	const before = written();
+	const tester = await post(TESTER, String(ok.number), { headSha: ok.headSha });
+	check(
+		're-record: without pipelineMerge → 403, and nothing is read or written',
+		[
+			tester.status,
+			tester.body.error,
+			written() - before,
+			gh.requests.some((r) => r.includes(`/artifacts/${ok.artifactId}`)),
+		],
+		[403, 'Re-recording runtime bytes needs the "Merge pipeline changes" capability.', 0, false],
+	);
+	check(
+		're-record: a body without the head → 400; a bad number → 400',
+		[
+			(await post(ADMIN, String(ok.number), {})).status,
+			(await post(ADMIN, 'x', { headSha: ok.headSha })).status,
+		],
+		[400, 400],
+	);
+	const stale = await post(ADMIN, String(ok.number), { headSha: sha(7) });
+	check(
+		're-record: a head that is not the change’s → 409 head_moved, nothing written',
+		[stale.status, stale.body.code, written() - before],
+		[409, 'head_moved', 0],
+	);
+
+	const mainBefore = mainTip();
+	const done = await post(ADMIN, String(ok.number), { headSha: ok.headSha });
+	const moved = git.refs.get(`heads/${ok.branch}`) as string;
+	const commit = git.commits.get(moved) as { tree: string; parents: string[]; message: string };
+	check(
+		're-record: the artifact’s manifests that differ are committed onto the change’s branch, on the head the run built, naming who clicked and not their address',
+		[
+			done.status,
+			done.body.runtimes,
+			done.body.commit === moved,
+			commit.parents,
+			commit.message.split('\n')[0],
+			commit.message.includes('Gualtiero'),
+			commit.message.includes('owner@example.com'),
+		],
+		[
+			200,
+			['lines', 'arcade', 'arcade3d'],
+			true,
+			[ok.headSha],
+			`ci: re-record runtime bytes from CI's Linux build (#${ok.number})`,
+			true,
+			false,
+		],
+	);
+	check(
+		'…the commit changes those files and no others',
+		changedPaths(treeOf(ok.headSha), treeOf(moved)),
+		['arcade', 'arcade3d', 'lines'].map((id) => `scripts/runtime-bytes/${id}.json`),
+	);
+	check(
+		'…and their content is what the gate writes, byte for byte',
+		['lines', 'arcade', 'arcade3d'].map(
+			(id) =>
+				git.blobs.get(treeOf(moved).get(`scripts/runtime-bytes/${id}.json`) as string) ===
+				good[`${id}.json`],
+		),
+		[true, true, true],
+	);
+	const patch = git.patches.at(-1) as { name: string; body: Json };
+	check(
+		'…as git data (blobs, tree, commit) then one ref update that is not forced; main is never touched',
+		[
+			git.gitWrites.slice(before).map((w) => w.path),
+			patch.name,
+			patch.body,
+			mainTip() === mainBefore,
+			git.patches.every((p) => p.name !== 'heads/main'),
+		],
+		[
+			['blobs', 'blobs', 'blobs', 'trees', 'commits'],
+			`heads/${ok.branch}`,
+			{ sha: moved, force: false },
+			true,
+			true,
+		],
+	);
+	check(
+		'…the artifact was downloaded once, from the run’s own',
+		gh.requests.filter((r) => r.includes(`/actions/artifacts/${ok.artifactId}/zip`)).length,
+		1,
+	);
+
+	// Each refusal is a 409 with { error, code } and writes nothing.
+	const refusal = async (
+		name: string,
+		s: Scenario,
+		code: string,
+		sentence: RegExp,
+	): Promise<void> => {
+		const w = written();
+		const patches = git.patches.length;
+		const answer = await post(ADMIN, String(s.number), { headSha: s.headSha });
+		check(
+			`re-record refuses ${name}: 409 ${code}, nothing written`,
+			[
+				answer.status,
+				answer.body.code,
+				sentence.test(String(answer.body.error)),
+				written() - w,
+				git.patches.length - patches,
+			],
+			[409, code, true, 0, 0],
+		);
+	};
+	await refusal(
+		'a head with no runtime-bytes run',
+		scenario({ workflow: [['Lint', [{ name: 'lint' }]]] }),
+		'no_run',
+		/no runtime-bytes run/,
+	);
+	await refusal(
+		'a run that is still going',
+		scenario({
+			workflow: [['runtime-bytes', [{ name: 'runtime-bytes', status: 'in_progress' }]]],
+		}),
+		'no_run',
+		/not finished/,
+	);
+	await refusal(
+		'a run of that name from another workflow file',
+		scenario({ runExtra: { path: '.github/workflows/evil.yml' } }),
+		'no_run',
+		/no runtime-bytes run/,
+	);
+	await refusal(
+		'a run from a fork',
+		scenario({ runExtra: { head_repository: { full_name: 'fork/engine' } } }),
+		'no_run',
+		/no runtime-bytes run/,
+	);
+	await refusal(
+		'a run that passed',
+		scenario({ workflow: [['runtime-bytes', [{ name: 'runtime-bytes' }]]] }),
+		'nothing_to_change',
+		/passed/,
+	);
+	await refusal(
+		'a run that left no artifact',
+		scenario({ artifact: null }),
+		'no_artifact',
+		/left no/,
+	);
+	await refusal(
+		'an artifact that expired',
+		scenario({ artifact: { expired: true } }),
+		'no_artifact',
+		/left no/,
+	);
+	await refusal(
+		'an artifact too large to be one',
+		scenario({ artifact: { size_in_bytes: 50_000_000 } }),
+		'invalid_artifact',
+		/larger/,
+	);
+	await refusal(
+		'an artifact that is not a zip',
+		scenario({ zip: Buffer.from('nope') }),
+		'invalid_artifact',
+		/not a readable zip/,
+	);
+	await refusal(
+		'an artifact with a file that is not a manifest',
+		scenario({ zip: zipOf({ ...good, 'x.json': '{}' }) }),
+		'invalid_artifact',
+		/not a runtime.s manifest/,
+	);
+	await refusal(
+		'an artifact whose manifest is not valid',
+		scenario({ zip: zipOf({ 'lines.json': '{}' }) }),
+		'invalid_artifact',
+		/lines manifest .* not valid/,
+	);
+	await refusal(
+		'manifests that already match the branch',
+		scenario({ onBranch: good }),
+		'nothing_to_change',
+		/already on this branch/,
+	);
+
+	const raced = scenario();
+	const landed = putCommit(
+		tree(filesAt(raced.headSha)),
+		[raced.headSha],
+		'a push that landed first',
+	);
+	git.beforePatch = () => git.refs.set(`heads/${raced.branch}`, landed);
+	const lost = await post(ADMIN, String(raced.number), { headSha: raced.headSha });
+	check(
+		're-record: a push that lands while the commit is made is never overwritten → 409 head_moved',
+		[lost.status, lost.body.code, git.refs.get(`heads/${raced.branch}`) === landed],
+		[409, 'head_moved', true],
+	);
+
+	const fork = scenario();
+	(gh.pulls.get(fork.number) as Pull).head.repo = { full_name: 'someone/engine' };
+	changes.forgetChanges();
+	check(
+		're-record: a change from a fork → 404, nothing written',
+		[
+			(await post(ADMIN, String(fork.number), { headSha: fork.headSha })).status,
+			git.patches.some((p) => p.name === `heads/${fork.branch}`),
+		],
+		[404, false],
+	);
+	const closed = scenario();
+	(gh.pulls.get(closed.number) as Pull).state = 'closed';
+	check(
+		're-record: a closed change → 409',
+		(await post(ADMIN, String(closed.number), { headSha: closed.headSha })).status,
+		409,
+	);
+	check(
+		're-record: no such change → 404',
+		(await post(ADMIN, '98765', { headSha: sha(1) })).status,
+		404,
+	);
+	const unlucky = scenario();
+	gh.failing.set(`/git/commits/${unlucky.headSha}`, 500);
+	const broken = await post(ADMIN, String(unlucky.number), { headSha: unlucky.headSha });
+	gh.failing.delete(`/git/commits/${unlucky.headSha}`);
+	check(
+		're-record: GitHub failing on the way → 502 with its sentence',
+		[broken.status, broken.body.error],
+		[502, `GitHub 500: ${FAILURE_MESSAGE}`],
+	);
+
+	// The page's decision.
+	const failed = (instruction: string | null, over: Json = {}) => ({
+		state: 'open',
+		merged: false,
+		headSha: sha(9),
+		checks: [
+			{
+				workflow: 'runtime-bytes',
+				jobs: [{ name: 'runtime-bytes', state: 'fail', instruction, ...over }],
+			},
+		],
+	});
+	const SENTENCE = 'check:runtime-bytes: a runtime is not the bytes it was. If the change …';
+	check(
+		'the page: Re-record is offered for a failed runtime-bytes job with the gate’s sentence, to a merger, on an open change, pinned to the head',
+		[
+			view.rerecordBar(failed(SENTENCE), true),
+			view.rerecordBar(failed(SENTENCE), false),
+			view.rerecordBar({ ...failed(SENTENCE), state: 'closed' }, true),
+			view.rerecordBar({ ...failed(SENTENCE), merged: true }, true),
+		],
+		[{ headSha: sha(9) }, null, null, null],
+	);
+	check(
+		'…and not for another failure, a job that passed, another job, or no instruction',
+		[
+			view.rerecordBar(failed('Something else broke.'), true),
+			view.rerecordBar(failed(null), true),
+			view.rerecordBar(failed(SENTENCE, { state: 'pass' }), true),
+			view.rerecordBar(failed(SENTENCE, { name: 'lint' }), true),
+			view.rerecordBar({ ...failed(SENTENCE), checks: [] }, true),
+		],
+		[null, null, null, null, null],
 	);
 }
 
