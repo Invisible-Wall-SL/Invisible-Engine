@@ -6,6 +6,8 @@ import {
 	type LevelCell,
 	type LevelOverlay,
 	type LevelOverlayKind,
+	type LevelsBiomes,
+	type LevelsGenerator,
 	type LevelsRiver,
 	type LevelsWaterfalls,
 } from 'game-config';
@@ -21,8 +23,27 @@ import { drawGeneratedLevel, type Drawings, type Generators } from './generatedL
 
 export type GeneratedNode = ContainerNode & { generated: { generator: string; seed: number } };
 
-/** An overlay entry the previewed level has no place for (`salmonsMap.js` `orphans`). */
-export type LevelOrphan = { op: 'add' | 'remove' | 'set'; cell: LevelCell; kind?: string };
+/** What the previewed level has no place for (`salmonsMap.js` `orphans`): an overlay entry, or a
+ *  biome's density over its stretch's columns (`rows`, first and last). */
+export type LevelOrphan =
+	| { op: 'add' | 'remove' | 'set'; cell: LevelCell; kind?: string }
+	| {
+			op: 'biome';
+			biome: string;
+			kind: string;
+			rows: [number, number];
+			reason: 'no-room' | 'capped';
+	  };
+
+/** An orphan as a person reads it. */
+export function orphanText(o: LevelOrphan): string {
+	if (o.op !== 'biome')
+		return `${o.op} ${o.kind ?? ''} ${o.cell[0]}, ${o.cell[1]}`.replace(/\s+/g, ' ');
+	const where = `${o.biome} (columns ${o.rows[0]}–${o.rows[1]})`;
+	return o.reason === 'no-room'
+		? `${where}: no ${o.kind}s are placed there`
+		: `${where}: more ${o.kind}s than every place there, held to all`;
+}
 
 /** The overlay scope: one seed's own (its decimal string), or `'*'` for every level. */
 export type OverlayScope = string;
@@ -64,6 +85,27 @@ export function regenerate(
 	node.generated = { generator: id, seed };
 	if (scene.world) scene.world = { ...scene.world, w: made.world.w, h: made.world.h };
 	return ((made as { orphans?: LevelOrphan[] }).orphans ?? []).map((o) => ({ ...o }));
+}
+
+/** The levels' generator settings (`undefined` or none left: every default again). */
+export function setGenerator(
+	levels: ArcadeOnlineLevels | undefined,
+	generator: LevelsGenerator | undefined,
+): ArcadeOnlineLevels {
+	const kept = generator && Object.keys(generator).length ? generator : undefined;
+	const next = { ...levels, generator: kept };
+	if (!kept) delete next.generator;
+	return normalizeLevels(next) ?? {};
+}
+
+/** The levels' biomes (`undefined`: the original's forest again). */
+export function setBiomes(
+	levels: ArcadeOnlineLevels | undefined,
+	biomes: LevelsBiomes | undefined,
+): ArcadeOnlineLevels {
+	const next = { ...levels, biomes };
+	if (!biomes) delete next.biomes;
+	return normalizeLevels(next) ?? {};
 }
 
 const sameCell = (a: LevelCell, b: LevelCell) => a[0] === b[0] && a[1] === b[1];

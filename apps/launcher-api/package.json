@@ -106,6 +106,7 @@
 		"check:arcade-platformer": "tsx --tsconfig tsconfig.scripts.json scripts/check-arcade-platformer.ts",
 		"check:layout-path": "tsx --tsconfig tsconfig.scripts.json scripts/check-layout-path.ts",
 		"check:editor-tilemap": "tsx --tsconfig tsconfig.scripts.json scripts/check-editor-tilemap.ts",
+		"check:editor-level-generator": "tsx --tsconfig tsconfig.scripts.json scripts/check-editor-level-generator.ts",
 		"check:characters-tool": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-characters-tool.ts",
 		"check:cards-tool": "tsx --tsconfig tsconfig.scripts.json scripts/check-cards-tool.ts",
 		"check:match3-rules": "tsx --tsconfig tsconfig.scripts.json scripts/check-match3-rules.ts",
