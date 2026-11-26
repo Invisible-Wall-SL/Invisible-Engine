@@ -4,7 +4,7 @@ import { bugRef, type BugStatus } from '$lib/bugReports';
  * Fix runs on pipeline bugs (ADR-0013), the parts the pages, the server and the fixture share. A
  * person who holds both "Start fix runs on pipeline bugs" and pipeline triage starts one on a
  * pipeline bug; the launcher dispatches `bug-fix.yml` on `main` through its GitHub App with the
- * run's id as the one input (inputs are public), the job reads the bug back with a GitHub OIDC
+ * run's id and mode as its inputs (inputs are public), the job reads the bug back with a GitHub OIDC
  * token, runs Claude Code with the build agents and posts its result, and the launcher re-checks
  * the change and opens it as a draft pull request on `bug-<n>-fix-<id>` — which the link sync then
  * links like any `bug-<n>` branch, so the bug's status moves exactly as it does for a person's fix.
@@ -151,17 +151,17 @@ export const FIX_RUN_AGENT = 'bug-fix';
 /** A run's id: 10 lowercase hex characters, so a branch can never spell a second `bug-<n>`. */
 export const FIX_RUN_ID = /^[0-9a-f]{10}$/;
 
-/** How a run is named: the actor of what the run itself records, and the workflow's `run-name`. */
+/** How a run is named: the actor of what the run itself records, and the Actions title of a run
+ *  dispatched before ADR-0014 card 14B. */
 export const fixRunName = (id: string): string => `Fix run ${id}`;
 
-/** The `run-name` a later workflow gives a run: the run and what it is (`Fix run <id> · diagnose`). */
+/** The workflow's `run-name`: the run and what it is (`Fix run <id> · diagnose`). */
 export const fixRunRunName = (id: string, mode: FixRunMode): string =>
 	`${fixRunName(id)} · ${mode}`;
 
 /**
- * Whether an Actions run's title is this fix run's: the bare `Fix run <id>`, or the title that
- * carries the run's own mode, so the workflow may be renamed at any time (a live run lasts 90
- * minutes at most).
+ * Whether an Actions run's title is this fix run's: its `run-name`, or the bare `Fix run <id>` a run
+ * dispatched before the title carried a mode still has (a live run lasts 90 minutes at most).
  */
 export const isFixRunTitle = (title: string | undefined, id: string, mode: FixRunMode): boolean =>
 	title === fixRunRunName(id, mode) || title === fixRunName(id);

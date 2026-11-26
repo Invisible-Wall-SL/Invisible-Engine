@@ -1216,7 +1216,7 @@ const firstRequest = newRequest();
 const first = await start(FIXER, 1, firstRequest);
 const R1 = runView(first).id;
 check(
-	'start: 201; a 10-hex id; main read, then ONE dispatch with ONE input; bound to the run GitHub named',
+	'start: 201; a 10-hex id; main read, then ONE dispatch with the run id and its mode; bound to the run GitHub named',
 	[
 		first.status,
 		/^[0-9a-f]{10}$/.test(R1),
@@ -1230,7 +1230,7 @@ check(
 		201,
 		true,
 		['GET /git/ref/heads/main', 'POST /actions/workflows/bug-fix.yml/dispatches'],
-		{ ref: 'main', inputs: { fix_run: R1 }, return_run_details: true },
+		{ ref: 'main', inputs: { fix_run: R1, mode: 'diagnose' }, return_run_details: true },
 		BASE,
 		9001,
 		'dispatched',
@@ -1391,8 +1391,8 @@ check(
 	],
 	[
 		[
-			{ ref: 'main', inputs: { fix_run: R2 }, return_run_details: true },
-			{ ref: 'main', inputs: { fix_run: R2 } },
+			{ ref: 'main', inputs: { fix_run: R2, mode: 'diagnose' }, return_run_details: true },
+			{ ref: 'main', inputs: { fix_run: R2, mode: 'diagnose' } },
 		],
 		'dispatched',
 		null,
@@ -4566,7 +4566,7 @@ check(
 	const started = await start(FIXER, 8);
 	const startedRun = started.body.run as { id: string; mode: string; status: string };
 	check(
-		'adr-0014 start: Start fix starts a diagnose run, dispatched with the run id alone',
+		'adr-0014 start: Start fix starts a diagnose run, dispatched with the run id and its mode',
 		[
 			started.status,
 			startedRun.mode,
@@ -4584,7 +4584,7 @@ check(
 			'diagnose',
 			null,
 			null,
-			{ fix_run: startedRun.id },
+			{ fix_run: startedRun.id, mode: 'diagnose' },
 			{ run: startedRun.id, status: 'dispatched', mode: 'diagnose' },
 		],
 	);
@@ -4879,7 +4879,7 @@ check(
 			'build',
 			diagnosed,
 			BASE,
-			{ fix_run: buildRun.id },
+			{ fix_run: buildRun.id, mode: 'build' },
 			true,
 		],
 	);
