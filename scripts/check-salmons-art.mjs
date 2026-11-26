@@ -1387,21 +1387,23 @@ check(
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
 // piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
 // biomes were data, and are the same of main's after its trees' art (#1922): a level with no
-// biomes block is drawn exactly as it was.
+// biomes block is drawn exactly as it was. Re-pinned 2026-11-26 for the bridge's near slope drawn
+// 2 cells as the rule ramps it, not 3 (`salmonsArt/bridge.ts` `slopeEnds`): with that one slope put
+// back at 3 cells both hashes are the old ones again.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
 const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
 const DRAWN_BEFORE_BIOMES = [
-	{ seed: 1, levels: undefined, projector: 'mirrored', hash: 'ebbbba01c8ade7bf5fe89463' },
-	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: 'b56a21b4022d3b82bb2cfe7d' },
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '0abcb2c35cf439d05c58ff27' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: 'b6fe7442ecd04c077bb8e188' },
 	{
 		seed: 123,
 		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
 		projector: 'mirrored',
-		hash: '7fbbc5604e2e2cdf3b20dcde',
+		hash: 'a64394b6a9b6ddddd93806a8',
 	},
-	{ seed: 42, levels: undefined, projector: 'plain', hash: '116464db97ef75359b1d1df4' },
+	{ seed: 42, levels: undefined, projector: 'plain', hash: 'a8faa150b086b2a674d9952f' },
 ];
 const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
 const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
