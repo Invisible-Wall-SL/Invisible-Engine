@@ -4,6 +4,8 @@ import {
 	actionsRefusal,
 	fixRunBranch,
 	fixRunName,
+	isFixRunTitle,
+	type FixRunMode,
 	type FixRunStatus,
 } from '$lib/bugFixRuns';
 import type { Actor } from './bugReportsStore';
@@ -214,7 +216,7 @@ export async function backstopFixRuns(app: GithubApp, nowMs = Date.now()): Promi
 		for (const run of unbound) {
 			const found = listed.find(
 				(w) =>
-					w.display_title === fixRunName(run.id) &&
+					isFixRunTitle(w.display_title, run.id, run.mode) &&
 					bot !== null &&
 					w.actor?.login === bot &&
 					Date.parse(w.created_at ?? '') >= run.createdAt.getTime() - BIND_SLACK_MS,
@@ -264,10 +266,13 @@ async function listedRuns(app: GithubApp): Promise<GhWorkflowRun[]> {
  * listing (its `run-name`, the App's bot), cancelled when found and not yet finished. Throws when
  * GitHub can't say; Stop takes it as best-effort.
  */
-export async function cancelListedRun(app: GithubApp, id: string): Promise<void> {
+export async function cancelListedRun(app: GithubApp, id: string, mode: FixRunMode): Promise<void> {
 	const [listed, bot] = await Promise.all([listedRuns(app), fixRunBot(app)]);
 	const found = listed.find(
-		(w) => w.display_title === fixRunName(id) && w.actor?.login === bot && w.status !== 'completed',
+		(w) =>
+			isFixRunTitle(w.display_title, id, mode) &&
+			w.actor?.login === bot &&
+			w.status !== 'completed',
 	);
 	if (found) await cancelActionsRun(app, found.id);
 }

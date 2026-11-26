@@ -4,6 +4,7 @@ import {
 	fixRunSpendId,
 	type FixRunChoice,
 	type FixRunDiagnosis,
+	type FixRunExplanation,
 	type FixRunMode,
 	type FixRunOutcome,
 	type FixRunRefusal,
@@ -106,6 +107,26 @@ export async function fixRunsOfBug(number: number, limit = 10): Promise<BugFixRu
 		.where(eq(bugFixRuns.bugNumber, number))
 		.orderBy(desc(bugFixRuns.createdAt))
 		.limit(limit);
+}
+
+/** Every run of a bug, newest first: what the decision check reads. */
+export async function allFixRunsOfBug(number: number): Promise<BugFixRun[]> {
+	return getDb()
+		.select()
+		.from(bugFixRuns)
+		.where(eq(bugFixRuns.bugNumber, number))
+		.orderBy(desc(bugFixRuns.createdAt));
+}
+
+/** A bug's `fix_decision` events, newest first. */
+export async function fixDecisionsOfBug(
+	number: number,
+): Promise<{ id: number; data: Record<string, unknown> }[]> {
+	return getDb()
+		.select({ id: bugReportEvents.id, data: bugReportEvents.data })
+		.from(bugReportEvents)
+		.where(and(eq(bugReportEvents.bugNumber, number), eq(bugReportEvents.kind, 'fix_decision')))
+		.orderBy(desc(bugReportEvents.id));
 }
 
 /** Every live run over every bug, oldest first. */
@@ -356,6 +377,7 @@ export interface FixRunEnd {
 	summary?: string;
 	secondBug?: FixRunSecondBug | null;
 	diagnosis?: FixRunDiagnosis | null;
+	explanation?: FixRunExplanation | null;
 	prNumber?: number;
 	branch?: string;
 }
@@ -385,6 +407,7 @@ export async function settleFixRun(
 				summary: end.summary ?? null,
 				secondBug: end.secondBug ?? null,
 				diagnosis: end.diagnosis ?? null,
+				explanation: end.explanation ?? null,
 				prNumber: end.prNumber ?? null,
 				branch: end.branch ?? null,
 				spendUsd: endedSpend(),

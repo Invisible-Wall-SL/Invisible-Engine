@@ -1,0 +1,1 @@
+ALTER TABLE "bug_fix_runs" ADD COLUMN "explanation" jsonb;

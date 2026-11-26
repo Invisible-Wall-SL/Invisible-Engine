@@ -1,7 +1,10 @@
+import { parseFixRunBranch } from '$lib/bugFixRuns';
+import { bugPath, bugRef } from '$lib/bugReports';
 import type { AgentLastChange } from '$lib/server/pipelineAgents';
 import type {
 	AgentEvalCheck,
 	ChangeDetail,
+	ChangeFixRun,
 	ChangeStatus,
 	CheckGroup,
 	CheckJob,
@@ -361,6 +364,67 @@ export function mergeConfirmMessage(
 	return `${detail.title}\n\nSquash-merges head ${shortSha(detail.headSha)} (${detail.headSha}) into main as "${detail.title} (#${detail.number})". Branch protection still applies.`;
 }
 
+export const FIX_NOT_RECORDED_TEXT = 'Not recorded for this change';
+export const FIX_DECISION_FALLBACK_TEXT = 'The decision this change answers to is not current.';
+
+/** The sentence that stops a fix-run change at Mark ready and merge; `null` when nothing does. */
+export function fixDecisionBlock(detail: { fixRun?: ChangeFixRun | null }): string | null {
+	const decision = detail.fixRun?.decision;
+	return decision && !decision.ok ? decision.reason || FIX_DECISION_FALLBACK_TEXT : null;
+}
+
+export interface FixApprovalRow {
+	label: string;
+	/** `null` shows "Not recorded for this change". */
+	text: string | null;
+}
+
+export interface FixApproval {
+	rows: FixApprovalRow[];
+	/** One line per option that was not chosen; folded, and absent when there are none. */
+	others: string[];
+	/** Why this change cannot be marked ready or merged; `null` when the decision holds. */
+	blocked: string | null;
+	bugRef: string;
+	bugHref: string;
+}
+
+/**
+ * What the "What you're approving" card shows for a change a fix run built (ADR-0014 §3), or
+ * `null` for any other change. A part the change does not have is `text: null`, never left out.
+ */
+export function fixApprovalState(
+	detail: { fixRun: ChangeFixRun | null },
+	now: number = Date.now(),
+): FixApproval | null {
+	const run = detail.fixRun;
+	if (!run) return null;
+	const { choice, diagnosis, explanation } = run;
+	const chosen = choice
+		? `${choice.optionId} — ${choice.name}\n${choice.change}\nchosen by ${choice.decidedBy} · ${timeAgo(choice.decidedAt, now)}${choice.note ? `\nNote: ${choice.note}` : ''}`
+		: null;
+	return {
+		rows: [
+			{ label: 'What you reported', text: diagnosis?.reported || null },
+			{ label: 'What was wrong', text: diagnosis?.cause || null },
+			{ label: 'The option you chose', text: chosen },
+			{ label: 'What changed', text: explanation?.changed || null },
+			{ label: 'How to check it yourself', text: explanation?.howToCheck || null },
+			{ label: 'Risks', text: explanation?.risks || null },
+		],
+		others: (diagnosis?.otherOptions ?? []).map((o) => `${o.id} — ${o.name}: ${o.change}`),
+		blocked: fixDecisionBlock(detail),
+		bugRef: bugRef(run.bug),
+		bugHref: bugPath({ number: run.bug, kind: 'pipeline', projectKey: null }),
+	};
+}
+
+/** The bug a change's branch names as its fix run (`bug-<n>-fix-<id>`), as the list's tag. */
+export function fixRunTag(branch: string): { bug: number; text: string } | null {
+	const named = parseFixRunBranch(branch);
+	return named && { bug: named.bug, text: `fix run · ${bugRef(named.bug)}` };
+}
+
 export interface MergeBar {
 	/** `draft` shows no merge button (the draft bar offers Mark ready for review); `null` shows none. */
 	action: 'merge' | 'draft' | null;
@@ -372,7 +436,9 @@ export interface MergeBar {
  * said before the capability; a draft is said only to someone who could merge it.
  */
 export function mergeBar(
-	detail: Pick<ChangeDetail, 'draft' | 'headSha' | 'filesTruncated'>,
+	detail: Pick<ChangeDetail, 'draft' | 'headSha' | 'filesTruncated'> & {
+		fixRun?: ChangeFixRun | null;
+	},
 	canMerge: boolean,
 	byHand: boolean,
 ): MergeBar {
@@ -380,6 +446,8 @@ export function mergeBar(
 		const why = detail.filesTruncated ? 'is too large to check' : 'edits the harness';
 		return { action: null, text: `Merge by hand on GitHub after review: this change ${why}.` };
 	}
+	const fixBlock = fixDecisionBlock(detail);
+	if (fixBlock) return { action: null, text: fixBlock };
 	if (!canMerge) return { action: null, text: MERGE_NEEDS_CAPABILITY_TEXT };
 	if (detail.draft) return { action: 'draft', text: MERGE_DRAFT_TEXT };
 	return {
@@ -400,10 +468,12 @@ export interface ReadyBar {
  * are told why they cannot. Nothing for a change that is not an open draft.
  */
 export function readyBar(
-	detail: Pick<ChangeDetail, 'draft' | 'state'>,
+	detail: Pick<ChangeDetail, 'draft' | 'state'> & { fixRun?: ChangeFixRun | null },
 	canMerge: boolean,
 ): ReadyBar | null {
 	if (detail.state !== 'open' || !detail.draft) return null;
+	const fixBlock = fixDecisionBlock(detail);
+	if (fixBlock) return { action: null, text: fixBlock };
 	if (!canMerge) return { action: null, text: READY_NEEDS_CAPABILITY_TEXT };
 	return {
 		action: 'ready',

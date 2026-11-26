@@ -2,7 +2,7 @@
 
 > Status: **planned 2026-11-16; built 2026-11-17 (in review)** after the owner gave the original
 > source and chose §3 b option 3; **§5 built 2026-11-24 (in review)**; **§3's device and room on
-> one level built 2026-11-25 (in review)**. State: [status/salmons](../status/salmons.md). Agent:
+> one level built 2026-11-25 (in review)**; **§6 built 2026-11-26 (in review)**. State: [status/salmons](../status/salmons.md). Agent:
 > `arcade-games`.
 
 **Owner report (2026-11-16):** the original game generated each level from an algorithm; the
@@ -344,3 +344,129 @@ the water. The course's `edge` now takes the outermost of the column's and its n
   water and hide the near bank.
 - `count`'s columns are evenly spread, not authored; an overlay can still add or remove a
   waterfall.
+
+## 6. Every generator setting, and authored biomes (built 2026-11-26)
+
+Owner (2026-11-26): "I would like to have more control over the level generation, so I can
+control all of its parameters. also I would like a way to be able to control and author the
+change in biome that happen in the level, right now all of that seems to be hardcoded". Same day,
+through the coordinating session: biomes also set obstacle density (built, not a proposal), and
+the biome strip shows each biome's colours.
+
+**`levels.generator`: every number that shapes a level.** `salmonsMap.js` `SALMONS_GENERATOR`
+holds 58 settings whose defaults are the values the code held as constants (`SALMONS_MAP`,
+`COURSE`, `SOURCE_ROWS`, `SEA_ROWS`, `BANK_CELLS`, `WHIRLPOOL_R`, `CATCHER_SPAWN`,
+`SALMON_SPREAD`, and the literals inside `generateSalmonsMap`: the sand's 0.7, 0.28, 4 passes, 3 /
+4 neighbours, the pieces' column 20, 0.3, 0.2, the bridges' column 25 and gap 5, the waterfalls'
+21 / 40 and 4-cell drop). `SALMONS_GENERATOR_LIMITS` bounds each, `SALMONS_GENERATOR_WHOLE`
+names the whole ones and `SALMONS_GENERATOR_PAIRS` the least / most pairs (swapped when the wrong
+way round). Game Config re-exports the same tables (`LEVELS_GENERATOR_*`): one source.
+`generatorParams` makes a whole set (clamped); every generator function takes it through the
+shape (`shape.generator`), and with no block it is the defaults, so the arithmetic is the
+original's to the bit. The river's half widths are 2 at the least (five cells of water), and a
+generated rock is drawn smaller where it would leave less than two cells (`ROCK_PASS`) on its
+wider side; Game Config warns when the rock or the whirlpool reaches the narrowest water less a
+cell. The original's rocks are never held. Groups: river (length, source and mouth half widths, delta start and
+flare, meander), sand (start, end gap, seed share, passes, birth, survival, margin), rocks and
+whirlpools (first column, chance, whirlpools' share, margin, rock size, whirlpool radius),
+waterfalls (first column, spacing, clearance, height drop; count and heights stay in
+`levels.waterfalls`), bridges (most, height, first column, from a fall, apart, above the sand),
+winding course (straight runs, end of the bends, reach clamps and widths, wander, bend and quiet
+shares, first bends, falloff), world (rows above the source and of sea, bank cells), spawns
+(salmon line and spread, catcher places, tries, ends, past, spread, apart). `salmons.js` reads
+the river's length off the river (its sea row), not the constant.
+
+**Left out, and why.** `CURRENT_STRENGTH`: a speed the movement step pushes a body at (72 px/s
+from 1.5 cells), not where anything is; it belongs with the speeds, which stay the rules'. A
+waterfall's thickness (`FALL_H`) and the bank limit (`COURSE.bankReach`, tied to
+`SALMONS_BOUNDS.bank`) are the rules' bounds. `SEA_LENGTH` moves no cell of a map (only the
+meander table's length). The course's sampling step is arithmetic.
+
+**`levels.biomes`: authored biomes** (`engine-mechanics` `salmonsBiomes.js`).
+`{ kinds?, cycle?, sequences? }`.
+- A kind: `id` (`[a-z0-9_-]`, 1–32), `name?`, its look (`trees` 0–5, `treeChance` 0–1, `grass`
+  0–12 and `forest` 0–24 cells, `grassTint`, `forestFloor`, `riverbed` 1–9 colours, `#rrggbb`)
+  and its play (`rocks`, `whirlpools`, `sand` 0–3 as multiples of the generator's density,
+  `waterfalls` 0–1 the share kept, `bridges` true / false). A field left out takes the built-in
+  kind of that id's, or for a new id the original's look and densities of 1. Up to 16 kinds.
+- `kinds` absent: the six built-in kinds `forest1`…`forest6`, the old `BIOME_TREE_PAIRS`.
+- A sequence, `[{ from, biome }]` by river column from the source (0–800, up to 64 entries),
+  keyed by seed or `'*'` as overlays are. A seed's own sequence wins whole (it is not merged with
+  `'*'`'s). Columns above the first entry are the first's. No sequence: the kinds take turns every
+  `cycle` columns (1–400, default 35), which with the built-in six is exactly the old cycle.
+- **Gameplay.** A column's rock-or-whirlpool chance is `obstacleChance · ((1 − share) · rocks +
+  share · whirlpools)`, at most 1, and the whirlpool share of it follows the two densities; a
+  delta cell's sand seed is `sandSeed · sand`. While every kind keeps both piece densities at 1,
+  the original's one stream draws the pieces, so the level is the original's. Once any kind
+  changes them, each column draws its pieces from its own stream (`<seed>_pieces_<gx>`), so
+  tuning one stretch leaves every other stretch's pieces where they were (a sand cell always
+  takes one draw, so sand was already local, bar the islands' growth across a boundary). A
+  stretch's `bridges: false` still reshuffles which columns the bridges take. A stretch keeps
+  `waterfalls` of its own
+  waterfalls, spread evenly with no random draw, and the winding course straightens around the
+  same columns. `bridges: false` takes its columns out of the bridges' candidates.
+- **Orphans.** A run of stretches of one kind that asks for more of a piece than the generator's
+  where the level lays none (`no-room`: rocks or whirlpools in the delta, sand above it), where
+  the generator's own settings lay none (`generator-off`: `obstacleChance` 0, a whirlpool share
+  of 0 or 1, `sandSeed` 0), or for more than every column or cell (`capped`: chance held at 1) is
+  told once in the level's `orphans` as `{ op: 'biome', biome, kind, rows, reason }`, listed in
+  amber with the overlay's. Nothing is dropped.
+- **Art.** `salmonsArt/river.ts` draws each row by its column's kind: trees picked from its list
+  (one draw, as before), lone-tree chance, grass strip and forest wall, grass tint, riverbed sands,
+  and its forest floor (a strip per stretch in the ground layer, cut at each waterfall's line and
+  raised with it). With no block nothing of that is made: the river is drawn piece for piece as
+  before. The `/editor` stage marks each stretch's floor down both edges of the placeholder river.
+- **With the trees' art.** Zone art's `@trees` ([zone-art](zone-art.md) "Scenery keys") supplies
+  the trees' pictures; the biome still picks the variant. On a level with authored biomes a tree
+  whose biome picked variant `v` draws picture `v` of the `@trees` source and its variants, round
+  again past the last (three pictures: variants 0 and 3 draw the source, 1 and 4 the first
+  variant, 2 and 5 the second), so `trees: [1]` grows only the first variant's picture. Without
+  biomes the seed and the tree's cell pick, as before. Either way every seeded draw is kept.
+
+**One resolution everywhere.** `levelShape(levels, seed)` resolves both blocks;
+`salmonsMapRiver` carries the seed's biomes on the river (`biomes`, present only when authored)
+for the art; `seedLevels` says them (`generator` whole, `biomes` with the seed's sequence under
+`'*'`), so a room tells its devices and a device adopts them (§3; `differs` names `generator` and
+`biomes` too). Game Config carries both blocks as it carries `river` and `waterfalls`
+(`normalizeLevelsShape`, `withLevelsShape`, `shapedOnlineGame`; not normalized into every
+runtime's doc), and warns at save of a value out of range, a pair the wrong way, an unknown
+setting, a biome without an id and a sequence entry naming no biome (`validateLevelsShape`).
+
+**`/editor`.** Below the Generated level card: **River shape** (with the Winding river tick and
+its three numbers), **Course**, **Waterfalls** (count and heights first), **Rocks and
+whirlpools**, **Bridges**, **Sea and delta**, **Spawns** (`EditorLevelGenerator.svelte`, from
+`generatedLevelParams.ts`), each setting a slider and a field with its help in an InfoTip and a
+reset once set, each card a reset for its group; and **Biomes** (`EditorLevelBiomes.svelte`,
+`generatedLevelBiomes.ts`): an Authored biomes tick (the built-in six, as none), the sequence's
+scope (every level / this seed), a strip from the source to the sea painting each stretch in its
+grass, floor and riverbed with its name on a chip in ink chosen for its floor, draggable (and
+arrow-key) boundaries, the sand's start marked; the stretch's biome, start, Split and remove; or,
+with no sequence, the cycle and Lay out; the list of kinds (swatch, name, up, down, remove, Add
+biome) and the selected kind's look and densities. Every change redraws the stage (once a frame
+at most); Save levels writes only `levels`, conditional on its ETag, as before.
+
+**Shipping (rule 8).** Both blocks are part of the Game Config: no asset class. The game server
+(`configSource.ts`), a device (`online.ts`) and `/editor` read the raw config's levels through the
+same carry and hand them to the same `ONLINE_GENERATORS.salmonsMap.make(seed, levels)`.
+
+**Proof.** `check:salmons-levels` (27 checks): every default is the original's (the recorded maps
+of seven seeds do not move with an empty or a full `generator`, or a `biomes` block of looks
+alone; the shipped winding river neither); authored settings take effect and are deterministic,
+are held to their limits, and make a whole level at both corners of the limits; the default
+biomes are the old six-pair cycle every 35 columns over columns −120 to 700, with the old floor,
+riverbed, chance, grass and forest; densities act per stretch (rocks, whirlpools, sand,
+waterfalls, bridges) and densities of 1 move nothing; orphans; a room, a device and `/editor` make
+the same level and biomes, and what a room says makes the same level again; tuning one stretch's densities leaves
+every other stretch's pieces unchanged; a rock always leaves two cells to pass; a level at every
+upper limit plays in a room; `generator-off` and one orphan per run. `check:room-levels`
+(16): a tuned and a biomed config join the device × room matrix (324 decisions), the device draws
+the room's biomes, and a room plays and says the stored settings. `check:salmons-art` (37): the
+river drawn in Node, piece for piece (`scripts/salmons/art-fingerprint.mjs`), equals hashes taken
+from main `a404522` for four rivers; the built-in six as a block draw the same but their floor;
+an authored stretch draws its trees, floor, grass tint and riverbed. Launcher
+`check:editor-level-generator` (6): the cards' pure edits.
+
+**Left open.**
+- The biome strip shows no waterfalls or pieces; the stage does.
+- A biome's look shows in a room only (the editor stage is placeholders, now with each stretch's
+  floor down its edges).

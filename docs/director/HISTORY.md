@@ -15,6 +15,29 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-26 · Phase 11 · director-backend + director-frontend (14B built)
+- Did: a build run must explain its change (`changed`, `howToCheck`, `risks`) or it ends `no_fix`
+  and opens nothing; the fix PR body is fixed plain headings (what you reported, what was wrong,
+  the option you chose, what changed, what else was possible, how to check it, risks). Mark ready
+  and merge refuse a fix-run change (`fix_decision_mismatch`) unless the bug's newest decision
+  names this build and no newer diagnosis replaced it, read from the DB. Pipeline Changes shows a
+  "What you're approving" card on a fix-run change, the refusal sentence on its bars, and a
+  "fix run · BUG-n" tag in the list. `bug-fix.yml` gains a `mode` input; runs are named
+  `Fix run <id> · diagnose|build`, checked against the brief.
+- Files: migration `0049_fix_run_explanation.sql`; `bugFixRuns*.ts`, `pipelineChanges.ts`,
+  `pipelineMerge.ts`; `.github/workflows/bug-fix.yml`, `scripts/bug-fix/{collect,prove-cli,
+  workflow.fixture}.mjs`, `coordinator.md`; `routes/(app)/pipeline/{view.ts,ChangeDetailPanel,
+  +page}.svelte`; docs `pipeline-changes.md`, `pipeline-bugs.md`, `bug-reports.md`, `INFRA.md`.
+- Branch / PR: `claude/focused-hopper-nnfkz5`, #1923.
+- Tests: `check:bug-fix-runs` 172, `check:pipeline-changes` 7976, `check:bug-reports` 144,
+  `check:bug-fix-workflow` (55 rules, 252 + 10 mutants), `check:svelte` launcher at baseline 44,
+  `pnpm lint`, `check:undefined-names`, `check:migration-order`. The CLI proof first failed in
+  CI (`prove-cli.mjs` had no value for `inputs.mode`), fixed in f3538fcd9. The card was
+  type-checked, not rendered (no local DB).
+- Decisions: the run's free-text `summary` left the PR body (it stays on the bug page). The list
+  tag reads the branch name only; the detail card and the merge gate check the run owns the PR.
+- Next: the owner merges #1923; a live Diagnose → Build on the slow-phone bug (14C).
+
 ## 2026-11-26 · Phase 11 · director-backend + director-frontend (14A built)
 - Did: fix runs now diagnose first. Start fix (now **Diagnose**) changes no file and reports the
   cause, 1–4 options and a recommendation; a person picks one and **Build** starts a run pinned to

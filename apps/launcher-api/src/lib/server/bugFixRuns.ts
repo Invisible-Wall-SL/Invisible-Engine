@@ -15,7 +15,7 @@ import {
 	buildRefusal,
 	capReason,
 	fixRunBranch,
-	fixRunName,
+	isFixRunTitle,
 	fixRunView,
 	isFixRunOutcome,
 	isLiveFixRun,
@@ -26,6 +26,7 @@ import {
 	type BuildParent,
 	type FixRunChoice,
 	type FixRunDiagnosis,
+	type FixRunExplanation,
 	type FixRunFile,
 	type FixRunMode,
 	type FixRunOutcome,
@@ -63,8 +64,10 @@ import {
 	cleanPerson,
 	cleanResult,
 	cleanText,
+	decisionProblem,
 	diagnosisIsWhole,
 	diagnosisProblem,
+	isExplained,
 	localProblem,
 	privateNames,
 	publication,
@@ -73,6 +76,7 @@ import {
 	withModes,
 	type BaseEntry,
 	type BaseTree,
+	type Decision,
 	type FixRunText,
 	type ParsedResult,
 } from './bugFixRunsChange';
@@ -414,7 +418,7 @@ export async function stopFixRun(
 		await cancelActionsRun(app, stopped.ghRunId).catch(() => undefined);
 	} else if (stopped.ghRunId === null) {
 		// Never bound: its Actions run may still have started, under its run-name.
-		await cancelListedRun(app, id).catch(() => undefined);
+		await cancelListedRun(app, id, run.mode).catch(() => undefined);
 	}
 	return viewOf(access, stopped);
 }
@@ -518,7 +522,7 @@ async function jobRun(request: Request, id: string, deps: FixRunJobDeps): Promis
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
 	}
-	if (!gh || gh.display_title !== fixRunName(run.id) || !isWorkflowPath(gh.path)) {
+	if (!gh || !isFixRunTitle(gh.display_title, run.id, run.mode) || !isWorkflowPath(gh.path)) {
 		throw wrongClaim('run_id');
 	}
 	if ((await bindFixRun(run.id, ghRunId)) === 'taken') throw wrongClaim('run_id');
@@ -830,6 +834,9 @@ const FIELD_CAPS = {
 	scope: TEXT_CAPS.scope,
 	summary: TEXT_CAPS.summary,
 	lesson: TEXT_CAPS.lesson,
+	changed: TEXT_CAPS.explanation,
+	howToCheck: TEXT_CAPS.explanation,
+	risks: TEXT_CAPS.explanation,
 } as const;
 
 const optionalText = (body: Record<string, unknown>, key: keyof typeof FIELD_CAPS): string =>
@@ -892,6 +899,11 @@ function parseResult(body: Record<string, unknown>, mode: FixRunMode): ParsedRes
 		scope: optionalText(body, 'scope'),
 		summary: optionalText(body, 'summary'),
 		lesson: optionalText(body, 'lesson'),
+		explanation: {
+			changed: optionalText(body, 'changed'),
+			howToCheck: optionalText(body, 'howToCheck'),
+			risks: optionalText(body, 'risks'),
+		},
 		gates,
 		secondBug,
 		diagnosis: body.diagnosis,
@@ -1104,6 +1116,7 @@ async function openFix(
 interface Done {
 	outcome?: FixRunOutcome;
 	summary?: string;
+	explanation?: FixRunExplanation;
 	secondBug?: FixRunSecondBug | null;
 }
 
@@ -1270,6 +1283,13 @@ async function settleDiagnosis(
 	);
 }
 
+/** What a build was built from: its chosen option and its parent's diagnosis; null for a legacy row. */
+async function decisionOf(run: BugFixRun): Promise<Decision | null> {
+	if (!run.chosenOption || !run.parentRunId) return null;
+	const parent = await getFixRun(run.parentRunId);
+	return parent?.diagnosis ? { choice: run.chosenOption, diagnosis: parent.diagnosis } : null;
+}
+
 async function settleChange(
 	io: Io,
 	run: BugFixRun,
@@ -1277,7 +1297,12 @@ async function settleChange(
 	text: FixRunText,
 ): Promise<BugFixRun | null> {
 	const outcome = r.outcome as FixRunOutcome;
-	const done: Done = { outcome, summary: text.summary, secondBug: text.secondBug };
+	const done: Done = {
+		outcome,
+		summary: text.summary,
+		secondBug: text.secondBug,
+		explanation: text.explanation,
+	};
 	const noFix: NoFix = (end) =>
 		settleFixRun(
 			run.id,
@@ -1288,6 +1313,11 @@ async function settleChange(
 	if (run.mode === 'diagnose') return settleDiagnosis(io, run, r, text, noFix);
 	if (outcome === 'not_reproduced' || outcome === 'needs_person') return noFix({ outcome });
 	if (outcome === 'second_area' && !r.files.length) return noFix({ outcome });
+	const decision = await decisionOf(run);
+	if (!decision) return noFix({ outcome: 'needs_person', reason: FIX_RUN_REASONS.noDecision });
+	if (!isExplained(text.explanation)) {
+		return noFix({ outcome: 'needs_person', reason: FIX_RUN_REASONS.noExplanation });
+	}
 	const full = await getBugFull(run.bugNumber);
 	if (!full) return null;
 	if (full.bug.status === 'resolved' || full.bug.status === 'wontFix') {
@@ -1297,15 +1327,10 @@ async function settleChange(
 	const branch = fixRunBranch(number, run.id);
 	const scope = r.scope.trim().toLowerCase();
 	const refused = (rule: string) => noFix({ outcome: 'needs_person', reason: refusedChange(rule) });
-	const local = localProblem({
-		baseSha: run.baseSha,
-		number,
-		branch,
-		result: r,
-		text,
-		scope,
-		names: await namesOf(full.bug.projectKey),
-	});
+	const names = await namesOf(full.bug.projectKey);
+	const local =
+		localProblem({ baseSha: run.baseSha, number, branch, result: r, text, scope, names }) ??
+		decisionProblem(decision, names);
 	if (local) return refused(local);
 	const base = await readBase(io.app, run.baseSha);
 	await renew(io);
@@ -1318,6 +1343,7 @@ async function settleChange(
 		runId: run.id,
 		scope,
 		text,
+		decision,
 		person: cleanPerson(await accountName(run.startedById)),
 		actionsUrl: run.ghRunId === null ? null : actionsRunUrl(run.ghRunId),
 	});

@@ -33,7 +33,7 @@
  */
 
 import { createRng } from './board.js';
-import { CELL, SALMONS_MAP } from './salmonsMap.js';
+import { CELL } from './salmonsMap.js';
 import { BRIDGE_SLOPE } from './salmonsRules.js';
 
 /** The river the authored config and layout are made from (a room plays its own). */
@@ -352,11 +352,13 @@ function originalBounds(river, zones, rules) {
 		);
 	});
 	const { sourceRows } = river.grid;
+	// The river's columns, from its sea (`levels.generator.riverLength` may shorten or lengthen it).
+	const riverRows = Math.round(river.sea.y / CELL) - sourceRows;
 	const rowCentre = (gx) => (gx + sourceRows) * CELL + CELL / 2;
 	for (const character of ['bear', 'fisherman']) {
 		const half = halfOf(BODIES[character]);
 		const top = rowCentre(B.ends) - half.y;
-		const bottom = rowCentre(SALMONS_MAP.RIVER_LENGTH - B.ends) + half.y;
+		const bottom = rowCentre(riverRows - B.ends) + half.y;
 		solid(`source${character}`, { x: 0, y: 0, w: worldW, h: top }, [character]);
 		solid(`sea${character}`, { x: 0, y: bottom, w: worldW, h: worldH - bottom }, [character]);
 	}
