@@ -18,6 +18,12 @@ import type { ArtMount } from '../arcadeArt.svelte';
  * Drawn in screen px over the whole canvas, in place of the win screen's node
  * (`referenceLayouts/salmonsScreens.ts`); the button calls `onNext` at once and reads "Joining…"
  * from then on, and the fish swims off while the device does what it asked.
+ *
+ * THE NEXT GAME BY ITSELF (owner, 2026-11-26: "it should starts automatically"): on a device that
+ * played the round (`WinShown.count`), "Next game in N" counts {@link NEXT_GAME_SECONDS} over the
+ * button and does what the button does at 0. It counts only for someone watching: not on a hidden
+ * page, and a page hidden once while it counts, or the screen taken away, stops it for good; the
+ * button then waits for its press, as it always did.
  */
 
 /** The original's pixel font; a device without it falls back to its monospace. */
@@ -80,12 +86,28 @@ export function pixelButton(label: string, onTap: () => void, fontSize = 16): Pi
 	};
 }
 
-/** Who won the round, and whether it is this device's player. */
-export type WinShown = { winner: string; won: boolean };
+/** Who won the round, whether it is this device's player, and whether the next game starts by
+ *  itself (the device played the round). */
+export type WinShown = { winner: string; won: boolean; count: boolean };
+
+/** How long the win screen counts before it joins the next game by itself, s. */
+export const NEXT_GAME_SECONDS = 10;
+
+/** Whether a container is drawn: it and every parent visible (its screen is shown). */
+export const onScreen = (view: Container) => {
+	for (let at: Container | null = view; at; at = at.parent) if (!at.visible) return false;
+	return true;
+};
+
+/** Whether the page is in view (a page with no document, as in a gate, is). */
+const pageShown = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
 
 /** What the button that leaves for a new river says. */
 const labelOf = (shown: WinShown | undefined) =>
 	shown?.won ? 'Join New Game' : 'Start New Session';
+
+/** A box on the canvas, px. */
+type Box = { x: number; y: number; w: number; h: number };
 
 export type WinAnimation = {
 	mount: ArtMount;
@@ -100,6 +122,15 @@ export type WinAnimation = {
 		/** What the button says now. */
 		label: string;
 		button: { x: number; y: number } | undefined;
+		/** The seconds "Next game in" shows, `null` when it does not count. */
+		next: number | null;
+		/** Why the count is not running: it was never asked for, it is still to start (the screen
+		 *  not up yet), it was stopped (a hidden page, the screen taken away), or it has run out
+		 *  or the button was pressed. */
+		count: 'off' | 'pending' | 'running' | 'stopped' | 'done';
+		/** Where the title, the subtitle, the button and "Next game in" are drawn, each one's box on
+		 *  the canvas while it shows (the probe's). */
+		boxes: Partial<Record<'title' | 'subtitle' | 'button' | 'next', Box>>;
 	};
 	destroy: () => void;
 };
@@ -125,6 +156,8 @@ const EGG_COLOURS: readonly (readonly [number, number, number])[] = [
 const EXIT = { pxPerSecond: 1200 };
 /** What the button says from its press until the device has done what it asked. */
 const JOINING = 'Joining…';
+/** "Next game in N": its size, colour and gap over the button, px. */
+const NEXT = { fontSize: 14, fill: 0xffffff, gap: 16 };
 
 type Egg = {
 	sprite: Sprite;
@@ -193,6 +226,17 @@ function collideEggs(eggs: Egg[]) {
 	}
 }
 
+/** A view's box on the canvas, whole px. */
+const boxOf = (view: Container): Box => {
+	const box = view.getBounds();
+	return {
+		x: Math.round(box.x),
+		y: Math.round(box.y),
+		w: Math.round(box.width),
+		h: Math.round(box.height),
+	};
+};
+
 export function createWinAnimation(
 	fish: { golden: Texture; pink: Texture },
 	onNext: () => void,
@@ -209,6 +253,7 @@ export function createWinAnimation(
 				title: Text;
 				subtitle: Text | undefined;
 				button: PixelButton;
+				next: Text;
 				eggs: Container;
 				size: { w: number; h: number };
 				fishScale: number;
@@ -220,6 +265,24 @@ export function createWinAnimation(
 	let eggTextures: Texture[] = [];
 	let lastEggAt = -Infinity;
 	let exitAt: number | undefined;
+	let count: ReturnType<WinAnimation['drawn']>['count'] = 'off';
+	let countFrom = 0;
+
+	const press = () => {
+		if (exitAt !== undefined) return;
+		exitAt = clock;
+		if (count !== 'off') count = 'done';
+		built?.button.relabel(JOINING);
+		onNext();
+	};
+	const onVisibility = () => {
+		if (!pageShown() && (count === 'pending' || count === 'running')) count = 'stopped';
+	};
+	const watchPage = (on: boolean) => {
+		if (typeof document === 'undefined') return;
+		if (on) document.addEventListener('visibilitychange', onVisibility);
+		else document.removeEventListener('visibilitychange', onVisibility);
+	};
 
 	const clear = () => {
 		for (const egg of eggs) egg.sprite.destroy();
@@ -229,6 +292,7 @@ export function createWinAnimation(
 		built?.title.destroy();
 		built?.subtitle?.destroy();
 		built?.button.destroy();
+		built?.next.destroy();
 		built?.eggs.destroy();
 		built = undefined;
 	};
@@ -273,23 +337,32 @@ export function createWinAnimation(
 				});
 		subtitle?.anchor.set(0.5, 0);
 		subtitle?.position.set(w / 2, title.y + 14);
-		const button = pixelButton(labelOf(won), () => {
-			if (exitAt !== undefined) return;
-			exitAt = clock;
-			button.relabel(JOINING);
-			onNext();
-		});
+		const button = pixelButton(labelOf(won), press);
 		// Built again (the window changed) after the press: it is still joining.
 		if (exitAt !== undefined) button.relabel(JOINING);
 		button.view.position.set(portrait ? w / 2 : 40 + button.width / 2, h - 80 + button.height / 2);
+		const next = new Text({
+			text: '',
+			style: {
+				fontFamily: PIXEL_FONT,
+				fontSize: NEXT.fontSize,
+				fill: NEXT.fill,
+				align: 'center',
+				stroke: { color: 0x000000, width: 4 },
+			},
+		});
+		next.anchor.set(0.5, 1);
+		next.position.set(Math.round(button.view.x), button.view.y - button.height / 2 - NEXT.gap);
+		next.visible = false;
 		const layer = new Container();
-		root.addChild(overlay, layer, big, title, ...(subtitle ? [subtitle] : []), button.view);
+		root.addChild(overlay, layer, big, title, ...(subtitle ? [subtitle] : []), button.view, next);
 		built = {
 			overlay,
 			fish: big,
 			title,
 			subtitle,
 			button,
+			next,
 			eggs: layer,
 			size: { w, h },
 			fishScale,
@@ -354,6 +427,19 @@ export function createWinAnimation(
 		for (const egg of eggs) egg.sprite.position.set(egg.x, egg.y);
 	};
 
+	/** Run the count once the screen is up; at 0 do what the button does. */
+	const countDown = (b: NonNullable<typeof built>) => {
+		if (count === 'pending' && onScreen(root)) {
+			count = 'running';
+			countFrom = clock;
+		}
+		if (count === 'running' && (!onScreen(root) || !pageShown())) count = 'stopped';
+		const leftMs = NEXT_GAME_SECONDS * 1000 - (clock - countFrom);
+		if (count === 'running' && leftMs <= 0) press();
+		b.next.visible = count === 'running';
+		if (count === 'running') b.next.text = `Next game in ${Math.ceil(leftMs / 1000)}`;
+	};
+
 	const tick = (ticker: Ticker) => {
 		const dtMs = Math.min(50, ticker.deltaMS);
 		clock += dtMs;
@@ -364,6 +450,7 @@ export function createWinAnimation(
 		if (!built || built.size.w !== w || built.size.h !== h) build(shown, w, h);
 		const b = built;
 		if (!b) return;
+		countDown(b);
 		const dt = dtMs / 1000;
 		if (exitAt !== undefined) {
 			b.fish.x += EXIT.pxPerSecond * dt;
@@ -391,8 +478,10 @@ export function createWinAnimation(
 			app = pixi;
 			into.addChild(root);
 			pixi.ticker.add(tick);
+			watchPage(true);
 			return () => {
 				stop();
+				watchPage(false);
 				into.removeChild(root);
 			};
 		},
@@ -403,6 +492,7 @@ export function createWinAnimation(
 			since = clock;
 			lastEggAt = -Infinity;
 			exitAt = undefined;
+			count = next?.count ? (pageShown() ? 'pending' : 'stopped') : 'off';
 		},
 		drawn: () => ({
 			shown: built !== undefined,
@@ -414,9 +504,23 @@ export function createWinAnimation(
 				x: Math.round(built.button.view.toGlobal({ x: 0, y: 0 }).x),
 				y: Math.round(built.button.view.toGlobal({ x: 0, y: 0 }).y),
 			},
+			next:
+				built && count === 'running'
+					? Math.ceil((NEXT_GAME_SECONDS * 1000 - (clock - countFrom)) / 1000)
+					: null,
+			count,
+			boxes: built
+				? {
+						title: boxOf(built.title),
+						...(built.subtitle ? { subtitle: boxOf(built.subtitle) } : {}),
+						button: boxOf(built.button.view),
+						...(built.next.visible ? { next: boxOf(built.next) } : {}),
+					}
+				: {},
 		}),
 		destroy: () => {
 			stop();
+			watchPage(false);
 			clear();
 			for (const texture of eggTextures) texture.destroy(true);
 			eggTextures = [];

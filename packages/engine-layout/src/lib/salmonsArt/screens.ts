@@ -5,11 +5,13 @@ import {
 	LOADING_PHRASES,
 	LOADING_PHRASE_MS,
 	riverNameFor,
+	SALMONS_CLOCK_URGENT,
 	SALMONS_RESPAWN_CHARACTERS,
 	SALMONS_SCREEN_ART,
 } from '../referenceLayouts/salmonsScreens';
 import {
 	createWinAnimation,
+	onScreen,
 	PIXEL_FONT,
 	pixelButton,
 	type PixelButton,
@@ -21,7 +23,7 @@ import {
  * (`GuiltyForever/Salmon-` `client/src/components/*.svelte`, `client/style.css`), each in place of
  * its node on a screen the Flow shows (`referenceLayouts/salmonsScreens.ts`): the win animation,
  * the death screen (with what to respawn as, owner decision 4), the lobby's note (with what to
- * play as, owner 2026-11-25) and the loading phrases. The runtime says what each shows (`show`),
+ * play as, owner 2026-11-25), the lobby's clock and the loading phrases. The runtime says what each shows (`show`),
  * and does what their buttons ask through its {@link SalmonsScreenHost}: nothing here talks to the
  * room. The start menu is not one of them: it comes before the join, over the page
  * (`startMenu.ts`).
@@ -61,18 +63,14 @@ export type SalmonsScreens = {
 	/** The room refused the Respawn (the class picked is full): the death screen says so. */
 	refused: () => void;
 	lobby: (shown: LobbyShown | undefined) => void;
+	/** The whole seconds to round 1 on the lobby's clock, `undefined` when none runs. */
+	clock: (seconds: number | undefined) => void;
 	/** Whether a press at a point of the canvas is given to a button a screen offers over the game
 	 *  in play (the lobby's classes): that press is the screen's, not the game's. */
 	takes: (x: number, y: number) => boolean;
 	/** What each draws now (the probe's). */
 	drawn: () => Record<string, unknown>;
 	destroy: () => void;
-};
-
-/** Whether a container is drawn: it and every parent visible (its screen is shown). */
-const onScreen = (view: Container) => {
-	for (let at: Container | null = view; at; at = at.parent) if (!at.visible) return false;
-	return true;
 };
 
 /** A part drawn into the node's place with its own frame clock; `tick` gets ms and the canvas
@@ -456,6 +454,75 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 	};
 }
 
+/** The lobby's clock: its middle under the canvas's (the published node's place), its size, and
+ *  in its last {@link SALMONS_CLOCK_URGENT} seconds its red, how much a new second grows it and
+ *  how fast that eases back, and how long of each second it is drawn faint. */
+const CLOCK = {
+	y: 250,
+	fontSize: 36,
+	fill: 0xffffff,
+	urgent: 0xff3333,
+	pulse: 0.45,
+	pulseMs: 450,
+	blinkFrom: 650,
+	faint: 0.45,
+};
+
+/**
+ * The lobby's clock (owner, 2026-11-26: "have the all countdown showing up, and just blink in red
+ * with a pulse the last 10 seconds"): the seconds the room says are left to round 1, still and
+ * white, then red, each new second growing it and easing back, drawn faint for the end of each.
+ * The second's beat is the number's own change (the room's clock), timed on the frames.
+ */
+function createLobbyClock() {
+	const root = new Container();
+	const number = noteLine(CLOCK.fontSize, CLOCK.fill);
+	number.anchor.set(0.5);
+	root.addChild(number);
+	let seconds: number | undefined;
+	let clock = 0;
+	let changedAt = 0;
+	const urgent = () => seconds !== undefined && seconds <= SALMONS_CLOCK_URGENT;
+	const part = screenPart(root, (dtMs, w, h) => {
+		clock += dtMs;
+		root.visible = seconds !== undefined;
+		if (seconds === undefined) return;
+		const age = clock - changedAt;
+		const beat = Math.max(0, 1 - age / CLOCK.pulseMs);
+		number.scale.set(urgent() ? 1 + CLOCK.pulse * beat * beat : 1);
+		number.alpha = urgent() && age >= CLOCK.blinkFrom ? CLOCK.faint : 1;
+		number.tint = urgent() ? CLOCK.urgent : CLOCK.fill;
+		// On whole px at its own size (an odd width centred by its anchor is drawn half a px off).
+		const width = number.width / number.scale.x;
+		const height = number.height / number.scale.y;
+		number.position.set(
+			Math.round(w / 2 - width / 2) + width / 2,
+			Math.round(h / 2 + CLOCK.y - height / 2) + height / 2,
+		);
+	});
+	return {
+		mount: part.mount,
+		show: (next: number | undefined) => {
+			const now = next !== undefined && next > 0 ? next : undefined;
+			if (now === seconds) return;
+			seconds = now;
+			changedAt = clock;
+			if (now !== undefined) number.text = String(now);
+		},
+		drawn: () => ({
+			seconds: seconds ?? null,
+			urgent: urgent(),
+			shown: seconds !== undefined && onScreen(root),
+			scale: Math.round(number.scale.x * 100) / 100,
+			tint: number.tint,
+		}),
+		destroy: () => {
+			part.stop();
+			root.destroy({ children: true });
+		},
+	};
+}
+
 /** The loading screen's phrase (`LoadingScreen.svelte`): a new one every 1.6 s, faded over 0.25 s. */
 function createLoadingPhrases() {
 	const root = new Container();
@@ -497,6 +564,7 @@ export function createSalmonsScreens(
 	const won = createWinAnimation(fish, () => host.rejoin());
 	const caught = createCaughtScreen(host.respawn);
 	const lobby = createLobbyNote(host.rivers, host.pick);
+	const clock = createLobbyClock();
 	const phrases = createLoadingPhrases();
 	return {
 		mounts: new Map([
@@ -504,22 +572,26 @@ export function createSalmonsScreens(
 			[SALMONS_SCREEN_ART.caught, caught.mount],
 			[SALMONS_SCREEN_ART.lobby, lobby.mount],
 			[SALMONS_SCREEN_ART.phrases, phrases.mount],
+			[SALMONS_SCREEN_ART.clock, clock.mount],
 		]),
 		won: won.show,
 		caught: caught.show,
 		refused: caught.refused,
 		lobby: lobby.show,
+		clock: clock.show,
 		takes: lobby.takes,
 		drawn: () => ({
 			won: won.drawn(),
 			caught: caught.drawn(),
 			lobby: lobby.drawn(),
+			clock: clock.drawn(),
 			phrases: phrases.drawn(),
 		}),
 		destroy: () => {
 			won.destroy();
 			caught.destroy();
 			lobby.destroy();
+			clock.destroy();
 			phrases.destroy();
 		},
 	};
