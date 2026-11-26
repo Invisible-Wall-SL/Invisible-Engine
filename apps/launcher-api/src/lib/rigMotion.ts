@@ -1664,6 +1664,7 @@ export function solveMotion(
 		const s3 = solveBones3d(tpl, given3d, track, times, {
 			neutral: opts.neutral,
 			trace: opts.trace,
+			headGain: opts.gain?.head ?? 1,
 			follow:
 				opts.follow && fm
 					? { ...opts.follow, rootScale: rootScales(tpl.channels, keys, times, fm.root.bone) }
