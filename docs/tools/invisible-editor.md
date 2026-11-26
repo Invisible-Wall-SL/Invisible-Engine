@@ -473,10 +473,12 @@ and riverbed, and lay their own share of rocks, whirlpools, sand, waterfalls and
   (multiples of the generator's own density), **Waterfalls kept** (the share of its stretch's
   waterfalls it keeps) and **Bridges may cross it**.
 
-Densities change where the pieces land, so the stage moves with them. A stretch that asks for a
-piece where the level lays none (rocks in the delta, sand above it), or for more than every place
-there, is listed in amber with the overlay orphans, under the Generated level card. Nothing is
-dropped. The stage shows each stretch's floor colour down both edges of the placeholder river; a
+Densities change where the pieces land, so the stage moves with them. Once any biome changes the
+rock or whirlpool density, each column draws its own pieces, so tuning one stretch leaves the
+others' pieces where they were. A stretch that asks for more of a piece where the level lays none
+(rocks in the delta, sand above it), where the generator's own settings lay none (a chance or share
+of 0), or for more than every place there, is listed in amber with the overlay orphans, under the
+Generated level card. Nothing is dropped. The stage shows each stretch's floor colour down both edges of the placeholder river; a
 biome's trees and colours show in a room only. The strip shows no waterfalls or pieces (the stage
 does).
 
