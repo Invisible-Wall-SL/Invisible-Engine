@@ -33,8 +33,9 @@ const MUTANTS = [
 	['an opacity change keys rgb too', 'if (part === "rgb" || part === "dark" || (!part && cs[light])){', 'if (true){'],
 	['the opacity slider says nothing changed but its alpha', 'hex2(parseInt(av.value, 10) / 100), "alpha");', 'hex2(parseInt(av.value, 10) / 100));'],
 	['a re-keyed eased key keeps its old handles', '    if (next && Array.isArray(key.curve)) refit(key, old, next, key, next);\n', ''],
-	['the panel reads a split slot’s opacity off its setup', '  if (slotSplitColour(slotName)) return rgbaToHex(splitColourAt(', '  if (false) return rgbaToHex(splitColourAt('],
-	['the Animate stage does not play split keys', '      if (ch.rgb || ch.rgb2 || ch.alpha){', '      if (false){'],
+	['the panel reads a slot’s colour off its setup', '  return cs ? rgbaToHex(clipColourAt(cs, hexToRGBA(slotSetupColour(slotName)), null, t).light) : slotSetupColour(slotName);', '  return slotSetupColour(slotName);'],
+	['the Animate stage does not play colour keys', '      if (ch.rgba || ch.rgba2 || ch.rgb || ch.rgb2 || ch.alpha){', '      if (false){'],
+	['the preview plays rgba last whatever the clip’s order', '  for (const [kind, keys] of Object.entries(ch)){', '  for (const [kind, keys] of Object.entries(ch).sort(([a], [b]) => (a === "rgba") - (b === "rgba"))){'],
 	['✕ does not see an alpha key', 'const colour = ["rgba", "rgba2", "rgb", "alpha", "rgb2"];', 'const colour = ["rgba", "rgba2"];'],
 	['a dark key on a split slot goes on rgba2', 'keySlotSplit(slotName, slotColorAt(slotName, animTime), "dark", darkHex.slice(0, 6));', 'keySlotRgba2(slotName, slotColorAt(slotName, animTime).slice(0, 8), darkHex.slice(0, 6));'],
 ];
@@ -234,6 +235,22 @@ async function suite(quiet) {
 		const p1 = await Promise.all(splits.map((n) => H(`played(${q(n)}, ${T})`)));
 		ok('and engine-rig plays them as before at the playhead', p1.every((p, i) => p.c.every((v, j) => near(v, p0[i].c[j]))), q({ p0, p1 }));
 		ok('no clip has a slot with both rgba and split colour keys it did not have', same(await H('mixed()'), mixed0), q(await H('mixed()')));
+	});
+	await step('5. a clip with rgba and split keys on one slot: the panel and the stage play them in its order, as engine-rig does', async () => {
+		const n = 'string_mask';
+		for (const [label, keys] of [
+			['alpha then rgba', { alpha: [{ time: T, value: 0.3 }], rgba: [{ time: T, color: 'ffffff99' }] }],
+			['rgba then alpha', { rgba: [{ time: T, color: 'ffffff99' }], alpha: [{ time: T, value: 0.3 }] }],
+		]) {
+			await evaluate(`historyStep(() => { rawDoc.animations[${q(CLIP)}].slots[${q(n)}] = ${q(keys)}; markDirty(); }); true`);
+			const played = (await H(`played(${q(n)}, ${T})`)).c[3];
+			await H(`open(${q(n)})`);
+			const panel = await evaluate('Number(__t.opacity().value) / 100');
+			await evaluate('__t.drawnA = {}; true'); await frames(3);
+			const stage = (await H('drawnA'))[n];
+			ok(`${label}: engine-rig plays the later one`, near(played, label.startsWith('alpha') ? 0.6 : 0.3), q(played));
+			ok(`${label}: the panel and the Animate stage show what it plays`, near(panel, played, 0.006) && near(stage, played), q({ played, panel, stage }));
+		}
 	});
 	return { pass, fail };
 }

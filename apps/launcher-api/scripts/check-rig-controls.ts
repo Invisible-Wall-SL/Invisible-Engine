@@ -342,11 +342,6 @@ misfits(
 	edited(good, ['slotFolders'], { arm: ['upper_arm', 'hand'] }),
 	/^slotFolders\.arm: its slots are not together in the draw order$/,
 );
-misfits(
-	'the old slot groups (read only)',
-	edited(good, ['slotGroups'], { g: ['head'] }),
-	/^slotGroups is read only/,
-);
 {
 	const slotFit = fitControls(edited(good, ['slotFolders', 'face', 0], 'hat'), irig);
 	check(
@@ -424,12 +419,40 @@ misfits(
 		JSON.stringify(migrated.doc.slotFolders),
 	);
 	check(
-		'migration: each group left out is named once',
-		sameJson(
-			migrated.dropped.filter((d) => d.startsWith('slotGroups.')).map((d) => d.split(' ')[0]),
-			['slotGroups.spread', 'slotGroups.face'],
-		),
-		JSON.stringify(migrated.dropped),
+		'migration: each group left out is named once, as its own field',
+		sameJson(migrated.unconverted, ['spread', 'face']) && migrated.dropped.length === 0,
+		JSON.stringify(migrated),
+	);
+	const gone = fitControls(
+		{
+			controls: 1,
+			rig: 'hero',
+			slotGroups: { g: ['upper_arm', 'gone', 'lower_arm'] },
+		} as ControlsDoc,
+		irig,
+	);
+	check(
+		'migration: a group naming a slot the rig lacks says so, and its others still become a folder',
+		sameJson(gone.dropped, ['slotGroups.g[1] names slot "gone", which is not in the rig']) &&
+			sameJson(gone.unconverted, []) &&
+			sameJson(gone.doc.slotFolders, { g: ['upper_arm', 'lower_arm'] }),
+		JSON.stringify(gone),
+	);
+	const old = checkedControls(
+		{
+			controls: 1,
+			rig: 'x',
+			slotGroups: { arm: ['hand', 'lower_arm'], spread: ['torso', 'head'] },
+		},
+		'hero',
+		irig,
+	);
+	check(
+		'a save from a tab opened before folders: its groups saved as folders, not refused',
+		old.problems.length === 0 &&
+			sameJson(old.doc?.slotFolders, { arm: ['lower_arm', 'hand'] }) &&
+			old.doc?.slotGroups === undefined,
+		JSON.stringify(old),
 	);
 	check(
 		'migration: the draw order is never touched, and the result is what a save accepts',
@@ -545,7 +568,8 @@ for (const [what, f] of [
 	);
 check(
 	'fit: a sidecar that fits keeps every field, and the read drops nothing',
-	JSON.stringify(fitControls(good, irig)) === JSON.stringify({ doc: good, dropped: [] }),
+	JSON.stringify(fitControls(good, irig)) ===
+		JSON.stringify({ doc: good, dropped: [], unconverted: [] }),
 );
 
 // ── 3. Renames ──────────────────────────────────────────────────────────────────────────────────

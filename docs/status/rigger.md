@@ -183,6 +183,21 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **Review fixes for folders (#1925).** (1) A step with a free slot and a folder's
+  middle slot selected (`w,x,a,b,c,d`, folder `a,b,c`, `{x,b}`, Ctrl+]) took unselected `a` out of
+  its folder: `slotFolderStep` now moves a folder's selected slots only inside it, every free slot
+  past whole folders, and (4) a folder whose every slot is selected by hand whole, where it used to
+  empty the folder. Guard: `tools/rigger-spike/slot-folder-step.mjs` (the cases plus a sweep of every
+  selection × direction over three rigs, 4 mutants). (2) `fitControls` returns the groups that could
+  not become folders as `unconverted` (and the save GET passes it on), instead of a notice the page
+  parsed: a group naming a missing slot garbled it and hid the real notice. (3) A save still
+  sending `slotGroups` (a tab opened before the deploy) is saved with them as folders, as the read
+  turns them, not refused with a 422. (5) The preview and the slot panel play a clip's rgba and
+  split colour keys in the clip's own order, as engine-rig does (`clipColourAt`), where rgba used to
+  lose to split keys. A folder's ✎ / 🗑 are off outside Setup. Guards: `check:rig-controls`,
+  `slot-colour-keys-browser.mjs` (step 5, a mutant), `slot-folders-browser.mjs` (the notice).
+  Still open: the dopesheet's easing buttons cover `rgba` / `rgba2` keys only, not split ones.
+
 - 2026-11-26 — **📁 Slot folders, and the Slots list with the front at the top.** The owner's
   verdict on #1906's loose groups ("closer to Photoshop"): they are replaced by true folders, rows
   inside the list (▸ / ▾, 📁 name, count; members indented), one level, a slot in one folder at most,
@@ -219,7 +234,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   only the split timelines the clip has. Slots with no colour keys or with `rgba` / `rgba2` keep
   today's keys, so no clip ends with both kinds on a slot. A dark colour over `rgb` keys, which carry
   none, is refused with a hint. The panel reads the opacity the split keys play
-  (`slotColorAt` / `slotDarkAt` via `splitColourAt`), the Animate stage now poses `rgb` / `rgb2` /
+  (`slotColorAt` / `slotDarkAt` via `clipColourAt`), the Animate stage now poses `rgb` / `rgb2` /
   `alpha` keys in the clip's order (`poseAtTime`), and they get timeline rows (✕ / retime / copy).
   Re-keying an eased colour key now refits its value handles to the new value
   (`upsertBoneKey`, now given the colour key's values). Setup is unchanged: there the only
@@ -241,8 +256,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   keys each member's opacity at the playhead (alpha there × slider) — on `alpha` for a slot the clip
   colours with the split `rgb` / `alpha` timelines, since an `rgba` key is read after them and
   would override both — and the slider goes back to 100 %. Guards: `check:rig-controls` (schema,
-  fit, rename), `tools/rigger-spike/slot-groups-browser.mjs` (46 checks vs engine-rig's playback,
-  `--mutants` 7/7). Not yet confirmed in the authed WebGL page.
+  fit, rename) and the browser gate, since replaced by `slot-folders-browser.mjs` when folders
+  replaced these groups (2026-11-26).
 
 - 2026-11-25 — **↑ ↓ on a slot no longer throws the panel back to the top.** Every structural
   rebuild (`rebuildFromRawDoc` → `buildInspector`) empties the inspector's lists, which clamped the

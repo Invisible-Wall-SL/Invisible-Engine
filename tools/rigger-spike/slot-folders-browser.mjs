@@ -40,12 +40,14 @@ const MUTANTS = [
 	['gathering keeps the slots where they are', '  return slotOrderDrop(names, sel, front + 1);\n}', '  return names.slice();\n}'],
 	['gathering drops the draw-order keys', 'changeSlotsKeepingDrawOrder(rawDoc, () => { rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n))); });', 'rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n)));'],
 	['a drop between a folder’s slots leaves them out', '  if (into) out[into].push(...moving);\n', ''],
-	['a slot passes a folder one slot at a time', 'const id = f != null && (f === folder || !folders[f].some((m) => set.has(m))) ? "\\u0000" + f : n;', 'const id = n;'],
+	['a slot passes a folder one slot at a time', 'const f = slotFolderOf(next, n), id = f != null ? "\\u0000" + f : n;', 'const id = n;'],
 	['a member at the edge moves on instead of leaving', '      let i = 0; while (i < edge.length && set.has(edge[i])) i++;\n', '      const i = 0;\n'],
 	['a closed folder still shows its slots', '    if (!shut.has(f)) out.push({ kind: "slot", name: n, z, folder: f });', '    out.push({ kind: "slot", name: n, z, folder: f });'],
 	['the view opacity is not put back after a draw', 'dim.forEach((s, i) => { s.color.a = was[i]; });', ''],
 	['⤓ leaves the slider where it was', '  setSlotGroupAlpha(g.id, 1);\n  renderSlotList();\n}', '  renderSlotList();\n}'],
 	['a duplicate of a member stays out of its folder', '  slotFolderAdopt(newName, slotName);\n', ''],
+	['the notice leaves out the groups that could not become folders', '    const unfoldered = [...new Set(slotGroupsLeftOut)];', '    const unfoldered = [];'],
+	['a fully selected folder is emptied by Ctrl+]', '    if (mine.length === ns.length){ whole.add(f); continue; }\n', ''],
 	['the folder rename leaves its opacity behind', '  setSlotGroupAlpha("f:" + from, 1); setSlotGroupAlpha("f:" + to, a);\n', ''],
 ];
 
@@ -292,6 +294,11 @@ async function suite(quiet) {
 		await up(A[0]); await frames(2);
 		ok('inside a folder a slot moves among its slots', same((await T('folders()')).arm, [A[1], A[0], A[2]]));
 		await evaluate('rigUndo(); true'); await frames(2);
+		await T(`select(${q(A)})`);
+		await evaluate('document.activeElement && document.activeElement.blur(); true');
+		await key('BracketRight', ']', 221, 2);
+		ok('every slot of a folder selected by hand: Ctrl+] moves the folder whole, it stays a folder', (await T('names()')).indexOf(A[0]) === 11 && same((await T('folders()')).arm, A), q(await T('folders()')));
+		await evaluate('rigUndo(); true'); await frames(2);
 		await evaluate('selectSlotFolder("arm"); document.activeElement && document.activeElement.blur(); true');
 		await key('BracketRight', ']', 221, 2);
 		ok('Ctrl+] on a selected folder moves it whole past the next slot', (await T('names()')).indexOf(A[0]) === 11 && same((await T('folders()')).arm, A), q((await T('names()')).slice(9, 15)));
@@ -394,11 +401,19 @@ async function suite(quiet) {
 	});
 
 	await step('10. the slot groups of #1906 become folders, or are left out and named', async () => {
-		savedControls = { doc: { controls: 1, rig: 'W', slotGroups: { together: names.slice(4, 7), spread: [names[0], names[9]] } } };
+		// As the save GET answers an unmigrated sidecar: the names it lacks in `dropped`, the groups
+		// that cannot be folders in `unconverted` (the page fits it again itself).
+		savedControls = {
+			doc: { controls: 1, rig: 'W', slotGroups: { together: names.slice(4, 7), spread: [names[0], names[9]], g: [names[12], 'gone', names[13]] } },
+			dropped: ['slotGroups.g[1] names slot "gone", which is not in the rig'],
+			unconverted: ['spread'],
+		};
 		await openW();
-		ok('a group whose slots are together is a folder', same(await T('folders()'), { together: names.slice(4, 7) }), q(await T('folders()')));
+		ok('a group whose slots are together is a folder', same(await T('folders()'), { together: names.slice(4, 7), g: [names[12], names[13]] }), q(await T('folders()')));
 		ok('the draw order is untouched', same(await T('names()'), names));
-		ok('the notice names the group left out, once', /could not become folders.*: spread$/.test(await evaluate('document.getElementById("err").textContent')), q(await evaluate('document.getElementById("err").textContent')));
+		const note = await evaluate('document.getElementById("err").textContent');
+		ok('the notice names the group left out, once', /could not become folders[^·]*: spread$/.test(note), q(note));
+		ok('and still says which slot the rig lacks, whole', note.includes('slotGroups.g[1] names slot "gone", which is not in the rig'), q(note));
 	});
 	return { pass, fail };
 }

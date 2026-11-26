@@ -2,8 +2,8 @@
  * A rig's control layer, `controls.json` (docs/design/rig-controls.md §5.7): what makes a bone a
  * control — its role, shape, colour, size, display, channel locks and limits — plus hidden and
  * locked bones, layers, selection sets, limbs (FK / IK and their spaces), the constraint presets,
- * mirror pairs, the picker's layout and the Slots list's folders. Pure (no R2, no DOM), so the save path and the Rigger page
- * run the same code. No game, export or runtime reads it: the control BONES and constraints are in
+ * mirror pairs, the picker's layout and the Slots list's folders. Pure (no R2, no DOM), so the save
+ * path and the Rigger page run the same code. No game, export or runtime reads it: the control BONES and constraints are in
  * the irig, and deleting the sidecar loses the shapes, never a pose.
  *
  * Strict on write (`controlsDocProblems`, `controlsIrigProblems`), lenient on read (`fitControls`
@@ -152,7 +152,7 @@ export interface ControlsDoc {
 	 * a folder's slots are together in the draw order (`fitSlotFolders`); one level, no nesting.
 	 */
 	slotFolders?: Record<string, string[]>;
-	/** Read only: the loose groups folders replaced (#1906); `fitControls` turns them into folders. */
+	/** The loose groups folders replaced (#1906): read and saved as folders, never written. */
 	slotGroups?: Record<string, string[]>;
 }
 
@@ -381,8 +381,9 @@ const describe = (d: DroppedRef) =>
 /**
  * `doc` with every bone and constraint name passed through `to`. An entry naming one that maps to
  * null goes, as little as possible with it: a control, a set member, a preset, a mirror pair, a
- * picker button, a limb's control, pole or space, a slot folder's (or group's) member — a whole
- * limb only when its IK or an FK bone goes, a folder when no member is left. Every name that mapped to null is listed, even in an entry already going.
+ * picker button, a limb's control, pole or space, a folder's (or old group's) slot — a whole limb
+ * only when its IK or an FK bone goes, a folder when no slot is left. Every name that mapped to null
+ * is listed, even in an entry already going.
  */
 function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: DroppedRef[] } {
 	const dropped: DroppedRef[] = [];
@@ -530,8 +531,8 @@ const slotOrderOf = (irig: Json): string[] =>
 		.filter((n): n is string => typeof n === 'string');
 
 /**
- * Why `doc` does not fit the rig beside it, or `[]`: names it uses that the irig lacks, a folder whose
- * slots are not together in its draw order, and the groups folders replaced.
+ * Why `doc` does not fit the rig beside it, or `[]`: names it uses that the irig lacks, and a folder
+ * whose slots are not together in its draw order.
  */
 export function controlsIrigProblems(doc: ControlsDoc, irig: Json): string[] {
 	const has = namesOf(irig);
@@ -542,7 +543,6 @@ export function controlsIrigProblems(doc: ControlsDoc, irig: Json): string[] {
 		if (at.length && Math.max(...at) - Math.min(...at) !== at.length - 1)
 			out.push(`slotFolders.${f}: its slots are not together in the draw order`);
 	}
-	if (doc.slotGroups) out.push('slotGroups is read only: folders (slotFolders) replaced it');
 	return out;
 }
 
@@ -619,34 +619,36 @@ function foldersFromGroups(
 	return { folders: out, unconverted };
 }
 
+/** `doc` with its old slot groups as folders (`foldersFromGroups`) over the irig's draw order. */
+function withGroupsAsFolders(
+	doc: ControlsDoc,
+	irig: Json,
+): { doc: ControlsDoc; unconverted: string[] } {
+	if (!doc.slotGroups) return { doc, unconverted: [] };
+	const moved = foldersFromGroups(doc.slotGroups, doc.slotFolders ?? {}, slotOrderOf(irig));
+	const next: ControlsDoc = { ...doc, slotFolders: moved.folders };
+	delete next.slotGroups;
+	return { doc: next, unconverted: moved.unconverted };
+}
+
 /**
- * The lenient read: `doc` without what names a bone, constraint or slot the irig no longer has, its
- * old slot groups turned into folders, its folders kept true over the irig's draw order
- * (`fitSlotFolders`, with `seen`), and a notice per name dropped and per group that could not become
- * a folder (`slotGroups.<name> …`). The sidecar changes no playback, so a rig edited outside the
- * Rigger is opened, not refused.
+ * The lenient read: `doc` without what names a bone, constraint or slot the irig no longer has (a
+ * notice per name, `dropped`), its old slot groups turned into folders (the names of those that
+ * could not be, `unconverted`), its folders kept true over the irig's draw order (`fitSlotFolders`,
+ * with `seen`). The sidecar changes no playback, so a rig edited outside the Rigger is opened, not
+ * refused.
  */
 export function fitControls(
 	doc: ControlsDoc,
 	irig: Json,
 	seen?: Set<string>,
-): { doc: ControlsDoc; dropped: string[] } {
+): { doc: ControlsDoc; dropped: string[]; unconverted: string[] } {
 	const has = namesOf(irig);
 	const fit = mapRefs(doc, (kind, n) => (has[kind].has(n) ? n : null));
-	const dropped = fit.dropped.map(describe);
-	const next = fit.doc;
-	const order = slotOrderOf(irig);
-	if (next.slotGroups) {
-		const moved = foldersFromGroups(next.slotGroups, next.slotFolders ?? {}, order);
-		for (const g of moved.unconverted)
-			dropped.push(
-				`slotGroups.${g} could not become a folder: its slots are not together in the draw order, or one is in another folder`,
-			);
-		next.slotFolders = moved.folders;
-		delete next.slotGroups;
-	}
-	if (next.slotFolders) next.slotFolders = fitSlotFolders(next.slotFolders, order, seen);
-	return { doc: next, dropped };
+	const { doc: next, unconverted } = withGroupsAsFolders(fit.doc, irig);
+	if (next.slotFolders)
+		next.slotFolders = fitSlotFolders(next.slotFolders, slotOrderOf(irig), seen);
+	return { doc: next, dropped: fit.dropped.map(describe), unconverted };
 }
 
 /** Names the irig changed, old → new, per kind. */
@@ -773,12 +775,12 @@ export function checkedControls(
 	rig: string,
 	irig: Json,
 ): { doc: ControlsDoc; problems: [] } | { doc: null; problems: string[] } {
-	const doc = isObj(value) ? { ...value, rig } : value;
-	if (isObj(doc)) delete doc.irig;
-	const problems = controlsDocProblems(doc);
+	const bound = isObj(value) ? { ...value, rig } : value;
+	if (isObj(bound)) delete bound.irig;
+	const problems = controlsDocProblems(bound);
 	if (problems.length) return { doc: null, problems };
-	const misfit = controlsIrigProblems(doc as ControlsDoc, irig);
-	return misfit.length
-		? { doc: null, problems: misfit }
-		: { doc: doc as ControlsDoc, problems: [] };
+	// A tab opened before folders still sends the old groups: saved as the read would turn them.
+	const doc = withGroupsAsFolders(bound as ControlsDoc, irig).doc;
+	const misfit = controlsIrigProblems(doc, irig);
+	return misfit.length ? { doc: null, problems: misfit } : { doc, problems: [] };
 }

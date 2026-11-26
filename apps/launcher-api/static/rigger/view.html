@@ -2670,6 +2670,7 @@ async function selectSkeleton(entry){
   showLoading("Loading " + (entry.name || "skeleton") + "…");
   $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · rig " + entry.version : "");
   let ctlDropped = null;
+  slotGroupsLeftOut = [];
   try {
     const ctlCode = ensureRiggerControls();
     await loadRuntime(entry.runtime);
@@ -2697,8 +2698,7 @@ async function selectSkeleton(entry){
     frameSrcOpened(entry);
     sheetSrcOpened(entry, gen);
     if (rig3d.doc) ensureRigger2p5d().then((ok) => { if (ok && gen === rigGen){ bake3dReset(); renderAnimSection(); if (animMode) renderTimeline(); } });
-    const unfoldered = [...new Set([...slotGroupsLeftOut, ...(ctlDropped || []).filter((d) => d.startsWith("slotGroups.")).map((d) => d.slice(11, d.indexOf(" could not")))])];
-    ctlDropped = ctlDropped && ctlDropped.filter((d) => !d.startsWith("slotGroups."));
+    const unfoldered = [...new Set(slotGroupsLeftOut)];
     const notes = [];
     if (ctlDropped && ctlDropped.length) notes.push("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""));
     if (unfoldered.length) notes.push("📁 Slot groups that could not become folders (their slots are not together in the draw order, or one is in another), left out: " + unfoldered.join(", "));
@@ -2948,7 +2948,7 @@ function buildSkeleton(entry){
   if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
   normalizeKeys(rawDoc);
-  slotFolderSeen = null; slotGroupsLeftOut = [];
+  slotFolderSeen = null;
   if (!rawDoc) controlsDoc = null; else fitControlsToRig(); // opened from the source .json, it may lack what the .irig had
   // A rig that binds clips needs the project clip list for more than the inspector: it is what
   // `bindingContentBounds` measures a carrier rig's size FROM, and that runs on save. Loading it
@@ -14476,37 +14476,42 @@ function slotFolderDrop(names, folders, rows, moving, folder, ins){
   return { order, folders: out };
 }
 // `moving` one place to the front (+1) or the back (−1), ±Infinity all the way, as ↑ ↓ and Ctrl+] / [
-// move them (`folder`: a folder's row, moving it whole). A folder the move does not reach steps as
-// one: a slot passes a whole folder, a folder the next slot or folder. Slots of one folder move inside
-// it; at its edge they leave it where they are (one more step takes them past what is next), and
-// ±Infinity takes them to its front / back. A selection across folders moves slot by slot. Pure.
+// move them (`folder`: a folder's row). A folder whose every slot moves moves whole; selected slots
+// of a folder move only inside it, leaving it where they are at its edge; every other selected slot
+// passes a whole folder as one. No step takes an unselected slot out of its folder. Pure.
 function slotFolderStep(names, folders, moving, dir, folder){
-  const set = new Set(moving), f0 = slotFolderOf(folders, moving[0]);
-  if (!folder && f0 != null && moving.every((n) => slotFolderOf(folders, n) === f0)){
-    const ms = names.filter((n) => folders[f0].includes(n));
+  const set = new Set(moving), next = Object.assign({}, folders), whole = new Set(folder ? [folder] : []);
+  let order = names.slice();
+  if (!folder) for (const [f, ns] of Object.entries(folders)){
+    const mine = ns.filter((n) => set.has(n));
+    if (!mine.length) continue;
+    if (mine.length === ns.length){ whole.add(f); continue; }
+    const ms = order.filter((n) => ns.includes(n));
     let out = [];
     if (Number.isFinite(dir)){
       const edge = dir > 0 ? ms.slice().reverse() : ms;
       let i = 0; while (i < edge.length && set.has(edge[i])) i++;
       out = edge.slice(0, i);
     }
-    const stay = ms.filter((n) => !out.includes(n)), still = moving.filter((n) => !out.includes(n));
+    const stay = ms.filter((n) => !out.includes(n)), still = mine.filter((n) => !out.includes(n));
     const inner = Number.isFinite(dir) ? slotOrderStep(stay, still, dir) : slotOrderDrop(stay, still, dir > 0 ? stay.length : 0);
     const left = ms.filter((n) => out.includes(n)), block = dir > 0 ? [...inner, ...left] : [...left, ...inner];
-    const at = names.indexOf(ms[0]), order = names.filter((n) => !ms.includes(n));
+    const at = order.indexOf(ms[0]);
+    order = order.filter((n) => !ms.includes(n));
     order.splice(at, 0, ...block);
-    return { order, folders: Object.assign({}, folders, { [f0]: inner }) };
+    next[f] = inner;
   }
+  const free = moving.filter((n) => slotFolderOf(folders, n) == null);
+  if (!free.length && !whole.size) return { order, folders: next };
   const units = [], parts = new Map();
-  for (const n of names){
-    const f = slotFolderOf(folders, n);
-    const id = f != null && (f === folder || !folders[f].some((m) => set.has(m))) ? "\u0000" + f : n;
+  for (const n of order){
+    const f = slotFolderOf(next, n), id = f != null ? "\u0000" + f : n;
     if (!parts.has(id)){ units.push(id); parts.set(id, []); }
     parts.get(id).push(n);
   }
-  const mv = folder ? ["\u0000" + folder] : moving;
+  const mv = [...free, ...[...whole].map((f) => "\u0000" + f)];
   const stepped = Number.isFinite(dir) ? slotOrderStep(units, mv, dir) : slotOrderDrop(units, mv, dir > 0 ? units.length : 0);
-  return { order: stepped.flatMap((u) => parts.get(u)), folders };
+  return { order: stepped.flatMap((u) => parts.get(u)), folders: next };
 }
 // The draw order a new folder of `sel` makes: gathered into one run where its frontmost slot is, or
 // just in front of the folder that slot is in when that folder keeps other slots. Pure.
@@ -14655,15 +14660,20 @@ function slotFolderRow(name, shut){
   const fold = ctlIcon(shut ? "▸" : "▾", shut ? "Open the folder" : "Close the folder", () => { setSlotFolderShut(name, !shut); renderSlotList(); });
   fold.classList.add("slotFold");
   const nm = document.createElement("span"); nm.className = "slotName"; nm.textContent = "📁 " + name;
-  nm.title = "Double-click to rename";
-  nm.ondblclick = (e) => { e.stopPropagation(); renameSlotFolder(name); };
+  if (editMode){
+    nm.title = "Double-click to rename";
+    nm.ondblclick = (e) => { e.stopPropagation(); renameSlotFolder(name); };
+  }
   const t = document.createElement("span"); t.className = "tag"; t.textContent = "(" + ns.length + ")";
   row.append(eye, fold, nm, t);
   row.onclick = () => selectSlotFolder(name);
   const names = setupSlotNames(), z0 = names.indexOf(ns[0]), z1 = names.indexOf(ns[ns.length - 1]);
   if (editMode) slotStepButtons(row, ns, name, z1 === names.length - 1, z0 === 0);
   const tools = document.createElement("span"); tools.style.cssText = "float:right;display:inline-flex;";
-  tools.append(ctlIcon("✎", "Rename the folder", () => renameSlotFolder(name)), ctlIcon("🗑", "Ungroup: the folder goes, its slots stay where they are", () => ungroupSlotFolder(name)));
+  const inSetup = editMode ? "" : " (in Setup)";
+  const ren = ctlIcon("✎", "Rename the folder" + inSetup, () => renameSlotFolder(name)), del = ctlIcon("🗑", "Ungroup: the folder goes, its slots stay where they are" + inSetup, () => ungroupSlotFolder(name));
+  ren.disabled = del.disabled = !editMode;
+  tools.append(ren, del);
   row.appendChild(tools);
   frag.appendChild(row);
   const id = "f:" + name, pc = Math.round(slotGroupAlpha(id) * 100), canWrite = !!rawDoc && !cineMode && (editMode || animMode);
@@ -18030,11 +18040,9 @@ function poseAtTime(name, t, additive){
         let nm, set = false; for (const key of ch.attachment){ if (key.time <= t + 1e-6){ nm = key.name ?? null; set = true; } else break; }
         if (set) slot.setAttachment(nm ? skeleton.getAttachment(si, nm) : null);
       }
-      if (ch.rgba && ch.rgba.length){ const c = sampleColor(ch.rgba, t); if (c) slot.color.set(c.r, c.g, c.b, c.a); }
-      // §18.4 two-color tinting: rgba2 drives slot.color (light) AND slot.darkColor (dark).
-      if (ch.rgba2 && ch.rgba2.length){ const c = sampleColor2(ch.rgba2, t); if (c){ slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a); if (slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a); } }
-      if (ch.rgb || ch.rgb2 || ch.alpha){
-        const c = splitColourAt(ch, slot.data.color, slot.data.darkColor, t);
+      // §18.4 two-color tinting: rgba2 / rgb2 drive slot.color (light) AND slot.darkColor (dark).
+      if (ch.rgba || ch.rgba2 || ch.rgb || ch.rgb2 || ch.alpha){
+        const c = clipColourAt(ch, slot.data.color, slot.data.darkColor, t);
         slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a);
         if (c.dark && slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a);
       }
@@ -18370,19 +18378,13 @@ function slotAttachmentAt(slotName, t){
 }
 function slotColorAt(slotName, t){
   const cs = slotChannel(slotName);
-  if (slotSplitColour(slotName)) return rgbaToHex(splitColourAt(cs, hexToRGBA(slotSetupColour(slotName)), null, t).light);
-  // Two-color slots carry their LIGHT colour on the rgba2 timeline (not rgba).
-  if (slotIsTwoColor(slotName)){ if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbaToHex(c.light); } }
-  else if (cs && cs.rgba && cs.rgba.length){ const c = sampleColor(cs.rgba, t); if (c) return rgbaToHex(c); }
-  return slotSetupColour(slotName);
+  return cs ? rgbaToHex(clipColourAt(cs, hexToRGBA(slotSetupColour(slotName)), null, t).light) : slotSetupColour(slotName);
 }
 function slotSetupColour(slotName){ const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff"; }
 // Resolved DARK colour (rgb hex) for a two-color slot at the playhead (rgba2 / rgb2 over setup `dark`).
 function slotDarkAt(slotName, t){
   const cs = slotChannel(slotName);
-  if (slotSplitColour(slotName)) return rgbToHex(splitColourAt(cs, hexToRGBA(slotSetupColour(slotName)), hexToRGBA(slotSetupDark(slotName)), t).dark);
-  if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbToHex(c.dark); }
-  return slotSetupDark(slotName);
+  return cs ? rgbToHex(clipColourAt(cs, hexToRGBA(slotSetupColour(slotName)), hexToRGBA(slotSetupDark(slotName)), t).dark) : slotSetupDark(slotName);
 }
 // Key a slot's attachment (stepped) / colour at the playhead.
 /** A slot's channels in the open clip: a drawing slot's image keys in a 3D clip are its bake's (§4.7). */
@@ -18430,11 +18432,13 @@ function sampleCurveKeys(keys, t, valuesOf){
 // A slot the open clip colours with the 4.2 split timelines (`rgb` / `rgb2`, `alpha`): its keys go
 // there, since an `rgba` / `rgba2` key is read after them and overrides both. So no clip gets both.
 function slotSplitColour(slotName){ const cs = slotChannel(slotName); return !!cs && !!(cs.alpha || cs.rgb || cs.rgb2); }
-// The colour split timelines `ch` play at `t` over `light` / `dark` (the setup's; dark may be null),
-// in the clip's own order as the reader runs them.
-function splitColourAt(ch, light, dark, t){
-  const L = { r: light.r, g: light.g, b: light.b, a: light.a }, D = dark ? { r: dark.r, g: dark.g, b: dark.b } : null;
+// The colour a clip's timelines `ch` play at `t` over `light` / `dark` (the setup's; dark may be
+// null), each kind in the clip's own order, as engine-rig runs them (the later one wins).
+function clipColourAt(ch, light, dark, t){
+  let L = { r: light.r, g: light.g, b: light.b, a: light.a }, D = dark ? { r: dark.r, g: dark.g, b: dark.b } : null;
   for (const [kind, keys] of Object.entries(ch)){
+    if (kind === "rgba"){ const c = sampleColor(keys, t); if (c) L = c; continue; }
+    if (kind === "rgba2"){ const c = sampleColor2(keys, t); if (c){ L = c.light; if (D) D = c.dark; } continue; }
     if (kind !== "rgb" && kind !== "rgb2" && kind !== "alpha") continue;
     const v = sampleCurveKeys(keys, t, COLOUR_KEY_VALUES[kind]); if (!v) continue;
     if (kind === "alpha"){ L.a = v[0]; continue; }
@@ -22105,6 +22109,7 @@ function ensureRiggerControls(){
 function openStoredControls(stored, codeLoaded){
   controlsDoc = null; controlsEtag = stored ? stored.etag : null; controlsLocked = null;
   controlsText = stored && stored.doc ? JSON.stringify(stored.doc) : "";
+  if (stored && stored.unconverted) slotGroupsLeftOut.push(...stored.unconverted);
   if (!stored) { if (!codeLoaded) controlsLocked = "the control layer's code did not load (vendor/rigger-controls.js) — reload the Rigger"; return null; }
   if (stored.torn) controlsLocked = "its controls.json was written for another version of the rig (a save landing now, or one cut off) — reopen it in a moment, or restore it from 🕘 History";
   else if (stored.problems) controlsLocked = "its controls.json cannot be read (" + stored.problems.slice(0, 3).join("; ") + ") — restore a good version from 🕘 History";
@@ -22166,7 +22171,7 @@ function fitControlsToRig(){
   if (!controlsDoc || !rawDoc || !window.RiggerControls) return;
   const fit = window.RiggerControls.fitControls(controlsDoc, rawDoc, slotFolderSeen || undefined);
   controlsDoc = fit.doc;
-  for (const d of fit.dropped) if (d.startsWith("slotGroups.")) slotGroupsLeftOut.push(d.slice(11, d.indexOf(" could not")));
+  slotGroupsLeftOut.push(...fit.unconverted);
   slotFolderSeen = new Set((rawDoc.slots || []).map((s) => s.name));
 }
 
