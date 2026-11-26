@@ -1,7 +1,7 @@
 # Invisible Profiler — how a published game performs, on which devices, and what to cut
 
 **Status:** design registered 2026-11-16; owner decisions recorded the same day. P1 built 2026-11-16; current
-state in [status/profiler](../status/profiler.md). Build plan below (P1–P7).
+state in [status/profiler](../status/profiler.md). Build plan below (P1–P9).
 **Owner ask:** "a tool to control and optimize games, to see what is going on and how it performs
 on different devices, understand problems so a plan to solve them can be created. It should work
 on final builds, to monitor if the build is efficient, and say where things can be saved to reach
@@ -190,6 +190,45 @@ Android phones read their real 60 and 90 Hz on another game, so Live does not ca
 a cap also needs the frames' median main-thread time under 0.75 of a 60 Hz frame; the launcher
 applies the same test to a `perf: 7` reading's means. A capped reading is never an fps failure.
 
+### 8. Network (P9)
+
+**Decision (2026-11-26, owner ask after the first Salmons reading):** a reading says what the game
+downloaded, how heavy each file was and what is too heavy to transfer. From `perf: 9` every report
+carries a `network` block (`apps/lines/src/game/perfNetwork.ts`), read off Resource Timing
+(`PerformanceObserver({ type: 'resource', buffered: true })`) and the navigation entry, for the
+whole page load (Reset does not clear it):
+
+- **Per file:** its path, its class (page, JS, CSS, image, KTX2, atlas / JSON, rig, audio, font,
+  API / RGS, other), what asked for it, its transfer / encoded / decoded sizes, its start and
+  duration, its load stage, and where it came from (cache, a 304, the network).
+- **Paths only.** The query and the hash are dropped before anything is kept (`perfsession`, `sid`
+  and `k` travel there), and a path segment that is a token (`/api/deploy/f/<token>/…`, any long
+  base64url / JWT-like segment) reads `…`. The host is named only when it is not the game's. The
+  launcher strips a query again on receipt.
+- **Size unknown is not 0.** A cross-origin response without `Timing-Allow-Origin` reports every size
+  as 0; the probe marks it unknown and counts it apart. The launcher's `/api/deploy`,
+  `/api/editor/runtime` and `/api/editor/doc` now send `Timing-Allow-Origin: *` (they already
+  answer CORS `*`, so it exposes nothing new), so an online game's art and runtime bundle are sized.
+- **Weight, not this load's transfer.** A file's bytes are its body as served, whether this load took
+  it from the cache or not: a phone that had the game cached weighs the same game.
+- **Totals** by class and by load stage: before the game's first frame (the probe's first Pixi tick,
+  else First Contentful Paint), the boot load (until `stateApp.loaded`), after boot. The heaviest 20
+  files, paths fetched twice in one load, the time to first frame.
+- **API traffic:** the RGS's requests (Play4Fun `/rgs/engine`, the Stake `/wallet/…` routes — count,
+  bytes, latency p50 / p95, the slowest), summed rather than listed. Online arcade play: the game
+  server's room messages in and out — count, bytes a second, the largest — tallied by the same meter
+  that counts the state patches a frame (`online.ts` `meterMessages`), so a patch is counted once.
+- **Bounded:** the file list keeps the heaviest 150 (a 400-file page is ~35 KB); the short form a
+  page sends as it hides keeps only the heaviest 20, so it still fits a `keepalive` request.
+
+The launcher keeps the transfer MB and the first frame on the reading's row (migration
+`0051_perf_reports_network.sql`), judges two new budgets per device class — **Transfer** (the
+shipped-size line, warn > 20 MB, fail > 25 MB) and **Largest file** (warn > 3 MB, fail > 6 MB, a
+studio default) — and adds five rules, owned through `owners.json`'s new `areas` map: **Heavy
+downloads** (`assets`), **Uncompressed text** and **Downloaded again** (`delivery`: caching and
+compression are the server's), **Before the first frame** (the engine), **Slow or heavy messages**
+(`rgs`, `gameServer`). GPU memory stays the Textures rule's and never-loaded files Unused bytes'.
+
 ## The page
 
 Four tabs on one project (the project selector the tools already share), each a set of foldable
@@ -228,8 +267,10 @@ Each step is one PR, usable on its own.
 - **P7 — Cloud phones.** The same script on the real-device service's phones ("Cloud phones" below): calibration
   against an owned phone first, then the device matrix on demand and nightly per live game.
 - **P8 — Arcade phases.** Phase sets per game kind (§7): `perf: 8` with `kind`, `menu` / `play`,
-  the arcade counts and spike causes, the launcher's arcade columns, budgets and rules. Then the
-  network block (heavy transfers, per-resource sizes) in its own step.
+  the arcade counts and spike causes, the launcher's arcade columns, budgets and rules.
+- **P9 — Network.** The `network` block (§8): `perf: 9`, per-file sizes and load stages, RGS and
+  room traffic; the Transfer MB column and a reading's files, transfer per build and in Compare,
+  the transfer budgets, the five network rules.
 
 ## Decisions (owner, 2026-11-16)
 

@@ -14,6 +14,7 @@ import {
 	type PhaseSet,
 } from './profiler';
 import { readingOnBuild, type PerfBuildListItem } from './profilerBuilds';
+import { knownTransferMb } from './profilerNetwork';
 
 /** The `depends` key of `/profiler`'s budgets. */
 export const PROFILER_BUDGETS = 'profiler:budgets';
@@ -45,7 +46,15 @@ export interface BudgetMetricDef {
 	from: string;
 }
 
-export const BUDGET_METRICS = ['fps', 'p95', 'draws', 'gpuMb', 'shippedMb'] as const;
+export const BUDGET_METRICS = [
+	'fps',
+	'p95',
+	'draws',
+	'gpuMb',
+	'transferMb',
+	'fileMb',
+	'shippedMb',
+] as const;
 export type BudgetMetric = (typeof BUDGET_METRICS)[number];
 
 export const BUDGET_METRIC_DEFS: Record<BudgetMetric, BudgetMetricDef> = {
@@ -92,6 +101,28 @@ export const BUDGET_METRIC_DEFS: Record<BudgetMetric, BudgetMetricDef> = {
 		min: 1,
 		max: 100000,
 		from: "readings' textures and the build's estimate",
+	},
+	transferMb: {
+		id: 'transferMb',
+		label: 'Transfer',
+		unit: 'MB',
+		better: 'lower',
+		phased: false,
+		perDevice: true,
+		min: 0.1,
+		max: 100000,
+		from: "readings' network: what the game downloads, cache hits counted at their size",
+	},
+	fileMb: {
+		id: 'fileMb',
+		label: 'Largest file',
+		unit: 'MB',
+		better: 'lower',
+		phased: false,
+		perDevice: true,
+		min: 0.01,
+		max: 100000,
+		from: "readings' network: the heaviest single file",
 	},
 	shippedMb: {
 		id: 'shippedMb',
@@ -142,6 +173,11 @@ export interface BudgetOverride extends BudgetLine {
  *
  * The arcade phases' lines are studio defaults by analogy, not an owner number: menu ≈ idle (a
  * screen at rest, 60 fps), play ≈ spinning (the field moving, ≥ 50), the same p95 and desktop lines.
+ *
+ * Transfer (`perf: 9`, every device class): what a reading's page downloads takes the shipped-size
+ * line (warn > 20 MB, fail > 25 MB) — the owner's "shipped ≤ 25 MB" is what a first visit fetches.
+ * The largest single file (warn > 3 MB, fail > 6 MB: about 5 s alone on a 10 Mbit/s phone link) is a
+ * studio default, not an owner number.
  */
 const PHONE_FPS: Record<PerfPhase, BudgetThresholds> = {
 	idle: { warn: 58, fail: 55 },
@@ -150,6 +186,9 @@ const PHONE_FPS: Record<PerfPhase, BudgetThresholds> = {
 	menu: { warn: 58, fail: 55 },
 	play: { warn: 55, fail: 50 },
 };
+
+const TRANSFER_LINE: BudgetThresholds = { warn: 20, fail: 25 };
+const FILE_LINE: BudgetThresholds = { warn: 3, fail: 6 };
 
 export const STUDIO_BUDGETS: readonly BudgetLine[] = [
 	...(['phone', 'tablet'] as const).flatMap((deviceClass): BudgetLine[] => [
@@ -167,6 +206,10 @@ export const STUDIO_BUDGETS: readonly BudgetLine[] = [
 			fail: 25,
 		})),
 		{ deviceClass, metric: 'gpuMb', phase: '', warn: 120, fail: 150 },
+	]),
+	...BUDGET_DEVICE_CLASSES.flatMap((deviceClass): BudgetLine[] => [
+		{ deviceClass, metric: 'transferMb', phase: '', ...TRANSFER_LINE },
+		{ deviceClass, metric: 'fileMb', phase: '', ...FILE_LINE },
 	]),
 	...PERF_PHASES.flatMap((phase): BudgetLine[] => [
 		{ deviceClass: 'desktop', metric: 'fps', phase, warn: 58, fail: 55 },
@@ -312,7 +355,14 @@ export interface MetricVerdict extends BudgetKey {
 
 type ReadingForBudget = Pick<
 	PerfReportListItem,
-	PerfPhase | 'deviceClass' | 'phaseSet' | 'capped30' | 'drawsMean' | 'textureMb' | 'flags'
+	| PerfPhase
+	| 'deviceClass'
+	| 'phaseSet'
+	| 'capped30'
+	| 'drawsMean'
+	| 'textureMb'
+	| 'flags'
+	| 'network'
 >;
 
 /** The class a reading is judged as, or null when the probe named none this tool budgets. */
@@ -382,6 +432,14 @@ export function evaluateReadings(
 	const flat: [BudgetMetric, (r: ReadingForBudget) => number | null][] = [
 		['draws', (r) => r.drawsMean],
 		['gpuMb', (r) => r.textureMb],
+		// Transfer is judged only where a reading measured it (`perf: 9`): an older reading is not
+		// "not enough data" for what it never read.
+		...(readings.some((r) => r.network)
+			? ([
+					['transferMb', (r) => knownTransferMb(r.network)],
+					['fileMb', (r) => r.network?.largest?.mb ?? null],
+				] as [BudgetMetric, (r: ReadingForBudget) => number | null][])
+			: []),
 	];
 	for (const [metric, read] of flat) {
 		const key = { deviceClass, metric, phase: '' as const };
