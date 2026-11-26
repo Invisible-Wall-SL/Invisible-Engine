@@ -130,13 +130,22 @@ how long the art took, the JS heap and the fps (2026-11-17, container, software 
 about 4 s, 133 MB, 24 fps).
 
 **The lobby has no form** (2026-11-20, the same run): a page joins `salmons-lobby` (no bots, a
-lobby that needs two people) and waits on the lobby screen with no countdown; under the layout's
+lobby that needs two people) and waits on the lobby screen; under the layout's
 title its note reads "1 players in … River" and "You are Lia, a Salmon", and there is no form:
 no menu drawn in the canvas (the probe's `online.screens` has a `lobby` note and no `menu`), no
 text field on the page and no start menu over it (`lobby-waiting.png`). A second page starts the
 countdown; both notes then count 2 people in the one river (`lobby-countdown.png`). When it ends
 round 1 starts and both pages drop the lobby and its note. On a runtime that still draws the form
 in the lobby the note's two verdicts fail.
+
+**The whole lobby clock** (2026-11-26, the same pages; 4 verdicts, the first the old "no countdown yet" rewritten). Alone, the first page shows
+the countdown screen at once with the seconds to round 1 at the latest (the lobby's 120 s wait +
+20 s countdown, so at most 140), the number its room's `endsAt` gives (within 1 s), white
+(`online.screens.clock.tint` 0xffffff) and still (its scale 1 on every third of 60 frames:
+`lobby-waiting.png`); 2.5 s later it is lower. When the second page joins, both clocks drop to the
+countdown (20 or less, white while above 10). Once 8 or fewer are left the clock is red (0xff3333)
+and pulses (over 60 frames its scale goes above 1.15 and eases back between two seconds: `lobby-clock-red.png`).
+Look at both shots: the number sits where "STARTING IN"'s seconds always sat, under the class row.
 
 **A class picked in the lobby** (2026-11-25, the same run and the same pages; 13 verdicts).
 Under the note the first page has "Play as" and a row of Salmon, Fisherman and Bear inside its
@@ -346,7 +355,8 @@ shares). `--rooms`, `--seconds`, `--span` and `--salmon` are in its header. Resu
     banner).
 19b. Page W joins `salmons-win` (its salmon just below the source) and swims into it: `gameWon`
     for W (`winnerName` "Wyn"), the flow shows `salmonsWon`, the screen says "You Won!" and lays
-    eggs (`14b-you-won.png`), and the room sends W a `winnerPass`. Its "Join New Game" leaves for
+    eggs (`14b-you-won.png`), and the room sends W a `winnerPass`. W swam the round, so "Next game
+    in N" counts from 10 over the button (2026-11-26). Its "Join New Game" leaves for
     a new room (another seed) on the same page: a mark set on its window before the click is
     still there, the win screen is gone, no loading screen shows, and W's salmon is golden
     (`14c-joined-new-game.png`). No page error across the two rooms.
@@ -713,7 +723,7 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 Owner, 2026-11-25: "when I finish a game and click join new room, the game restarts from the
 loading screen, I would expect to be in a room already" ([status/salmons](../status/salmons.md)).
 On the same runtime build and a real game server on localhost: the exported game (`salmonsMap`,
-random seeds) with a lobby one person starts (a countdown of 5 s) and no bots. 43 verdicts; play
+random seeds) with a lobby one person starts (a countdown of 5 s) and no bots. 58 verdicts; play
 both netcodes, and `jo` and `fay` once more with `--baked` (below).
 
 - **`jo`** (a salmon) plays three games on ONE document. In each the room stands its salmon in
@@ -771,12 +781,31 @@ both netcodes, and `jo` and `fay` once more with `--baked` (below).
   runtime: on a build that still reloads it reports `documents: 1` and the loading screen among
   what was shown.
 
+**The next game by itself** (2026-11-26; 15 verdicts more). `jo` played each round (it taps
+Space), so on each win screen "Next game in N" counts from 10 (8 or more when first read) over the
+button, inside the 1280 × 720 window and clear of the title and the button (the probe's
+`online.screens.won.boxes`; `win-count-landscape.png`). Switches 1 and 2 click while it counts:
+the next frame the stage reads "Joining…" and no "Next game in". Switch 3 clicks nothing: the
+count is seen at every second from 10 to 1, then "Joining…", then the next room. Joins are sent
+1.5 s late while a win screen is watched (`__ptSlowJoins`), so what it shows meanwhile is read;
+from the press the probe has no session, so the stage's texts are read instead. Then `ida` and
+`al` play `salmons-pair` (no start before both are in): `ida` joins first and never touches the
+game (the probe's `online.played` stays false), `al` (a 390 × 844 window) wins. `al`'s count runs
+in portrait, clear of the title and the button (`win-count-portrait.png`); `ida`'s screen ("Al
+won!!!") counts nothing (`win-idle.png`). `al`'s page is hidden while it counts (the page's
+`document.visibilityState` reads `hidden` and `visibilitychange` fires): the count stops; 14 s
+of both pages' frames later both are still in their room with their buttons as they were; shown
+again, 4 s more, `al` still has not joined. Each button then joins at once ("Joining…", another
+room). No page error on either.
+
 Look at `switch-1-at-once.png` and `switch-1-lobby.png` as well as the verdicts: the first is the
 first frame drawn after the swap, the second the lobby over the new river's art a moment later.
 
 **By hand, once the change is live:** win a game (or lose one: the button then reads "Start New
 Session"), press the button. The fish swims off, and the next thing on screen is the new river's
-lobby, with no boot screen, no loading screen and no tap to start.
+lobby, with no boot screen, no loading screen and no tap to start. Then do not press it: "Next
+game in 10" counts over the button and the same happens at 0. A round in which you touched
+nothing ends with no count; a tab you leave while it counts waits for you.
 
 ## The fisherman's hold and throw (`salmons-throw-play.mjs`)
 

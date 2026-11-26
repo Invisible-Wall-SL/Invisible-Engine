@@ -133,7 +133,8 @@ rounds, **straight to the next round** (the lobby is only before the first).
   (`minPlayers`, `maxWaitSeconds`, `countdownSeconds`; defaults 4 / 60 / 10) a room stays
   `waiting` after joins. Each person who joins raises `lobby`; once `minPlayers` people (never
   bots) are in, or `maxWaitSeconds` after the first, `countdown` raises and `endsAt` is its end
-  (so `secondsLeft` counts it); round 1 starts when it ends. A lobby every person left starts over.
+  (so `secondsLeft` counts it); round 1 starts when it ends. Since 2026-11-26 `endsAt` runs from
+  the first person (§4.2). A lobby every person left starts over.
   No `lobby`: the first join starts round 1, as before, so no other game changes.
 - **Game Config**: the block, normalised, resolved with its defaults, held to its limits (1–100
   people, 0–600 s, 0–60 s; a warning outside, and when it waits for more people than a room holds);
@@ -208,6 +209,48 @@ the new choice. This one changes the class **in place, through the room**: nobod
   SDK client) and the lobby pages of `salmons-levels-play.mjs` (a class pressed alone, during the
   countdown, round 1 as picked, each spawned as its class's component, a refusal on a 390 × 844
   phone).
+
+### 4.2 The whole clock, and the next game by itself (built 2026-11-26)
+
+Owner (2026-11-26): "have the all countdown showing up, and just blink in red with a pulse the last
+10 seconds"; and, asked whether the next room should start after the win screen with no press,
+"yes, it should starts automatically".
+
+- **Where the start time lives: the room's `endsAt`, no new field.** It already meant "the step
+  the phase ends at" and the device already turns it into `secondsLeft`. From the lobby's first
+  person it is now round 1's start at the latest, `maxWaitSeconds` + `countdownSeconds` after that
+  join; a person joining mid-wait does not move it; when enough people come early the countdown
+  sets it to its own end (it drops to `countdownSeconds`); when the wait runs out the countdown
+  ends where the clock already pointed; a lobby everyone left has none (0), as has a lobby with
+  bots only. Nothing else read `endsAt` while a room waits. No schema, config, layout or flow
+  change.
+- **Old and new, in either order.** A new runtime on a game server that is not redeployed gets no
+  `endsAt` until the countdown, so it shows what it shows today. An old runtime on a new server
+  computes the whole `secondsLeft`, and its flow (the published one is the seed's) already shows
+  the countdown screen whenever `secondsLeft` is above 0 as the lobby is checked: it shows the
+  whole clock as plain text, no red. A published flow made from the seed needs nothing. One that
+  shows the countdown screen only on the `countdown` event shows the clock from the countdown, as
+  before.
+- **On screen** (`salmonsArt/screens.ts` `createLobbyClock`): drawn in place of the countdown
+  screen's seconds node `sm-countdown-seconds` (`SALMONS_SCREEN_ART.clock`), a text node every
+  published layout has, so a published layout gets it with no upload and shows the plain number
+  until the art is in. White and still; in the last `SALMONS_CLOCK_URGENT` (10) seconds red, each
+  new second growing it by 45 % and easing back over 450 ms, faint for the last third of each.
+  The class picker is untouched and stays usable to the end.
+- **The next game by itself** (`salmonsArt/winAnimation.ts`, `online.ts`): on the win screen of
+  a person who played the round (an input of theirs that moved, pressed or asked for a respawn
+  while it ran: `Session.played`, cleared at `roundStart`), "Next game in N" counts
+  `NEXT_GAME_SECONDS` (10) over the button and at 0 does what the button does. The button stays
+  and joins at once; once joining it reads "Joining…" and the count goes. Winner and losers
+  alike. It counts only for someone watching: a page hidden when the screen comes, or hidden once
+  while it counts, stops it for good, and shown again it does not join by surprise; the button
+  then waits, as before. The screen taken away (a `roundStart` of a game of rounds) stops it too.
+  An idle tab therefore never hops rooms on its own. Its failures are the button's
+  (`failSwitch`).
+- **Proof**: `pnpm check:room-lobby` (42: the clock's rule in the sim and on a live room, the
+  pins of the device's halves), `salmons-levels-play.mjs` (the clock from the first person, ticking,
+  cut when the room fills, red and pulsing at the end) and `salmons-rejoin-play.mjs` (the count,
+  a click while it counts, the join at 0, an idle page and a hidden one), both netcodes.
 
 ## 5. The river's shape and waterfalls, from the config (built 2026-11-24)
 

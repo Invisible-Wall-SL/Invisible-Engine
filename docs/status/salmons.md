@@ -19,6 +19,55 @@ upload.
 
 ## Current state
 
+- **The whole lobby clock, and the next game by itself (2026-11-26; owner: "have the all
+  countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
+  starts automatically"; in review; design [salmons-levels §4.2](../design/salmons-levels.md)).**
+  - **The lobby shows the time to round 1 from its first person**, not only the last 10 s: with
+    Salmons' lobby that starts near 70 (60 s wait + 10 s countdown) and ticks on the room's clock;
+    a room that fills early drops to 10; a person who joins mid-wait sees the same number. The
+    number is white and still, and red in its last 10 seconds, each new second growing it 45 % and
+    easing back over 450 ms, faint for the end of each. The class picker is unchanged and usable to
+    the end.
+  - **Where the start time lives: the room's `endsAt`** (no new field). From the lobby's first
+    person it is round 1's start at the latest (`onlineRules.js` `joined`: `lobbyEndsAt` + the
+    countdown); the countdown makes it its own end as before; nobody in, or bots only, 0. No
+    schema, config, layout or flow change; `check:online-rules` traces, `check:room-sim`,
+    `check:room-bots`, `check:netcode` and the 3D room are unmoved (no trace has a lobby; the 3D
+    room has its own rules).
+  - **Drawn in code in place of `sm-countdown-seconds`** (`salmonsArt/screens.ts`
+    `createLobbyClock`, `SALMONS_SCREEN_ART.clock`), the countdown screen's text node every
+    published layout already has: no layout upload, and the plain number shows until the art is in.
+    The flow is the seed's: its lobby check already shows the countdown screen whenever
+    `secondsLeft` is above 0, so it now shows from the first person.
+  - **Either order of deploys.** A new runtime on a game server not yet redeployed gets no `endsAt`
+    before the countdown: the lobby looks as today. An old runtime (or a published flow made from
+    the seed) on the new server shows the whole clock as plain text, no red. A published flow that
+    shows the countdown screen only on `countdown` shows the clock from the countdown, as before.
+  - **The next game by itself.** On the win screen (winner and losers alike) of a person who
+    played the round, "Next game in N" counts 10 s (`NEXT_GAME_SECONDS`) over the button and then
+    does what the button does (`switchRoom`; a failed switch reloads, `failSwitch`). The button
+    stays and joins at once; joining, it reads "Joining…" and the count goes. **Played** = an input
+    of the device that moved, pressed a button or asked for a respawn while the round ran
+    (`online.ts` `Session.played`, cleared at `roundStart`): an idle device's screen counts nothing
+    and waits for its press, so an idle tab does not hop rooms for ever. **Only for someone
+    watching:** a page hidden when the screen comes, or hidden once while it counts, stops the
+    count for good; shown again, it does not join by surprise. The screen taken away (a
+    `roundStart` hiding it in a game of rounds) stops it too. In portrait and landscape the line
+    sits 16 px over the button, clear of the title, the subtitle and the button; eggs fall behind
+    it (outlined, it reads over them).
+  - **Proof.** `check:room-lobby` 35 → 42 (the clock in the sim from the first join, mid-wait
+    join, the cut, the wait run out, nobody in, bots only, no lobby; a live room's state; pins of
+    both device halves). Playtests, both netcodes: `salmons-levels-play.mjs` 54 → 57 (the clock;
+    "no countdown yet" rewritten), `salmons-rejoin-play.mjs` 43 → 58 (the count landscape and
+    portrait, a click while it counts, the join at 0, an idle page, a hidden page and shown
+    again, both buttons after) and `salmons-play.mjs` 102 → 103 (page W counts). Runs and
+    screenshots: Recent changes.
+  - **Bundle.** Arcade runtimes only: `arcade` +747 B gzip (2,127,836 → 2,128,583), `arcade3d`
+    +814 B (2,636,665 → 2,637,479), both re-recorded; `lines`, `match3` and `card` the same bytes
+    (`check:runtime-bytes --only lines,match3,card` ok, not re-recorded).
+  - **Deploy.** The clock needs the game server redeployed (closes running rooms: Owner steps);
+    the count is the runtime's, live with the arcade runtime release. No upload or publish.
+
 - **Join New Game stays on the page (2026-11-25; owner: "when I finish a game and click join new
   room, the game restarts from the loading screen, I would expect to be in a room already"; in
   review; runtime change only: no game-server, config, layout or flow change; live with the arcade
@@ -1540,6 +1589,25 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The whole lobby clock and the next game by itself (2026-11-26; on this branch, once it merges).
+Nothing to upload, export or publish: no config, layout or flow changed.**
+
+1. **The merge does both halves, and one of them closes rooms**: it releases the arcade runtime
+   and deploys the game server (`packages/engine-mechanics` and `services/game-server` are
+   touched), and **the game-server deploy closes every running room**. Merge when the rooms are
+   quiet.
+2. **Either order is safe.** New game server, old runtime: the lobby shows the whole clock as the
+   plain number, no red, and the win screen does not count. New runtime, old game server: the
+   lobby looks as today (no clock until the countdown, then red at the end), and the win screen
+   counts. Both out: compare `rooms.invisiblewall.org/healthz`'s commit and the runtime's release
+   with `main`.
+3. **To check it by hand:** open the published link when no river runs and join. The lobby shows
+   "STARTING IN" near 70 under the class row, white, counting down; with a second person in, it
+   drops to 10 and turns red, pulsing each second. Play the round (move once), win or lose: "Next
+   game in 10" counts over the button and the next river's lobby comes by itself. Do it again
+   without touching the game: nothing counts and the button waits. Switch tabs while it counts and
+   come back: it waits for the press.
+
 **A class picked in the lobby (2026-11-25; once `claude/upbeat-cray-fzmgxe` merges). Nothing to
 upload, export or publish: no config, layout or flow changed.**
 
@@ -2404,6 +2472,29 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-26 — **The whole lobby clock, and the next game by itself** (owner: "have the all
+  countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
+  starts automatically"; branch `claude/upbeat-cray-fzmgxe`; in review). `onlineRules.js`
+  (`endsAt` from the lobby's first person), `schema.ts` (the field's comment only),
+  `salmonsArt/screens.ts` (`createLobbyClock` in place of `sm-countdown-seconds`),
+  `salmonsScreens.ts` (`SALMONS_SCREEN_ART.clock`, `SALMONS_CLOCK_URGENT`),
+  `salmonsArt/winAnimation.ts` (the count, `NEXT_GAME_SECONDS`, the page's visibility, the probe's
+  `next` / `count` / `boxes`), `online.ts` (`Session.played`, the clock fed from the state, the
+  probe's `played`). No config, layout, flow or `normalizeGameConfigDoc` change. Gates:
+  `check:room-lobby` 35 → 42; unmoved: `check:room-sim` 43, `check:room-bots` 56,
+  `check:room-size` 20, `check:online-rules` 40, `check:room-levels` 15, `check:netcode` 28,
+  `check:salmons-art` 34, `check:salmons-levels` 18, `check:room-sim-3d` 23, launcher
+  `check:room-flow` 2. Playtests on one arcade build, both netcodes: `salmons-rejoin-play.mjs` 58 / 58,
+  `salmons-levels-play.mjs` 57 / 57, `salmons-play.mjs` 103 / 103 (`engine` and `colyseus` each;
+  the first `colyseus` run of `salmons-play.mjs` failed "…the room's `golden` reached page G's
+  flow", which this change does not touch, and passed on the re-run). Looked at:
+  `win-count-landscape.png`, `win-count-portrait.png`, `win-idle.png`, `lobby-waiting.png`
+  (white "136"), `lobby-clock-red.png` (red "4"). Two playtest traps found on the way: from the
+  win screen's press the probe has no session, so what the screen shows then is read off the
+  stage (with the join sent 1.5 s late); and a page stepped faster than the clock sends inputs
+  faster than the room's message limit (twice the tick rate) and is disconnected (`4002`), so
+  long waits are stepped no faster than the clock.
 
 - 2026-11-25 — **Join New Game stays on the page** (owner: "I would expect to be in a room
   already"; in review). The win screen's button no longer loads the page again: the device joins
