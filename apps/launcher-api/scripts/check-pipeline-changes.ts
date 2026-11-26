@@ -9132,6 +9132,19 @@ check(
 			null,
 		],
 	);
+	check(
+		'the page: Put on hold is offered to a merger on any open change that is not held, old and conflicted or not',
+		[
+			view.holdOffered(base, true),
+			view.holdOffered(stuck, true),
+			view.holdOffered({ ...base, draft: true }, true),
+			view.holdOffered(base, false),
+			view.holdOffered({ ...base, state: 'closed' }, true),
+			view.holdOffered({ ...base, merged: true }, true),
+			view.holdOffered({ ...base, onHold: true }, true),
+		],
+		[true, true, true, false, false, false, false],
+	);
 	const heldDetail = { ...base, onHold: true, heldSince: '2026-11-20T09:30:00Z' };
 	check(
 		'the page: a held change reads "On hold · since <date>" with Resume for a merger and none otherwise; nothing it could do is offered',

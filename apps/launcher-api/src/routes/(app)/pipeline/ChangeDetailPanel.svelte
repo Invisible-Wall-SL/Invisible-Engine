@@ -3,6 +3,7 @@
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
 	import type { MergeResult } from '$lib/server/pipelineMerge';
+	import IconButton from '$lib/ui/IconButton.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import AgentEvalSection from './AgentEvalSection.svelte';
@@ -25,6 +26,7 @@
 		fixApprovalState,
 		heldText,
 		holdBar,
+		holdOffered,
 		imagesArtifactId,
 		jobWord,
 		lapsedApprovals,
@@ -123,6 +125,7 @@
 	const rerecord = $derived(rerecordBar(detail, canMerge));
 	const update = $derived(updateBar(detail, canMerge));
 	const hold = $derived(holdBar(detail, canMerge, now));
+	const canHold = $derived(holdOffered(detail, canMerge));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -310,7 +313,7 @@
 	}
 
 	async function holdChange(): Promise<void> {
-		if (busy || hold?.action !== 'hold') return;
+		if (busy || !canHold) return;
 		const { number, title } = detail;
 		const note = await askText({
 			title: `Put #${number} on hold`,
@@ -456,6 +459,14 @@
 			</div>
 			<span class="badges">
 				<Pill tone={pill.tone} dot={pill.dot} large>{pill.label}</Pill>
+				{#if canHold}
+					<IconButton
+						icon="pause"
+						label="Put on hold: keep it out of Update, Re-record and Merge until resumed"
+						disabled={busy !== null}
+						onclick={holdChange}
+					/>
+				{/if}
 				{#if detail.draft}<Pill tone="amber" tag>draft</Pill>{/if}
 				{#if detail.agentDefinition}<Pill tone="amber" tag>agent definition</Pill>{/if}
 				{#if detail.familyPacks.length}<Pill tone="amber" tag>family pack</Pill>{/if}

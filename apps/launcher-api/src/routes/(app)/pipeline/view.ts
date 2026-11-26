@@ -583,6 +583,14 @@ export function heldText(since: string | null): string {
 		: 'On hold';
 }
 
+/** Put on hold is a general action: any open change not already held, for a `pipelineMerge` holder. */
+export function holdOffered(
+	detail: Pick<ChangeDetail, 'state' | 'merged'> & { onHold?: boolean },
+	canMerge: boolean,
+): boolean {
+	return canMerge && detail.state === 'open' && !detail.merged && !detail.onHold;
+}
+
 export interface HoldBar {
 	/** `null` shows the sentence only (no permission). */
 	action: 'hold' | 'resume' | null;
