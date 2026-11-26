@@ -4,16 +4,18 @@
  * (`apps/lines/src/components/PerfHud.svelte` `report()`, `perfStats.ts`, `perfSpikes.ts`,
  * `pixi-svelte` `glCounters.ts` `textureList`), an arcade reading's sim and room work
  * (`apps/lines/src/game/arcadePerf.ts`), and a build's oversize pages, never-loaded files,
- * duplicates and Optimize twins (`scripts/lib/build-breakdown.mjs`). Reduced from the full JSON at
+ * duplicates and Optimize twins (`scripts/lib/build-breakdown.mjs`), and a `perf: 9` reading's
+ * network (`profilerNetwork.ts` `readNetwork`). Reduced from the full JSON at
  * receipt into the rows' `facts` column, so the rules never read R2. Bounded: a few KB each.
  */
 
 import { phaseSetOf, setPhases, type PerfPhase } from '../profiler';
+import { readNetwork, type NetworkFacts } from '../profilerNetwork';
 
 /**
  * Bump only when rows already filled need a refill from R2. `perf: 8` (arcade phases, `arcade`)
  * did not: no stored reading is a v8 one (the launcher refused v8 until it read it), and a v7
- * reading's facts come out the same.
+ * reading's facts come out the same. Nor did `perf: 9` (`network`): an older reading has none.
  */
 export const FACTS_VERSION = 1;
 
@@ -119,6 +121,8 @@ export interface ReportFacts {
 	ktx2Fallbacks: { key: string; reason: string }[];
 	/** An arcade reading's sim and room work per phase (`perf: 8`, `kind: 'arcade'`). */
 	arcade?: ArcadeFacts;
+	/** What the page downloaded and its API traffic (`perf: 9`). */
+	network?: NetworkFacts;
 }
 
 /** A page larger than this on a side fails to load on many phones (`build-breakdown.mjs`). */
@@ -247,12 +251,13 @@ function textures(v: unknown): TextureFact[] | null {
 	);
 }
 
-/** A probe report's facts (the parsed Copy JSON, `perf: 7` / `8`). Never throws. */
+/** A probe report's facts (the parsed Copy JSON, `perf: 7` / `8` / `9`). Never throws. */
 export function reportFacts(report: unknown): ReportFacts {
 	const r = isObj(report) ? report : {};
 	const list = Array.isArray(r.textureList) ? r.textureList : null;
 	const arcade = (num(r.perf) ?? 0) >= 8 && phaseSetOf(str(r.kind, 20)) === 'arcade';
 	const phases = setPhases(arcade ? 'arcade' : 'slot');
+	const network = (num(r.perf) ?? 0) >= 9 ? readNetwork(r) : null;
 	return {
 		v: FACTS_VERSION,
 		refreshHz: num(r.refreshHz),
@@ -265,6 +270,7 @@ export function reportFacts(report: unknown): ReportFacts {
 			.map((f) => ({ key: str(f.key, 200) ?? '?', reason: str(f.reason, 160) ?? '' }))
 			.slice(0, KEEP_FALLBACKS),
 		...(arcade ? { arcade: arcadeFacts(r) } : {}),
+		...(network ? { network } : {}),
 	};
 }
 

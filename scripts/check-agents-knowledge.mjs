@@ -147,6 +147,13 @@ for (const [prefix, key, ids] of sections) {
 		}
 	}
 }
+// Areas no tool or kind owns (the Profiler's network findings: assets, delivery, RGS, game server).
+for (const [id, list] of Object.entries(owners.areas ?? {})) {
+	if (!Array.isArray(list) || list.length === 0) fail(`owners.json: areas.${id} has no owner`);
+	for (const agent of list ?? []) {
+		if (!agentNames.has(agent)) fail(`owners.json: areas.${id} names unknown agent ${agent}`);
+	}
+}
 for (const gap of Object.keys(gaps)) {
 	const [prefix, id] = gap.split(':');
 	const known = sections.find(([p]) => p === prefix)?.[2] ?? [];

@@ -180,8 +180,29 @@ refuses forcing today, so that step is skipped.
    - **Draws**: draw calls a frame while spinning (while idle if the reading never spun); for an
      arcade game, while it plays (in its menus if it never played).
    - **Tex MB**: the textures in GPU memory.
+   - **Transfer MB**: what the game's page downloaded (a reading from a readout of `perf: 9` or
+     later; `–` for an older one), and **1st frame** under it: how long after the page started the
+     game drew its first frame. Each file counts its body as served, whether that load took it from
+     the cache or not, so a phone that had the game cached reads the same weight. A `+` after the
+     number means some files hid their size (a server on another site that sends no
+     Timing-Allow-Origin) and are not counted. Hover for the file count, what came from the cache,
+     the largest file and the MB before the first frame. Click the number to open the reading's
+     **Files** card under the list (click again to close it).
    - **Keep**: see below.
    - **JSON**: downloads the full reading as the game sent it, with every figure the readout has.
+
+### A reading's files
+
+The **Files** card (open it from a reading's **Transfer MB**) lists what the page downloaded,
+heaviest first: each file's path (and its site, when it is not the game's), its class (Page, JS,
+CSS, Images, KTX2 textures, Atlas / JSON, Rigs, Audio, Fonts, API / RGS, Other), its load stage
+(**Before the first frame**, **Boot load**, **After boot**), its **MB** as served and **Decoded**,
+where it came from (`cache`, `304`, `network`, or `size hidden`) and how long it took. Above the
+table: the transfer, what came from the cache, the first frame, the MB of each stage, the RGS's
+requests and their p95, and for an online arcade game the room's KB a second in and out and its
+largest message; then the MB of each class. A reading sent as the page hid lists only its 20
+heaviest files ("Sent trimmed"). File names are paths only: the game never sends a link's query or
+a token.
 
 ### Keep a reading
 
@@ -217,6 +238,9 @@ refuses forcing today, so that step is skipped.
       green for pass, orange for warn, red for fail. Hover the cell for the verdict per device
       class. A breakdown that names no size or no GPU estimate is not judged on it (hover: "not
       enough data").
+    - **Transfer MB**: what the as-shipped readings taken on this build downloaded (the median);
+      hover for the build before it of the same game and kind, and the change. `–` when no reading
+      on the build says.
     - **Devices**: a pill per device class (`phone`, `desktop`…) that has as-shipped readings on
       this build, coloured pass / warn / fail / not enough data. A class takes the verdict of its
       worst device (GPU), so a weak phone failing is not hidden by a strong one. Hover a pill for
@@ -230,8 +254,9 @@ refuses forcing today, so that step is skipped.
     pick one). It shows what it shipped and in how many files, code, GPU (est.), what the build left
     out, the bytes nothing loads and the engine commit; a line comparing it with the previous build
     of the same game and kind (shipped, GPU, files, errors, warnings); a table of each category with
-    the previous build's size and the change; and **Readings on this build**, with their fps and
-    texture memory.
+    the previous build's size and the change; **Downloaded (readings)**, what its readings fetched
+    (hover for the build before); and **Readings on this build**, with their fps, texture memory and
+    transfer MB.
 13. A reading belongs to a build when it was taken on the same game (a capture link names its game;
     a pasted reading names the one you picked), reports the same build number and, when both name
     one, the same engine commit. Each reading shows its game under the device.
@@ -253,6 +278,8 @@ refuses forcing today, so that step is skipped.
       **p95** (the median over the group's readings) and **>33** (hitches, added up over the
       readings). A device is judged only on its readings' own phases.
     - **Draws** and **GPU MB**: the median draw calls a frame and texture memory.
+    - **Transfer MB** and **Largest file**: the median of what the readings downloaded and of their
+      heaviest file (readings from `perf: 9` on; with none, the cells read `—` and are not judged).
 16. A cell is coloured by the project's budget: green pass, orange warn, red fail, grey when there
     is not enough data or no budget for it. Hover a cell for its verdict and the warn and fail
     lines.
@@ -332,6 +359,23 @@ refuses forcing today, so that step is skipped.
       already counted under Unused bytes).
     - **Regression**: a game's newest build against the one before — shipped size or GPU estimate
       up; median fps down on a device; or a lab run's counts (draws, uploads…) up.
+    - **Heavy downloads**: what a device class's readings downloaded past its **Transfer** budget
+      (with the classes that weigh most), and every file past the **Largest file** budget, each with
+      what would make it lighter (🗜 Optimize for a PNG, a smaller or split page, one audio format…)
+      and the GPU memory it holds when it is a texture. Owned by the art pipeline's agent
+      (`atlas-python-tools`) for art, the engine's for code.
+    - **Uncompressed text**: JSON, JS, CSS or atlas text over 8 KB served without gzip or brotli,
+      with the server that sent it (`unmeasured`: what compression would save is not measured).
+    - **Downloaded again**: files a device downloaded again on its next page load though the load
+      before had fetched them (the cache kept nothing), a reload that still downloads them, or a file
+      downloaded twice in one load. The saving is the MB downloaded again. Never a lab run (each starts
+      with an empty cache). These two are the server's caching and compression (`infra-railway`).
+    - **Before the first frame**: the MB the page fetches before the game draws anything — the
+      player looks at a blank page for all of it — from 1.5 MB, with the first frame's time and the
+      largest of those files.
+    - **Slow or heavy messages**: the RGS answering slowly (p95 from 500 ms, from a device, never a
+      lab run) or with a large answer, and an online arcade room sending a lot (from 30 KB a second,
+      or one message over 32 KB). The RGS host is named: in production it is the partner's server.
 21. Fps findings speak for each game's **current build** — the newest build (by its build record,
     else its number), not the newest reading — so a finding a fix already replaced drops out once
     you take readings on the new build, and re-measuring an old build later does not bring it back.
@@ -381,7 +425,9 @@ them, so a project with many old readings shows its full list after a few visits
 27. The table shows, per phase, **fps**, **p95 ms**, **> 33 ms** and **frames**; then, for idle and
     spinning (an arcade game's menu and play), what a frame did — draws, passes, uploads, GL calls
     and JS ms, and for an arcade game its sim steps, sim ms, bodies, room states, their bytes and
-    the time its messages took; then **texture MB**.
+    the time its messages took; then **texture MB**; then, for readings from `perf: 9` on, what
+    each downloaded: transfer MB, from the cache, files, sizes hidden, the largest file, the MB before
+    the first frame, the first frame, the RGS's p95 and the room's KB a second.
     Each row has A, B and **B − A**: green when B is better, red when it is worse (frames is not
     coloured). `—` means a reading has no figure there.
 28. It is a difference, not a verdict: two devices differ for reasons no build caused. With a lab
@@ -393,7 +439,8 @@ them, so a project with many old readings shows its full list after a few visits
 
 29. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
     **Phone**, **Tablet**, **Desktop** and **Every device** (shipped size). Each row is one metric
-    (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Shipped size**. The
+    (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Transfer**, **Largest
+    file**, **Shipped size**. The
     phases are the project's game kind's: Idle, Spinning and Round for a slot, Menu and Play for an
     arcade game (plus any other phase the project has its own line for).
     - **Warn** and **Fail** are the project's lines, filled in with the line in force. For fps,
@@ -410,12 +457,16 @@ them, so a project with many old readings shows its full list after a few visits
     | Phone, tablet | GPU memory                | > 120 MB | > 150 MB |
     | Desktop       | fps, every phase          | < 58     | < 55     |
     | Desktop       | p95 frame, every phase    | > 20 ms  | > 25 ms  |
+    | Every class   | Transfer                  | > 20 MB  | > 25 MB  |
+    | Every class   | Largest file              | > 3 MB   | > 6 MB   |
     | Every device  | Shipped size              | > 20 MB  | > 25 MB  |
 
     "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
     Draws a frame and desktop GPU memory have no default; set one if your project wants it. An
     arcade game's **menu** takes idle's lines and its **play** spinning's — a studio default by
-    analogy, not an owner number; change them here if your game needs others.
+    analogy, not an owner number; change them here if your game needs others. **Transfer** takes
+    the shipped-size line (what a first visit downloads is what the game ships); **Largest file** is
+    a studio default (a 6 MB file is about 5 s alone on a 10 Mbit/s phone link).
 
 31. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
     you typed. A value out of range, or a warn line on the wrong side of the fail line, is refused
@@ -431,8 +482,8 @@ them, so a project with many old readings shows its full list after a few visits
 ## Known limitations / TODOs
 
 The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Devices and
-budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug"), P6 ("Lab runs") and P8 ("Arcade
-phases") are done.
+budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug"), P6 ("Lab runs"), P8 ("Arcade
+phases") and P9 ("Network") are done.
 Planned in [the design](../design/invisible-profiler.md), not built yet:
 
 - **Scripted cloud phones** (P7), parked: they need a BrowserStack Automate plan. Cloud phones
@@ -446,7 +497,12 @@ Today:
   newest 500 readings.
 - A reading cannot be deleted by hand; untick **Keep** and the clean-up removes it once it is past
   15 days.
-- Only readings from a game whose readout reports `perf: 7` or `perf: 8` are read. A reading from
+- What a page downloads is read only from a readout of `perf: 9` on; older readings show `–` under
+  **Transfer MB** and are not judged on it. A file from a site that sends no Timing-Allow-Origin
+  (the partner's RGS, the arcade game server's matchmaking) has its time but not its size. A 3D
+  arcade game does not count its room's messages yet. The browser keeps the first 250 files before
+  the readout starts listening; a page that fetched more before that misses the earliest.
+- Only readings from a game whose readout reports `perf: 7`, `8` or `9` are read. A reading from
   a newer or older readout is refused with its version. A `perf: 7` reading names no game kind, so
   it is read in the slot's phases even from an arcade game (its frames are all **Idle**).
 - An arcade game is read in two phases, **Menu** and **Play**. A 3D arcade game counts its play
