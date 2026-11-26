@@ -619,6 +619,29 @@ sheet exported as a publish exports one, named in `characterArt`
 - the frame is on screen (`trees.png`, over 500 magenta pixels);
 - no page error.
 
+## Zone art's rigs (`--zone-rig`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-zone-rig --zone-rig
+```
+
+One page (ZR) in a room of the game's own config, on the same runtime build. Its snapshot's config
+holds `arcade.zoneArt['rock#']` and `['whirlpool#']` drawn by a stub rig
+(`fixtures/zoneRigStubs.mjs`: one slot whose `blink` shows cyan, then yellow, every second),
+exported as a publish exports a rig (`editorArt.spines`) and named in `characterArt`
+([design/zone-art](../design/zone-art.md) §3). The page swims upstream until a piece of the rig is
+in view, then rests. 4 verdicts:
+
+- every rock and whirlpool of its river is drawn with the rig (`regions()['zoneArt:rock#']`,
+  `['zoneArt:whirlpool#']`), and none with a built-in `rock_` or `whirlpool_`;
+- the rest of the river is drawn in the original images as without it;
+- the rig is on screen and plays: both of its drawings show over a second (`zone-rig.png`);
+- no page error.
+
+The room's river is another every run, so whether two pieces start apart is held in Node
+(`check:salmons-art`), not here. Trees are never a rig: `zone-art-play.mjs --cost` measures why.
+
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 
 ```

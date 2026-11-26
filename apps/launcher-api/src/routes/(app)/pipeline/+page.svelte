@@ -26,7 +26,8 @@
 		openChangesWord,
 		plural,
 		shortSha,
-		statusPill,
+		changePill,
+		sortChanges,
 		timeAgo,
 		toolsWord,
 	} from './view';
@@ -418,7 +419,7 @@
 <svelte:head><title>Invisible Pipeline Changes — Invisible Wall</title></svelte:head>
 
 {#snippet card(c: ChangeSummary)}
-	{@const pill = statusPill(c.status)}
+	{@const pill = changePill(c)}
 	{@const fixTag = fixRunTag(c.branch)}
 	{@const bugs = bugRefsIn(`${c.title}\n${c.branch}`).filter((n) => n !== fixTag?.bug)}
 	<button
@@ -433,7 +434,9 @@
 			<Pill tone={pill.tone} dot={pill.dot}>{pill.label}</Pill>
 		</span>
 		<span class="change-title">{c.title}</span>
-		{#if c.status.kind === 'blocked'}<span class="change-blocked">{c.status.reason}</span>{/if}
+		{#if c.status.kind === 'blocked' && !c.onHold}<span class="change-blocked"
+				>{c.status.reason}</span
+			>{/if}
 		{#if c.draft || c.agentDefinition || fixTag || bugs.length}
 			<span class="tags">
 				{#if c.draft}<Pill tone="amber" tag>draft</Pill>{/if}
@@ -540,7 +543,7 @@
 						{#if !list.changes.length}
 							<div class="empty"><strong>No open pipeline changes.</strong></div>
 						{/if}
-						{#each list.changes as c (c.number)}
+						{#each sortChanges(list.changes) as c (c.number)}
 							{@render card(c)}
 						{/each}
 						{#if list.dependabot.length}

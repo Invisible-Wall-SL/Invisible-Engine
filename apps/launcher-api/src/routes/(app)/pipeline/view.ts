@@ -6,6 +6,7 @@ import type {
 	ChangeDetail,
 	ChangeFixRun,
 	ChangeStatus,
+	ChangeSummary,
 	CheckGroup,
 	CheckJob,
 	HarnessCheck,
@@ -36,6 +37,11 @@ export const MERGE_DRAFT_TEXT = 'This change is a draft: mark it ready for revie
 export const READY_NEEDS_CAPABILITY_TEXT =
 	'This change is a draft. Marking it ready for review needs the “Merge pipeline changes” permission.';
 export const MERGE_RETRY_TEXT = 'Try again resends the same request, so it never merges twice.';
+export const ON_HOLD_OFFERS_TEXT =
+	'This change is on hold: resume it before updating, re-recording or merging.';
+export const UPDATE_DONE_TEXT = 'GitHub is merging main in; CI re-runs on the new head.';
+/** Days a draft stays in conflict before the page offers to put it on hold. */
+export const HOLD_HINT_DAYS = 14;
 export const ROLLBACK_NEEDS_CAPABILITY_TEXT =
 	'Rolling back needs the Merge pipeline changes capability.';
 
@@ -76,6 +82,17 @@ export interface StatusPill {
 	label: string;
 	/** Testing is the only one with a live dot. */
 	dot: boolean;
+}
+
+/** The pill of a change in the list or the detail: a held change is grey and never Blocked. */
+export function changePill(change: Pick<ChangeSummary, 'status' | 'onHold'>): StatusPill {
+	if (change.onHold) return { tone: 'muted', label: 'On hold', dot: false };
+	return statusPill(change.status);
+}
+
+/** Held changes sort last; the order within each group is kept. */
+export function sortChanges<T extends Pick<ChangeSummary, 'onHold'>>(changes: T[]): T[] {
+	return [...changes].sort((a, b) => Number(a.onHold) - Number(b.onHold));
 }
 
 export function statusPill(status: ChangeStatus): StatusPill {
@@ -159,7 +176,7 @@ export interface BlockedReason {
 
 /** Why a Blocked change is blocked, in the order the server decides it; `null` when it is not. */
 export function blockedReason(detail: ChangeDetail): BlockedReason | null {
-	if (detail.status.kind !== 'blocked') return null;
+	if (detail.onHold || detail.status.kind !== 'blocked') return null;
 	if (detail.mergeableState === 'dirty') {
 		return { text: BLOCKED_CONFLICT_TEXT, url: safeHref(detail.url) };
 	}
@@ -438,10 +455,12 @@ export interface MergeBar {
 export function mergeBar(
 	detail: Pick<ChangeDetail, 'draft' | 'headSha' | 'filesTruncated'> & {
 		fixRun?: ChangeFixRun | null;
+		onHold?: boolean;
 	},
 	canMerge: boolean,
 	byHand: boolean,
 ): MergeBar {
+	if (detail.onHold) return { action: null, text: ON_HOLD_OFFERS_TEXT };
 	if (byHand) {
 		const why = detail.filesTruncated ? 'is too large to check' : 'edits the harness';
 		return { action: null, text: `Merge by hand on GitHub after review: this change ${why}.` };
@@ -468,10 +487,13 @@ export interface ReadyBar {
  * are told why they cannot. Nothing for a change that is not an open draft.
  */
 export function readyBar(
-	detail: Pick<ChangeDetail, 'draft' | 'state'> & { fixRun?: ChangeFixRun | null },
+	detail: Pick<ChangeDetail, 'draft' | 'state'> & {
+		fixRun?: ChangeFixRun | null;
+		onHold?: boolean;
+	},
 	canMerge: boolean,
 ): ReadyBar | null {
-	if (detail.state !== 'open' || !detail.draft) return null;
+	if (detail.state !== 'open' || !detail.draft || detail.onHold) return null;
 	const fixBlock = fixDecisionBlock(detail);
 	if (fixBlock) return { action: null, text: fixBlock };
 	if (!canMerge) return { action: null, text: READY_NEEDS_CAPABILITY_TEXT };
@@ -500,16 +522,104 @@ export interface RerecordBar {
  * only (forks are never listed), and the server refuses a head that moved. Null: nothing to offer.
  */
 export function rerecordBar(
-	detail: Pick<ChangeDetail, 'state' | 'merged' | 'headSha' | 'checks'>,
+	detail: Pick<ChangeDetail, 'state' | 'merged' | 'headSha' | 'checks'> & { onHold?: boolean },
 	canMerge: boolean,
 ): RerecordBar | null {
-	if (!canMerge || detail.state !== 'open' || detail.merged) return null;
+	if (!canMerge || detail.state !== 'open' || detail.merged || detail.onHold) return null;
 	const job = detail.checks
 		.flatMap((g) => g.jobs)
 		.filter((j) => j.name === RUNTIME_BYTES_JOB)
 		.at(-1);
 	if (job?.state !== 'fail' || !job.instruction?.includes(RUNTIME_BYTES_SENTENCE)) return null;
 	return { headSha: detail.headSha };
+}
+
+export interface UpdateBar {
+	/** The head the page showed: what the server pins `update-branch` to. */
+	headSha: string;
+	text: string;
+}
+
+/**
+ * Update from main (ADR-0015 §1): offered to a `pipelineMerge` holder on an open change that is not
+ * on hold, that GitHub says merges cleanly, and that is behind `main` (`behindBy`, read in the
+ * detail). Changes are branches of this repository only. Null: nothing to offer.
+ */
+export function updateBar(
+	detail: Pick<ChangeDetail, 'state' | 'merged' | 'mergeable' | 'headSha' | 'behindBy'> & {
+		onHold?: boolean;
+	},
+	canMerge: boolean,
+): UpdateBar | null {
+	if (!canMerge || detail.state !== 'open' || detail.merged || detail.onHold) return null;
+	if (detail.mergeable !== true || !detail.behindBy || detail.behindBy < 1) return null;
+	const n = detail.behindBy;
+	return {
+		headSha: detail.headSha,
+		text: `${n} ${plural(n, 'commit')} behind main. GitHub merges main into this branch; there is nothing to choose.`,
+	};
+}
+
+/** What the page does with a refused update: GitHub's own link only for the workflow refusal. */
+export function updateRefusalView(
+	status: number,
+	body: unknown,
+): { text: string; href: string | null } {
+	const { code, url } = (body && typeof body === 'object' ? body : {}) as {
+		code?: unknown;
+		url?: unknown;
+	};
+	return {
+		text: apiErrorText(status, body),
+		href: code === 'workflow_refused' && typeof url === 'string' ? safeHref(url) : null,
+	};
+}
+
+/** "On hold", or "On hold · since 2026-11-20" (UTC date of the label). */
+export function heldText(since: string | null): string {
+	const date = since ? new Date(since) : null;
+	return date && !Number.isNaN(date.getTime())
+		? `On hold · since ${date.toISOString().slice(0, 10)}`
+		: 'On hold';
+}
+
+/** Put on hold is a general action: any open change not already held, for a `pipelineMerge` holder. */
+export function holdOffered(
+	detail: Pick<ChangeDetail, 'state' | 'merged'> & { onHold?: boolean },
+	canMerge: boolean,
+): boolean {
+	return canMerge && detail.state === 'open' && !detail.merged && !detail.onHold;
+}
+
+export interface HoldBar {
+	/** `null` shows the sentence only (no permission). */
+	action: 'hold' | 'resume' | null;
+	text: string;
+}
+
+/**
+ * The hold bar: a held change says so, with Resume for a `pipelineMerge` holder; a DRAFT blocked by
+ * a conflict whose head commit is `HOLD_HINT_DAYS` or more old says how far behind it is, with Put
+ * on hold. Nothing otherwise.
+ */
+export function holdBar(
+	detail: Pick<
+		ChangeDetail,
+		'state' | 'merged' | 'draft' | 'mergeableState' | 'behindBy' | 'headCommittedAt' | 'heldSince'
+	> & { onHold?: boolean },
+	canMerge: boolean,
+	now: number = Date.now(),
+): HoldBar | null {
+	if (detail.state !== 'open' || detail.merged) return null;
+	if (detail.onHold)
+		return { action: canMerge ? 'resume' : null, text: heldText(detail.heldSince) };
+	if (!detail.draft || detail.mergeableState !== 'dirty' || !detail.headCommittedAt) return null;
+	const age = Math.floor((now - Date.parse(detail.headCommittedAt)) / DAY);
+	if (!(age >= HOLD_HINT_DAYS)) return null;
+	const behind = detail.behindBy
+		? `${detail.behindBy} ${plural(detail.behindBy, 'commit')} behind main`
+		: 'Behind main';
+	return { action: canMerge ? 'hold' : null, text: `${behind} for ${age} days` };
 }
 
 /** The bar after a merge: "Merged into main as <sha> by <who> · just now". */

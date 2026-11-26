@@ -431,7 +431,13 @@ check('a new room’s lobby has no form: its note shows the room, who waits and 
 	assert.match(screens, /const full = label\(NO_PLACE, 12, 0xffaaaa\);/);
 	assert.match(note, /row\.view\.scale\.set\(fit\);/, 'the row fits a phone');
 	assert.match(note, /const fit = fitTo\(w, row\.width\);/);
-	assert.match(screens, /Math\.min\(1, \(w - 2 \* LOBBY\.margin\) \/ width\)/);
+	assert.match(screens, /Math\.max\(0\.01, \(w - 2 \* LOBBY\.margin\) \/ Math\.max\(width, 1\)\)/);
+	assert.match(
+		screens,
+		/const fitTo = \(w: number, width: number\) => Math\.min\(1, room\(w, width\)\);/,
+	);
+	assert.match(note, /room\(w, river\.getLocalBounds\(\)\.width\)/, 'the river line fits a phone');
+	assert.match(note, /you\.scale\.set\(fitTo\(w, you\.getLocalBounds\(\)\.width\)\);/);
 	for (const form of [/createElement/, /rejoin/, /<input|Join River/, /pixelButton\('/])
 		assert.doesNotMatch(note, form, `the lobby's note has ${form}`);
 	assert.match(

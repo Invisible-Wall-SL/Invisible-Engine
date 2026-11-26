@@ -30,6 +30,9 @@
 //    mapping — and ↺ Reuse “Sheety”, which opens it, arrangement and all; ⤺ forgets the arrangement;
 //  - ↺ Start over, the mapping changed by hand: asked first, then the first guess (the arrangement
 //    gone), and ↶ brings back what it replaced; on a swapped sheet it reads the names as ⇄ says;
+//    ↺ Start over then ✕: ↺ Reuse what you left brings back the mapping it replaced; a face still
+//    being found lands on neither the first guess nor, after ↶, the mapping put back, and one being
+//    found when ↺ Start over came is looked for again after ↶;
 //  - 🗺 Edit mapping on that rig opens its mapping with 🔄 Update rig in Create rig's place (the sheet
 //    fixed); a part re-mapped and 🔄 Update rig: `/api/rigger/from-sheet/update` (faked with the
 //    shipped `updateSheetRig`) gets the edited mapping and the one the rig keeps, the merged rig is one
@@ -83,7 +86,7 @@ const PAGE_MUTANTS = [
 	],
 	['a dragged joint not kept', 'dr.m.joints[dr.joint] = moved;', 'void moved;'],
 	['the face not sent', '...(m.face ? { face: m.face } : {}) };\n  return {', '};\n  return {'],
-	['the props not sent', 'props: s2r.props.map(', 'props: [].map('],
+	['the props not sent', 'props: st.props.map(', 'props: [].map('],
 	[
 		'a region not drawn where the rig draws it',
 		'const dx = r.offX || 0, dy = r.origH ? r.origH - (r.offY || 0) - r.h : 0;',
@@ -138,6 +141,26 @@ const PAGE_MUTANTS = [
 		'↶ not bringing the mapping back',
 		'Object.assign(s2r, u, { undo: null,',
 		'Object.assign(s2r, { undo: null,',
+	],
+	[
+		'↺ Start over, then ✕, leaving nothing for ↺ Reuse',
+		'else if (!s2r.edit && s2r.sheet && !s2r.dirty',
+		'else if (false && !s2r.edit && s2r.sheet && !s2r.dirty',
+	],
+	[
+		'↺ Start over letting a face found before it land on the first guess',
+		'  ++s2r.gen;\n  s2rSuggest();',
+		'  s2rSuggest();',
+	],
+	[
+		"↶ letting ↺ Start over's face land on the mapping put back",
+		'  ++s2r.gen;\n  // A face being found',
+		'  // A face being found',
+	],
+	[
+		'↶ leaving a face that was being found stuck',
+		'if (f === "busy") s2rTrackFace(part);',
+		'if (f === "busy") void part;',
 	],
 	[
 		'◧ Arranged never asking the launcher',
@@ -202,7 +225,7 @@ const PAGE_MUTANTS = [
 		'    for (const p of moved) delete s2r.arrange[p];',
 		'    void moved;',
 	],
-	['⇄ swapSides not sent', '    ...(s2r.swap ? { swapSides: true } : {}),\n', ''],
+	['⇄ swapSides not sent', '    ...(st.swap ? { swapSides: true } : {}),\n', ''],
 	[
 		"⇄ the setting not read back from a rig's mapping",
 		'swap: !!kept && kept.swapSides === true });',
@@ -1383,7 +1406,7 @@ try {
 	// chain from behind the torso (as the Layers made it) back over it, just behind the neck.
 	await evaluate('closeSheetToRig(); true');
 	await evaluate(
-		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); if (!editMode) setEditMode(true); document.getElementById("secSlots").open = true; renderSlotList(); true',
+		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); if (!editMode) setEditMode(true); document.getElementById("secBones").open = false; document.getElementById("secSlots").open = true; renderSlotList(); true',
 	);
 	const slotSpot = await evaluate(layerSpot('#slotList .trow[data-slot]', CHAIN, 'neck'));
 	await pointerDrag(slotSpot.from, slotSpot.to);
@@ -1640,6 +1663,76 @@ try {
 		'a kept mapping opens swapped as it was made; a new one unswapped, whatever the dialog last had',
 		reread.fromKept === true && reread.fresh === false,
 		q(reread),
+	);
+
+	// ↺ Start over, then ✕ and opened again: what was left is the mapping it replaced.
+	await reopen();
+	const replaced = await evaluate(`(() => {
+		const s = document.querySelector('#s2rParts [data-part="neck"] select');
+		s.value = "bg_glow"; s.dispatchEvent(new Event("change"));
+		return JSON.parse(JSON.stringify(s2rMapping()));
+	})()`);
+	await evaluate('document.getElementById("s2rStartOver").click(); true');
+	await waitFor('!!s2r.undo && s2r.faces.head === "found"', 15000);
+	await reopen();
+	const leftOver = (await reuseNow()).findIndex(([t]) => /^↺ Reuse what you left/.test(t));
+	const beforeOver = await evaluate('s2r.gen');
+	if (leftOver >= 0)
+		await evaluate(`document.querySelectorAll("#s2rReuse button")[${leftOver}].click(); true`);
+	await waitFor(`s2r.gen > ${beforeOver} && !!s2r.sheet`, 20000);
+	const tookOver = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	ok(
+		'↺ Start over, then ✕ and opened again: ↺ Reuse what you left brings back the mapping it replaced',
+		leftOver >= 0 && q(tookOver) === q(replaced),
+		q({ leftOver, neck: tookOver.parts.neck?.region }),
+	);
+
+	// Faces found late: the tracker held until let go, the face it finds another (ALT) or the head's.
+	const alt = face.map(([x, y]) => [x + 0.03, y]);
+	const tick = 'await new Promise((r) => setTimeout(r, 100));';
+	const late = await evaluate(`(async () => {
+		window.__track0 = window.RiggerMotion.track;
+		window.__gates = [];
+		window.RiggerMotion.track = (kinds, src) => new Promise((r) => window.__gates.push((landmarks) =>
+			r({ width: src.width, height: src.height, frames: [{ t: 0, face: { landmarks, blend: {} } }] })));
+		const before = JSON.parse(JSON.stringify(s2rMapping()));
+		document.getElementById("s2rStartOver").click();
+		const busy = s2r.faces.head;
+		document.getElementById("s2rUndoStart").click();
+		while (window.__gates.length) window.__gates.shift()(${q(alt)});
+		${tick}
+		return { same: q(JSON.parse(JSON.stringify(s2rMapping()))) === q(before), busy, face: s2r.faces.head };
+		function q(v){ return JSON.stringify(v); }
+	})()`);
+	ok(
+		'a face ↺ Start over looks for, found after ↶, leaves the mapping put back as it was',
+		late.busy === 'busy' && late.face === 'found' && late.same,
+		q(late),
+	);
+	const stuck = await evaluate(`(async () => {
+		const region = s2r.map.head.region, c = s2rCanvas(region);
+		s2rSetRegion("head", region); s2rRender();
+		document.getElementById("s2rStartOver").click();
+		window.__gates.shift()(${q(alt)});
+		${tick}
+		const mid = { face: s2r.faces.head, found: !!s2r.map.head.face };
+		document.getElementById("s2rUndoStart").click();
+		window.__gates.shift()(${q(alt)});
+		const again = window.__gates.shift();
+		if (again) again(${q(face)});
+		${tick}
+		const want = [Math.round(${face[0][0]} * c.width * 10) / 10, Math.round(${face[0][1]} * c.height * 10) / 10];
+		window.RiggerMotion.track = window.__track0;
+		return { mid, again: !!again, face: s2r.faces.head, at: s2r.map.head.face && s2r.map.head.face[0], want };
+	})()`);
+	ok(
+		'a face looked for before ↺ Start over lands on neither the first guess nor, after ↶, the mapping put back; ↶ looks for it again',
+		stuck.mid.face === 'busy' &&
+			!stuck.mid.found &&
+			stuck.again &&
+			stuck.face === 'found' &&
+			q(stuck.at) === q(stuck.want),
+		q(stuck),
 	);
 	await evaluate('closeSheetToRig(); window.confirm = () => true; true');
 

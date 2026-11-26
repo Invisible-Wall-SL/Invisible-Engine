@@ -368,6 +368,14 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-26 — **The readout stays on screen on an iPhone (BrowserStack Live, iPhone 16 Pro Max /
+  iOS 27, Salmons)**: the owner could not find Send. The game page had slid about 60 px up (title
+  cut, a black strip over Safari's toolbar), taking the top-left readout off the screen. The page
+  shell is pinned now (`apps/lines/src/app.html`), and the readout follows the visual viewport
+  (`PerfHud.svelte`), so a page iOS pans or zooms cannot hide Send. Checked in Chromium at
+  430 × 739 (page cannot scroll, canvas fills, readout shown); **not yet checked on the real
+  iPhone**.
+
 - 2026-11-26 — **P8 "Arcade phases" (in review; a runtime release on merge)**: the owner's first
   Salmons reading (26 Nov 09:48, BS Live · Galaxy S24 Ultra, Adreno 750) put all 5,153 frames in
   `idle` and its findings named no arcade cause. Design: [invisible-profiler §7](../design/invisible-profiler.md).

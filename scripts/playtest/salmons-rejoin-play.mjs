@@ -616,7 +616,7 @@ async function switchVerdicts(game, n, auto) {
 		`${tag}: the lobby's note says who the page plays, in a river of one`,
 		note?.shown === true &&
 			note.you === 'You are Jo, a Salmon' &&
-			/^1 players in .+ River$/.test(note.river ?? '') &&
+			/^1 player in .+ River$/.test(note.river ?? '') &&
 			drawn.screens.won?.shown === false,
 		{ note, won: drawn.screens?.won },
 	);
