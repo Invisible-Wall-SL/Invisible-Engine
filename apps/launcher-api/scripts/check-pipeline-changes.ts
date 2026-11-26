@@ -8577,6 +8577,14 @@ check(
 		],
 		[null, null, null, null, null],
 	);
+	check(
+		'the page matches the very words check-runtime-bytes.mjs ends a failed comparison on',
+		readFileSync(
+			fileURLToPath(new URL('../../../scripts/check-runtime-bytes.mjs', import.meta.url)),
+			'utf8',
+		).includes(view.RUNTIME_BYTES_SENTENCE),
+		true,
+	);
 }
 
 // ── No secret anywhere ────────────────────────────────────────────────────────
