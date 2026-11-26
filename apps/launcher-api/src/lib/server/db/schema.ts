@@ -31,6 +31,7 @@ import type { ArcadePhaseSummaries } from '$lib/profiler';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
 import type { BuildFacts, ReportFacts } from '$lib/profilerFindings/facts';
 import type { PerfCounts } from '$lib/profilerLab';
+import type { NetworkSummary } from '$lib/profilerNetwork';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -1364,6 +1365,12 @@ export const perfReports = pgTable(
 		drawsMean: doublePrecision('draws_mean'),
 		jsMs: doublePrecision('js_ms'),
 		textureMb: doublePrecision('texture_mb'),
+		/** A `perf: 9` reading's download weight, MB (`profilerNetwork.ts`); null for an older one. */
+		transferMb: doublePrecision('transfer_mb'),
+		/** ms from navigation start to the game's first frame; null before `perf: 9` or when unknown. */
+		firstFrameMs: doublePrecision('first_frame_ms'),
+		/** The rest of the reading's network summary, as the page lists it; null before `perf: 9`. */
+		network: jsonb('network').$type<NetworkSummary>(),
 		/** Per-phase per-frame counts (`profilerLab.ts`); null on a reading kept before P6. */
 		counts: jsonb('counts').$type<PerfCounts>(),
 		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */

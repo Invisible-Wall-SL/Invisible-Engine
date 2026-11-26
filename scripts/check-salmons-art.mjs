@@ -23,6 +23,12 @@
 //   scattered and forest tree with the trees' picture (a frame, variants, a clip) at the built-in
 //   tree's place, depth and foot, its width times the scale, and every other piece exactly as
 //   without it; with no picture loaded it draws exactly as without.
+// - zone art's rigs: handed a rig drawing (the runtime's `zoneArtRig.ts`, stood in for here), the
+//   river draws every rock and whirlpool whose zone has a rig stamp as its rig, at the built-in
+//   picture's place and depth, the built-in size times the scale, a sandbank's stands upright on
+//   its zone, fitted inside it; each starts where its zone's seed says, moves on with the river's
+//   ticker and is destroyed with it; every other piece and every seeded choice is as without it,
+//   and with no drawing handed, or a rig not loaded, the river draws exactly as without.
 // - biomes (2026-11-26): a river with none authored is drawn piece for piece as before them
 //   (`salmons/art-fingerprint.mjs`), and an authored stretch draws its own trees, floor, grass
 //   tint and riverbed; with the trees' art, a biome's variants pick among its pictures.
@@ -1277,6 +1283,7 @@ const drawnRiver = (river, seed, zoneArt) => {
 		zoneArt,
 	);
 	const piece = (v) => ({
+		label: v.label,
 		x: v.x,
 		y: v.y,
 		z: v.zIndex,
@@ -1384,6 +1391,170 @@ check(
 	},
 );
 
+// Zone art's rigs: the river handed a stand-in rig drawing, each picture a container measured as a
+// 40 × 20 box, recording what it was asked and how far it was moved on.
+const { normalizeZoneArt, zoneArtPhaseFor, zoneArtStamps } =
+	await import('../packages/game-config/src/zoneArt.ts');
+const rigDrawing = () => {
+	const made = [];
+	const draw = (source, phase) => {
+		const view = new Container({ label: `rig:${source.rig}` });
+		view.boundsArea = new Rectangle(-20, -10, 40, 20);
+		const rig = {
+			view,
+			w: 40,
+			h: 20,
+			source,
+			phase,
+			moved: 0,
+			destroyed: false,
+			update(ms) {
+				this.moved += ms;
+			},
+			drawn: () => ({}),
+			destroy() {
+				this.destroyed = true;
+				if (!view.destroyed) view.destroy();
+			},
+		};
+		made.push(rig);
+		return rig;
+	};
+	return { draw, made };
+};
+/** A river's zones as its room's are named: its rocks, whirlpools and sandbanks. */
+const riverZones = (river) => [
+	...(river.rocks ?? []).map((r, i) => ({ id: `rock${i}`, x: r.x, y: r.y, w: r.w, h: r.h })),
+	...river.whirlpools.map((p, i) => ({
+		id: `whirlpool${i}`,
+		x: p.x - p.r,
+		y: p.y - p.r,
+		w: 2 * p.r,
+		h: 2 * p.r,
+	})),
+	...(river.sandbanks ?? []).map((b, i) => ({
+		id: `sandbank${i}`,
+		x: b.x,
+		y: b.y,
+		w: b.w,
+		h: b.h,
+	})),
+];
+const rigOf = (rig) => ({ kind: 'rig', rig, animation: 'idle' });
+const RIG_MAP = normalizeZoneArt({
+	'rock#': { source: rigOf('R_Rock'), placement: 'stamp', scale: 1.5 },
+	'whirlpool#': { source: rigOf('R_Pool'), placement: 'stamp' },
+	'sandbank#': { source: rigOf('R_Sand'), placement: 'stamp' },
+});
+const labelled = (pieces, label) => pieces.filter((p) => p.label === label);
+const isBuiltInStamp = (p) =>
+	p.texture.startsWith('rock_') || (p.frames ?? []).some((f) => f.startsWith('whirlpool_'));
+
+for (const [label, river] of rivers) {
+	const stamps = zoneArtStamps(riverZones(river), RIG_MAP, SEED);
+	const bare = drawnRiver(river, SEED);
+	check(
+		`zone art's rigs, ${label}: no rig drawing handed, or a rig not loaded, draws exactly as today`,
+		() => {
+			assert.deepEqual(drawnRiver(river, SEED, { stamps, assets: () => ({}) }), bare);
+			assert.deepEqual(
+				drawnRiver(river, SEED, { stamps, assets: () => ({}), rig: () => undefined }),
+				bare,
+			);
+		},
+	);
+	check(
+		`zone art's rigs, ${label}: every rock and whirlpool is its rig at the built-in picture's place, depth and size times the scale; a sandbank's stands on its zone; nothing else moves`,
+		() => {
+			const { draw, made } = rigDrawing();
+			const art = drawnRiver(river, SEED, { stamps, assets: () => ({}), rig: draw });
+			const rocks = river.rocks.length;
+			const pools = river.whirlpools.length;
+			const banks = river.sandbanks.length;
+			const {
+				'zoneArt:rock#': r,
+				'zoneArt:whirlpool#': w,
+				'zoneArt:sandbank#': b,
+				...others
+			} = art.regions;
+			assert.deepEqual([r, w, b], [rocks, pools, banks]);
+			assert.deepEqual(
+				others,
+				Object.fromEntries(
+					Object.entries(bare.regions).filter(
+						([name]) => !name.startsWith('rock_') && !name.startsWith('whirlpool_'),
+					),
+				),
+				'every other region as often, none of the built-in rocks and whirlpools',
+			);
+			assert.deepEqual(
+				art.pieces.filter((p) => !p.label?.startsWith('rig:')),
+				bare.pieces.filter((p) => !isBuiltInStamp(p)),
+				'every other piece where it was, in its order',
+			);
+			const pairs = [
+				['rig:R_Rock', bare.pieces.filter((p) => p.texture.startsWith('rock_')), 1.5],
+				['rig:R_Pool', bare.pieces.filter((p) => isBuiltInStamp(p) && p.frames), 1],
+			];
+			for (const [rig, builtIn, scale] of pairs) {
+				const drawn = labelled(art.pieces, rig);
+				assert.equal(drawn.length, builtIn.length, rig);
+				drawn.forEach((now, i) => {
+					const was = builtIn[i];
+					assert.deepEqual([now.x, now.y, now.z], [was.x, was.y, was.z], `${rig} ${i}'s place`);
+					// The stand-ins are 64 px wide; the rig's box 40: its size is the picture's.
+					for (const axis of ['sx', 'sy'])
+						assert.ok(
+							Math.abs(now[axis] - (was[axis] * 64 * scale) / 40) < 1e-9,
+							`${rig} ${i}'s ${axis}: ${now[axis]} for ${was[axis]}`,
+						);
+				});
+			}
+			const sand = labelled(art.pieces, 'rig:R_Sand');
+			assert.equal(sand.length, banks);
+			for (const stamp of stamps.filter((s) => s.family === 'sandbank#')) {
+				const fit = Math.min(stamp.w / 40, stamp.h / 20);
+				assert.ok(
+					sand.some((p) => Math.abs(p.sx - fit) < 1e-9 && p.sy === p.sx),
+					`${stamp.zone} fitted inside its zone`,
+				);
+			}
+			assert.deepEqual(
+				made.map((m) => [m.source.rig, m.phase]).sort(),
+				stamps.map((s) => [s.source.rig, zoneArtPhaseFor(s.zone, SEED)]).sort(),
+				'each starts where its zone and the seed say',
+			);
+			assert.ok(
+				made.every((m) => m.destroyed),
+				'and goes with the river',
+			);
+		},
+	);
+}
+
+check("zone art's rigs: each moves on with the river's ticker while in view", () => {
+	const [, river] = rivers[0];
+	const { draw, made } = rigDrawing();
+	const ticks = [];
+	const app = { ...riverApp, ticker: { add: (fn) => ticks.push(fn), remove() {} } };
+	const into = new Container();
+	const layer = new Container();
+	const unregister = registerProjectedLayer(SALMONS_FIELD_LAYER, layer);
+	const drawn = mountSalmonsRiver(into, app, riverArt, river, SEED, ISO_PROJECTOR_MIRRORED, {
+		stamps: zoneArtStamps(riverZones(river), RIG_MAP, SEED),
+		assets: () => ({}),
+		rig: draw,
+	});
+	made[0].view.visible = false;
+	for (const tick of ticks) tick({ deltaMS: 16 });
+	assert.ok(made.length > 3);
+	assert.equal(made[0].moved, 0, 'one out of view is not moved on');
+	assert.ok(made.slice(1).every((m) => m.moved === 16));
+	drawn.teardown();
+	unregister();
+	assert.ok(made.every((m) => m.destroyed));
+});
+
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
 // piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
 // biomes were data, and are the same of main's after its trees' art (#1922): a level with no
@@ -1489,5 +1660,23 @@ check("biomes and the trees' art: a biome's variants pick among the authored pic
 	const plain = drawnRiver(riverOf(SEED), SEED, art);
 	assert.deepEqual(plain, drawnRiver(salmonsMapRiver(SEED), SEED, art));
 });
+
+const { MENU, riverLineScale } = await import(join(ART, 'screens.ts'));
+check(
+	"the lobby's players line pops inside the margins on a narrow canvas, and rests at 1 on a wide one",
+	() => {
+		const top = 0.5;
+		for (const room of [0.4, 0.8, 1, 1.1, 1.15, 2]) {
+			const atTop = riverLineScale(room, top);
+			assert.ok(
+				atTop <= room + 1e-9,
+				`room ${room}: the top of the pop is ${atTop}, past the margins`,
+			);
+			assert.ok(atTop > riverLineScale(room, -1), `room ${room}: no pop`);
+		}
+		assert.equal(riverLineScale(2, -1), 1);
+		assert.equal(riverLineScale(2, top), 1 + MENU.popGrow);
+	},
+);
 
 console.log(`check:salmons-art: ${passed} passed`);

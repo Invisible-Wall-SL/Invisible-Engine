@@ -3,6 +3,8 @@
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
 	import type { MergeResult } from '$lib/server/pipelineMerge';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import AgentEvalSection from './AgentEvalSection.svelte';
 	import Pill from './Pill.svelte';
@@ -10,14 +12,21 @@
 	import {
 		FIX_NOT_RECORDED_TEXT,
 		MERGE_RETRY_TEXT,
+		ON_HOLD_OFFERS_TEXT,
 		NO_CHECKS_TEXT,
+		RERECORD_NOTE_TEXT,
+		UPDATE_DONE_TEXT,
 		apiErrorText,
 		approvalBlocker,
 		approvalState,
 		blockedReason,
+		changePill,
 		check1Summary,
 		check2Summary,
 		fixApprovalState,
+		heldText,
+		holdBar,
+		holdOffered,
 		imagesArtifactId,
 		jobWord,
 		lapsedApprovals,
@@ -26,11 +35,13 @@
 		mergedText,
 		plural,
 		readyBar,
+		rerecordBar,
 		reportImageUrl,
 		rowCells,
 		safeHref,
-		statusPill,
 		timeAgo,
+		updateBar,
+		updateRefusalView,
 	} from './view';
 
 	let {
@@ -64,6 +75,11 @@
 	let mergeError = $state<{ text: string; retry: boolean } | null>(null);
 	let merged = $state<MergeResult | null>(null);
 	let readyError = $state<string | null>(null);
+	let rerecordError = $state<string | null>(null);
+	let rerecorded = $state<string | null>(null);
+	let updateError = $state<{ text: string; href: string | null } | null>(null);
+	let updated = $state<string | null>(null);
+	let holdError = $state<string | null>(null);
 
 	const harness = $derived({
 		...detail.harness,
@@ -72,7 +88,11 @@
 			approval: d.approval ?? approvedHere[d.id] ?? null,
 		})),
 	});
-	const pill = $derived(statusPill(detail.status));
+	const pill = $derived(
+		detail.onHold
+			? { ...changePill(detail), label: heldText(detail.heldSince) }
+			: changePill(detail),
+	);
 	const blocked = $derived(blockedReason(detail));
 	const c1 = $derived(check1Summary(detail.checks));
 	const c1Tone = $derived(
@@ -102,6 +122,10 @@
 	const bar = $derived(mergeBar(detail, canMerge, blocker?.byHand ?? false));
 	const draftBar = $derived(readyBar(detail, canMerge));
 	const fix = $derived(fixApprovalState(detail, now));
+	const rerecord = $derived(rerecordBar(detail, canMerge));
+	const update = $derived(updateBar(detail, canMerge));
+	const hold = $derived(holdBar(detail, canMerge, now));
+	const canHold = $derived(holdOffered(detail, canMerge));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -229,6 +253,111 @@
 		}
 	}
 
+	async function rerecordBytes(): Promise<void> {
+		if (busy || !rerecord) return;
+		const { number } = detail;
+		const confirmed = await askConfirm({
+			title: `Re-record runtime bytes for #${number}`,
+			message: `Commits CI's Linux manifests for the released runtimes onto this branch (scripts/runtime-bytes). The manifest diff is what review reads. It does not merge.`,
+			confirmLabel: 'Re-record',
+		});
+		if (!confirmed) return;
+		busy = 'rerecord';
+		rerecordError = null;
+		rerecorded = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${number}/runtime-bytes`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ headSha: rerecord.headSha }),
+			});
+			const body = (await res.json().catch(() => null)) as { runtimes?: string[] } | null;
+			if (!res.ok) rerecordError = apiErrorText(res.status, body);
+			else rerecorded = `Re-recorded ${(body?.runtimes ?? []).join(', ')}. ${RERECORD_NOTE_TEXT}`;
+			await reread();
+		} catch (err) {
+			rerecordError = err instanceof Error ? err.message : String(err);
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function updateFromMain(): Promise<void> {
+		if (busy || !update) return;
+		const { number } = detail;
+		const headSha = update.headSha;
+		const confirmed = await askConfirm({
+			title: `Update #${number} from main`,
+			message: `GitHub merges main into this branch as a new commit. There is nothing to choose, and CI re-runs on the new head. It does not merge the change.`,
+			confirmLabel: 'Update',
+		});
+		if (!confirmed) return;
+		busy = 'update';
+		updateError = null;
+		updated = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${number}/update`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ headSha }),
+			});
+			const body: unknown = await res.json().catch(() => null);
+			if (!res.ok) updateError = updateRefusalView(res.status, body);
+			else updated = UPDATE_DONE_TEXT;
+			await reread();
+		} catch (err) {
+			updateError = { text: err instanceof Error ? err.message : String(err), href: null };
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function holdChange(): Promise<void> {
+		if (busy || !canHold) return;
+		const { number, title } = detail;
+		const note = await askText({
+			title: `Put #${number} on hold`,
+			message: `${title}\n\nLabels the pull request on-hold and comments why. It stays out of Update, Re-record and Merge until you resume it.`,
+			label: 'Note (optional, 500 characters at most)',
+			placeholder: 'Why it is waiting',
+			allowEmpty: true,
+			confirmLabel: 'Put on hold',
+		});
+		if (note === null) return;
+		await sendHold('hold', note.trim() ? { note: note.trim().slice(0, 500) } : {});
+	}
+
+	async function resumeChange(): Promise<void> {
+		if (busy || hold?.action !== 'resume') return;
+		const { number, title } = detail;
+		const confirmed = await askConfirm({
+			title: `Resume #${number}`,
+			message: `${title}\n\nTakes the on-hold label off and comments that it resumed.`,
+			confirmLabel: 'Resume',
+		});
+		if (confirmed) await sendHold('resume', null);
+	}
+
+	async function sendHold(action: 'hold' | 'resume', payload: object | null): Promise<void> {
+		busy = action;
+		holdError = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${detail.number}/${action}`, {
+				method: 'POST',
+				...(payload
+					? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }
+					: {}),
+			});
+			const body: unknown = await res.json().catch(() => null);
+			if (!res.ok) holdError = apiErrorText(res.status, body);
+			await reread();
+		} catch (err) {
+			holdError = err instanceof Error ? err.message : String(err);
+		} finally {
+			busy = null;
+		}
+	}
+
 	async function postAgain(): Promise<void> {
 		const first = harness.diffs[0];
 		if (busy || !first) return;
@@ -254,6 +383,46 @@
 				>{/if}
 		</div>
 	{/if}
+
+	{#if hold}
+		<div class="bar {hold.action === 'hold' ? 'amber' : 'muted'}">
+			<div class="bar-text">
+				<span class="bar-title">{hold.text}</span>
+				{#if detail.onHold}<span class="bar-sub">{ON_HOLD_OFFERS_TEXT}</span>{/if}
+			</div>
+			{#if hold.action === 'hold'}
+				<button type="button" class="btn" disabled={busy !== null} onclick={holdChange}>
+					{busy === 'hold' ? 'Putting on hold…' : 'Put on hold'}
+				</button>
+			{:else if hold.action === 'resume'}
+				<button type="button" class="btn primary" disabled={busy !== null} onclick={resumeChange}>
+					{busy === 'resume' ? 'Resuming…' : 'Resume'}
+				</button>
+			{/if}
+		</div>
+	{/if}
+	{#if holdError}<div class="callout red" role="alert">{holdError}</div>{/if}
+
+	{#if update}
+		<div class="bar blue">
+			<div class="bar-text">
+				<span class="bar-title">Behind main</span>
+				<span class="bar-sub">{update.text}</span>
+			</div>
+			<button type="button" class="btn primary" disabled={busy !== null} onclick={updateFromMain}>
+				{busy === 'update' ? 'Updating…' : 'Update from main'}
+			</button>
+		</div>
+	{/if}
+	{#if updateError}
+		<div class="callout red" role="alert">
+			{updateError.text}
+			{#if updateError.href}<a href={updateError.href} target="_blank" rel="external noopener"
+					>Open the pull request on GitHub ↗</a
+				>{/if}
+		</div>
+	{/if}
+	{#if updated}<div class="callout green" role="status">{updated}</div>{/if}
 
 	{#if fix}
 		<SectionCard scope="pipeline" id="fix-approving" title="What you're approving">
@@ -290,6 +459,14 @@
 			</div>
 			<span class="badges">
 				<Pill tone={pill.tone} dot={pill.dot} large>{pill.label}</Pill>
+				{#if canHold}
+					<IconButton
+						icon="pause"
+						label="Put on hold: keep it out of Update, Re-record and Merge until resumed"
+						disabled={busy !== null}
+						onclick={holdChange}
+					/>
+				{/if}
 				{#if detail.draft}<Pill tone="amber" tag>draft</Pill>{/if}
 				{#if detail.agentDefinition}<Pill tone="amber" tag>agent definition</Pill>{/if}
 				{#if detail.familyPacks.length}<Pill tone="amber" tag>family pack</Pill>{/if}
@@ -386,7 +563,7 @@
 					{/if}
 				{/each}
 			</div>
-			<details class="jobs">
+			<details class="jobs" open={c1.kind === 'fail'}>
 				<summary>Jobs</summary>
 				{#each detail.checks as g (g.workflow)}
 					<h4>{g.workflow}</h4>
@@ -400,11 +577,36 @@
 								{:else}
 									{job.name}
 								{/if}
+								{#if job.instruction}
+									<span class="job-instruction">{job.instruction}</span>
+								{:else if job.instructionUnread}
+									<span class="job-instruction dim"
+										>GitHub did not give this job's instruction.</span
+									>
+								{/if}
 							</li>
 						{/each}
 					</ul>
 				{/each}
 			</details>
+			{#if rerecord}
+				<div class="rerecord">
+					<button
+						type="button"
+						class="btn primary"
+						disabled={busy !== null}
+						onclick={rerecordBytes}
+					>
+						{busy === 'rerecord' ? 'Re-recording…' : 'Re-record runtime bytes'}
+					</button>
+					<InfoTip label="What this does">
+						Takes the manifests the failed runtime-bytes run built on CI's Linux machine and commits
+						them to this branch as the App. Use it when the change is meant to reach the runtimes.
+					</InfoTip>
+				</div>
+			{/if}
+			{#if rerecordError}<div class="callout red" role="alert">{rerecordError}</div>{/if}
+			{#if rerecorded}<div class="callout green" role="status">{rerecorded}</div>{/if}
 		{/if}
 	</section>
 
@@ -616,7 +818,7 @@
 				<span class="bar-sub">You can roll back from History.</span>
 			</div>
 		</div>
-	{:else if open && detail.status.kind === 'ready'}
+	{:else if open && !detail.onHold && detail.status.kind === 'ready'}
 		<div class="bar green">
 			<div class="bar-text">
 				<span class="bar-title">All checks passed</span>
@@ -634,7 +836,7 @@
 				</button>
 			{/if}
 		</div>
-	{:else if open && detail.status.kind === 'testing'}
+	{:else if open && !detail.onHold && detail.status.kind === 'testing'}
 		<div class="bar blue">
 			<span class="bar-title">Still testing · {detail.status.done} of {detail.status.total}</span>
 		</div>
@@ -995,9 +1197,22 @@
 	}
 	.jobs li {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 8px;
 		padding: 3px 0;
 		color: #c9c9d1;
+	}
+	.job-instruction {
+		flex-basis: 100%;
+		margin-left: 68px;
+		color: #d8d8e0;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.rerecord {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 	.job-state {
 		flex: none;
@@ -1170,6 +1385,18 @@
 	.bar.blue {
 		background: #17212a;
 		border-color: #27404f;
+	}
+	.bar.muted {
+		background: #1c1c22;
+		border-color: #3a3a44;
+	}
+	.bar.muted .bar-sub {
+		font-size: 12px;
+		color: #9a9aa6;
+	}
+	.bar.blue .bar-sub {
+		font-size: 12px;
+		color: #a9cfe4;
 	}
 	.bar.amber {
 		background: #2d2516;

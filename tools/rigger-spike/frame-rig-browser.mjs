@@ -33,6 +33,10 @@
 //    kept before; ↺ Reuse still opens the kept cut, touch-ups and all;
 //  - ↺ Start over on it, a touch-up not kept: asked first, then the best frame with no cut open and
 //    the cut offered again; ↶ brings the cut back as it was, the touch-up with it;
+//  - ✕ and ＋ New rig again: after ↺ Start over its ↶ stays; over dragged joints and a part's frame
+//    picked by hand, ↶ brings them back; mid-cut the dialog is left as it is and the cut lands; over a
+//    cut made here, ↶ brings it back with the part it takes from a cut made here too, and ↺ Reuse
+//    then offers the cut kept before, not that one; on another template, no ↶ to the last one's cut;
 //  - the page threw nothing.
 //   node tools/rigger-spike/frame-rig-browser.mjs [--png <dir>] [--mutants]
 //   F2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -70,16 +74,38 @@ const PAGE_MUTANTS = [
 		'let kept = f2r.saved.find((c) => c.frame === i && f2rUsable(c));',
 		'let kept = f2r.saved.find((c) => c.frame === i);',
 	],
+	["＋ New rig keeping the dialog's cut", 'f2rFresh(); f2r.undo = undo;', 'f2r.undo = undo;'],
 	[
-		"＋ New rig keeping the dialog's cut",
-		'if (f2r.clip){ f2rFresh(); f2rLoadSaved(f2r.clip, f2r.gen); }',
-		'if (f2r.clip) f2rLoadSaved(f2r.clip, f2r.gen);',
+		'＋ New rig dropping what was open, no ↶ for it',
+		'const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;',
+		'const undo = !same ? null : f2r.undo;',
+	],
+	[
+		"＋ New rig dropping ↺ Start over's ↶",
+		'const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;',
+		'const undo = !same ? null : work ? f2rSnapshot() : null;',
+	],
+	['＋ New rig starting over mid-cut', 'if (f2r.clip && !f2r.busy){', 'if (f2r.clip){'],
+	[
+		'↶ losing the cuts made here the clip no longer lists',
+		'for (const c of here) if',
+		'for (const c of []) if',
+	],
+	[
+		'↶ leaving the cut it brings back for ↺ Reuse',
+		'  f2r.kept = f2r.kept.filter((c) => !f2r.cutHere.has(c.job));\n',
+		'',
+	],
+	[
+		"＋ New rig on another template keeping ↶ to the last one's cut",
+		'const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;',
+		'const undo = work || !same ? f2rSnapshot() : f2r.undo;',
 	],
 	['↺ Reuse never offered', 'b.style.display = c ? "" : "none";', 'b.style.display = "none";'],
 	['↺ Reuse opening nothing', '  await f2rOpenSaved(c);\n}', '  void c;\n}'],
 	[
 		'↺ Start over not asking first',
-		'if ((f2rDirty() || f2r.moved || byHand) && !confirm(',
+		'if ((f2rDirty() || f2r.moved || f2rByHand()) && !confirm(',
 		'if (false && !confirm(',
 	],
 	['↺ Start over keeping the cut', '  f2rFresh();\n  f2r.undo = undo;', '  f2r.undo = undo;'],
@@ -192,6 +218,11 @@ const atlasOf = (regions) =>
 const seen = { edits: [], sheets: [], creates: [], cuts: [] };
 let etag = '"e1"';
 let made = null;
+/** How long a cut takes to answer, ms (a cut still running when the dialog opens again). */
+let cutDelay = 0;
+/** The cuts made in the dialog, newest first; listed with the clip's when `listMade` (as the route does). */
+const cutsMade = [];
+let listMade = false;
 let kept = structuredClone(CUT);
 let labelsNow = new Uint8Array(LABELS.data);
 const sharpOf = createRequire(join(APP, 'package.json'))('sharp');
@@ -266,7 +297,8 @@ const server = createServer(async (req, res) => {
 		if (p === '/api/rigger/from-frame' && req.method === 'POST') {
 			const body = await readBody(req);
 			seen.cuts.push(body);
-			return json({
+			if (cutDelay) await new Promise((r) => setTimeout(r, cutDelay));
+			const made = {
 				...CUT,
 				job: body.job ?? `f2r-fresh-${String(seen.cuts.length).padStart(4, '0')}`,
 				clipId: CLIP.id,
@@ -278,13 +310,16 @@ const server = createServer(async (req, res) => {
 					overlay: '/fx/frame.png',
 					track: '/fx/track.json',
 				},
-			});
+			};
+			cutsMade.unshift({ ...made, saved: Date.now() });
+			return json(made);
 		}
 		if (p === '/api/rigger/from-frame' && req.method === 'GET')
 			return json({
 				cuts:
 					url.searchParams.get('clipId') === CLIP.id
 						? [
+								...(listMade ? cutsMade : []),
 								{
 									...kept,
 									root: `c/p/rig-from-frame/${CUT.job}`,
@@ -314,7 +349,7 @@ const server = createServer(async (req, res) => {
 										track: '/fx/track-2.json',
 									},
 								},
-							]
+							].filter((c, i, all) => all.findIndex((x) => x.frame === c.frame) === i)
 						: [],
 			});
 		if (p === '/api/rigger/from-frame/edits') {
@@ -1166,6 +1201,194 @@ try {
 			!undone.undo &&
 			!undone.reuse,
 		q({ undone, touched }),
+	);
+
+	// ✕, then ＋ New rig → 🎞 again (the clip still picked): the clip's kept cuts read anew.
+	const reopenF2r = async (tpl = 'half-body') => {
+		await evaluate(`(() => {
+			window.__keptWas = f2r.kept;
+			document.getElementById("f2rClose").click();
+			document.getElementById("newRigBtn").click();
+			return true;
+		})()`);
+		await waitFor(
+			'!!document.querySelector(\'#newRigApply option[value="template:half-body"]\')',
+			15000,
+		);
+		await evaluate(
+			`document.getElementById("newRigApply").value = "template:${tpl}"; document.getElementById("newRigFromFrame").click(); true`,
+		);
+		await waitFor(
+			'document.getElementById("f2rModal").classList.contains("open") && f2r.kept !== window.__keptWas && !f2r.busy',
+			15000,
+		);
+	};
+	const undoShown = 'document.getElementById("f2rUndoStart").style.display !== "none"';
+	// ↺ Start over, ✕ and opened again: its ↶ is still there and still brings the cut back.
+	await evaluate('document.getElementById("f2rStartOver").click(); true');
+	await reopenF2r();
+	const overShut = await evaluate(`({ cut: !!f2r.cut, sel: f2r.sel, undo: ${undoShown} })`);
+	await evaluate('document.getElementById("f2rUndoStart").click(); true');
+	const overBack = await evaluate(
+		`({ job: f2r.cut && f2r.cut.job, sel: f2r.sel, earring: f2r.cut && f2r.cut.props.find((p) => p.name === "prop_earring_l").take })`,
+	);
+	ok(
+		'↺ Start over, ✕ and ＋ New rig again: ↶ is still there and brings the cut back, the touch-up with it',
+		!overShut.cut &&
+			overShut.sel === 0 &&
+			overShut.undo &&
+			overBack.job === CUT.job &&
+			overBack.sel === KEPT &&
+			overBack.earring === true,
+		q({ overShut, overBack }),
+	);
+	// On the best frame, no cut: a joint dragged and the left upper arm's frame picked by hand (the
+	// strip's track as the tracker gives it, sized and in the world, so each part's frame is planned).
+	await evaluate(`(() => {
+		const [W, H] = ${q(CUT.size)}, whole = JSON.parse(JSON.stringify(f2r.track.frames[0]));
+		whole.pose.world = whole.pose.landmarks.map((p) => [((p[0] - 0.5) * W) / 100, ((p[1] - 0.5) * H) / 100, 0]);
+		f2r.track = { width: W, height: H, frames: [0, 1, 2].map(() => JSON.parse(JSON.stringify(whole))) };
+		document.getElementById("f2rStartOver").click();
+		return true;
+	})()`);
+	const handWork = await evaluate(`(() => {
+		const cv = document.getElementById("f2rStage"), b = f2rBox(), rect = cv.getBoundingClientRect();
+		const to = (x, y) => ({ bubbles: true, clientX: rect.left + x * rect.width / cv.width, clientY: rect.top + y * rect.height / cv.height });
+		const h = f2rHandles().find((x) => x.kind === "pose"), x = b.x + h.at[0] * b.w, y = b.y + h.at[1] * b.h;
+		cv.dispatchEvent(new MouseEvent("mousedown", to(x, y)));
+		window.dispatchEvent(new MouseEvent("mousemove", to(x + 12, y + 6)));
+		window.dispatchEvent(new MouseEvent("mousemove", to(x + 24, y + 12)));
+		window.dispatchEvent(new MouseEvent("mouseup", to(x + 24, y + 12)));
+		document.querySelector('#f2rParts [data-part="upper_arm_l"]').click();
+		document.getElementById("f2rStrip").children[2].click();
+		return {
+			sel: f2r.sel, cut: !!f2r.cut, moved: f2r.moved, pose: JSON.parse(JSON.stringify(f2r.frame.pose.landmarks)),
+			arm: f2r.plan && f2r.plan.upper_arm_l && { frame: f2r.plan.upper_arm_l.frame, byHand: !!f2r.plan.upper_arm_l.byHand },
+		};
+	})()`);
+	ok(
+		'on the best frame with no cut, a joint is dragged and a part’s frame picked by hand',
+		handWork.sel === 0 &&
+			!handWork.cut &&
+			handWork.moved &&
+			q(handWork.pose) !== q(TRACK.pose.landmarks) &&
+			handWork.arm?.frame === 2 &&
+			handWork.arm.byHand,
+		q({ ...handWork, pose: undefined }),
+	);
+	await reopenF2r();
+	const handShut = await evaluate(
+		`({ moved: f2r.moved, undo: ${undoShown}, arm: f2r.plan && f2r.plan.upper_arm_l && !!f2r.plan.upper_arm_l.byHand, note: document.getElementById("f2rNote").textContent })`,
+	);
+	await evaluate('document.getElementById("f2rUndoStart").click(); true');
+	const handBack = await evaluate(`({
+		sel: f2r.sel, moved: f2r.moved, pose: JSON.parse(JSON.stringify(f2r.frame.pose.landmarks)),
+		arm: f2r.plan && f2r.plan.upper_arm_l && { frame: f2r.plan.upper_arm_l.frame, byHand: !!f2r.plan.upper_arm_l.byHand },
+	})`);
+	ok(
+		'✕ and ＋ New rig again over dragged joints and a part’s frame picked by hand: the first guess, and ↶ brings both back',
+		!handShut.moved &&
+			!handShut.arm &&
+			handShut.undo &&
+			/↶/.test(handShut.note) &&
+			handBack.sel === 0 &&
+			handBack.moved &&
+			q(handBack.pose) === q(handWork.pose) &&
+			q(handBack.arm) === q(handWork.arm),
+		q({ handShut, handBack: { ...handBack, pose: undefined } }),
+	);
+	// ✂ Cut still running when the dialog is closed and opened again: left as it is, the cut lands.
+	cutDelay = 600;
+	const cutsMid = seen.cuts.length;
+	await evaluate('document.getElementById("f2rCut").click(); true');
+	await waitFor('f2r.busy', 5000);
+	await evaluate(`(() => {
+		document.getElementById("f2rClose").click();
+		document.getElementById("newRigBtn").click();
+		return true;
+	})()`);
+	await waitFor(
+		'!!document.querySelector(\'#newRigApply option[value="template:half-body"]\')',
+		15000,
+	);
+	await evaluate(
+		'document.getElementById("newRigApply").value = "template:half-body"; document.getElementById("newRigFromFrame").click(); true',
+	);
+	const midCut = await evaluate('({ busy: f2r.busy, sel: f2r.sel, moved: f2r.moved })');
+	await waitFor('!f2r.busy', 15000);
+	cutDelay = 0;
+	const landed = await evaluate(`({
+		cut: f2r.cut && f2r.cut.job, sel: f2r.sel, frame: f2r.cut && f2r.cut.frame,
+		arm: f2r.cut && f2r.cut.sources && f2r.cut.sources.upper_arm_l,
+	})`);
+	ok(
+		'＋ New rig again while ✂ Cut runs leaves the dialog as it is, and the cut lands on its frame',
+		midCut.busy &&
+			midCut.sel === 0 &&
+			midCut.moved &&
+			seen.cuts[cutsMid]?.frame === 0 &&
+			!!landed.cut &&
+			landed.sel === 0 &&
+			landed.frame === 0,
+		q({ midCut, landed }),
+	);
+	// That cut, made here (and its upper arm, cut from frame 2 here), which the clip's list leaves out.
+	const hereCut = await evaluate(
+		`({ job: f2r.cut.job, arm: f2r.cut.sources && f2r.cut.sources.upper_arm_l, armFrame: f2rFrameOf("upper_arm_l") })`,
+	);
+	await reopenF2r();
+	const hereShut = await evaluate(
+		`({ cut: !!f2r.cut, undo: ${undoShown}, listed: f2r.saved.some((c) => c.job === ${q(hereCut.arm ?? '')}) })`,
+	);
+	await evaluate('document.getElementById("f2rUndoStart").click(); true');
+	const hereBack = await evaluate(`({
+		job: f2r.cut && f2r.cut.job, armFrame: f2rFrameOf("upper_arm_l"),
+		kept: document.getElementById("f2rStrip").children[0].title,
+	})`);
+	ok(
+		'✕ and ＋ New rig again over a cut made here: ↶ brings it back, its upper arm still from frame 2’s cut made here',
+		!!hereCut.arm &&
+			hereCut.armFrame === 2 &&
+			!hereShut.cut &&
+			hereShut.undo &&
+			!hereShut.listed &&
+			hereBack.job === hereCut.job &&
+			hereBack.armFrame === 2 &&
+			/✂ a kept cut/.test(hereBack.kept),
+		q({ hereCut, hereShut, hereBack }),
+	);
+	// The same, the clip listing the cuts made here as the route does: after ↶, ↺ Reuse does not offer
+	// the cut that is open, only the one kept before.
+	listMade = true;
+	await reopenF2r();
+	const listedShut = await evaluate(
+		`({ cut: !!f2r.cut, undo: ${undoShown}, listed: f2r.kept.some((c) => c.job === ${q(hereCut.job)}) })`,
+	);
+	await evaluate('document.getElementById("f2rUndoStart").click(); true');
+	const listedBack = await evaluate(`({
+		job: f2r.cut && f2r.cut.job, here: f2r.kept.filter((c) => f2r.cutHere.has(c.job)).map((c) => c.job),
+		reuse: document.getElementById("f2rReuse").style.display !== "none" && document.getElementById("f2rReuse").textContent,
+	})`);
+	ok(
+		'… with the cuts made here listed: after ↶, ↺ Reuse offers the cut kept before, not the one open',
+		!listedShut.cut &&
+			listedShut.undo &&
+			listedShut.listed &&
+			listedBack.job === hereCut.job &&
+			listedBack.here.length === 0 &&
+			listedBack.reuse === `↺ Reuse frame ${KEPT}'s cut`,
+		q({ listedShut, listedBack }),
+	);
+	listMade = false;
+	// ✕ and ＋ New rig again on another template with the parts: no ↶ to this template's cut.
+	await reopenF2r('full-body');
+	const otherTpl = await evaluate(
+		`({ tpl: f2r.tpl.id, cut: !!f2r.cut, undo: ${undoShown}, here: f2r.cutHere.size })`,
+	);
+	ok(
+		'＋ New rig again on another template (Full body): the first guess, and no ↶ to the cut of the one before',
+		otherTpl.tpl === 'full-body' && !otherTpl.cut && !otherTpl.undo && otherTpl.here === 0,
+		q(otherTpl),
 	);
 	await evaluate('window.confirm = () => true; closeFrameToRig(); true');
 

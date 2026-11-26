@@ -158,7 +158,7 @@ import {
 } from '../editor-scenes';
 import { arcadePerf } from './arcadePerf';
 import { typingInto } from './flowKeys';
-import { zoneSceneryOf, zoneStampsOf } from './zoneArt';
+import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
 import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
@@ -272,16 +272,25 @@ const salmonsArt = async (
 	);
 
 /** The zone art a generator's own art draws the room's zones and its trees with
- *  (`game/zoneArt.ts`); none for a config with none, so the art draws as it does without. */
+ *  (`game/zoneArt.ts`), and how to load the rig drawing (`engine-layout/zone-art-rig`, a lazy chunk
+ *  no other game fetches) when it names a rig; none for a config with none, so the art draws as it
+ *  does without. A rig drawing that does not load leaves the rigs' pieces built in. */
 function roomZoneArt(zones: OnlineGame['zones'], seed: number): SalmonsZoneArt | undefined {
 	const stamps = zoneStampsOf(zones, seed);
 	const trees = zoneSceneryOf('@trees');
 	if (!stamps.length && !trees) return undefined;
-	return {
-		stamps,
-		trees,
-		assets: () => stateApp.loadedAssets as Record<string, unknown> | undefined,
-	};
+	const assets = () => stateApp.loadedAssets as Record<string, unknown> | undefined;
+	const loadRig = () =>
+		import('engine-layout/zone-art-rig').then(
+			(art) => art.zoneRigDraw(assets),
+			(error: unknown) => {
+				console.warn(
+					`[online] zone art's rigs are drawn built in: their drawing did not load (${error})`,
+				);
+				return undefined;
+			},
+		);
+	return { stamps, trees, assets, ...(zoneArtDrawsRig() ? { loadRig } : {}) };
 }
 
 /** How see-through a game draws its rules' marks (`arcade.online.rules.stains`, read off the
@@ -1480,13 +1489,16 @@ const ROOM_STATE_PATCH = 15;
 const PROTOCOL_CODE_MASK = 31;
 
 /**
- * Count the room's states and their bytes, and time the handling of its every message, for the
- * `?perf=1` probe (`arcadePerf.ts`). It reads the SDK's transport (`room.connection.events`), which
- * looks its `onmessage` up afresh for each message and keeps the connection across a reconnect, so
- * one wrap after the join holds for the room.
+ * Count the room's states and their bytes, time the handling of its every message, and tally every
+ * message in and out (`arcadePerf.message`: the network block's room traffic), for the `?perf=1`
+ * probe (`arcadePerf.ts`). It reads the SDK's transport (`room.connection.events`), which looks its
+ * `onmessage` up afresh for each message and keeps the connection across a reconnect, so one wrap
+ * after the join holds for the room; what the client sends goes through the connection's `send` and
+ * `sendUnreliable`.
  */
 function meterMessages(room: Room) {
-	const { events } = room.connection;
+	const { connection } = room;
+	const { events } = connection;
 	const handle = events.onmessage;
 	if (!handle) return;
 	events.onmessage = (event: { data: ArrayBuffer | Uint8Array }) => {
@@ -1497,13 +1509,25 @@ function meterMessages(room: Room) {
 		const { counts } = arcadePerf;
 		const bytes = event.data instanceof Uint8Array ? event.data : new Uint8Array(event.data);
 		const code = bytes[0] & PROTOCOL_CODE_MASK;
-		if (code === ROOM_STATE || code === ROOM_STATE_PATCH) {
+		const state = code === ROOM_STATE || code === ROOM_STATE_PATCH;
+		if (state) {
 			counts.patches += 1;
 			counts.patchBytes += bytes.byteLength;
 		}
+		arcadePerf.message(false, bytes.byteLength, state);
 		const started = performance.now();
 		handle(event);
 		counts.netMs += performance.now() - started;
+	};
+	const send = connection.send.bind(connection);
+	const sendUnreliable = connection.sendUnreliable.bind(connection);
+	connection.send = (data) => {
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		send(data);
+	};
+	connection.sendUnreliable = (data) => {
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		sendUnreliable(data);
 	};
 }
 

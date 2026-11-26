@@ -29,6 +29,7 @@
 		takeArcadeFrame,
 		type ArcadePhase,
 	} from '../game/arcadePerf';
+	import { createNetworkMonitor, networkLines } from '../game/perfNetwork';
 	import {
 		WORK_KEYS,
 		createPerfStats,
@@ -68,7 +69,10 @@
 	 * and it is also sent on its own before a Reset discards it and when the page is hidden
 	 * (`perfSend.ts`, loaded only then). An ARCADE game's frames are read in its own phases instead,
 	 * `menu` and `play`, with what its sim and its room did (`arcadePerf.ts`); the report says the
-	 * game's family (`kind`), so the Profiler knows which phases it holds.
+	 * game's family (`kind`), so the Profiler knows which phases it holds. The report's `network`
+	 * block (`perfNetwork.ts`) is what the page downloaded since it loaded — each file's path and
+	 * sizes, by class and by load stage, the first frame, the RGS's requests and, online, the room's
+	 * messages; Reset does not clear it.
 	 */
 
 	const query = new URLSearchParams(location.search);
@@ -115,6 +119,58 @@
 		typeof (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory
 			?.usedJSHeapSize === 'number';
 	let observer: PerformanceObserver | undefined;
+	const network = createNetworkMonitor(location.origin, performance.timeOrigin);
+	let resources: PerformanceObserver | undefined;
+	let net = $state<string[]>([]);
+	/** The game's first frame and the end of its boot load, noted on the frame each is first seen. */
+	let framed = false;
+	let booted = false;
+	const noteLoad = () => {
+		const now = performance.now();
+		if (!framed) {
+			framed = true;
+			network.firstFrame(now, 'tick');
+		}
+		if (stateApp.loaded) {
+			booted = true;
+			network.booted(now);
+		}
+	};
+	/**
+	 * Every file the page has fetched and will fetch. A Pixi tick already run means the first frame
+	 * came before this mounted, so First Contentful Paint stands in for it.
+	 */
+	const watchNetwork = () => {
+		if (!PerformanceObserver.supportedEntryTypes?.includes('resource')) return;
+		if ((stateApp.pixiApplication?.ticker?.lastTime ?? -1) >= 0) {
+			framed = true;
+			const paint = performance.getEntriesByName('first-contentful-paint')[0];
+			if (paint) network.firstFrame(paint.startTime, 'paint');
+		}
+		if (stateApp.loaded) noteLoad();
+		network.navigation(
+			performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined,
+		);
+		// The browser keeps 250 entries before anyone observes; past that the earliest are gone.
+		if (performance.getEntriesByType('resource').length >= 250) network.bufferFull();
+		resources = new PerformanceObserver((list) => {
+			for (const entry of list.getEntries()) network.add(entry as PerformanceResourceTiming);
+		});
+		resources.observe({ type: 'resource', buffered: true });
+	};
+	/** None where the browser has no Resource Timing: an empty block would read as 0 MB downloaded. */
+	const networkBlock = (short = false) =>
+		resources ? network.block({ short, socket: arcadePerf.socket }) : undefined;
+	/**
+	 * Where the visible part of the page sits in the layout viewport. A fixed element is pinned to
+	 * the layout viewport, so a page iOS Safari has panned or zoomed hides it: the readout follows the
+	 * visual viewport instead, so Send can always be reached.
+	 */
+	let viewportOffset = $state({ x: 0, y: 0 });
+	const followViewport = () => {
+		const v = window.visualViewport;
+		if (v) viewportOffset = { x: v.offsetLeft, y: v.offsetTop };
+	};
 	const onVisibility = () => {
 		if (document.visibilityState !== 'hidden') return;
 		void send('leaving');
@@ -144,6 +200,8 @@
 		snapshot = stats.snapshot();
 		quality = renderQualitySnapshot();
 		if (probe && tick++ % 4 === 0) textures = probe.textures();
+		const block = open ? networkBlock(true) : undefined;
+		if (block) net = networkLines(block);
 	};
 
 	onMount(() => {
@@ -154,12 +212,16 @@
 			});
 		}
 		arcadePerf.on = arcade;
-		setFrameProbe((time, moving) =>
-			arcade
-				? stats.arcadeFrame(time, arcadePhase, gameState())
-				: stats.frame(time, spinning(), moving, gameState()),
-		);
+		watchNetwork();
+		setFrameProbe((time, moving) => {
+			if (!booted) noteLoad();
+			if (arcade) stats.arcadeFrame(time, arcadePhase, gameState());
+			else stats.frame(time, spinning(), moving, gameState());
+		});
 		document.addEventListener('visibilitychange', onVisibility);
+		followViewport();
+		window.visualViewport?.addEventListener('resize', followViewport);
+		window.visualViewport?.addEventListener('scroll', followViewport);
 		if (longTasks) {
 			observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) stats.longTask(entry.startTime, entry.duration);
@@ -183,7 +245,10 @@
 		setFrameProbe(undefined);
 		arcadePerf.on = false;
 		document.removeEventListener('visibilitychange', onVisibility);
+		window.visualViewport?.removeEventListener('resize', followViewport);
+		window.visualViewport?.removeEventListener('scroll', followViewport);
 		observer?.disconnect();
+		resources?.disconnect();
 		clearInterval(timer);
 		probe?.dispose();
 		window.__IE_PERF__ = undefined;
@@ -206,8 +271,9 @@
 	/**
 	 * Posts the reading as it stands. A Reset or the page being hidden sends on its own, and only a
 	 * reading with frames it has not sent yet, so a tester who only plays still leaves one each time.
-	 * Leaving sends it without the per-texture list and the spike records, so it fits a `keepalive`
-	 * request that outlives the page; the summary the Profiler lists reads neither. The same short
+	 * Leaving sends it without the per-texture list, the spike records and the network block's file
+	 * list (its heaviest files stay), so it fits a `keepalive` request that outlives the page; the
+	 * summary the Profiler lists reads none of them. The same short
 	 * form is the fallback when a reading too large to post cannot be uploaded either.
 	 */
 	const send = async (why: 'tap' | 'reset' | 'leaving' = 'tap') => {
@@ -221,6 +287,7 @@
 			...full,
 			textureList: undefined,
 			spikes: undefined,
+			network: networkBlock(true),
 			trimmed: true,
 		});
 		const text = why === 'leaving' ? short : JSON.stringify(full);
@@ -308,7 +375,7 @@
 						reelStepErrorPx: s.reel,
 					};
 		return {
-			perf: 8,
+			perf: 9,
 			kind,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
@@ -335,6 +402,7 @@
 			spikeApis: { longtask: longTasks, heap: heapReported },
 			spikeCauses: s.spikes.causes,
 			spikes: s.spikes.records,
+			network: networkBlock(),
 			build: build && { version: build.version, sha: build.sha ?? build.engineSha },
 		};
 	};
@@ -500,7 +568,13 @@
 </script>
 
 {#if snapshot}
-	<div class="ie-perf" data-testid="perf-hud">
+	<div
+		class="ie-perf"
+		data-testid="perf-hud"
+		style:transform={viewportOffset.x || viewportOffset.y
+			? `translate(${viewportOffset.x}px, ${viewportOffset.y}px)`
+			: undefined}
+	>
 		<button type="button" class="ie-perf-head" onclick={() => (open = !open)}>
 			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · {headPhase(snapshot)}
 			{#if snapshot.capped30}<b class="warn"> · 30 fps cap (Low Power Mode?)</b>{/if}
@@ -528,6 +602,12 @@
 					<div><b>arcade</b> {arcadeLine(snapshot)}</div>
 				{/if}
 				<div><b>spikes</b> {spikesLine(snapshot)}</div>
+				{#each net as text, i (i)}
+					<div>
+						{#if i === 0}<b>net</b>{/if}
+						{text}
+					</div>
+				{/each}
 				{#if snapshot.capped30}
 					<div class="warn">Frames never come faster than ~30 fps: Low Power Mode?</div>
 				{/if}

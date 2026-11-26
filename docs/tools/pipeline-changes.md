@@ -87,7 +87,42 @@ its record of each merge made from here (who merged, the approvals that counted,
    - **Check 1 · Pipeline tests** — the repository's check runs grouped by workflow (Lint, Checks,
      svelte-check, Python, Secrets, …), each tile `passed / total` jobs and a link to the run; the
      header pill reads "N of M passed", "running · N of M" or "failed". **Jobs** unfolds every job
-     with its state and link. The harness's own jobs are not here: they are Check 2.
+     with its state and link; it opens by itself when a job failed. A failed job shows its own
+     instruction under its name, taken from the job's closing annotation on GitHub (the first
+     failure annotation that is not "Process completed with exit code N", cut at about 500
+     characters and shown as plain text). When GitHub would not give it, the line says so; the
+     job is still failed. The harness's own jobs are not here: they are Check 2.
+   - **Re-record runtime bytes** — under Check 1, on an open change whose newest `runtime-bytes`
+     job failed with "a runtime is not the bytes it was", for people with Merge pipeline changes.
+     A change to `packages/` or `apps/lines/` usually moves the released runtimes, so their
+     fingerprints in `scripts/runtime-bytes/*.json` must be recorded again. The button asks first,
+     then takes the manifests CI's Linux build uploaded as the `runtime-bytes` artifact of that
+     run and commits the ones that differ onto the change's branch as the launcher's GitHub App
+     (`ci: re-record runtime bytes from CI's Linux build (#n)`, with who clicked in the body). The
+     manifests are checked strictly first: only `<runtime>.json` files for the runtimes in the
+     list, each in the shape the gate writes, under a size cap. A refusal is one red sentence: no
+     run or artifact for this head (or it expired), the head moved since the page was read, an
+     artifact that is not valid, or nothing to change. The new commit starts CI again, and any
+     screen approvals belong to the old head. If `main` changed the runtimes meanwhile, the next
+     run can fail again: re-record again.
+   - **Update from main** — a blue bar near the top, on an open change that GitHub says merges
+     cleanly and that is behind `main` ("N commits behind main"), for people with Merge pipeline
+     changes. It asks first, then GitHub merges `main` into the branch as the launcher's App; there
+     is nothing to choose. The page says "GitHub is merging main in; CI re-runs on the new head",
+     and approvals belong to the old head. A refusal is one red sentence: "The branch moved;
+     reload", a conflict with `main` (this button is not offered then), or a workflow refusal:
+     GitHub will not let the App push a merge that brings in `main`'s workflow change, so the
+     sentence links to the pull request, where GitHub's own **Update branch** acts as you.
+     Behind-ness is read for the open change only, never per row of the list.
+   - **On hold and Resume** — **Put on hold** (people with Merge pipeline changes) takes an
+     optional note of up to 500 characters, adds the `on-hold` label to the pull request and posts
+     one comment: "Put on hold by <name> via Pipeline Changes: <note>" (name only, `@` and
+     backticks removed). It is offered with the hint "N commits behind main for M days" on a draft
+     that conflicts with `main` and whose head commit is 14 days old or more. A held change shows a
+     grey "On hold · since <date>" (the list says "On hold"), is listed last, never reads Blocked,
+     and offers no Update, Re-record, Mark ready or Merge until **Resume** takes the label off
+     and comments "Resumed by …". The owner creates the `on-hold` label once in GitHub; until
+     then Put on hold says "Create the label `on-hold` once in GitHub (owner setup)."
    - **Agent evaluation** — only on a change with the `agent definition` tag, between Check 1 and
      Check 2. The `agent-eval` workflow runs the edited definition and `main`'s version of it on
      the agent's reference set and scores each against the expected result. It runs on `main`'s

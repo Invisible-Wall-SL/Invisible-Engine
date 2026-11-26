@@ -18,18 +18,19 @@ import {
 	type SalmonsBiome,
 	type SalmonsBiomes,
 } from 'engine-mechanics';
-import { sceneryArtSourceFor, type ZoneArtSource } from 'game-config';
+import { sceneryArtSourceFor, type ZoneArtSource, type ZoneStamp } from 'game-config';
 
 import { projectedLayer } from '../worldDrawing.svelte';
 import { ISO_DEPTH_SPREAD, ISO_PROJECTOR, isoDepth, type IsoProjector } from '../projection';
 import { SALMONS_FIELD_LAYER, type SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
+import type { ZoneRig } from '../zoneArtRig';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
 import { TINT_ALPHA, tintOf, wetAt, type Wet } from './water';
-import { zoneFrames, type SalmonsZoneArt, type ZoneFrames } from './zoneArt';
+import { zoneFrames, type RiverZoneArt, type ZoneFrames } from './zoneArt';
 
 /**
  * SALMONS' RIVER IN ITS ORIGINAL ART: the river a room's seed made (`engine-mechanics`
@@ -58,13 +59,15 @@ import { zoneFrames, type SalmonsZoneArt, type ZoneFrames } from './zoneArt';
  *
  * ZONE ART (`zoneArt.ts`, Game Config `arcade.zoneArt`): a rock or a whirlpool whose zone has a
  * stamp is drawn with the stamp's picture in the built-in one's place, at its size times the
- * stamp's scale; any other stamp stands upright on its zone, fitted inside it. With the trees' art
- * (`@trees`), every scattered and forest tree draws one of its pictures in place of `tree_N`, a
- * tree's width times its scale, on its foot: by the seed and the tree's cell, or, on a level with
- * authored biomes, the picture of the variant its biome picked (variant `v` draws picture `v` of
- * the source and its variants, round again past the last), so a biome's `trees` choose among the
- * authored pictures as they choose among `tree_0`…`tree_5`. Every other piece, and every seeded
- * choice, is as without it.
+ * stamp's scale; any other stamp stands upright on its zone, fitted inside it. A rig picture is
+ * one `RigView` per piece (`zoneArtRig.ts`, handed in by the runtime), its box standing for the
+ * picture's, started at its zone's phase and moved on by this ticker while it is in view. With
+ * the trees' art (`@trees`, never a rig), every scattered and forest tree draws one of its
+ * pictures in place of `tree_N`, a tree's width times its scale, on its foot: by the seed and the
+ * tree's cell, or, on a level with authored biomes, the picture of the variant its biome picked
+ * (variant `v` draws picture `v` of the source and its variants, round again past the last), so a
+ * biome's `trees` choose among the authored pictures as they choose among `tree_0`…`tree_5`.
+ * Every other piece, and every seeded choice, is as without it.
  */
 
 /** The families whose built-in piece a stamp replaces; any other family's stamp is drawn too. */
@@ -126,6 +129,13 @@ const DEPTH_PER_OLD_PX = CELL / 16;
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
 type Culled = { view: Container; box: Box };
+/** A zone's stamp and what draws it: its loaded frames, or its rig. */
+type Stamped = { stamp: ZoneStamp } & (
+	{ frames: ZoneFrames; rig?: undefined } | { rig: ZoneRig; frames?: undefined }
+);
+/** An upright piece centred on its place (a sprite anchored at its middle, or a rig), and its own
+ *  size, px. */
+type Piece = { view: Container; w: number; h: number };
 
 /** A ground texture drawn over the world rectangle (x, y, w, h), in the flat frame: its diamond
  *  turned back to the square the projection turns into it, mirrored back by `flip` (the ground
@@ -303,7 +313,7 @@ export function mountSalmonsRiver(
 	river: SalmonsRiverDrawing,
 	seed: number | string,
 	projector: IsoProjector = ISO_PROJECTOR,
-	zoneArt?: SalmonsZoneArt,
+	zoneArt?: RiverZoneArt,
 ): RiverArt {
 	const { project, unproject } = projector;
 	const flip = projector.ground.flip;
@@ -334,13 +344,24 @@ export function mountSalmonsRiver(
 	const byZone = new Map(stamps.map((s) => [s.zone, s]));
 	const trees = zoneArt?.trees;
 	const assets = stamps.length || trees ? zoneArt?.assets() : undefined;
-	/** A zone's stamp and its loaded frames; none ⇒ the built-in piece. */
-	const stampOf = (zone: string) => {
+	/** The rig pictures drawn: each moves on with the river's ticker while it is in view. */
+	const rigs: ZoneRig[] = [];
+	/** `source` drawn as a rig from `phase` of its animation; none for another kind, a rig not
+	 *  loaded, or a river given no rig drawing. */
+	const rigOf = (source: ZoneArtSource, phase: number) => {
+		const rig = source.kind === 'rig' ? zoneArt?.rig?.(source, phase) : undefined;
+		if (rig) rigs.push(rig);
+		return rig;
+	};
+	/** A zone's stamp and what draws it, its loaded frames or its rig; none ⇒ the built-in piece. */
+	const stampOf = (zone: string): Stamped | undefined => {
 		const stamp = byZone.get(zone);
-		const frames = stamp && zoneFrames(stamp.source, assets);
-		if (!stamp || !frames) return undefined;
-		used.set(`zoneArt:${stamp.family}`, (used.get(`zoneArt:${stamp.family}`) ?? 0) + 1);
-		return { stamp, frames };
+		if (!stamp) return undefined;
+		const rig = rigOf(stamp.source, stamp.phase ?? 0);
+		const frames = rig ? undefined : zoneFrames(stamp.source, assets);
+		const own: Stamped | undefined = rig ? { stamp, rig } : frames && { stamp, frames };
+		if (own) used.set(`zoneArt:${stamp.family}`, (used.get(`zoneArt:${stamp.family}`) ?? 0) + 1);
+		return own;
 	};
 	const ticking: AnimatedSprite[] = [];
 	const animate = (frames: Texture[], fps: number, frame = 0) => {
@@ -359,6 +380,17 @@ export function mountSalmonsRiver(
 	/** A stamp's picture: a sprite of a sheet's frame, a clip's frames played on the ticker. */
 	const pictureOf = ({ textures, fps }: ZoneFrames, frame = 0): Sprite =>
 		textures.length > 1 ? animate(textures, fps, frame) : new Sprite(textures[0]);
+	/** A sprite as an upright piece centred on its place, its texture's size. */
+	const centred = (sprite: Sprite): Piece => {
+		sprite.anchor.set(0.5);
+		return { view: sprite, w: sprite.texture.width, h: sprite.texture.height };
+	};
+	/** A stamp's picture as an upright piece centred on its place: its frames' sprite (a clip's
+	 *  starting at `frame`), or its rig, measured as the rig's box. */
+	const pieceOf = (own: Stamped, frame = 0): Piece =>
+		own.rig
+			? { view: own.rig.view, w: own.rig.w, h: own.rig.h }
+			: centred(pictureOf(own.frames, frame));
 	const treeFrames = new Map<ZoneArtSource, ZoneFrames | undefined>();
 	const treePictures = trees ? [trees.source, ...(trees.variants ?? [])] : [];
 	/** The trees' picture the tree of `variant` on cell (c, r) draws, its frames loaded; none ⇒
@@ -824,17 +856,18 @@ export function mountSalmonsRiver(
 		for (let p = 0; p < 2; p++) splashAt(cap, p, phaseOf(cap));
 	});
 
+	// A whirlpool, a rock or another stamp drawn with a rig is the built-in piece's place and size
+	// (or the zone's), the rig's box standing for the picture's.
 	river.whirlpools.forEach((pool, i) => {
 		const own = stampOf(`whirlpool${i}`);
-		const sprite = own ? pictureOf(own.frames, i) : clip('whirlpool', WHIRLPOOL_FPS, i);
+		const { view, w } = own ? pieceOf(own, i) : centred(clip('whirlpool', WHIRLPOOL_FPS, i));
 		const at = placed(pool.x, pool.y);
 		const width = ((WHIRLPOOL_W * pool.r) / 90) * (own?.stamp.scale ?? 1);
-		const scale = width / sprite.texture.width;
-		sprite.anchor.set(0.5);
-		sprite.scale.set(scale * (pool.spin === -1 ? -1 : 1), scale * 0.5);
-		sprite.position.set(at.x, at.y);
-		sprite.zIndex = zOf(pool.x, pool.y, Z.whirlpool);
-		standUp(sprite, boxOf(sprite));
+		const scale = width / w;
+		view.scale.set(scale * (pool.spin === -1 ? -1 : 1), scale * 0.5);
+		view.position.set(at.x, at.y);
+		view.zIndex = zOf(pool.x, pool.y, Z.whirlpool);
+		standUp(view, boxOf(view));
 	});
 
 	(river.rocks ?? []).forEach((rock, i) => {
@@ -843,16 +876,15 @@ export function mountSalmonsRiver(
 		const variant = Math.floor(random() * 9);
 		const flipped = random() < 0.5;
 		const own = stampOf(`rock${i}`);
-		const sprite = own ? pictureOf(own.frames) : new Sprite(region(`rock_${variant}`));
+		const { view, w } = own ? pieceOf(own) : centred(new Sprite(region(`rock_${variant}`)));
 		const x = rock.x + rock.w / 2;
 		const y = rock.y + rock.h / 2;
 		const at = placed(x, y);
-		const scale = (ROCK_W * K * (own?.stamp.scale ?? 1)) / sprite.texture.width;
-		sprite.anchor.set(0.5);
-		sprite.scale.set(flipped ? -scale : scale, scale);
-		sprite.position.set(at.x, at.y);
-		sprite.zIndex = zOf(x, y, Z.rock);
-		standUp(sprite, boxOf(sprite));
+		const scale = (ROCK_W * K * (own?.stamp.scale ?? 1)) / w;
+		view.scale.set(flipped ? -scale : scale, scale);
+		view.position.set(at.x, at.y);
+		view.zIndex = zOf(x, y, Z.rock);
+		standUp(view, boxOf(view));
 	});
 
 	// Every other stamp, upright on its zone's centre, fitted inside the zone's box.
@@ -860,17 +892,15 @@ export function mountSalmonsRiver(
 		if (REPLACED_FAMILIES.includes(family)) continue;
 		const own = stampOf(zone);
 		if (!own) continue;
-		const { stamp, frames } = own;
-		const sprite = pictureOf(frames);
+		const { stamp } = own;
+		const { view, w, h } = pieceOf(own);
 		const x = stamp.x + stamp.w / 2;
 		const y = stamp.y + stamp.h / 2;
 		const at = placed(x, y);
-		const texture = sprite.texture;
-		sprite.anchor.set(0.5);
-		sprite.scale.set(Math.min(stamp.w / texture.width, stamp.h / texture.height));
-		sprite.position.set(at.x, at.y);
-		sprite.zIndex = zOf(x, y, Z.rock);
-		standUp(sprite, boxOf(sprite));
+		view.scale.set(Math.min(stamp.w / w, stamp.h / h));
+		view.position.set(at.x, at.y);
+		view.zIndex = zOf(x, y, Z.rock);
+		standUp(view, boxOf(view));
 	}
 
 	// The bridges (placeholder drawings: the old game's own were generated placeholders too).
@@ -1072,6 +1102,7 @@ export function mountSalmonsRiver(
 			faces[i + 1].tilePosition.y += 0.45 * frames;
 		}
 		for (const sprite of ticking) if (sprite.visible && sprite.parent) sprite.update(ticker);
+		for (const rig of rigs) if (rig.view.visible && rig.view.parent) rig.update(ticker.deltaMS);
 		for (const s of shimmer) {
 			if (!s.view.visible) continue;
 			const t = frame * 0.04 + s.phase;
@@ -1089,6 +1120,7 @@ export function mountSalmonsRiver(
 			app.ticker.remove(tick);
 			bed.filters = [];
 			filter.destroy();
+			for (const rig of rigs) rig.destroy();
 			for (const piece of among) piece.view?.destroy();
 			for (const root of roots) root.destroy({ children: true });
 			for (const texture of made) texture.destroy(true);

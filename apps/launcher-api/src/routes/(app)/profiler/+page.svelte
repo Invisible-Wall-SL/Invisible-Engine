@@ -16,6 +16,7 @@
 	} from '$lib/profiler';
 	import {
 		buildDiff,
+		buildTransferMb,
 		deltaMb,
 		mb,
 		previousBuild,
@@ -24,6 +25,18 @@
 		type PerfBuildListItem,
 	} from '$lib/profilerBuilds';
 	import { BUDGET_DEVICE_CLASSES, evaluateBuild, VERDICT_TEXT } from '$lib/profilerBudgets';
+	import {
+		fileLabel,
+		NET_CLASS_LABELS,
+		NET_CLASSES,
+		NET_STAGE_LABELS,
+		NET_STAGES,
+		readNetwork,
+		toMb,
+		type NetCache,
+		type NetFileFact,
+		type NetworkFacts,
+	} from '$lib/profilerNetwork';
 	import ProfilerLabRuns from '$lib/ProfilerLabRuns.svelte';
 	import {
 		browserStackLiveUrl,
@@ -372,6 +385,61 @@
 			.join(' · ') || 'no budget';
 	const readingsOn = (b: PerfBuildListItem) =>
 		data.readings.filter((r) => readingOnBuild(r, b)).length;
+	const transferOn = (b: PerfBuildListItem) => buildTransferMb(b, data.readings);
+	const transferDelta = (b: PerfBuildListItem): string => {
+		const now = transferOn(b);
+		const prev = previousBuild(b, data.builds);
+		const before = prev ? transferOn(prev) : null;
+		if (now === null) return 'No as-shipped reading on this build says what it downloaded';
+		return before === null
+			? `${now} MB: the median over the as-shipped readings on this build`
+			: `${now} MB against ${before} MB on v${prev?.build} (${deltaMb((now - before) * 1048576)} MB)`;
+	};
+
+	// ── A reading's files (`perf: 9` network block, read from its JSON) ──
+	let filesOf = $state<PerfReportListItem | null>(null);
+	let netFiles = $state<(NetworkFacts & { files?: NetFileFact[] }) | null>(null);
+	let filesError = $state('');
+	async function showFiles(r: PerfReportListItem): Promise<void> {
+		if (filesOf?.id === r.id) {
+			filesOf = null;
+			return;
+		}
+		filesOf = r;
+		netFiles = null;
+		filesError = '';
+		try {
+			const res = await fetch(resolve('/api/profiler/reports/[id]', { id: r.id }));
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const n = readNetwork(await res.json(), 150);
+			if (filesOf?.id !== r.id) return;
+			if (n) netFiles = n;
+			else filesError = 'This reading has no network block.';
+		} catch (e) {
+			if (filesOf?.id === r.id) {
+				filesError = `Could not read this reading (${e instanceof Error ? e.message : String(e)}).`;
+			}
+		}
+	}
+	const CACHE_TEXT: Record<NetCache, string> = {
+		hit: 'cache',
+		revalidated: '304',
+		network: 'network',
+		unknown: 'size hidden',
+	};
+	const mb2 = (bytes: number | null) => (bytes === null ? '?' : toMb(bytes).toFixed(2));
+	const seconds = (ms: number | null) => (ms === null ? '?' : `${(ms / 1000).toFixed(1)} s`);
+	const transferTitle = (r: PerfReportListItem) => {
+		const n = r.network;
+		if (!n) return '';
+		return [
+			`${n.files} files, ${n.cachedMb} MB of them from the cache this load`,
+			...(n.unknownFiles ? [`${n.unknownFiles} hid their size (cross-origin): not counted`] : []),
+			...(n.largest ? [`largest ${n.largest.path} ${n.largest.mb} MB`] : []),
+			`${n.beforeFirstFrameMb} MB before the first frame`,
+			'click for the files',
+		].join(' · ');
+	};
 	const shippedDelta = (b: PerfBuildListItem) => {
 		const prev = previousBuild(b, data.builds);
 		return prev ? deltaMb(b.shippedBytes - prev.shippedBytes) : '–';
@@ -677,6 +745,11 @@
 										{/each}
 										<th rowspan="2">Draws</th>
 										<th rowspan="2">Tex MB</th>
+										<th
+											rowspan="2"
+											title="What the page downloaded, MB — each file's body as served, cache hits counted at their size — and when its first frame came. Click for the files."
+											>Transfer MB</th
+										>
 										<th rowspan="2">Keep</th>
 										<th rowspan="2"></th>
 									</tr>
@@ -720,6 +793,21 @@
 											{/each}
 											<td class="num">{r.drawsMean ?? '–'}</td>
 											<td class="num">{r.textureMb ?? '–'}</td>
+											<td class="num nowrap">
+												{#if r.network}
+													<button
+														type="button"
+														class="linkish"
+														title={transferTitle(r)}
+														aria-expanded={filesOf?.id === r.id}
+														onclick={() => showFiles(r)}
+														>{r.network.transferMb.toFixed(1)}{r.network.unknownFiles
+															? '+'
+															: ''}</button
+													>
+													<div class="sub">1st frame {seconds(r.network.firstFrameMs)}</div>
+												{:else}–{/if}
+											</td>
 											<td class="nowrap">
 												<label
 													class="keep"
@@ -749,6 +837,108 @@
 						</div>
 					{/if}
 				</SectionCard>
+
+				{#if filesOf}
+					<SectionCard
+						scope="profiler"
+						id="reading-files"
+						title={`Files — ${filesOf.deviceClass ?? '?'} · ${filesOf.gpu ?? 'unknown GPU'} · ${when(filesOf.capturedAt)}`}
+					>
+						{#snippet info()}
+							<p>
+								What this reading's page downloaded since it loaded, heaviest first. Transfer is
+								each file's body as served — what a first visit downloads — whether this load took
+								it from the cache or not. <em>size hidden</em> is a file from another host that sends
+								no Timing-Allow-Origin: its size is not counted. Stages: before the game's first frame,
+								its boot load, and after boot. File names are paths only: queries and tokens are never
+								sent.
+							</p>
+						{/snippet}
+						{#if filesError}
+							<p class="error">{filesError}</p>
+						{:else if !netFiles}
+							<p class="muted">Reading…</p>
+						{:else}
+							<div class="facts">
+								<span
+									>Transfer <strong>{toMb(netFiles.totals.bytes)} MB</strong> in {netFiles.totals
+										.files} files</span
+								>
+								<span>From the cache <strong>{toMb(netFiles.totals.cachedBytes)} MB</strong></span>
+								{#if netFiles.totals.unknown}
+									<span>Size hidden <strong>{netFiles.totals.unknown}</strong></span>
+								{/if}
+								<span
+									>First frame <strong>{seconds(netFiles.firstFrameMs)}</strong
+									>{netFiles.firstFrameSource === 'paint' ? ' (first paint)' : ''}</span
+								>
+								{#each NET_STAGES as s (s)}
+									<span
+										>{NET_STAGE_LABELS[s]}
+										<strong>{toMb(netFiles.byStage[s].bytes)} MB</strong></span
+									>
+								{/each}
+								{#if netFiles.rgs.requests}
+									<span
+										>RGS <strong>{netFiles.rgs.requests}</strong> requests, p95
+										<strong>{netFiles.rgs.ms.p95} ms</strong></span
+									>
+								{/if}
+								{#if netFiles.socket}
+									<span
+										>Room in <strong
+											>{(netFiles.socket.inBytesPerSecond / 1024).toFixed(1)} KB/s</strong
+										>, out
+										<strong>{(netFiles.socket.outBytesPerSecond / 1024).toFixed(1)} KB/s</strong>,
+										largest
+										<strong>{(netFiles.socket.inLargest / 1024).toFixed(1)} KB</strong></span
+									>
+								{/if}
+							</div>
+							<div class="facts">
+								{#each NET_CLASSES.filter((c) => netFiles?.byClass[c]?.files) as c (c)}
+									{@const t = netFiles.byClass[c]}
+									<span
+										>{NET_CLASS_LABELS[c]} <strong>{toMb(t?.bytes ?? 0)} MB</strong> · {t?.files}</span
+									>
+								{/each}
+							</div>
+							{#if netFiles.trimmed}
+								<p class="muted">
+									Sent trimmed (as the page hid): only its heaviest files are listed.
+								</p>
+							{/if}
+							<div class="table-wrap">
+								<table class="narrow">
+									<thead>
+										<tr>
+											<th>File</th>
+											<th>Class</th>
+											<th>Stage</th>
+											<th class="num">MB</th>
+											<th class="num" title="Decoded body, MB">Decoded</th>
+											<th>From</th>
+											<th class="num">ms</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each netFiles.files ?? netFiles.heaviest as f, i (i)}
+											<tr>
+												<td class="path" title={fileLabel(f)}>{fileLabel(f)}</td>
+												<td class="nowrap">{NET_CLASS_LABELS[f.class]}</td>
+												<td class="nowrap">{NET_STAGE_LABELS[f.stage]}</td>
+												<td class="num">{mb2(f.bytes)}</td>
+												<td class="num">{mb2(f.decoded)}</td>
+												<td class="nowrap">{CACHE_TEXT[f.cache]}</td>
+												<td class="num">{f.ms}</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+					</SectionCard>
+				{/if}
 			</div>
 		{:else if tab === 'devices'}
 			<div id="panel-devices" role="tabpanel" aria-labelledby="tab-devices">
@@ -811,6 +1001,11 @@
 										<th class="num">Δ MB</th>
 										<th class="num">GPU MB</th>
 										<th
+											class="num"
+											title="What the as-shipped readings on the build downloaded (median); hover a cell for the build before"
+											>Transfer MB</th
+										>
+										<th
 											title="Against this project's budgets: each device class from its as-shipped readings on the build"
 										>
 											Devices
@@ -864,6 +1059,7 @@
 											<td class="num v-{verdicts.get(b.id)?.gpu}" title={sizeTitle(b, 'gpuMb')}>
 												{mb(b.gpuBytes)}
 											</td>
+											<td class="num" title={transferDelta(b)}>{transferOn(b) ?? '–'}</td>
 											<td class="nowrap">
 												{#each BUDGET_DEVICE_CLASSES as c (c)}
 													{@const d = verdicts.get(b.id)?.devices[c]}
@@ -943,6 +1139,9 @@
 							<span>GPU (est.) <strong>{mb(selectedBuild.gpuBytes)} MB</strong></span>
 							<span>Left out <strong>{mb(selectedBuild.removedBytes)} MB</strong></span>
 							<span>Never loaded <strong>{mb(selectedBuild.unreferencedBytes)} MB</strong></span>
+							<span title={transferDelta(selectedBuild)}
+								>Downloaded (readings) <strong>{transferOn(selectedBuild) ?? '–'} MB</strong></span
+							>
 							{#if selectedBuild.engineSha}
 								<span>Engine <code>{selectedBuild.engineSha.slice(0, 10)}</code></span>
 							{/if}
@@ -1024,6 +1223,7 @@
 												<th class="num">{c.label}</th>
 											{/each}
 											<th class="num">Tex MB</th>
+											<th class="num">Transfer MB</th>
 											<th></th>
 										</tr>
 									</thead>
@@ -1044,6 +1244,9 @@
 													</td>
 												{/each}
 												<td class="num">{r.textureMb ?? '–'}</td>
+												<td class="num" title={transferTitle(r)}
+													>{r.network?.transferMb.toFixed(1) ?? '–'}</td
+												>
 												<td>
 													<a href={resolve('/api/profiler/reports/[id]', { id: r.id })}>JSON</a>
 												</td>
@@ -1325,6 +1528,14 @@
 	.tag.warn {
 		color: #ffb347;
 		border-color: #5a4320;
+	}
+	td.path {
+		max-width: 520px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
 	}
 	.keep {
 		display: inline-flex;
