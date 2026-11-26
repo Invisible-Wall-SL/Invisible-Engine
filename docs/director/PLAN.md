@@ -148,6 +148,17 @@ three real launcher bugs through it; its follow-ups are `docs/status/bug-reports
 | 13C | **Start fix** / **Send and start fix**, the run line, the fix run on the escalated game bug, **Mark ready for review** in Pipeline Changes; tool guides and status | director-frontend + launcher-studio + docs-keeper | done (#1523; browser pass done in 13D, 2026-11-09) | `check:bug-fix-runs` page facts; browser pass |
 | 13D | Pilot on three real, low-risk pipeline bugs; measured cost replaces the estimate | regression-guardian | done (#1537, #1536, #1540 merged; $8.45 measured, 2026-11-09) | Each PR merged or closed by the owner; spend per run recorded |
 
+## Phase 11 — Fix runs ask before they decide · ADR-0014 (proposed 2026-11-26)
+
+Diagnose first: a run offers options, and the owner picks one before any code is written. A fix
+change says in plain words what it is. Nothing starts until the owner approves ADR-0014.
+
+| Card | What | Agent | Status |
+|---|---|---|---|
+| 14A | Diagnose mode, the options on the bug, Build, the decision event, the banner | director-backend + launcher-studio | waiting on ADR-0014 |
+| 14B | Build mode, required plain-language sections, the "What you're approving" card, Mark-ready checks the decision | director-backend + director-frontend | waiting on ADR-0014 |
+| 14C | Pilot on the slow-phone bug; guides and status | regression-guardian + docs-keeper | waiting on ADR-0014 |
+
 ## Phase 6 — Pilot
 
 | # | Task | Owner | Status | Acceptance |

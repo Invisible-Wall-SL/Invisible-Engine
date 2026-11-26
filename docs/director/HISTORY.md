@@ -15,6 +15,19 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-26 · Phase 11 · director-architect (ADR-0014 proposed)
+- Did: wrote ADR-0014 after fix run `d2a4594cb1` on a Profiler-filed slow-phone bug. The run ended
+  `no_fix` ($0.46, no pull request), but the owner could not tell that, landed on the unrelated
+  draft #1140, and found the run is told to decide alone. The proposal: diagnose first, options,
+  the owner picks, then build; plain-language sections on the change; Mark ready checks the
+  decision; readable outcome banners.
+- Files: `docs/director/DECISIONS/0014-fix-runs-ask-before-they-decide.md`, `README.md`,
+  `PLAN.md`.
+- Branch / PR: `claude/focused-hopper-nnfkz5`.
+- Tests: docs only.
+- Decisions: none yet; seven items wait on the owner.
+- Next: owner review of ADR-0014; then 14A.
+
 ## 2026-11-18 · Phase 10 · regression-guardian (current-games: stop rendering superseded heads)
 - Did: `current-games.yml`'s concurrency group no longer holds the commit for PR and push runs, so a
   new push cancels the run of the head it replaced; manual runs keep the commit.
