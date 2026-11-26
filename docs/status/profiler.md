@@ -22,9 +22,13 @@ readings side by side. Step **P5 "File as bug" built 2026-11-18**: each finding 
 own form filled in — a game or a pipeline bug, its area from the owner — once per finding, and the
 readings and builds it cites are kept while the bug exists. **P7 parked 2026-11-25**: the owner
 tests cloud phones by hand on BrowserStack Live, through an ordinary capture session. Step **P8
-"Arcade phases" built 2026-11-26** (in review): an arcade game's reading (`perf: 8`, `kind:
+"Arcade phases" built 2026-11-26** (#1933): an arcade game's reading (`perf: 8`, `kind:
 'arcade'`) is split into `menu` and `play` with what its sim and room did per frame, and the
-launcher shows, budgets and judges it so; a slot reading is unchanged.
+launcher shows, budgets and judges it so; a slot reading is unchanged. Step **P9 "Network" built
+2026-11-26** (in review): every reading (`perf: 9`) says what its page downloaded — each file's path
+and sizes, by class and by load stage, the first frame, the RGS's requests and the arcade room's
+messages — and the launcher keeps its transfer MB, lists its files, compares it across builds,
+budgets it per device class and ranks five network findings.
 
 ## Current state
 
@@ -104,12 +108,44 @@ launcher shows, budgets and judges it so; a slot reading is unchanged.
   requires `application/json` exactly, which forces a preflight. A session takes 200 readings (429
   after); a project may have 20 staged reading uploads waiting (a presigned PUT cannot be size-limited on
   R2, so the count bounds it; the sweep also removes any staged file over 8 MB at once).
-- **Reading a report.** `src/lib/profiler.ts` `summarizePerfReport`: reads `perf: 7` and `8`;
+- **Reading a report.** `src/lib/profiler.ts` `summarizePerfReport`: reads `perf: 7`, `8` and `9`;
   refuses a non-report, another version, or one with no frames in its own phases, with a sentence.
   Summary = the game's `kind` and phase set (P8: `arcade` → menu / play, else slot), `capped30`
   (a browser cap, re-checked for v7), device class and reason, GPU, UA family (browser + OS, no
   full UA), DPR, canvas, build version / sha, test-switch flags, the set's
-  fps-p50-p95-hitches-frames per phase, draws and JS ms a frame, texture MB.
+  fps-p50-p95-hitches-frames per phase, draws and JS ms a frame, texture MB, and (`perf: 9`) the
+  network summary (`profilerNetwork.ts` `networkSummary`: transfer MB, cached MB, files, files whose
+  size was hidden, first frame ms, MB before it, the largest file, RGS requests and p95, room KB/s).
+- **Network (P9).** The probe's `network` block (`apps/lines/src/game/perfNetwork.ts`, observed by
+  `PerfHud.svelte` with `PerformanceObserver({ type: 'resource', buffered: true })` + the navigation
+  entry; the page's whole load, never cleared by Reset): per file its path (query and hash dropped,
+  a token segment — `/api/deploy/f/<token>/`, a JWT-like or long hex/base64url segment — read `…`;
+  the host only when not the page's), class (`document js css image ktx2 json rig audio font api
+other`), initiator, transfer / encoded / decoded bytes (`null` = a cross-origin answer without
+  `Timing-Allow-Origin`, counted as `unknown`, never 0), start, ms, stage (`beforeFirstFrame` until
+  the first Pixi tick the probe sees, else First Contentful Paint; `boot` until `stateApp.loaded`;
+  `play`), cache (`hit`, `revalidated`, `network`, `unknown`); totals by class and stage, the
+  heaviest 20, paths downloaded twice in one load, RGS requests (Play4Fun `/rgs/engine` or a
+  `sid`+`seq` query, Stake `/wallet/…`, `/bet/event`: count, bytes, p50 / p95 / max, the 3 slowest;
+  summed, not listed), `loadId` (`performance.timeOrigin`) and the navigation type. Online arcade:
+  `socket` (messages in / out, bytes, largest, a second, the states among them) from
+  `arcadePerf.message`, called by `online.ts` `meterMessages` beside the per-frame `patches` count
+  (one meter), which now also wraps the connection's `send` / `sendUnreliable`. The file list keeps
+  the heaviest 150 (`FILES_KEPT`); the short form sent on hide keeps the heaviest 20 only. The HUD
+  body shows a `net` line (MB, files, sizes hidden, first frame, largest) and an RGS / room line.
+  The launcher sends `Timing-Allow-Origin: *` with `DEPLOY_CORS_HEADERS` (`/api/deploy*`,
+  `/api/published/*`, `/api/editor/runtime`, `/api/editor/doc`), so an online game's art and runtime
+  bundle are sized. Reading: `profilerNetwork.ts` `readNetwork` (bounded, strips a query again,
+  derives `uncompressed` — text ≥ 8 KB served at ≥ 90% of decoded — and `crossed` — ≥ 50 KB that
+  crossed the network) into `facts.network`; columns `transfer_mb`, `first_frame_ms`, `network`
+  (migration `drizzle/0051_perf_reports_network.sql`). **Readings** gains **Transfer MB** (with the
+  first frame under it; click → a **Files** card that reads the reading's JSON: totals, stages,
+  classes, RGS / room, the file table); **Builds** a **Transfer MB** column and "Downloaded
+  (readings)" in the detail (`profilerBuilds.ts` `buildTransferMb`: median of the as-shipped readings
+  on the build, the build before on hover); **Compare** a `network` group; **Devices** Transfer MB
+  and Largest file. Budgets `transferMb` (every class: warn 20 / fail 25 MB, the shipped-size line)
+  and `fileMb` (warn 3 / fail 6 MB, studio default), judged only for groups with a `perf: 9` reading
+  (`knownTransferMb`: every size hidden = no data).
 - **Storage.** Full JSON in R2 at `<client>/<project>/perf/reports/<id>.json` (`perfReportKey`,
   `SUB.perf`; written create-only, file before row, a failed insert removes the file unless the row
   turns out to exist); summary in
@@ -229,6 +265,18 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
     either side is no data; fps per device vs the build before (≥ max(3 fps, 5%)), between the two
     newest builds a device measured, lab counts past `LAB_TOLERANCE` between the two newest builds the lab measured;
     with the categories the joined build records grew.
+  - **P9 network rules** (`perf: 9` readings of the current build, `networkReadings`): **Heavy
+    downloads** (`heavyTransfer`: a device class's median transfer past `transferMb`, and each of the
+    newest reading's heaviest files past `fileMb`, with a hint by class and the GPU MB it holds when
+    Textures lists it; owner `areas.assets` for art, the engine for code; lab counts),
+    **Uncompressed text** (`uncompressedText`: the servers named; `areas.delivery`; unmeasured),
+    **Downloaded again** (`notCached`: the newest page load against the one before on one device —
+    class, GPU, browser, label — by `loadId`, a reload that still downloads, or a path twice in one
+    load; never lab; the MB again), **Before the first frame** (`firstFrame`: ≥ 1.5 MB, medium from
+    3 MB; engine), **Slow or heavy messages** (`netTraffic`: RGS p95 ≥ 500 ms / 1 s over ≥ 5 requests,
+    never lab, or an answer ≥ 100 KB, `areas.rgs`; the room ≥ 30 / 100 KB a second in or a message
+    ≥ 32 KB, `areas.gameServer`). Bug targets: a heavy art file is the game's `loading`, the rest
+    pipeline (`engine`).
 - **Facts.** `perf_reports.facts` / `perf_builds.facts` (jsonb, migration `0046_perf_facts.sql`):
   what the rules read beyond the summary, reduced from the full JSON at receipt
   (`profilerFindings/facts.ts` `reportFacts` — per-phase render / tick / JS / GPU-wait ms, spike
@@ -265,7 +313,10 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   cited row whatever its Keep (`purgeJob.ts` `uncited`) — the guarantee. Who files: whoever has the
   Profiler and the list's own tool (`requireBugAccess` / `requireKind`).
 - **Owners** come from `docs/knowledge/owners.json`, mirrored into `src/lib/tool-docs/owners.json`
-  by `scripts/copy-tool-docs.mjs` (as `agents.json` is).
+  by `scripts/copy-tool-docs.mjs` (as `agents.json` is). P9 adds its `areas` map (what no tool or
+  kind owns): `assets` → `atlas-python-tools`, `delivery` (caching, compression) → `infra-railway`,
+  `rgs` → `engine-pixi-svelte`, `gameServer` → `arcade-games`; `check:agents-knowledge` checks each
+  names a real agent.
 - **Lab runs (P6).** `scripts/playtest/lab-sequence.mjs` is the sequence, written against a subset
   of Playwright's `Page` (`evaluate(string)`, `keyboard.press`) so P7 can hand it a BrowserStack
   page: wait for the probe (stop on `__IE_RUNTIME_STALE__`), a warm-up round (Space until a round
@@ -317,11 +368,15 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Open items / next
 
-0. **P8 — next: network monitoring** (heavy transfers, per-resource sizes), its own session after
-   P8 merges: a `network` block in the report (the name is free), the HUD's and the launcher's
-   view of it. P8 itself is unverified on a real phone until the owner takes a fresh `?perf=1`
-   Salmons capture after the merge's runtime release. A 3D arcade game's reading
-   (`arcade3d` runtime) counts its play frames only, no sim or room counts.
+0. **P8 / P9 on a real phone.** Both are unverified on a real phone until the owner takes a fresh
+   `?perf=1` capture (Salmons, and a slot) after P9's runtime release. A 3D arcade game's reading
+   (`arcade3d` runtime) counts its play frames only: no sim or room counts, and no room traffic in
+   its network block (`online3d.ts` has no meter). Known blind spots of the network block: the
+   partner's RGS host and the game server's matchmaking HTTP send no `Timing-Allow-Origin` (their
+   time is known, their size is not); a page that fetched over 250 files before the probe mounted
+   loses the earliest (`bufferFull`); the games host's `assets/` are `no-store`
+   (`docs/INFRA.md`), so **Downloaded again** will name them on any device that loads a game twice —
+   that is the finding, not a bug in it.
 1. **P6 tolerance across games.** Measured on one game on CI (above); widen or narrow
    `LAB_TOLERANCE` as the first nightlies of the other games come in. The
    forced-feature step is skipped online: a published game's player mock refuses `/force` (an
@@ -367,6 +422,50 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
    script already takes a Playwright-shaped page, so the adapter is the only missing piece.
 
 ## Recent changes
+
+- 2026-11-26 — **P9 "Network" (in review; a runtime release on merge)**: the owner asked, after
+  profiling Salmons, to see whether anything is too heavy to transfer. Design:
+  [invisible-profiler §8](../design/invisible-profiler.md).
+  - **Probe (`perf: 9`).** `apps/lines/src/game/perfNetwork.ts` (no game import) + `PerfHud.svelte`:
+    the report's `network` block (above, "Network (P9)"). Paths only, by construction: the query and
+    hash never reach it, token segments read `…`. A slot reading's other fields are what `perf: 8`
+    sent. Online arcade room traffic is tallied by `arcadePerf.message` from the meter that already
+    counted the state patches (`online.ts` `meterMessages`, which now also wraps the connection's
+    `send` / `sendUnreliable`, one boolean test a message for a player without `?perf=1`).
+  - **Found by booting it** (both fixed, each with a fixture case in the probe and in the gate): the
+    navigation entry spread into an object kept no field (a browser's timing entry keeps them on its
+    prototype) and read `/undefined`; a 24-letter folder name (`foregroundFeatureAnimation`) read as
+    a token; a font service's file asked by a stylesheet (`use.typekit.net/af/…/l`) read as CSS text
+    and was called uncompressed.
+  - **Launcher.** `PERF_REPORT_VERSIONS = [7, 8, 9]`; `profilerNetwork.ts` (`readNetwork`,
+    `networkSummary`, `knownTransferMb`); migration `0051_perf_reports_network.sql` (`transfer_mb`,
+    `first_frame_ms`, `network`); `facts.network` (`FACTS_VERSION` stays 1: no older reading has
+    one); the Readings column and Files card, the Builds column and detail line, Compare's `network`
+    group, Devices' two columns, the `transferMb` / `fileMb` budgets; five rules (`heavyTransfer`,
+    `uncompressedText`, `notCached`, `firstFrame`, `netTraffic`) and their bug targets;
+    `owners.json` `areas` (+ `check:agents-knowledge`); `Timing-Allow-Origin: *` on the deploy /
+    runtime / doc responses.
+  - **Gates.** `perfNetwork.fixture.ts` (probe, by hand: paths, classes, cache, unknown sizes,
+    stages, RGS, repeats, the room, the caps, the getter entry); `check:profiler` 94/94 (80 before:
+    `check-profiler-network.ts` 19–21 over the REAL probe core — no token, `sid` or query in a whole
+    block; sizes unknown never 0; caps; the summary and older versions; budgets; per-build transfer;
+    Compare; each of the five rules against a fixture and a planted mutant — this load's transfer read
+    as the weight, every text file called uncompressed, lab readings counted as a device's cache, the
+    whole load called "before the first frame", a lab run's latency counted). `check-profiler-bugs`
+    gains the new rules' targets and a "delivery filed as the game's" mutant.
+    `check:svelte` at baseline for `apps/launcher-api` (44) and `apps/lines` (145); `pnpm lint` clean;
+    `check:undefined-names` clean.
+  - **Played locally** (a release-env `apps/lines` build, headless shell). `cg-lines` stand-in on the
+    real test server: `perf: 9`, 91 files, 9.0 MB (2 sizes hidden: Typekit's pixel and the local
+    snapshot server's runtime bundle, which sends no `Timing-Allow-Origin`), first frame 0.9 s
+    (`tick`) after 3.0 MB in 21 files, boot done 2.1 s, RGS 4 requests p95 12 ms, a 35 KB report, no
+    token / `sid` / query anywhere; HUD `net 9.0 MB in 91 files · 2 size unknown · first frame 0.9 s
+after 3.0 MB · largest bundle….js 2.6 MB` and `RGS 4 req · p50 4 · p95 12 ms`. Salmons against a
+    real game server: 74 files, 8.7 MB, first frame 0.7 s after 3.2 MB, the room 19.9 messages /
+    16 KB a second in (largest 1.2 KB, 554 of 612 messages room states), 23 / 254 B a second out,
+    matchmaking HTTP size hidden; HUD `room in 16 KB/s (19.8/s, max 1 KB) · out 254 B/s`. Through the
+    launcher's own functions both readings give **Uncompressed text** (the local test server sends the
+    2.6 MB bundle without gzip) and **Before the first frame** (2.95 / 3.2 MB, the bundle the largest).
 
 - 2026-11-26 — **P8 "Arcade phases" (in review; a runtime release on merge)**: the owner's first
   Salmons reading (26 Nov 09:48, BS Live · Galaxy S24 Ultra, Adreno 750) put all 5,153 frames in

@@ -2,7 +2,7 @@
  * Invisible Profiler contracts (P1 readings … P6 lab runs, P4 findings), run over the REAL modules:
  *   pnpm --filter launcher-api check:profiler
  *
- * 1. A probe report (`perf: 7` / `8`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is
+ * 1. A probe report (`perf: 7` / `8` / `9`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is
  *    read into its `perf_reports` summary; a non-report, an unknown version or an empty reading is
  *    refused. A `perf: 8` slot report reads as its `perf: 7` twin; an arcade one reads menu and play.
  *    A `perf: 7` 30 fps cap counts only when the frames' work fits 0.75 of a 60 Hz frame.
@@ -38,6 +38,9 @@
  *    and Compare — `check-profiler-findings.ts`, imported at the end.
  * 17–18. File as bug (P5): a finding's list, area and text; once per finding, its evidence kept —
  *    `check-profiler-bugs.ts`, imported at the end.
+ * 19–21. Network (`perf: 9`): the probe's block (paths only, sizes unknown never 0, the caps), the
+ *    launcher's summary, facts and transfer budgets, and the five network rules each with a planted
+ *    mutant — `check-profiler-network.ts`, imported at the end.
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -1611,3 +1614,4 @@ test('13. an arcade reading’s menu and play counts; their lab band is idle’s
 });
 import './check-profiler-findings.ts';
 import './check-profiler-bugs.ts';
+import './check-profiler-network.ts';

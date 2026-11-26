@@ -1480,13 +1480,16 @@ const ROOM_STATE_PATCH = 15;
 const PROTOCOL_CODE_MASK = 31;
 
 /**
- * Count the room's states and their bytes, and time the handling of its every message, for the
- * `?perf=1` probe (`arcadePerf.ts`). It reads the SDK's transport (`room.connection.events`), which
- * looks its `onmessage` up afresh for each message and keeps the connection across a reconnect, so
- * one wrap after the join holds for the room.
+ * Count the room's states and their bytes, time the handling of its every message, and tally every
+ * message in and out (`arcadePerf.message`: the network block's room traffic), for the `?perf=1`
+ * probe (`arcadePerf.ts`). It reads the SDK's transport (`room.connection.events`), which looks its
+ * `onmessage` up afresh for each message and keeps the connection across a reconnect, so one wrap
+ * after the join holds for the room; what the client sends goes through the connection's `send` and
+ * `sendUnreliable`.
  */
 function meterMessages(room: Room) {
-	const { events } = room.connection;
+	const { connection } = room;
+	const { events } = connection;
 	const handle = events.onmessage;
 	if (!handle) return;
 	events.onmessage = (event: { data: ArrayBuffer | Uint8Array }) => {
@@ -1497,13 +1500,25 @@ function meterMessages(room: Room) {
 		const { counts } = arcadePerf;
 		const bytes = event.data instanceof Uint8Array ? event.data : new Uint8Array(event.data);
 		const code = bytes[0] & PROTOCOL_CODE_MASK;
-		if (code === ROOM_STATE || code === ROOM_STATE_PATCH) {
+		const state = code === ROOM_STATE || code === ROOM_STATE_PATCH;
+		if (state) {
 			counts.patches += 1;
 			counts.patchBytes += bytes.byteLength;
 		}
+		arcadePerf.message(false, bytes.byteLength, state);
 		const started = performance.now();
 		handle(event);
 		counts.netMs += performance.now() - started;
+	};
+	const send = connection.send.bind(connection);
+	const sendUnreliable = connection.sendUnreliable.bind(connection);
+	connection.send = (data) => {
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		send(data);
+	};
+	connection.sendUnreliable = (data) => {
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		sendUnreliable(data);
 	};
 }
 

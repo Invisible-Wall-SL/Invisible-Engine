@@ -13,8 +13,12 @@ import {
 } from './finding';
 import { bodyCost } from './rules/bodyCost';
 import { featureCost } from './rules/featureCost';
+import { firstFrame } from './rules/firstFrame';
 import { fpsBelowBudget } from './rules/fpsBelowBudget';
 import { gpuCpuBound } from './rules/gpuCpuBound';
+import { heavyTransfer } from './rules/heavyTransfer';
+import { netTraffic } from './rules/netTraffic';
+import { notCached } from './rules/notCached';
 import { optimizeOff } from './rules/optimizeOff';
 import { patchStutter } from './rules/patchStutter';
 import { regression } from './rules/regression';
@@ -22,6 +26,7 @@ import { simCatchUp } from './rules/simCatchUp';
 import { spawnChurn } from './rules/spawnChurn';
 import { spikes } from './rules/spikes';
 import { textures } from './rules/textures';
+import { uncompressedText } from './rules/uncompressedText';
 import { unusedBytes } from './rules/unusedBytes';
 
 export const RULES: Record<FindingRule, Rule> = {
@@ -37,6 +42,11 @@ export const RULES: Record<FindingRule, Rule> = {
 	spawnChurn,
 	bodyCost,
 	patchStutter,
+	heavyTransfer,
+	uncompressedText,
+	notCached,
+	firstFrame,
+	netTraffic,
 };
 
 export function findings(ctx: FindingContext): Finding[] {

@@ -6,6 +6,7 @@
  */
 
 import { PERF_RETENTION_MS, type PerfReportListItem } from './profiler';
+import { knownTransferMb } from './profilerNetwork';
 
 /** The `depends` key of `/profiler`'s build list. */
 export const PROFILER_BUILDS = 'profiler:builds';
@@ -261,6 +262,25 @@ export function readingOnBuild(
 	const b = build.engineSha?.toLowerCase();
 	if (!a || !b) return true;
 	return a.startsWith(b) || b.startsWith(a);
+}
+
+/**
+ * What the as-shipped readings taken on a build downloaded (`perf: 9`), the median MB; null when
+ * none of them says. A build record names what it shipped; this is what a player's page fetched.
+ */
+export function buildTransferMb(
+	build: Pick<PerfBuildSummary, 'build' | 'engineSha'> & { gameKey?: string },
+	readings: readonly PerfReportListItem[],
+): number | null {
+	const values = readings
+		.filter((r) => Object.keys(r.flags).length === 0 && readingOnBuild(r, build))
+		.map((r) => knownTransferMb(r.network))
+		.filter((v): v is number => v !== null)
+		.sort((a, b) => a - b);
+	if (!values.length) return null;
+	const mid = values.length >> 1;
+	const m = values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+	return Math.round(m * 10) / 10;
 }
 
 export const mb = (n: number): string => (n / 1048576).toFixed(1);
