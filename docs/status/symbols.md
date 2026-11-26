@@ -185,7 +185,9 @@ or the effect is pruned as an orphan.
 13. **Styled payline is not yet seen in a running game** — core, additive glow, tail fade, tip
     (each end mode), trail and the two sounds, one at a time and all at once. The win line has no
     preview in `/symbols`. Open call: whether `drawSound` / `endSound` should move to Invisible
-    Sound's bindings with the other sound choices.
+    Sound's bindings with the other sound choices. The trail's banknote and ember effects start
+    from the `/fx` presets **Banknotes** and **Embers** (see `docs/status/fx.md`); each project
+    still has to make and save the two effects, with banknote art for the first.
 
 ## Blocked (owner / external)
 
@@ -194,6 +196,14 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-26 — **"Show all win lines at once" no longer carries the lines into a bonus.** Owner
+  bug: with the switch on, the trigger spin's paying lines and amounts stayed over the whole bonus
+  game. In that mode `WinLine.svelte` ignores a per-win `winLineHide`, and the only `all` clears were
+  the next spin's and the resting cycle's. The mode layer (`stateModes.svelte.ts` `present`) now
+  broadcasts `winLineHide { all: true }` on every `enter` transition, before the flow's intro: one
+  seam for free spins, Hold and Win and bonus modes, coded or flow-driven. The toast, win dim and
+  recorded wins are left alone (a flow rides the free-spin award on the toast; the per-spin pop
+  reads the wins).
 - 2026-11-26 — **Styled payline** (owner-approved, from a mockup: a flaming line with a white-hot
   core, red glow, a lens flare at the moving tip, embers and banknotes spawning along it). New
   sparse `winLine.line` fields, all absent ⇒ the line draws, mounts and sounds as before:

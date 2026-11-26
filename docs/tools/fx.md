@@ -317,8 +317,10 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
   carries the event binding, and the runtime (after the effect is shipped — see Save)
   plays it when that event crosses the bus.
 - **Layer → Preset** — drop in a ready-made effect (Fountain, Fire, Smoke, Sparks,
-  Explosion-burst, Rain, Snow, Confetti, Magic glow) and tune it. The preset replaces the
-  layer's emitter numbers; its art, placement and trigger are kept.
+  Explosion-burst, Rain, Snow, Confetti, Banknotes, Embers, Magic glow) and tune it. The preset
+  replaces the layer's emitter numbers; its art, placement and trigger are kept. **Banknotes** and
+  **Embers** are made for a payline trail (Invisible Symbols → Payline style → Trail): they emit
+  steadily from a moving point. Banknotes need a banknote picture as the layer's art.
 - **Emitter** — the core emitter numbers: **Frequency (s)** (seconds between spawns),
   **Max particles**, **Lifetime min/max (s)**.
 - **Spawn** — where particles are born: **Point**, **Circle** (radius), **Ring**

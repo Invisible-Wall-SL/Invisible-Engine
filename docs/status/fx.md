@@ -180,6 +180,17 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-26 — **Banknotes and Embers presets** for the styled payline's trail (`winLine.line.trailFx`,
+  #1946). Both run continuously (`emitterLifetime -1`), so they emit for as long as the tip moves.
+  `FlightView` leaves each particle where it was born.
+  - **Banknotes:** pop up in a 220°–320° fan, fall at 420 px/s², tumble ±200°/s, and fade over
+    their last 30%. No tint and no additive blend, so the art keeps its own colours. ~17 per second
+    at most 60. Needs banknote art bound to the layer.
+  - **Embers:** rise in a ±40° cone under −120 px/s² gravity, shrink, run gold → red, and blend
+    additively. ~83 per second at most 150.
+  - Covered by `fx-spike` `params` (every preset feeds the real library, with no conflicting
+    behaviors) and `forces` (Embers rise; Banknotes fall and tumble both ways).
+  - Not yet seen in a browser. The look is tuned from the numbers alone.
 - 2026-11-22 — **`fx-playback-page` is deterministic under load** (gate only; no product change).
   It failed on loaded `check-all` shards with no FX change (PRs #1864, #1869). Its reads came after
   wall-clock sleeps, but a burst lives only ~340 ms of ticker time (0.8 emitter s at
