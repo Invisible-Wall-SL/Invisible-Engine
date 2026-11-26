@@ -75,6 +75,7 @@
 		"engine-flipbook": "workspace:*",
 		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
+		"engine-mechanics": "workspace:*",
 		"game-config": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.23.0",

@@ -25,5 +25,15 @@ export * from './src/onlineFlow.js';
 export * from './src/onlineBots.js';
 export * from './src/botNames.js';
 export * from './src/onlineGenerators.js';
+export * from './src/salmonsBiomes.js';
+export {
+	CELL as SALMONS_CELL,
+	ROCK_PASS as SALMONS_ROCK_PASS,
+	SALMONS_GENERATOR,
+	SALMONS_GENERATOR_LIMITS,
+	SALMONS_GENERATOR_PAIRS,
+	SALMONS_GENERATOR_WHOLE,
+	generatorParams,
+} from './src/salmonsMap.js';
 export * from './src/cards.js';
 export * from './src/cardAi.js';

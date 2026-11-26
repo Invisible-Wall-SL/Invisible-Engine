@@ -19,6 +19,50 @@ upload.
 
 ## Current state
 
+- **Every generator setting and authored biomes, from the config (2026-11-26; owner: "I would like
+  to have more control over the level generation, so I can control all of its parameters. also I
+  would like a way to be able to control and author the change in biome that happen in the
+  level"; then, through the coordinating session: biomes also set obstacle density, and the
+  biome strip shows each biome's colours; in review; branch
+  `claude/salmons-authored-generator-biomes`). Plan and schema:
+  [design/salmons-levels §6](../design/salmons-levels.md#6-every-generator-setting-and-authored-biomes-built-2026-11-26).
+  - **What an author has.** `arcade.online.levels.generator`: 58 settings, every number that
+    shapes a level (river length and widths, delta, meander, sand, rocks and whirlpools,
+    waterfalls' columns, bridges, the winding course, world rows and banks, spawns), each with
+    its limit. `arcade.online.levels.biomes`: kinds (trees, lone-tree chance, grass and forest
+    depth, grass tint, forest floor, riverbed sands; rocks, whirlpools and sand ×0–3, waterfalls
+    kept 0–1, bridges yes / no) and a sequence of starts along the river by seed or `'*'`, else a
+    cycle. A density the level has no room for is listed as an orphan in `/editor`.
+  - **Nothing moves unless authored.** Every default is today's value: the recorded maps of seven
+    seeds and the shipped winding river are unchanged with an empty or a full `generator` and with
+    a looks-only `biomes`; with no `biomes` the art is drawn piece for piece as at `a404522` (four
+    rivers fingerprinted in Node). `CURRENT_STRENGTH` is left out: it is a speed, not a place.
+  - **One resolution everywhere.** `levelShape(levels, seed)` in `engine-mechanics`; the room says
+    both blocks (`seedLevels`) and a device adopts them; the river carries its seed's biomes for
+    the art. Game Config carries the blocks as it carries `river` / `waterfalls`.
+  - **`/editor`**: below the Generated level card, River shape (with Winding river), Course,
+    Waterfalls, Rocks and whirlpools, Bridges, Sea and delta, Spawns (a slider, a field, a help tip
+    and a reset per setting; a reset per card) and Biomes (the strip in each biome's colours with
+    draggable boundaries, the kinds list and the selected kind's editor). The stage redraws at
+    each change and marks each stretch's floor down the river's edges. Save levels as before.
+  - **After review (same day):** a density change now draws each column's pieces from its own
+    stream, so tuning one stretch leaves the others' pieces alone; `generator-off` orphans (a
+    density above 1 where the generator's settings place none) and one orphan per run of a kind;
+    a generated rock is held to leave two cells beside it and the half widths are 2 at the least,
+    with a save warning for a rock or a whirlpool as wide as the narrowest water less a cell.
+  - **Gates:** `check:salmons-levels` 27, `check:room-levels` 16, `check:salmons-art` 37, launcher
+    `check:editor-level-generator` 6 (new), `check:salmons-course` 21, `check:salmons-export` 39,
+    `check:zone-art` 70. Runtime bytes: the arcade runtimes grow (below); the slot, match-3 and card
+    runtimes shrink, because `salmonsMap.js` no longer reads `SALMONS_MAP` at module level, so a
+    bundle that never makes a level drops it (manifests re-recorded).
+  - **Live:** nothing until a Save levels (or a re-export) and a publish, and the game server and
+    runtime of this merge: a room of an older game server ignores the blocks, and its devices play
+    its levels (§3 of the design).
+  - **With the trees' art (`@trees`, below).** On a level with authored biomes a tree whose
+    biome picked variant `v` draws picture `v` of the `@trees` source and its variants (round
+    again past the last); without biomes the seed and the cell pick, as #1922 built it.
+    `check:salmons-art` 43.
+
 - **Zone art draws the trees too: Scenery → Trees (2026-11-26; in review; branch
   `claude/wizardly-galileo-kjszii`; runtime and launcher change, no config change; Salmons draws
   exactly as before until someone sets the row).** Plan: [design/zone-art](../design/zone-art.md)
@@ -2462,6 +2506,16 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **Every generator setting and authored biomes** (owner; in review; branch
+  `claude/salmons-authored-generator-biomes`). `engine-mechanics`: `salmonsMap.js`
+  `SALMONS_GENERATOR` / `_LIMITS` / `_WHOLE` / `_PAIRS`, `generatorParams`, `biomeOrphans`, every
+  generator function reading `shape.generator`; new `salmonsBiomes.js` (`resolveBiomes`,
+  `biomeAt`, `biomeStretches`, the built-in six); `salmons.js` takes the river's length off the
+  river. `game-config` `levelsShape.ts`: `generator` and `biomes` carried, normalized and
+  validated. `engine-layout`: `salmonsArt/river.ts` draws by biome (new `engine-mechanics`
+  dependency), `salmonsRiver.ts` marks stretches. `/editor`: `EditorLevelGenerator.svelte`,
+  `EditorLevelBiomes.svelte`, `LevelParamField.svelte`; `IconButton` gains `up` / `down`. Gates
+  as in Current state; `scripts/salmons/art-fingerprint.mjs` new.
 - 2026-11-26 — **Browser check of the published link** (cloud deploy session): start menu, joins
   as all three classes, bot catches, the win and the room's lock all seen live; a person's own
   catch and respawn not reached before a bot won (Current state, "Live check").
