@@ -31,11 +31,23 @@
 		type FlightHeadAlign,
 		type FlightHeadKind,
 		type FlightStyle,
+		normalizeWinLineTip,
+		WIN_LINE_STYLE_LIMITS,
+		WIN_LINE_TIP_END_LABELS,
+		WIN_LINE_TIP_ENDS,
+		WIN_LINE_TIP_KIND_LABELS,
+		WIN_LINE_TIP_KINDS,
+		WIN_LINE_TRAIL_FX_MAX,
+		type WinLineTip,
+		type WinLineTipEnd,
+		type WinLineTipKind,
 	} from 'engine-layout';
 	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -2019,6 +2031,77 @@
 		doc = setWinLineTextEnabled(doc, enabled);
 	}
 
+	// ── Payline style (the styled win line: hot core, additive glow, tail fade, tip, trail) ──────
+	// Every field sparse and pruned by `engine-layout` `pruneWinLineStyle` (through `setWinLineLine`),
+	// the same prune the server saves with. A tip needs its kind's asset before it exists: a kind
+	// picked with no asset yet is held here as a draft, like a flight head, and applied once picked.
+	let tipDraft = $state<WinLineTip | null>(null);
+	const wlTip = $derived<WinLineTip | undefined>(tipDraft ?? wlLine.tip);
+	const wlTaperAlpha = $derived(wlLine.taper?.alpha ?? 1);
+	const wlTaperWidth = $derived(wlLine.taper?.width ?? 1);
+	const wlTrailFx = $derived(wlLine.trailFx ?? []);
+	const wlAnimated = $derived(wlLine.animated ?? WL_DEFAULTS.animated);
+
+	function setWinLineTip(tip: WinLineTip | undefined): void {
+		const valid = tip ? normalizeWinLineTip(tip) : undefined;
+		if (tip && !valid) {
+			tipDraft = tip;
+			return;
+		}
+		tipDraft = null;
+		patchWinLineLine({ tip: valid });
+	}
+
+	function pickWinLineTipKind(kind: WinLineTipKind | ''): void {
+		if (!kind) return setWinLineTip(undefined);
+		const current = wlTip ? ($state.snapshot(wlTip) as WinLineTip) : undefined;
+		setWinLineTip({
+			kind,
+			scale: current?.scale,
+			rotateWithLine: current?.rotateWithLine,
+			blend: current?.blend,
+			atEnd: current?.atEnd,
+			endEffectId: current?.endEffectId,
+		});
+	}
+
+	function patchWinLineTip(fields: Partial<WinLineTip>): void {
+		if (!wlTip) return;
+		setWinLineTip({ ...($state.snapshot(wlTip) as WinLineTip), ...fields });
+	}
+
+	const WL_SOUNDS = [
+		{
+			key: 'drawSound',
+			label: 'While it draws',
+			tip: 'Plays once as an animated line starts drawing — a whoosh. Every line plays its own when all win lines show at once. A skipped round draws the line at once and plays none.',
+		},
+		{
+			key: 'endSound',
+			label: 'When it lands',
+			tip: 'Plays once as the line is drawn complete — an impact. A skipped round plays none.',
+		},
+	] as const;
+
+	function setWinLineTaper(key: 'alpha' | 'width', value: number): void {
+		patchWinLineLine({ taper: { ...(wlLine.taper ?? {}), [key]: value } });
+	}
+
+	function setWinLineTrailFx(ids: string[]): void {
+		patchWinLineLine({ trailFx: ids });
+	}
+
+	function resetWinLinePaylineStyle(): void {
+		tipDraft = null;
+		patchWinLineLine({
+			coreColor: undefined,
+			blend: undefined,
+			taper: undefined,
+			tip: undefined,
+			trailFx: undefined,
+		});
+	}
+
 	// ── Stacked pictures (master toggle + per-symbol tall art + height) ────────
 	// The master toggle shows this block AND gates whether the stacked config bakes; the block is where
 	// ALL stacked config lives now (which symbols, how tall, the tall picture). Sparse like the win-line
@@ -2161,6 +2244,7 @@
 	}
 
 	function resetWinLineStyle(): void {
+		tipDraft = null;
 		doc = clearWinLineLineStyle(doc);
 	}
 
@@ -4453,6 +4537,341 @@
 									</p></InfoTip
 								>
 							</div>
+
+							<SectionCard scope="symbols" id="winline-payline-style" title="Payline style">
+								{#snippet info()}
+									<p>
+										Dress the traced line: a white-hot centre, a glow that adds light, a tail that
+										fades toward where the line starts, an asset riding its moving tip and effects
+										trailing it. Every setting is off until you set it, and the line draws as it
+										always did. Tip, trail and tail fade apply to an ordinary payline (a traced
+										path), not to the per-reel or per-cell bars of a ways or cluster win.
+									</p>
+								{/snippet}
+								{#snippet actions()}
+									<IconButton
+										icon="reset"
+										label="Reset payline style"
+										onclick={resetWinLinePaylineStyle}
+									/>
+								{/snippet}
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label"
+											>Hot core <InfoTip
+												>A thinner stroke drawn on top of the line, in its own colour — white for a
+												white-hot centre.</InfoTip
+											></span
+										>
+										<label class="switch sm" class:on={!!wlLine.coreColor}>
+											<input
+												type="checkbox"
+												checked={!!wlLine.coreColor}
+												onchange={(e) =>
+													patchWinLineLine({
+														coreColor: e.currentTarget.checked ? '#ffffff' : undefined,
+													})}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wlLine.coreColor ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+									<label class="field" class:disabled={!wlLine.coreColor}>
+										<span class="label">Core colour</span>
+										<ColorField
+											disabled={!wlLine.coreColor}
+											value={wlLine.coreColor ?? '#ffffff'}
+											oninput={(hex) => patchWinLineLine({ coreColor: hex })}
+										/>
+									</label>
+									<div class="field" class:disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}>
+										<span class="label"
+											>Additive glow <InfoTip
+												>Adds the glow's light to the board instead of laying it over, so it burns
+												brighter where it crosses the symbols. Needs Glow on.</InfoTip
+											></span
+										>
+										<label class="switch sm" class:on={wlLine.blend === 'add'}>
+											<input
+												type="checkbox"
+												disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}
+												checked={wlLine.blend === 'add'}
+												onchange={(e) =>
+													patchWinLineLine({ blend: e.currentTarget.checked ? 'add' : undefined })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wlLine.blend === 'add' ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+									<div class="field">
+										<span class="label"
+											>Tail opacity {Math.round(wlTaperAlpha * 100)}% <InfoTip
+												>How opaque the line is where it starts, rising to full at its tip. 100% =
+												no fade.</InfoTip
+											></span
+										>
+										<input
+											type="range"
+											min={WIN_LINE_STYLE_LIMITS.taper.min}
+											max={WIN_LINE_STYLE_LIMITS.taper.max}
+											step="0.05"
+											value={wlTaperAlpha}
+											oninput={(e) => setWinLineTaper('alpha', Number(e.currentTarget.value))}
+										/>
+									</div>
+									<div class="field">
+										<span class="label"
+											>Tail width {Math.round(wlTaperWidth * 100)}% <InfoTip
+												>How thick the line is where it starts, as a share of its thickness at the
+												tip. 100% = even.</InfoTip
+											></span
+										>
+										<input
+											type="range"
+											min={WIN_LINE_STYLE_LIMITS.taper.min}
+											max={WIN_LINE_STYLE_LIMITS.taper.max}
+											step="0.05"
+											value={wlTaperWidth}
+											oninput={(e) => setWinLineTaper('width', Number(e.currentTarget.value))}
+										/>
+									</div>
+								</div>
+
+								<h3 class="wl-sub">Tip</h3>
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label"
+											>Tip <InfoTip
+												>An asset riding the line's moving head: an atlas frame, a Flipbook clip or
+												an Invisible FX effect (a lens flare, a spark). One cell big at size 1.</InfoTip
+											></span
+										>
+										<select
+											value={wlTip?.kind ?? ''}
+											onchange={(e) =>
+												pickWinLineTipKind(e.currentTarget.value as WinLineTipKind | '')}
+										>
+											<option value="">None</option>
+											{#each WIN_LINE_TIP_KINDS as kind (kind)}
+												<option value={kind} disabled={kind === 'flipbook' && clips.length === 0}
+													>{WIN_LINE_TIP_KIND_LABELS[kind]}</option
+												>
+											{/each}
+										</select>
+									</div>
+									{#if wlTip?.kind === 'sprite'}
+										<div class="field wl-span">
+											<span class="label">Frame</span>
+											<RegionPicker
+												scoped
+												sheets={pickSheets}
+												value={wlTip.assetKey ?? ''}
+												onSelect={(region) => patchWinLineTip({ assetKey: region })}
+											/>
+										</div>
+									{:else if wlTip?.kind === 'flipbook'}
+										<label class="field">
+											<span class="label">Clip</span>
+											<select
+												value={wlTip.clipId ?? ''}
+												onchange={(e) =>
+													patchWinLineTip({ clipId: e.currentTarget.value || undefined })}
+											>
+												<option value="">Pick a clip…</option>
+												{#each clips as c (c.id)}
+													<option value={c.id}>{clipLabel(c.id)}</option>
+												{/each}
+											</select>
+										</label>
+									{:else if wlTip?.kind === 'effect'}
+										<label class="field">
+											<span class="label">Effect</span>
+											<select
+												value={wlTip.effectId ?? ''}
+												onchange={(e) =>
+													patchWinLineTip({ effectId: e.currentTarget.value || undefined })}
+											>
+												<option value="">Pick an effect…</option>
+												{#each effects as fx (fx.id)}
+													<option value={fx.id}>{fx.name}</option>
+												{/each}
+											</select>
+										</label>
+									{/if}
+									{#if wlTip}
+										<label class="field">
+											<span class="label">Size (× a cell)</span>
+											<input
+												class="fl-num"
+												type="number"
+												step="0.05"
+												min={WIN_LINE_STYLE_LIMITS.tipScale.min}
+												max={WIN_LINE_STYLE_LIMITS.tipScale.max}
+												placeholder="1"
+												value={wlTip.scale ?? ''}
+												onchange={(e) =>
+													patchWinLineTip({ scale: numberOrUndefined(e.currentTarget.value) })}
+											/>
+										</label>
+										<div class="field">
+											<span class="label"
+												>Turn with the line <InfoTip
+													>Turns the tip to the direction the line runs at its head. Draw the art
+													pointing right.</InfoTip
+												></span
+											>
+											<label class="switch sm" class:on={!!wlTip.rotateWithLine}>
+												<input
+													type="checkbox"
+													checked={!!wlTip.rotateWithLine}
+													onchange={(e) =>
+														patchWinLineTip({
+															rotateWithLine: e.currentTarget.checked || undefined,
+														})}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{wlTip.rotateWithLine ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+										<div class="field">
+											<span class="label">Additive</span>
+											<label class="switch sm" class:on={wlTip.blend === 'add'}>
+												<input
+													type="checkbox"
+													checked={wlTip.blend === 'add'}
+													onchange={(e) =>
+														patchWinLineTip({ blend: e.currentTarget.checked ? 'add' : undefined })}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{wlTip.blend === 'add' ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+										<div class="field">
+											<span class="label"
+												>When the line is drawn <InfoTip
+													>Stay: the tip waits at the line's end until the line clears. Fade out: it
+													fades away. Burst and go: it is removed, playing the burst effect at the
+													end point if you pick one.</InfoTip
+												></span
+											>
+											<select
+												value={wlTip.atEnd ?? 'stay'}
+												onchange={(e) =>
+													patchWinLineTip({ atEnd: e.currentTarget.value as WinLineTipEnd })}
+											>
+												{#each WIN_LINE_TIP_ENDS as end (end)}
+													<option value={end}>{WIN_LINE_TIP_END_LABELS[end]}</option>
+												{/each}
+											</select>
+										</div>
+										{#if wlTip.atEnd === 'burst'}
+											<label class="field">
+												<span class="label">Burst effect</span>
+												<select
+													value={wlTip.endEffectId ?? ''}
+													onchange={(e) =>
+														patchWinLineTip({ endEffectId: e.currentTarget.value || undefined })}
+												>
+													<option value="">None</option>
+													{#each effects as fx (fx.id)}
+														<option value={fx.id}>{fx.name}</option>
+													{/each}
+												</select>
+											</label>
+										{/if}
+									{/if}
+								</div>
+								{#if tipDraft}
+									<p class="hint">Pick the asset to apply this tip.</p>
+								{/if}
+
+								<h3 class="wl-sub">
+									Trail <InfoTip
+										>Invisible FX effects played while the line draws, emitting from its moving tip.
+										Each particle stays where it was born and lives out its life; emission stops
+										when the line is drawn, and everything clears with the line. A skipped round
+										draws the line at once and plays no trail.</InfoTip
+									>
+								</h3>
+								{#if wlTrailFx.length && !wlAnimated}
+									<p class="hint">
+										The trail plays only while the line draws — turn on Animated draw.
+									</p>
+								{/if}
+								<div class="wl-trail">
+									{#each wlTrailFx as id, index (id)}
+										<div class="wl-trail-row">
+											<select
+												value={id}
+												onchange={(e) =>
+													setWinLineTrailFx(
+														wlTrailFx.map((other, at) =>
+															at === index ? e.currentTarget.value : other,
+														),
+													)}
+											>
+												{#if !effects.some((fx) => fx.id === id)}
+													<option value={id}>{id} (missing)</option>
+												{/if}
+												{#each effects as fx (fx.id)}
+													<option value={fx.id}>{fx.name}</option>
+												{/each}
+											</select>
+											<IconButton
+												icon="trash"
+												danger
+												label="Remove this trail effect"
+												onclick={() => setWinLineTrailFx(wlTrailFx.filter((other) => other !== id))}
+											/>
+										</div>
+									{/each}
+									{#if wlTrailFx.length < WIN_LINE_TRAIL_FX_MAX}
+										<select
+											value=""
+											disabled={effects.length === 0}
+											onchange={(e) => {
+												const next = e.currentTarget.value;
+												e.currentTarget.value = '';
+												if (next) setWinLineTrailFx([...wlTrailFx, next]);
+											}}
+										>
+											<option value=""
+												>{effects.length
+													? '＋ Add a trail effect…'
+													: 'No effects in this project'}</option
+											>
+											{#each effects.filter((fx) => !wlTrailFx.includes(fx.id)) as fx (fx.id)}
+												<option value={fx.id}>{fx.name}</option>
+											{/each}
+										</select>
+									{/if}
+								</div>
+								<h3 class="wl-sub">Sound</h3>
+								<div class="wl-fields">
+									{#each WL_SOUNDS as slot (slot.key)}
+										{@const current = wlLine[slot.key]}
+										<div class="field">
+											<span class="label">{slot.label} <InfoTip>{slot.tip}</InfoTip></span>
+											<select
+												value={current ?? ''}
+												onchange={(e) =>
+													patchWinLineLine({ [slot.key]: e.currentTarget.value || undefined })}
+											>
+												<option value="">None</option>
+												{#if current && !data.soundNames.includes(current)}
+													<option value={current}>{current} (missing)</option>
+												{/if}
+												{#each data.soundNames as name (name)}
+													<option value={name}>{name}</option>
+												{/each}
+											</select>
+										</div>
+									{/each}
+								</div>
+								{#if wlLine.drawSound && !wlAnimated}
+									<p class="hint">The draw sound plays only with Animated draw on.</p>
+								{/if}
+							</SectionCard>
 
 							<button type="button" class="ghost wl-reset" onclick={resetWinLineStyle}>
 								Reset line style
@@ -7625,6 +8044,32 @@
 	.hint.mono {
 		font-family: ui-monospace, monospace;
 		word-break: break-all;
+	}
+	.wl-sub {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin: 14px 0 8px;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #9a9aa6;
+	}
+	.wl-trail {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		max-width: 320px;
+	}
+	.wl-trail-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.wl-trail-row select {
+		flex: 1;
+		min-width: 0;
 	}
 	.wl-fields {
 		display: flex;

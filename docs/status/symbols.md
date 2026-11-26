@@ -89,7 +89,9 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
     `off.boardGlow` turn either coded part off: not drawn, no art shipped (`check:symbols-off`).
   - `anticipation` ships only when the flow (or the shared library) can fire
     `enableAnticipationMode` (`anticipationArmed.ts`); otherwise the section reads **Not used**.
-  - `winLine` — the LINE (`enabled`, `useConfigColor`, `fullPayline`, `allAtOnce` + delay) and the
+  - `winLine` — the LINE (`enabled`, `useConfigColor`, `fullPayline`, `allAtOnce` + delay, and the
+    styled payline: `coreColor`, `blend`, `taper`, `tip`, `trailFx`, `drawSound`, `endSound` — one
+    home for shape, prune and path maths in `engine-layout/winLineStyle.ts`) and the
     AMOUNT TEXT (`text.enabled` defaulting to the line's, `placement: 'boardCenter'`, `countUp`,
     `fadeIn`, and `cueBigWin` — the amount counts up to the first big-win threshold and hands over
     to the overlay).
@@ -180,6 +182,10 @@ or the effect is pruned as an orphan.
     on screen is the planned 2D one (it is not pulled toward a vanishing point). Growing the trail
     with the head needs a per-spawn scale on the emitter, which `@barvynkoa/particle-emitter` has no
     hook for (`ownerRotation` exists, an owner scale does not).
+13. **Styled payline is not yet seen in a running game** — core, additive glow, tail fade, tip
+    (each end mode), trail and the two sounds, one at a time and all at once. The win line has no
+    preview in `/symbols`. Open call: whether `drawSound` / `endSound` should move to Invisible
+    Sound's bindings with the other sound choices.
 
 ## Blocked (owner / external)
 
@@ -187,6 +193,41 @@ or the effect is pruned as an orphan.
   tints, the win dim, layers' blend, the pop, the arrival release, the transition, book VFX).
 
 ## Recent changes
+
+- 2026-11-26 — **Styled payline** (owner-approved, from a mockup: a flaming line with a white-hot
+  core, red glow, a lens flare at the moving tip, embers and banknotes spawning along it). New
+  sparse `winLine.line` fields, all absent ⇒ the line draws, mounts and sounds as before:
+  `coreColor` (a thinner inner stroke on top), `blend: 'add'` (the halo in its own additive
+  `Graphics`), `taper: { alpha, width }` (the start's share of the tip's, stroked in 8 butt-ended
+  runs cut clear of corners, round half-disc caps at both ends), `tip` (sprite frame / flipbook clip
+  / effect at the head, `scale`, `rotateWithLine`, `blend`, `atEnd: stay | fade | burst` +
+  `endEffectId`), `trailFx` (≤ 4 effects) and `drawSound` / `endSound` (owner scope addition).
+  - **One home:** `engine-layout/src/lib/winLineStyle.ts` — types, `pruneWinLineStyle` (used by the
+    server's and the page's `pruneWinLine`), `winLineEffectIds`, and the path maths: `pathSlice` is
+    now what `WinLine.svelte`'s `tracePath` strokes (proved identical to the old walk over 2,000
+    random lines), `pathHeadPose` the head and its tangent, `taperRuns` the taper.
+  - **Trail:** each effect plays through `engine-game`'s `FlightView` (the flights' moving-owner
+    trail): its container stays still in board space and `ownerPos` moves the emitter
+    (`emitter.updateOwnerPos`), so particles stay where they were born. `emit` goes false when the
+    line lands (`landHead`); particles live out their lives and are destroyed when the line's entry
+    leaves (hide, next spin, the next line in one-at-a-time mode). No engine change was needed.
+  - **Tip:** drawn through `SymbolLayer` in a container that MOVES with the head (a tip rides it —
+    unlike the trail). A slammed round never animates, so it mounts no trail and plays no draw
+    sound; a skip shows the tip's end state at once (no fade, no burst).
+  - **Ship chain:** a sprite tip → `collectSymbolRefs` (`addLayerRefs`) and `bakedWinLineAssets()`
+    in `stateApp.ts`; a flipbook tip's clip → the clip walk (deep over the symbols doc); the effects
+    → `winLineEffectIds` in `runtimeBundle.ts` and `bakedWinLineEffectIds` in the bake's keep-set;
+    the sounds → the sound export's reachability walk (the symbols doc is a source). The bake's
+    inline `winLine` rebuild moved to `scripts/lib/bakeWinLine.mjs` so the gate runs it.
+  - **UI:** a **Payline style** `SectionCard` in the Win lines section (InfoTips, ↺ reset and bin
+    `IconButton`s); the page server now lists `soundNames` (project library one-shots + engine).
+  - **Gates:** `packages/engine-layout/winLineStyle.fixture.ts` (slice = old trace, head pose,
+    taper coverage / corners, prune, effect ids) and the launcher's `check:win-line-style`
+    (round-trip, refusal, client signature, every ship-chain link, sounds).
+  - **Not verified:** the look and the sounds in a running game or the tool (no browser here);
+    the owner should play a round with each setting. The draw / impact sounds live on the symbols
+    doc, picked in `/symbols` as asked — the house convention moved other sound choices to
+    Invisible Sound's bindings, so moving these there is an open question.
 
 - 2026-11-12 — **Anticipation and win-frame follow-ups** (review notes on #1632 / #1635).
   - `?anticipation=` on a project whose flow never arms the mode shows the **coded** look: the
