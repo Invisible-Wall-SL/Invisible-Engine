@@ -126,10 +126,36 @@ server module, routes, page components, triage, screenshots, the pull-request li
     `diagnosis`; `collect.mjs` writes them as `decision.md` / `diagnosis.md` and renders the prompt
     for the mode (`coordinator.md` holds both, between `<!-- mode: … -->` markers). Page data:
     every fix run carries `mode`, `diagnosis`, `chosenOption`, `parentRunId`; `FixFacts` (and
-    `FixTab.byBug`) carry `latestDiagnosis` and `canBuild`. **Left (14B/14C):** the required
-    plain-language sections of a build's PR, the Pipeline Changes card, the Mark-ready check against
-    the decision, the UI, and the run's display name (`Fix run <id>` is still pinned by the
-    launcher's binding).
+    `FixTab.byBug`) carry `latestDiagnosis` and `canBuild`.
+  - **A build explains its change, or nothing ships (ADR-0014 §2–§4, card 14B server side; the
+    Pipeline Changes card is the next).** A build's result carries three required plain-language
+    fields, `changed`, `howToCheck` and `risks` (3,000 characters each, cleaned like `summary`,
+    secret- and privacy-scanned). A `fixed` (or `second_area` with files) result missing one, or
+    with one empty once cleaned, ends `no_fix` `needs_person` ("The run did not explain its
+    change; nothing was opened."); a build with no `chosen_option` or no parent diagnosis (a row
+    from before ADR-0014) ends `no_fix` ("This build has no recorded decision; nothing was
+    opened."). The three are stored in `bug_fix_runs.explanation` (migration
+    `0049_fix_run_explanation`) and shown as `FixRunView.explanation`. `publication()` builds the
+    PR body under fixed headings, in this order: **What you reported** and **What was wrong** (the
+    parent diagnosis), **The option you chose** (id, name, change, who and when, the note),
+    **What changed**, **What else was possible** (the other options, one line each; absent with
+    none), **How to check it yourself**, **Risks**, then Gates run, Lesson and the "Started by"
+    line. The run's `summary` is stored and shown on the bug page but no longer in the PR body.
+  - **Mark ready and merge check the decision.** A change is a fix-run change when its branch is
+    `bug-<n>-fix-<id>` AND the run `<id>` has `pr_number` equal to the PR; any other change is
+    ordinary and untouched. `fixDecisionState` (`$lib/bugFixRuns.ts`, pure) says `ok` only for a
+    build with a chosen option whose `fix_decision` is the bug's newest (`data.build` is this run)
+    and with no diagnose run of the bug newer than its parent; otherwise one sentence (no decision
+    recorded, a newer decision, a newer diagnosis). `markReadyForReview` and `mergeChange` answer
+    409 `{ message, code: 'fix_decision_mismatch' }`. The change detail carries `fixRun`
+    (`ChangeFixRun`, `pipelineChanges.ts`), read from the database and never from the PR body, and
+    its "why" is the run's `changed`.
+  - **Run names say diagnose or build.** `bug-fix.yml` takes `fix_run` and `mode` (choice) and is
+    named `Fix run <id> · <mode>`; the launcher dispatches both. The job still trusts the brief's
+    mode: `collect.mjs brief` fails when the input and the brief disagree. The binding (first
+    contact, the backstop, Stop's search) accepts the new title for the run's own mode and, for the
+    runs already in flight when this shipped, the bare `Fix run <id>` (`isFixRunTitle`; a live run
+    lasts 90 minutes at most).
   - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
     One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).
     `reason` holds the launcher's own sentence and `summary` the run's words. `result_at` is the
@@ -248,6 +274,20 @@ server module, routes, page components, triage, screenshots, the pull-request li
    live runs have now exercised that SQL, but a two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-26 — **A build explains its change, and Mark ready checks the decision (ADR-0014 card
+  14B, server, prompt and workflow side).** Migration `0049_fix_run_explanation`
+  (`bug_fix_runs.explanation`). `coordinator.md`'s build result gains `changed`, `howToCheck`,
+  `risks`; `parseResult`/`settleChange` refuse a result without them and a build with no recorded
+  decision; `publication()` writes the PR body under the fixed headings; `fixDecisionState`,
+  `ChangeFixRun`/`fixRunOfChange` and the 409 `fix_decision_mismatch` at `markReadyForReview` and
+  `mergeChange`; `bug-fix.yml` gains the `mode` input and the `Fix run <id> · <mode>` name, with
+  the old name still bound. `check:bug-fix-workflow` gains `inputs-checked` and
+  `explanation-fields`, an input/brief mismatch mutant and mutants for the new trigger and name;
+  `check:bug-fix-runs` (172), `check:pipeline-changes` (7,972) and `check:bug-reports` (144) cover
+  the new paths. `prove-cli.mjs` and `bug-fix-proof.yml` are unchanged. **Open:** the Pipeline
+  Changes "What you're approving" card (reads `ChangeDetail.fixRun`), and the Actions run-name in
+  the bug page's wording if it ever quotes it.
 
 - 2026-11-26 — **Fix runs diagnose before they build (ADR-0014 card 14A, UI side).** Start reads
   **Diagnose** / **Send and diagnose** (ⓘ: changes nothing). `fixBanner` puts one status line at

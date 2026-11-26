@@ -266,6 +266,9 @@ Write `{{RESULT}}` with the Write tool, as JSON:
 	"title": "one line, at most 100 characters, in the code's terms",
 	"scope": "a scope from scripts/commit-scope.mjs SCOPES, e.g. launcher, engine, editor",
 	"summary": "what was wrong, what changed, what was run; plain text",
+	"changed": "what changed, in everyday words the owner knows; no code terms",
+	"howToCheck": "steps a person can follow in a tool or a game to see the change",
+	"risks": "what the change could affect; \"none found\" if you found none",
 	"lesson": "## Lesson\n- Area: …\n- Symptom: …\n- Cause: …\n- Fix: …\n- Guard: …",
 	"gates": [{ "command": "pnpm check:…", "ok": true }],
 	"secondBug": { "area": "an area id", "title": "…", "evidence": "…" }
@@ -273,8 +276,18 @@ Write `{{RESULT}}` with the Write tool, as JSON:
 ```
 
 - `fixed` needs a changed file and at least one gate that passed; otherwise it is `needs_person`.
-- The summary and a second bug's evidence are at most 2,000 characters, the lesson 4,000, a gate
-  command 300; longer text is cut.
+- `changed`, `howToCheck` and `risks` are **required** for `fixed` (and for `second_area` with a
+  change). They are what the owner reads to decide whether to approve, under the headings "What
+  changed", "How to check it yourself" and "Risks" of the pull request, beside the option they
+  chose. Write them for someone who has not read the code: everyday words, no file names, function
+  names or commands in `changed` and `risks`; in `howToCheck`, numbered steps in a named tool or
+  game ("open Invisible Profiler, pick …, press …, and you should see …"). A run that has nothing
+  to say under "Risks" writes "none found". If one of the three is missing or empty the run ends
+  `needs_person` (the reason reads "The run did not explain its change; nothing was opened.") and
+  no pull request is made, however good the change is.
+- The summary and a second bug's evidence are at most 2,000 characters, `changed`, `howToCheck` and
+  `risks` 3,000 each, the lesson 4,000, a gate command 300; longer text is cut. All of them are
+  read like the summary: no bug text, project or client, and no secret pattern.
 - `secondBug` only when the packet names one; its `area` is a launcher tool id, `engine`,
   `launcher` or `other`.
 - The title gets `<scope>: BUG-<n>` in front of it from the launcher: never write a bug reference

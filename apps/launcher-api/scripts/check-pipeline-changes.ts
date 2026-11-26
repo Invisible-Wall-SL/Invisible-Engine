@@ -1900,6 +1900,14 @@ fake('lib/server/pipelineMerges.ts', {
 	listClaims: async (olderThanMs: number) =>
 		mergeRows.filter((m) => m.mergeSha === null && Date.now() - +m.at > olderThanMs),
 });
+// The fix runs behind a change (ADR-0014 §3), in memory: the runs of every bug and its decisions.
+const fixRunRows: Record<string, unknown>[] = [];
+const fixDecisionRows: { bug: number; id: number; data: Record<string, unknown> }[] = [];
+fake('lib/server/bugFixRunsStore.ts', {
+	getFixRun: async (id: string) => fixRunRows.find((r) => r.id === id) ?? null,
+	allFixRunsOfBug: async (bug: number) => fixRunRows.filter((r) => r.bugNumber === bug),
+	fixDecisionsOfBug: async (bug: number) => fixDecisionRows.filter((d) => d.bug === bug),
+});
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', {
 	getToolOverrides: async (userId: string) => userOverrides.get(userId) ?? {},
@@ -1975,10 +1983,15 @@ async function call(
 			thrown.push(err.body.message);
 			// A refusal that lists its reasons (the Agents tab's validator) carries them beside the sentence.
 			const errors = (err.body as { errors?: unknown }).errors;
+			const code = (err.body as { code?: unknown }).code;
 			if (errors !== undefined) thrown.push(JSON.stringify(errors));
 			return {
 				status: err.status,
-				body: { error: err.body.message, ...(errors === undefined ? {} : { errors }) },
+				body: {
+					error: err.body.message,
+					...(errors === undefined ? {} : { errors }),
+					...(code === undefined ? {} : { code }),
+				},
 			};
 		}
 		throw err;
@@ -7595,6 +7608,310 @@ check(
 			null,
 			null,
 		],
+	);
+}
+
+// ── A change a fix run built answers to the decision on its bug (ADR-0014 §3) ──
+{
+	const shared = await import(src('lib/bugFixRuns.ts'));
+	const T0 = Date.parse('2026-11-26T09:00:00Z');
+	const at = (n: number) => new Date(T0 + n * 60_000);
+	const options = (['A', 'B', 'C'] as const).map((id) => ({
+		id,
+		name: `Option ${id}`,
+		change: `Change ${id}.`,
+		cost: 'c',
+		risk: 'r',
+		player: 'p',
+	}));
+	const diagnosis = {
+		reported: 'It is slow on a phone.',
+		cause: 'Too many filters run at once.',
+		evidence: 'e',
+		kind: 'decision',
+		options,
+		recommendation: { option: 'A', why: 'w' },
+	};
+	const choice = (id: 'A' | 'B' | 'C') => ({
+		optionId: id,
+		name: `Option ${id}`,
+		change: `Change ${id}.`,
+		note: null,
+		decidedBy: 'Ana',
+		decidedAt: '2026-11-26T10:00:00.000Z',
+	});
+	const explanation = {
+		changed: 'The reels now spin lighter on a phone.',
+		howToCheck: '1. Open the game on a phone.\n2. Spin.',
+		risks: 'none found',
+	};
+	let nextEvent = 0;
+	const diagnose = (id: string, bug: number, minute: number) =>
+		fixRunRows.push({
+			id,
+			bugNumber: bug,
+			mode: 'diagnose',
+			status: 'diagnosed',
+			diagnosis,
+			chosenOption: null,
+			explanation: null,
+			parentRunId: null,
+			prNumber: null,
+			createdAt: at(minute),
+		});
+	/** A build of `option` from `parent`, whose PR is `pr`; `decided` records the decision event. */
+	const build = (
+		id: string,
+		bug: number,
+		parent: string | null,
+		pr: number,
+		minute: number,
+		decided = true,
+	) => {
+		fixRunRows.push({
+			id,
+			bugNumber: bug,
+			mode: 'build',
+			status: 'pr_opened',
+			diagnosis: null,
+			chosenOption: parent ? choice('B') : null,
+			explanation: parent ? explanation : null,
+			parentRunId: parent,
+			prNumber: pr,
+			createdAt: at(minute),
+		});
+		if (decided && parent) {
+			fixDecisionRows.push({ bug, id: ++nextEvent, data: { run: parent, build: id, option: 'B' } });
+		}
+	};
+	const fixPr = (number: number, bug: number, id: string, over: Partial<Pull> = {}) => {
+		const headSha = hash(`fix head ${number}`);
+		head(headSha, GREEN, { state: 'success', description: 'ok' });
+		const p = pull(number, `launcher: BUG-${bug} a fix`, {
+			sha: headSha,
+			draft: true,
+			body: 'Why: written on GitHub, where anyone can edit it.',
+			...over,
+		});
+		p.head.ref = `bug-${bug}-fix-${id}`;
+		return { number: String(number), headSha };
+	};
+	const ready = (locals: Locals, number: string) => call(readyRoute.POST, locals, { number }, {});
+	const asked = () => gh.graphql.length;
+	const mismatch = (a: Answer, message: string) => [a.status, a.body.error, a.body.code, message];
+	const none = shared.DECISION_REASONS.none;
+
+	// Bug 50: a diagnosis, a decision, the build for it — everything in order.
+	diagnose('d000000050', 50, 0);
+	build('b000000050', 50, 'd000000050', 450, 1);
+	const good = fixPr(450, 50, 'b000000050');
+	const d = (await detail(ADMIN, good.number)).body as Json;
+	check(
+		'fix-run change: the detail carries the run, the option chosen, its explanation, the diagnosis’s restatement and cause and the other options — from the launcher’s records',
+		[d.fixRun, d.why],
+		[
+			{
+				bug: 50,
+				runId: 'b000000050',
+				choice: choice('B'),
+				explanation,
+				diagnosis: {
+					reported: 'It is slow on a phone.',
+					cause: 'Too many filters run at once.',
+					otherOptions: [
+						{ id: 'A', name: 'Option A', change: 'Change A.' },
+						{ id: 'C', name: 'Option C', change: 'Change C.' },
+					],
+				},
+				decision: { ok: true, reason: null },
+			},
+			'The reels now spin lighter on a phone.',
+		],
+	);
+	const before = asked();
+	const marked = await ready(ADMIN, good.number);
+	check(
+		'fix-run change: with the decision matching, Mark ready for review goes through',
+		[marked.status, asked() - before],
+		[200, 1],
+	);
+	const merged = await mergeIt(ADMIN, good.number, {
+		headSha: good.headSha,
+		requestId: 'fix-merge-450',
+	});
+	check(
+		'fix-run change: …and so does the merge',
+		[merged.status, merged.body.already],
+		[200, false],
+	);
+
+	// A change built before fix runs asked first: no decision on record.
+	build('b000000051', 51, null, 451, 2);
+	const legacy = fixPr(451, 51, 'b000000051');
+	const ld = (await detail(ADMIN, legacy.number)).body as Json;
+	const legacyReady = await ready(ADMIN, legacy.number);
+	gh.pulls.get(451)!.draft = false;
+	changes.forgetChanges();
+	const putsBefore = puts().length;
+	const legacyMerge = await mergeIt(ADMIN, legacy.number, {
+		headSha: legacy.headSha,
+		requestId: 'fix-merge-451',
+	});
+	check(
+		'fix-run change: a build with no recorded decision cannot be marked ready or merged — 409, fix_decision_mismatch, in a plain sentence; GitHub is not asked',
+		[
+			(ld.fixRun as Json).choice,
+			(ld.fixRun as Json).decision,
+			mismatch(legacyReady, none),
+			mismatch(legacyMerge, none),
+			asked() - before,
+			puts().length - putsBefore,
+		],
+		[
+			null,
+			{ ok: false, reason: none },
+			[409, none, 'fix_decision_mismatch', none],
+			[409, none, 'fix_decision_mismatch', none],
+			1,
+			0,
+		],
+	);
+
+	// Bug 52: a second decision was made after this build was started.
+	diagnose('d000000052', 52, 3);
+	build('b000000052', 52, 'd000000052', 452, 4);
+	build('b000000053', 52, 'd000000052', 453, 5);
+	const older = fixPr(452, 52, 'b000000052');
+	const newer = fixPr(453, 52, 'b000000053');
+	const newerDecision = shared.DECISION_REASONS.newerDecision;
+	check(
+		'fix-run change: a newer decision on the bug leaves the earlier build refused, and the newest ready',
+		[
+			mismatch(await ready(ADMIN, older.number), newerDecision),
+			(await ready(ADMIN, newer.number)).status,
+		],
+		[[409, newerDecision, 'fix_decision_mismatch', newerDecision], 200],
+	);
+
+	// Bug 54: a newer diagnosis replaced the one the build came from.
+	diagnose('d000000054', 54, 6);
+	build('b000000054', 54, 'd000000054', 454, 7);
+	diagnose('e000000054', 54, 8);
+	const stale = fixPr(454, 54, 'b000000054');
+	const newerDiagnosis = shared.DECISION_REASONS.newerDiagnosis;
+	const sd = (await detail(ADMIN, stale.number)).body as Json;
+	check(
+		'fix-run change: a newer diagnosis of the bug refuses the build made from the old one — in the detail and at Mark ready',
+		[(sd.fixRun as Json).decision, mismatch(await ready(ADMIN, stale.number), newerDiagnosis)],
+		[
+			{ ok: false, reason: newerDiagnosis },
+			[409, newerDiagnosis, 'fix_decision_mismatch', newerDiagnosis],
+		],
+	);
+
+	// Ordinary changes: nothing of this applies — a plain branch, a fix-run branch of no run, and a
+	// fix-run branch whose run opened another PR.
+	const ordinary = fixPr(455, 55, 'b000000055');
+	gh.pulls.get(455)!.head.ref = 'feat/455';
+	const unknown = fixPr(456, 56, 'b000000056');
+	const other = fixPr(457, 50, 'b000000050');
+	const results = [];
+	for (const c of [ordinary, unknown, other]) {
+		const od = (await detail(ADMIN, c.number)).body as Json;
+		const marked = await ready(ADMIN, c.number);
+		results.push([od.fixRun, od.why, marked.status]);
+	}
+	check(
+		'an ordinary change is unaffected: a plain branch, a fix-run branch no run owns, a fix-run branch whose run opened a different pull request — no fixRun, the body’s own why, Mark ready as ever',
+		results,
+		[
+			[null, 'written on GitHub, where anyone can edit it.', 200],
+			[null, 'written on GitHub, where anyone can edit it.', 200],
+			[null, 'written on GitHub, where anyone can edit it.', 200],
+		],
+	);
+
+	// The pure parts.
+	const run = (over: Record<string, unknown>) => ({
+		id: 'b1',
+		mode: 'build',
+		createdAt: at(10),
+		diagnosis: null,
+		chosenOption: choice('A'),
+		explanation: null,
+		parentRunId: 'd1',
+		...over,
+	});
+	const dz = {
+		id: 'd1',
+		mode: 'diagnose',
+		createdAt: at(0),
+		diagnosis,
+		chosenOption: null,
+		explanation: null,
+		parentRunId: null,
+	};
+	const state = shared.fixDecisionState;
+	check(
+		'fixDecisionState: ok only for a build with a choice whose decision is the bug’s newest and whose diagnosis is the newest; each other case says why',
+		[
+			state(run({}), [dz, run({})], [{ id: 1, data: { build: 'b1' } }]),
+			state(
+				run({}),
+				[dz, run({})],
+				[
+					{ id: 2, data: { build: 'b0' } },
+					{ id: 1, data: { build: 'b1' } },
+				],
+			).reason,
+			state(
+				run({}),
+				[dz, run({})],
+				[
+					{ id: 1, data: { build: 'b1' } },
+					{ id: 2, data: { build: 'b2' } },
+				],
+			).reason,
+			state(
+				run({}),
+				[dz, run({}), { ...dz, id: 'd2', createdAt: at(11) }],
+				[{ id: 1, data: { build: 'b1' } }],
+			).reason,
+			state(
+				run({}),
+				[dz, run({}), { ...dz, id: 'd0', createdAt: at(-5) }],
+				[{ id: 1, data: { build: 'b1' } }],
+			).ok,
+			state(run({ chosenOption: null }), [dz], [{ id: 1, data: { build: 'b1' } }]).reason,
+			state(run({ parentRunId: null }), [dz], [{ id: 1, data: { build: 'b1' } }]).reason,
+			state(run({ parentRunId: 'gone' }), [dz], [{ id: 1, data: { build: 'b1' } }]).reason,
+			state(run({}), [dz], []).reason,
+			state(run({ mode: 'diagnose' }), [dz], [{ id: 1, data: { build: 'b1' } }]).reason,
+		],
+		[
+			{ ok: true, choice: choice('A'), explanation: null, diagnosis },
+			shared.DECISION_REASONS.newerDecision,
+			shared.DECISION_REASONS.newerDecision,
+			shared.DECISION_REASONS.newerDiagnosis,
+			true,
+			none,
+			none,
+			none,
+			none,
+			none,
+		],
+	);
+	check(
+		'parseFixRunBranch: only bug-<n>-fix-<10 hex>',
+		[
+			shared.parseFixRunBranch('bug-12-fix-0123456789'),
+			shared.parseFixRunBranch('bug-12-fix-012345678'),
+			shared.parseFixRunBranch('bug-12-fix-0123456789x'),
+			shared.parseFixRunBranch('xbug-12-fix-0123456789'),
+			shared.parseFixRunBranch('bug-0-fix-0123456789'),
+			shared.parseFixRunBranch('bug-12'),
+		],
+		[{ bug: 12, id: '0123456789' }, null, null, null, null, null],
 	);
 }
 

@@ -4,6 +4,8 @@ import {
 	actionsRefusal,
 	fixRunBranch,
 	fixRunName,
+	isFixRunTitle,
+	type FixRunMode,
 	type FixRunStatus,
 } from '$lib/bugFixRuns';
 import type { Actor } from './bugReportsStore';
@@ -61,20 +63,25 @@ export type Dispatched =
 	| { kind: 'unknown' };
 
 /**
- * Dispatch the workflow on `main` with ONE input, the run's id — inputs are public, so never the
- * bug's number or text. GitHub answers 200 with the new run's id when asked for it
+ * Dispatch the workflow on `main` with two inputs, the run's id and its mode (`diagnose` or
+ * `build`; the job trusts the brief's mode and fails when the two disagree) — inputs are public, so
+ * never the bug's number or text. GitHub answers 200 with the new run's id when asked for it
  * (`return_run_details`), else 204; either way the run's `run-name` lets it be found later. A
  * GitHub that does not know `return_run_details` (a 422 naming it) is asked once more without.
  * Only a definitive 4xx refuses the run; a timeout, a network error or a 5xx may still have started
  * one, so the run stays `dispatched` for the backstop to find or give up on.
  */
-export async function dispatchFixRun(app: GithubApp, id: string): Promise<Dispatched> {
+export async function dispatchFixRun(
+	app: GithubApp,
+	id: string,
+	mode: FixRunMode,
+): Promise<Dispatched> {
 	const send = (details: boolean) =>
 		app.fetch(`/repos/${repo()}/actions/workflows/${FIX_RUN_WORKFLOW}/dispatches`, {
 			method: 'POST',
 			body: JSON.stringify({
 				ref: 'main',
-				inputs: { fix_run: id },
+				inputs: { fix_run: id, mode },
 				...(details ? { return_run_details: true } : {}),
 			}),
 		});
@@ -214,7 +221,7 @@ export async function backstopFixRuns(app: GithubApp, nowMs = Date.now()): Promi
 		for (const run of unbound) {
 			const found = listed.find(
 				(w) =>
-					w.display_title === fixRunName(run.id) &&
+					isFixRunTitle(w.display_title, run.id, run.mode) &&
 					bot !== null &&
 					w.actor?.login === bot &&
 					Date.parse(w.created_at ?? '') >= run.createdAt.getTime() - BIND_SLACK_MS,
@@ -264,10 +271,13 @@ async function listedRuns(app: GithubApp): Promise<GhWorkflowRun[]> {
  * listing (its `run-name`, the App's bot), cancelled when found and not yet finished. Throws when
  * GitHub can't say; Stop takes it as best-effort.
  */
-export async function cancelListedRun(app: GithubApp, id: string): Promise<void> {
+export async function cancelListedRun(app: GithubApp, id: string, mode: FixRunMode): Promise<void> {
 	const [listed, bot] = await Promise.all([listedRuns(app), fixRunBot(app)]);
 	const found = listed.find(
-		(w) => w.display_title === fixRunName(id) && w.actor?.login === bot && w.status !== 'completed',
+		(w) =>
+			isFixRunTitle(w.display_title, id, mode) &&
+			w.actor?.login === bot &&
+			w.status !== 'completed',
 	);
 	if (found) await cancelActionsRun(app, found.id);
 }

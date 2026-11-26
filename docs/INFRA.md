@@ -827,8 +827,10 @@ code default, so the dashboard need not set it):
   See "GitHub App (Pipeline Changes)" for how the launcher opens those PRs.
 - **Fix runs (bug-fix.yml)** (`.github/workflows/bug-fix.yml`, ADR-0013
   `docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md`): **Start fix** on a pipeline bug makes
-  the launcher's GitHub App dispatch `bug-fix.yml` on `main` with one input, `fix_run` (the run id;
-  inputs are public, so never the bug's number or text). The job reads the bug with a GitHub OIDC
+  the launcher's GitHub App dispatch `bug-fix.yml` on `main` with two inputs, `fix_run` (the run id)
+  and `mode` (`diagnose` or `build`, ADR-0014; inputs are public, so never the bug's number or text;
+  the job trusts the brief's mode and fails when the two disagree). The Actions run is named
+  `Fix run <id> · <mode>`, which is what an operator sees in the Actions list. The job reads the bug with a GitHub OIDC
   token (audience `invisible-launcher-bug-fix`), runs Claude Code headless, and POSTs the change to
   `https://app.invisiblewall.org/api/pipeline/fix-runs/<id>/result`. It never commits or pushes: the
   launcher re-checks the change and opens the draft PR as the App. The launcher URL is hard-coded in

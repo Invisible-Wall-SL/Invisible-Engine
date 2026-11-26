@@ -254,7 +254,7 @@ export function diagnosisText({ diagnosis: d }) {
 }
 
 /** The brief's answer, checked: what the later steps rely on, never echoed. */
-export function checkBrief(body, id) {
+export function checkBrief(body, id, inputMode) {
 	if (!body || typeof body !== 'object') fail('The brief is not a JSON object.');
 	if (body.fixRun !== id) fail('The brief is for another fix run.');
 	if (typeof body.baseSha !== 'string' || !SHA.test(body.baseSha)) {
@@ -278,6 +278,7 @@ export function checkBrief(body, id) {
 	}
 	const mode = body.mode === undefined ? 'build' : body.mode;
 	if (!MODES.includes(mode)) fail('The brief names a mode the job does not know.');
+	if (inputMode !== mode) fail('The mode the run was started with is not the brief’s mode.');
 	const chosen =
 		body.mode === 'build'
 			? checkDecision(body.decision, body.diagnosis)
@@ -301,7 +302,7 @@ async function brief() {
 	const auth = { authorization: `Bearer ${token}`, accept: 'application/json' };
 	const res = await request(launcher(`${id}/brief`), { headers: auth }, 'for the brief');
 	if (!res.ok) fail(`The launcher answered ${res.status} for the brief.`);
-	const got = checkBrief(await res.json().catch(() => null), id);
+	const got = checkBrief(await res.json().catch(() => null), id, env('FIX_MODE'));
 	mkdirSync(p.bug, { recursive: true });
 	writeFileSync(join(p.bug, 'brief.md'), `${got.brief.replace(/\r\n?/g, '\n').trimEnd()}\n`);
 	if (got.decision) {
@@ -747,6 +748,7 @@ export const CAPS = {
 	scope: 40,
 	summary: 2_000,
 	lesson: 4_000,
+	explanation: 3_000,
 	command: 300,
 	area: 40,
 	evidence: 2_000,
@@ -815,6 +817,9 @@ export function readResultJson(path) {
 		scope: cut(v.scope, CAPS.scope),
 		summary: cut(v.summary, CAPS.summary),
 		lesson: cut(v.lesson, CAPS.lesson),
+		changed: cut(v.changed, CAPS.explanation),
+		howToCheck: cut(v.howToCheck, CAPS.explanation),
+		risks: cut(v.risks, CAPS.explanation),
 		gates,
 		...(diagnosis ? { diagnosis } : {}),
 		...(sb && typeof sb === 'object' && typeof sb.area === 'string' && typeof sb.title === 'string'
