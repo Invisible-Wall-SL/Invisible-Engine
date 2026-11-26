@@ -238,10 +238,14 @@ export interface CaptureLink {
  * The capture links for one published game: its launch URL with the probe on (`perf=1`) and the
  * session's token, once as shipped and once per test switch. Parameters are SET, never appended —
  * the game reads the first occurrence of a parameter, so an appended duplicate would be ignored.
+ * The launch URL's `device=desktop` is dropped: the game reads no `device` parameter (its layout
+ * follows the viewport, its device class the browser's own signals), and a capture link must not
+ * claim a phone is a desktop to anything that ever does.
  */
 export function captureLinks(gameUrl: string, token: string): CaptureLink[] {
 	return CAPTURE_SWITCHES.map((s) => {
 		const url = new URL(gameUrl);
+		url.searchParams.delete('device');
 		url.searchParams.set('perf', '1');
 		url.searchParams.set(PERF_SESSION_PARAM, token);
 		for (const [key, value] of new URLSearchParams(s.params)) url.searchParams.set(key, value);

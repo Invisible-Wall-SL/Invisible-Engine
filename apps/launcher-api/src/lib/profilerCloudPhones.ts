@@ -294,13 +294,17 @@ export function cloudPhoneOfLabel(label: string | null | undefined): CloudPhone 
 }
 
 /**
- * The Live integration URL that starts `phone` on `url` (its parameters after `#`, `&`-joined).
+ * The Live integration URL that starts `phone` on `url` (its parameters after `#`, `&`-joined),
+ * with the parameters and values BrowserStack's integration-URL page documents
+ * (https://www.browserstack.com/docs/live/integration-url-params, read 2026-11-26): `os` is
+ * `iOS` or `Android` as written there — a lowercase `ios` made Live drop `device` and `start`
+ * and open no phone — and a space is `+`, as in its `os=OS+X` example.
  * `url` must be a capture GO link (`captureGoUrl`): Live may decode the hash before it splits
  * it on `&`, which would cut a game URL's own `&perfsession=…` off; a GO link has no `?` or `&` to cut.
  */
 export function browserStackLiveUrl(phone: CloudPhone, url: string): string {
 	const params: [string, string][] = [
-		['os', phone.os],
+		['os', osName(phone.os)],
 		['os_version', phone.osVersion],
 		['device', phone.device],
 		['device_browser', phone.os === 'ios' ? 'safari' : 'chrome'],
@@ -310,6 +314,6 @@ export function browserStackLiveUrl(phone: CloudPhone, url: string): string {
 		['start', 'true'],
 	];
 	return `${BROWSERSTACK_LIVE_DASHBOARD}#${params
-		.map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+		.map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%20/g, '+')}`)
 		.join('&')}`;
 }

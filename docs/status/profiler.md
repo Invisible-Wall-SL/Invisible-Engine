@@ -358,6 +358,25 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-26 — **Cloud phones: Live starts the phone; capture links name no device**: the owner
+  picked iPhone Duo / iOS 27.1 and Live dropped `device` and `start` and started nothing. The
+  builder sent `os=ios`, but BrowserStack's integration-URL page
+  (https://www.browserstack.com/docs/live/integration-url-params, read 2026-11-26) spells it `iOS` /
+  `Android`. `browserStackLiveUrl` now sends `osName(os)` and writes a space as `+`, as in the
+  page's `os=OS+X` example. It sends only the documented keys `os os_version device
+  device_browser scale_to_fit speed url start`. iPhone Duo / 27.1 IS on Live's device list. The
+  iPhone, iPad, Samsung, Pixel and other mobile entries of `LIVE_DEVICES` were re-checked against
+  that list (2026-11-26) and match. The page documents no mobile `device` naming or `os_version`
+  format; we keep brand + model for Android ("Samsung Galaxy S25"). Capture links (QR, GO, Copy,
+  Live) now drop the launch URL's `device=desktop` (`captureLinks`). It was inert: nothing in
+  `apps/lines` or `packages/*` reads `?device=` (`stateUrl` only types the key). The layout
+  follows the viewport bucket, and `deviceClass` follows the UA and touch signals. A muted
+  Playwright iPhone boot (390×844, touch, iOS UA) of `overlay-buffaloduel` with and without
+  `device=desktop` gave the same result: portrait layout, readout `device.class: phone`
+  (`phone-ua`). Players' launch URLs (`publishGame.ts`) keep the inert `device=desktop`.
+  `check:profiler` gate 3 adds: the exact Live URL for iPhone Duo, documented keys only, and
+  `os` casing on every listed phone. It also checks that no capture link carries `device`.
+  Not yet clicked through on the real dashboard.
 - 2026-11-25 — **Cloud phones: every Live phone, and Send on them**: the owner's first Live
   capture could only Copy (into the cloud phone's own clipboard), and the list was 5 phones. (1)
   `$lib/profilerCloudPhones.ts` now lists 130 phone × OS-version entries from BrowserStack's Live
