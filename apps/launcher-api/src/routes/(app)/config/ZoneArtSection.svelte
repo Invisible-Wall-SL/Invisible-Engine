@@ -21,6 +21,7 @@
 		zoneArtDefault,
 		zoneArtRows,
 	} from './zoneArtDoc';
+	import type { SalmonsCodeDrawn } from './zoneArtBuiltIn';
 
 	/**
 	 * THE ZONE ART CARD of `/config` (`arcade.zoneArt`, `docs/design/zone-art.md`): per zone family
@@ -95,7 +96,30 @@
 	}
 </script>
 
-{#snippet picture(family: string, index: number, source: ZoneArtSource | undefined)}
+{#snippet codeDrawn(drawn: SalmonsCodeDrawn)}
+	<svg viewBox="0 0 64 64" width="40" height="40" aria-hidden="true">
+		{#if drawn === 'sea'}
+			<polygon points="0,32 32,16 64,32 32,48" fill="#0369a1" />
+			<polygon points="19,30 32,27 45,30 32,32" fill="#0284c7" />
+		{:else if drawn === 'source'}
+			<polygon points="0,32 32,12 64,32 32,52" fill="#28591e" />
+			<polygon points="12,32 32,22 52,32 32,42" fill="#7dd3fc" />
+		{:else}
+			<rect x="14" y="34" width="5" height="16" fill="#5b3a20" />
+			<rect x="45" y="34" width="5" height="16" fill="#5b3a20" />
+			<polygon points="0,32 32,16 64,32 32,48" fill="#966637" stroke="#4a2e16" stroke-width="2" />
+			<line x1="16" y1="24" x2="48" y2="40" stroke="#5b3a20" stroke-opacity="0.6" />
+			<line x1="16" y1="40" x2="48" y2="24" stroke="#5b3a20" stroke-opacity="0.6" />
+		{/if}
+	</svg>
+{/snippet}
+
+{#snippet picture(
+	family: string,
+	index: number,
+	source: ZoneArtSource | undefined,
+	ruleOnly = false,
+)}
 	{@const kind = pending[keyOf(family, index)] ?? source?.kind ?? ''}
 	<div class="picture">
 		<select
@@ -114,8 +138,13 @@
 			{/each}
 		</select>
 		{#if !kind && !index}
-			{@const current = zoneArtDefault(family, generator, pickSheets)}
+			{@const current = zoneArtDefault(family, generator, pickSheets, ruleOnly)}
 			<span class="default">{current.label}</span>
+			{#if current.drawn}
+				<span class="thumb" title="Drawn in code: a preview in the game's colours"
+					>{@render codeDrawn(current.drawn)}</span
+				>
+			{/if}
 			{#each current.thumbs as thumb (thumb)}
 				<span class="thumb" title="Used now"><CardArt value={thumb} size={40} /></span>
 			{/each}
@@ -202,7 +231,7 @@
 								></td
 							>
 							<td>
-								{@render picture(row.family, 0, art?.source)}
+								{@render picture(row.family, 0, art?.source, row.ruleOnly)}
 								{#each art?.variants ?? [] as variant, i (i)}
 									{@render picture(row.family, i + 1, variant)}
 								{/each}
