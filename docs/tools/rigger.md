@@ -1637,12 +1637,15 @@ sheet…**. What each step does is the tooltip on the dialog's title.
 6. **Layers** (the side panel, under Props). Which drawing is in front of which: every mapped part
    and prop, front at the top, in the slot it is drawn in (a hand pose shares its hand's row). It
    starts as the template's order with each prop over its part (or behind it where your Photoshop
-   layers say so). Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
+   layers say so): a prop on the head — glasses, an earring — over every face part (each eye white
+   under its pupil, under its lids, all under the glasses) and under the front hair, a hat over the
+   hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
    **Ctrl+]** / **Ctrl+[** to move it one place to the front / back (**Shift** goes all the way);
    ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
    draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
    list: the template's arm-depth control moves the arm from in front of them to behind them, so
-   it must start in front. The order is kept with the rig's mapping.
+   it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
+   draw what they drew, so a new order shows at setup and in the clips that key no draw order.
 7. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
    template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
@@ -1673,8 +1676,8 @@ A mapping made before is offered beside the sheet, never taken by itself:
 - **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig (closed
   right after ↺ Start over, the mapping Start over replaced). Only the last one you left is
   remembered, and it is offered only on its own sheet and template.
-- **↺ Start over** (the icon) takes the open mapping back to the first guess, reading the names as ⇄
-  Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
+- **↺ Start over** (the icon) takes the open mapping back to the first guess (the Layers too),
+  reading the names as ⇄ Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
 
 To change the open rig itself, use 🗺 Edit mapping (below).
 
@@ -1691,8 +1694,12 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   yourself: then yours stays and the report says so.
 - **The layers.** The Layers list opens as the rig draws its slots now, a reorder in Setup's
   **Slots** included (a sheet's props are slots of their own there, so their **⋮⋮** drags them too).
-  The rig keeps its own order unless you change the list here; then the slots it lists take its
-  order, and each draw-order key you made still draws what it drew.
+  The rig keeps its own order unless you change the list here — even an arm you drew behind the
+  head in Setup, which the list itself would refuse. Change the list and the slots it lists take its
+  order, held to the arm-depth controls as a new rig's is; each draw-order key you made still draws
+  what it drew, so the new order shows at setup and in the clips that key no draw order.
+  Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
+  refused, with why under the list, until you fix that order too (in the list, or in Setup).
 - **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
   taken off goes with the keys on its bone, and you are shown those keys before anything changes.
 - **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone

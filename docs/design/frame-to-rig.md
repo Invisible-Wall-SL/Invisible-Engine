@@ -1662,7 +1662,10 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
 - **One order, read by the page and the launcher.** `rigSheetMap.ts` `sheetSlotOrder`: the
   template's slots, each prop's slot where `sheetPropPlaces` puts it (over its host, after an arm's
   last slot on an arm, behind it where `psdBehind` says; moved there from `rigSheetFit.ts` so the
-  page bundles it), then the author's `layers`. `sheetLayerList` is the dialog's **Layers** list:
+  page bundles it), then the author's `layers`. A prop on the head goes just before `hair_front`:
+  over every face part — the owner's eyes drawn as parts, each eye white under its pupil under its
+  lids, all under the glasses — and under the front hair; one named like a hat (`OVER_HAIR`) over
+  the hair. `sheetLayerList` is the dialog's **Layers** list:
   the slots the mapping draws in, front first. The page's list is the launcher's order by
   construction, not by a copy (`vendor/rigger-motion.js` bundles it).
 - **Kept as `SheetMapping.layers`** (front to back, each slot once, only slots the mapping draws in:
@@ -1676,10 +1679,17 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
 - **The depth controls win.** Arm depth moves an arm from in front of the head and the torso to just
   behind them, so an order drawing the arm behind either at setup is refused, naming the control
   (`layersAgainstDepth`); the page shows the launcher's word under the list.
-- **🔄 Update rig** applies the list only when it changed since the kept mapping (`updateSheetRig`,
-  report `layered`), through `frameRigUpdate`'s `keepDrawOrders`, so every draw-order key keeps
-  drawing what it drew. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in
-  Setup's slots survives an update that does not touch the list.
+- **🔄 Update rig** applies the list only when it changed since the kept mapping and moves a slot
+  of the merged rig (`updateSheetRig`, report `layered`), through `frameRigUpdate`'s
+  `keepDrawOrders`, so every draw-order key keeps drawing what it drew. The edited mapping is built
+  in the template's order and the list applied to the merged rig, so a rig whose Setup drew an arm
+  behind the head (which the list could not ask for) still updates. The order applied is held to the
+  depth controls (`slotsAgainstDepth`) as `layersJudged` says: when the list moves a slot the open
+  rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
+  worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
+  slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
+  survives an update that does not touch the list; its preview sends the open rig (`rig`) and is
+  judged by the same `layersJudged`, else draws the list unjudged.
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
 
@@ -1754,10 +1764,14 @@ Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:ri
 preview route places as the create would, writes nothing, and refuses another client's sheet and a
 misfit.
 
-Layers (§13.1e): `sheet-rig.mjs` `layers` (the page's list is the order the rig is made in; the
-author's order is the rig's, engine-rig's and the reopened `template.json` fit's; every other slot
-in place; the 3D layers together, the hand moved away out of its own; the arm behind the head refused
-naming the depth control; bad and stray layers refused; 10 mutants). `sheet-rig-update.mjs` `layers`
+Layers (§13.1e): `sheet-layers.mjs`, a gate of its own so `sheet-rig.mjs` stays inside `check:all`'s
+five minutes: `layers` (the page's list is the order the rig is made in; the author's order is the
+rig's, engine-rig's and the reopened `template.json` fit's; every other slot in place; the 3D layers
+together, the hand moved away out of its own; the arm behind the head refused naming the depth
+control; bad and stray layers refused; 10 mutants) and `eyes` (the owner's eyes drawn as parts:
+white under pupil under lids under the glasses, the glasses under the front hair and a hat over it,
+the page's list the same, and the list may still put the glasses behind the eyes; 2 mutants);
+`sheet-rig.mjs` `draworder` (the head's props over the face, under the front hair). `sheet-rig-update.mjs` `layers`
 (a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
 every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-rig-browser.mjs` (the list
 as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,

@@ -1113,7 +1113,7 @@
           <div id="s2rParts"></div>
           <div id="s2rProps"></div>
           <details class="wsSec" id="s2rLayersSec" open>
-            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays).">Layers</summary>
+            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays). A clip's draw-order keys still draw what they drew, so a new order shows at setup and in the clips that key no draw order.">Layers</summary>
             <div id="s2rLayers"></div>
           </details>
         </div>
@@ -12407,6 +12407,7 @@ function closeSheetToRig(){
   // Closed on ↺ Start over's first guess: the mapping it replaced is the one left.
   else if (!s2r.edit && s2r.sheet && !s2r.dirty && u && u.dirty && Object.keys(u.map).length) s2r.left = { mapping: s2rMapping(u), at: Date.now() };
   $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
+  s2rLayerDragEnd();
 }
 
 // ↺ Reuse: a mapping of this template made before, for the sheet picked (or its own while none is):
@@ -12448,7 +12449,7 @@ async function s2rReuse(c){
 // step, which ↶ takes back.
 function s2rStartOver(){
   if (!s2r.sheet || !s2r.tpl) return;
-  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
+  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props, the arrangement and the Layers go back to the first guess.\n\n↶ brings them back.")) return;
   s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
   Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
   // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
@@ -13378,6 +13379,13 @@ function s2rArrangeItems(){
 }
 const s2rIsSel = (it) => !!s2r.sel && (it.part ? s2r.sel.part === it.part : s2r.sel.prop === it.prop);
 
+// 🗺 Edit mapping: the open rig, so the launcher judges the Layers as 🔄 Update rig will
+// (rigSheetFit.ts layersJudged): Setup's own order warns of nothing a change here does not touch.
+function s2rPreviewRig(){
+  if (!s2r.edit || !rawDoc) return {};
+  const layers = sheetSrc.doc && sheetSrc.doc.layers;
+  return { rig: { slots: rawDoc.slots.map((s) => s.name), ...(layers ? { layers } : {}) } };
+}
 // The rig as the launcher fits it, again once the mapping has changed (a beat after the last change).
 function s2rRequestPreview(){
   clearTimeout(s2r.ptimer);
@@ -13388,7 +13396,7 @@ async function s2rPreview(){
   const gen = ++s2r.pgen;
   try {
     const r = await fetch("/api/rigger/from-sheet/preview", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping() }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping(), ...s2rPreviewRig() }),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const p = await r.json();
