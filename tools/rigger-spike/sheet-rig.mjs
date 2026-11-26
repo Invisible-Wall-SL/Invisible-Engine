@@ -55,10 +55,8 @@
 //      folding at a 3D import's farthest slide, a roll on top turning it whole (trimmed too); a face
 //      found on the head does not slide off it;
 //    - draworder: the mapped slots in the template's order, a prop behind its part where the layers
-//      put it there, a part's props in the layers' order;
-//    - layers: the 🗺 Layers list the page shows is the order the rig is made in; the author's order
-//      is the rig's, engine-rig's and the reopened template.json fit's, every other slot in place,
-//      the 3D layers together; an order a depth control cannot stand with refused, saying why;
+//      put it there, a part's props in the layers' order, the head's props over its face, under the
+//      front hair (🗺 Layers: sheet-layers.mjs);
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--mutants <guard>] [--write]
 //   (--mutants: only that guard's mutants.)
@@ -2099,7 +2097,10 @@ const GUARDS = {
 		return good;
 	},
 
-	/** Each prop on a bone of its own where it sits on its host, drawn just over it. */
+	/**
+	 * Each prop on a bone of its own where it sits on its host, drawn just over it (on the head, over
+	 * every face part and just under the front hair).
+	 */
 	props(M, log) {
 		let good = true;
 		const rig = made(M);
@@ -2147,7 +2148,8 @@ const GUARDS = {
 					Math.abs(w / want - 1) < 0.002 && Math.min(turn, 2 * Math.PI - turn) < 1e-3,
 					`width ${w} vs ${want}, turned ${turn}`,
 				) && good;
-			// Over its host, or over its arm's last slot (a watch over the fingers), as frame to rig draws one.
+			// Over its host, or over its arm's last slot (a watch over the fingers), as frame to rig draws
+			// one; on the head just under the front hair, over every face part.
 			const side = /^(hand|lower_arm)_([lr])$/.exec(hostSlot)?.[2];
 			const slots = M.HALF_BODY.slots.map((x) => x.name);
 			const over = side
@@ -2156,11 +2158,16 @@ const GUARDS = {
 						.filter((n) => n.endsWith(`_${side}`))
 						.pop()
 				: hostSlot;
+			const onHead = hostSlot === 'head';
 			good =
 				ok(
-					`props: ${p.name} drawn just over ${over}`,
-					order.indexOf(p.name) > order.indexOf(over) &&
-						order.indexOf(p.name) <= order.indexOf(over) + rig.mapping.props.length,
+					`props: ${p.name} drawn just over ${onHead ? 'the face, under hair_front' : over}`,
+					onHead
+						? order.indexOf(p.name) < order.indexOf('hair_front') &&
+								order.indexOf(p.name) >= order.indexOf('hair_front') - rig.mapping.props.length &&
+								order.indexOf(p.name) > order.indexOf('mouth')
+						: order.indexOf(p.name) > order.indexOf(over) &&
+								order.indexOf(p.name) <= order.indexOf(over) + rig.mapping.props.length,
 					order.slice(order.indexOf(over), order.indexOf(over) + 4).join(' '),
 				) && good;
 		}
@@ -2583,9 +2590,13 @@ const GUARDS = {
 			) && good;
 		good =
 			ok(
-				'draworder: props the layers do not order against their part stay over it, as listed',
-				just('head', 'prop_glasses') && just('prop_glasses', 'prop_earring_l'),
-				order.slice(at('head'), at('head') + 3).join(' '),
+				"draworder: the head's props over every face part, under the front hair, as listed",
+				just('prop_glasses', 'prop_earring_l') &&
+					just('prop_earring_l', 'hair_front') &&
+					order
+						.slice(at('head'), at('prop_glasses'))
+						.every((n) => !n.startsWith('prop_') && n !== 'hair_front'),
+				order.slice(at('hair_front') - 3, at('hair_front') + 1).join(' '),
 			) && good;
 		const layer = [
 			['NellyAssetBreakdown1_0002s_0003s_0001_UpperEyelidR', ['0002s', '0003s', '0001']],
@@ -2614,132 +2625,6 @@ const GUARDS = {
 		log(
 			`${mappedSlots.length} mapped slots in the template's order; ${order.slice(at('torso') - 2, at('torso') + 2).join(' < ')}`,
 		);
-		return good;
-	},
-
-	/**
-	 * 🗺 Layers: the list the page shows is the order the rig is made in; the author's order is the
-	 * rig's, engine-rig's, and the fit's kept in `template.json`; every other slot stays; the 3D layers
-	 * stay together; an order a depth control cannot stand with is refused, saying why.
-	 */
-	layers(M, log) {
-		let good = true;
-		const t = M.HALF_BODY;
-		const { regions, mapping } = ownerSheet(M);
-		const tplSlots = t.slots.map((s) => s.name);
-		const slotOfPart = (p) => slotOf(M, p);
-		const natural = M.sheetLayerList(tplSlots, slotOfPart, mapping);
-		const drawn = new Set(natural);
-		const drawnOrder = (slots) =>
-			slots
-				.map((s) => s.name ?? s)
-				.filter((n) => drawn.has(n))
-				.reverse();
-		const plain = created(M, t, mapping, regions);
-		good =
-			ok(
-				'layers: the page lists every slot the mapping draws in, front first, as the rig is made',
-				natural.join() === drawnOrder(plain.rigged.skeleton.slots).join() && natural.length > 10,
-				`page ${natural.join(' ')}\n        rig  ${drawnOrder(plain.rigged.skeleton.slots).join(' ')}`,
-			) && good;
-		// The author's: the chain behind the torso, the watch under its forearm, the left hand in front
-		// of everything (out of its fingers' 3D layer).
-		const own = [...natural];
-		const move = (n, to) => {
-			own.splice(own.indexOf(n), 1);
-			own.splice(to(), 0, n);
-		};
-		move('prop_chain', () => own.indexOf('torso') + 1);
-		move('prop_wrist_r', () => own.indexOf('lower_arm_r') + 1);
-		move('hand_l', () => 0);
-		const sent = M.parseSheetMapping(JSON.parse(JSON.stringify({ ...mapping, layers: own })));
-		good =
-			ok(
-				'layers: read back from sheet.json as written',
-				!('problem' in sent) && JSON.stringify(sent.mapping.layers) === JSON.stringify(own),
-				JSON.stringify(sent),
-			) && good;
-		const layered = created(M, t, { ...mapping, layers: own }, regions);
-		const slots = layered.rigged.skeleton.slots;
-		good =
-			ok(
-				"layers: the rig draws the mapped slots in the list's order",
-				drawnOrder(slots).join() === own.join(),
-				drawnOrder(slots).join(' '),
-			) && good;
-		const others = (list) =>
-			JSON.stringify(list.map((s, i) => [s.name, i]).filter(([n]) => !drawn.has(n)));
-		good =
-			ok(
-				'layers: every slot the mapping does not draw in keeps its place',
-				others(slots) === others(plain.rigged.skeleton.slots),
-			) && good;
-		good =
-			ok(
-				"layers: the page lists the author's order as the rig draws it",
-				M.sheetLayerList(tplSlots, slotOfPart, { ...mapping, layers: own }).join() ===
-					drawnOrder(slots).join(),
-			) && good;
-		const skel = new RIG.Skeleton(layered.data);
-		skel.setToSetupPose();
-		good =
-			ok(
-				'layers: engine-rig draws them in that order',
-				drawnOrder(skel.drawOrder.map((s) => s.data.name)).join() === own.join(),
-			) && good;
-		const ref = JSON.stringify({ id: t.id, version: t.version, fit: layered.sr.fit });
-		const reopened = M.sidecarTemplate(t, ref).slots.map((s) => s.name);
-		good =
-			ok(
-				"layers: the fit kept in template.json reopens in the author's order",
-				reopened.join() === slots.map((s) => s.name).join(),
-				reopened.join(' '),
-			) && good;
-		const ft = M.fitTemplate(t, layered.sr.fit);
-		const at = new Map(ft.slots.map((s, i) => [s.name, i]));
-		const apart = Object.entries(ft.rig3d?.layers ?? {}).filter(([, v]) => {
-			const idx = v.map((n) => at.get(n)).sort((a, b) => a - b);
-			return idx.some((x, i) => i > 0 && x !== idx[i - 1] + 1);
-		});
-		good =
-			ok(
-				'layers: every 3D draw-order layer still together (the hand drawn apart left its own)',
-				apart.length === 0 &&
-					!ft.rig3d.layers.hand_l.includes('hand_l') &&
-					ft.rig3d.layers.hand_l.length > 1,
-				JSON.stringify(apart) + JSON.stringify(ft.rig3d?.layers?.hand_l),
-			) && good;
-		// An order the Arm depth control cannot stand with: the arm behind the head.
-		const behindHead = [...natural];
-		behindHead.splice(behindHead.indexOf('upper_arm_l'), 1);
-		behindHead.splice(behindHead.indexOf('head') + 1, 0, 'upper_arm_l');
-		const refused = M.sheetRig(t, regions, { ...mapping, layers: behindHead });
-		good =
-			ok(
-				'layers: the arm drawn behind the head refused, naming the depth control',
-				!refused.ok && /the Layers draw "upper_arm_l" behind "head"/.test(refused.problem),
-				refused.ok ? 'made' : refused.problem,
-			) && good;
-		const bad = [
-			['not a list', { ...mapping, layers: 'torso' }],
-			['a slot twice', { ...mapping, layers: ['torso', 'torso'] }],
-		];
-		for (const [what, m] of bad)
-			good =
-				ok(
-					`layers: ${what} refused`,
-					'problem' in M.parseSheetMapping(JSON.parse(JSON.stringify(m))),
-				) && good;
-		const reordered = new Set(t.channels.flatMap((c) => c.order?.slots ?? []));
-		const empty = tplSlots.find((n) => !drawn.has(n) && !reordered.has(n));
-		const stray = M.sheetRig(t, regions, { ...mapping, layers: [...own, empty] });
-		good =
-			ok(
-				`layers: a slot nothing mapped is drawn in (${empty}) refused`,
-				!stray.ok && stray.problem.includes(`"${empty}", which no mapped part`),
-				stray.ok ? 'made' : stray.problem,
-			) && good;
-		log(`${own.length} layers; yours: ${own.slice(0, 4).join(' > ')} …`);
 		return good;
 	},
 
@@ -2896,75 +2781,7 @@ const MAP = 'rigSheetMap.ts';
 const FIT = 'rigSheetFit.ts';
 const TPL = 'rigTemplates.ts';
 const FACE = 'rigFrameFace.ts';
-const TFIT = 'rigTemplateFit.ts';
-const ORDER = 'rigSlotOrder.ts';
 const MUTANTS = [
-	[
-		'layers',
-		"the page's list ignoring the author's order",
-		[MAP, 'return m.layers ? inDrawOrder(made, [...m.layers].reverse()) : made;', 'return made;'],
-	],
-	[
-		'layers',
-		'the page listing every template slot, not the ones the mapping draws in',
-		[MAP, '\t\t.filter((n) => drawn.has(n))\n\t\t.reverse();', '\t\t.reverse();'],
-	],
-	[
-		'layers',
-		'a prop listed before its part, not after it as the rig draws it',
-		[
-			ORDER,
-			'out.splice(p.after !== undefined ? at + 1 : at, 0, p.name);',
-			'out.splice(at, 0, p.name);',
-		],
-	],
-	[
-		'layers',
-		'the layers sent to the fit back to front, not front to back',
-		[
-			FIT,
-			'...(m.layers ? { order: [...m.layers].reverse() } : {}),',
-			'...(m.layers ? { order: [...m.layers] } : {}),',
-		],
-	],
-	['layers', 'the layers not kept in sheet.json', [FIT, '...(layers ? { layers } : {}),', '']],
-	[
-		'layers',
-		'a layer nothing is drawn in let through',
-		[
-			FIT,
-			'if (stray !== undefined)\n\t\t\treturn `the layers list',
-			'if (false)\n\t\t\treturn `the layers list',
-		],
-	],
-	[
-		'layers',
-		"the fit's order never applied",
-		[TFIT, '\tif (fit.order) {\n\t\tconst byName', '\tif (false) {\n\t\tconst byName'],
-	],
-	[
-		'layers',
-		"template.json's order not read back",
-		[TFIT, '\t\tfit.order = [...(raw.order as string[])];', ''],
-	],
-	[
-		'layers',
-		'a 3D layer left apart by the author',
-		[
-			TFIT,
-			'layers = layersTogether(',
-			'layers = ((l: Record<string, string[]>, _s: string[]) => l)(',
-		],
-	],
-	[
-		'layers',
-		'an order the depth control cannot stand with refused without saying why',
-		[
-			FIT,
-			'\tconst against = layersAgainstDepth(t, fit);\n\tif (against) return no(against);\n',
-			'',
-		],
-	],
 	['suggest', "an artist's left read as the right", [MAP, "left: ['l'],", "left: ['r'],"]],
 	[
 		'swap',
@@ -3182,7 +2999,11 @@ const MUTANTS = [
 	[
 		'props',
 		"a watch drawn under its hand's fingers",
-		[MAP, 'const beside = side ? armTail(slots, side) : slot;', 'const beside = slot;'],
+		[
+			MAP,
+			"const beside = side ? armTail(slots, side) : overHair ? 'hair_front' : slot;",
+			"const beside = overHair ? 'hair_front' : slot;",
+		],
 	],
 	[
 		'props',
@@ -3327,8 +3148,6 @@ const SOURCES = {
 	'rigIndex.ts': join(SERVER, 'rigIndex.ts'),
 	'rigFrameFit.ts': join(SERVER, 'rigFrameFit.ts'),
 	[FACE]: join(SERVER, FACE),
-	[TFIT]: join(SERVER, TFIT),
-	[ORDER]: join(LIB, ORDER),
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {

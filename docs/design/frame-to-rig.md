@@ -1662,7 +1662,10 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
 - **One order, read by the page and the launcher.** `rigSheetMap.ts` `sheetSlotOrder`: the
   template's slots, each prop's slot where `sheetPropPlaces` puts it (over its host, after an arm's
   last slot on an arm, behind it where `psdBehind` says; moved there from `rigSheetFit.ts` so the
-  page bundles it), then the author's `layers`. `sheetLayerList` is the dialog's **Layers** list:
+  page bundles it), then the author's `layers`. A prop on the head goes just before `hair_front`:
+  over every face part — the owner's eyes drawn as parts, each eye white under its pupil under its
+  lids, all under the glasses — and under the front hair; one named like a hat (`OVER_HAIR`) over
+  the hair. `sheetLayerList` is the dialog's **Layers** list:
   the slots the mapping draws in, front first. The page's list is the launcher's order by
   construction, not by a copy (`vendor/rigger-motion.js` bundles it).
 - **Kept as `SheetMapping.layers`** (front to back, each slot once, only slots the mapping draws in:
@@ -1731,10 +1734,14 @@ Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:ri
 preview route places as the create would, writes nothing, and refuses another client's sheet and a
 misfit.
 
-Layers (§13.1e): `sheet-rig.mjs` `layers` (the page's list is the order the rig is made in; the
-author's order is the rig's, engine-rig's and the reopened `template.json` fit's; every other slot
-in place; the 3D layers together, the hand moved away out of its own; the arm behind the head refused
-naming the depth control; bad and stray layers refused; 10 mutants). `sheet-rig-update.mjs` `layers`
+Layers (§13.1e): `sheet-layers.mjs`, a gate of its own so `sheet-rig.mjs` stays inside `check:all`'s
+five minutes: `layers` (the page's list is the order the rig is made in; the author's order is the
+rig's, engine-rig's and the reopened `template.json` fit's; every other slot in place; the 3D layers
+together, the hand moved away out of its own; the arm behind the head refused naming the depth
+control; bad and stray layers refused; 10 mutants) and `eyes` (the owner's eyes drawn as parts:
+white under pupil under lids under the glasses, the glasses under the front hair and a hat over it,
+the page's list the same, and the list may still put the glasses behind the eyes; 2 mutants);
+`sheet-rig.mjs` `draworder` (the head's props over the face, under the front hair). `sheet-rig-update.mjs` `layers`
 (a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
 every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-rig-browser.mjs` (the list
 as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,

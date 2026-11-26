@@ -1559,7 +1559,9 @@ sheet…**. What each step does is the tooltip on the dialog's title.
 6. **Layers** (the side panel, under Props). Which drawing is in front of which: every mapped part
    and prop, front at the top, in the slot it is drawn in (a hand pose shares its hand's row). It
    starts as the template's order with each prop over its part (or behind it where your Photoshop
-   layers say so). Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
+   layers say so): a prop on the head — glasses, an earring — over every face part (each eye white
+   under its pupil, under its lids, all under the glasses) and under the front hair, a hat over the
+   hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
    **Ctrl+]** / **Ctrl+[** to move it one place to the front / back (**Shift** goes all the way);
    ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
    draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
