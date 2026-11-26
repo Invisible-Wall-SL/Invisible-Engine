@@ -6,6 +6,15 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### On an iPhone the game slid up and the profiler's Send went off screen
+
+- **Symptom:** owner, 2026-11-26, BrowserStack iPhone: title cut, black strip at the bottom, no Send.
+- **Cause:** `<body>` only had `overflow: hidden`, which iOS Safari still scrolls; the lobby line was
+  sized in the playtest's fallback font, narrower than the pixel font a phone loads.
+- **Fix:** `app.html` pins `body`; `PerfHud` follows `visualViewport`; lobby lines `fitTo` the canvas.
+- **Guard:** none automatic (Chromium does not scroll like Safari): check layout on a real iPhone.
+- **PR:** branch `claude/wonderful-wozniak-d6hr0p` (2026-11-26)
+
 ### A new level was drawn, and the players collided against another
 
 - **Symptom:** owner, 2026-11-25: "changing the seed generates a new level, but does not update
@@ -265,15 +274,6 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   shared level, silent / dropped players, 0 corrections on resume).
 - **PR:** fix for #1717 (2026-11-18, branch `fix/1717-game-server-freeze`) · source:
   `docs/status/3d.md`
-
-### The owner was never asked to approve the Salmons art pass
-
-- **Symptom:** S0 waited on an owner go that no session ever raised.
-- **Cause:** S0 was written as "not a build step", so it had no row in game-families §8 (the
-  table the coordinator walks) and no entry in STATUS.md's owner list.
-- **Fix:** S0 got a §8 row and a `docs/STATUS.md` owner entry.
-- **Guard:** none; an owner step needs a §8 row or an owner-list entry to be seen.
-- **PR:** not recorded (2026-10-26) · source: `docs/status/salmons.md`
 
 ### A rig named only by a character sheet shipped, and the game never loaded it
 

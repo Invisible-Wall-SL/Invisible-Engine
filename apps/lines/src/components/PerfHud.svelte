@@ -98,6 +98,16 @@
 		typeof (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory
 			?.usedJSHeapSize === 'number';
 	let observer: PerformanceObserver | undefined;
+	/**
+	 * Where the visible part of the page sits in the layout viewport. A fixed element is pinned to
+	 * the layout viewport, so a page iOS Safari has panned or zoomed hides it: the readout follows the
+	 * visual viewport instead, so Send can always be reached.
+	 */
+	let visible = $state({ x: 0, y: 0 });
+	const followViewport = () => {
+		const v = window.visualViewport;
+		if (v) visible = { x: v.offsetLeft, y: v.offsetTop };
+	};
 	const onVisibility = () => {
 		if (document.visibilityState !== 'hidden') return;
 		void send('leaving');
@@ -128,6 +138,9 @@
 		}
 		setFrameProbe((time, moving) => stats.frame(time, spinning(), moving, gameState()));
 		document.addEventListener('visibilitychange', onVisibility);
+		followViewport();
+		window.visualViewport?.addEventListener('resize', followViewport);
+		window.visualViewport?.addEventListener('scroll', followViewport);
 		if (longTasks) {
 			observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) stats.longTask(entry.startTime, entry.duration);
@@ -150,6 +163,8 @@
 	onDestroy(() => {
 		setFrameProbe(undefined);
 		document.removeEventListener('visibilitychange', onVisibility);
+		window.visualViewport?.removeEventListener('resize', followViewport);
+		window.visualViewport?.removeEventListener('scroll', followViewport);
 		observer?.disconnect();
 		clearInterval(timer);
 		probe?.dispose();
@@ -413,7 +428,13 @@
 </script>
 
 {#if snapshot}
-	<div class="ie-perf" data-testid="perf-hud">
+	<div
+		class="ie-perf"
+		data-testid="perf-hud"
+		style:transform={visible.x || visible.y
+			? `translate(${visible.x}px, ${visible.y}px)`
+			: undefined}
+	>
 		<button type="button" class="ie-perf-head" onclick={() => (open = !open)}>
 			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · spin {snapshot.spinning.fps} fps p95
 			{snapshot.spinning.p95} · reel {snapshot.reel.p95} px

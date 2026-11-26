@@ -358,6 +358,14 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-26 — **The readout stays on screen on an iPhone (BrowserStack Live, iPhone 16 Pro Max /
+  iOS 27, Salmons)**: the owner could not find Send. The game page had slid about 60 px up (title
+  cut, a black strip over Safari's toolbar), taking the top-left readout off the screen. The page
+  shell is pinned now (`apps/lines/src/app.html`), and the readout follows the visual viewport
+  (`PerfHud.svelte`), so a page iOS pans or zooms cannot hide Send. Checked in Chromium at
+  430 × 739 (page cannot scroll, canvas fills, readout shown); **not yet checked on the real
+  iPhone**.
+
 - 2026-11-26 — **Cloud phones: Live starts the phone; capture links name no device**: the owner
   picked iPhone Duo / iOS 27.1 and Live dropped `device` and `start` and started nothing. The
   builder sent `os=ios`, but BrowserStack's integration-URL page

@@ -2573,6 +2573,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **The lobby's lines fit a phone, and "1 player"**: on an iPhone 16 Pro Max
+  (BrowserStack Live) "1 players in Drunken Bear River" ran off both sides in the pixel font (the
+  playtests measured the fallback monospace). The river line and the "You are …" line now shrink
+  to the canvas like the class row (`createLobbyNote`), and `riverRows` says "player" for one, in
+  the lobby and the start menu. Playtest patterns follow. The same report fixed the page sliding
+  under iOS Safari's toolbar (profiler status). Not yet seen on the real phone.
+
 - 2026-11-26 — **The whole lobby clock, and the next game by itself** (owner: "have the all
   countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
   starts automatically"; branch `claude/upbeat-cray-fzmgxe`; in review). `onlineRules.js`
