@@ -2626,6 +2626,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
+  room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
+  gone. The line now rests at `room / 1.15` there (including canvases that only just fit it), so the whole pop fits inside the margins
+  (`riverLineScale`, `MENU.popGrow`; the start menu's pop reads the same value). Guard:
+  `check:salmons-art` "the lobby's players line pops inside the margins on a narrow canvas".
+
 - 2026-11-26 — **The lobby's lines fit a phone, and "1 player"**: on an iPhone 16 Pro Max
   (BrowserStack Live) "1 players in Drunken Bear River" ran off both sides in the pixel font (the
   playtests measured the fallback monospace). The river line and the "You are …" line now shrink

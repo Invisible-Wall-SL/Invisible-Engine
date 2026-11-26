@@ -1661,4 +1661,22 @@ check("biomes and the trees' art: a biome's variants pick among the authored pic
 	assert.deepEqual(plain, drawnRiver(salmonsMapRiver(SEED), SEED, art));
 });
 
+const { MENU, riverLineScale } = await import(join(ART, 'screens.ts'));
+check(
+	"the lobby's players line pops inside the margins on a narrow canvas, and rests at 1 on a wide one",
+	() => {
+		const top = 0.5;
+		for (const room of [0.4, 0.8, 1, 1.1, 1.15, 2]) {
+			const atTop = riverLineScale(room, top);
+			assert.ok(
+				atTop <= room + 1e-9,
+				`room ${room}: the top of the pop is ${atTop}, past the margins`,
+			);
+			assert.ok(atTop > riverLineScale(room, -1), `room ${room}: no pop`);
+		}
+		assert.equal(riverLineScale(2, -1), 1);
+		assert.equal(riverLineScale(2, top), 1 + MENU.popGrow);
+	},
+);
+
 console.log(`check:salmons-art: ${passed} passed`);

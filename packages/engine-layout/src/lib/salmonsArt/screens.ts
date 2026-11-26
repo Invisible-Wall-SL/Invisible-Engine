@@ -285,9 +285,22 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
 }
 
 /** How a river list is asked for and shown (the start menu's, and the lobby's own river): how often,
- *  how long after no answer, how long an answer may take, how long a risen count pops, and the most
- *  rivers listed. */
-export const MENU = { pollMs: 3000, retryMs: 15000, timeoutMs: 5000, popMs: 400, rows: 5 };
+ *  how long after no answer, how long an answer may take, how long a risen count pops and how much
+ *  bigger it gets at the top of the pop, and the most rivers listed. */
+export const MENU = {
+	pollMs: 3000,
+	retryMs: 15000,
+	timeoutMs: 5000,
+	popMs: 400,
+	popGrow: 0.15,
+	rows: 5,
+};
+
+/** The river line's scale: at rest small enough that the whole pop stays inside the margins on a
+ *  narrow canvas (`room` is how many times the line fits there), and the pop on top of it. */
+export const riverLineScale = (room: number, pop: number) =>
+	Math.min(1, room / (1 + MENU.popGrow)) *
+	(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * MENU.popGrow : 1);
 
 /** A river list: the first {@link MENU.rows} of `sorted`, each named from its room id. */
 export const riverRows = (sorted: readonly RiverListing[]) =>
@@ -405,9 +418,7 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 		clock += dtMs;
 		root.visible = shown !== undefined;
 		const pop = (clock - popAt) / MENU.popMs;
-		const popScale = pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1;
-		const riverRoom = room(w, river.getLocalBounds().width);
-		river.scale.set(Math.min(Math.min(1, riverRoom) * popScale, riverRoom));
+		river.scale.set(riverLineScale(room(w, river.getLocalBounds().width), pop));
 		you.scale.set(fitTo(w, you.getLocalBounds().width));
 		centreLine(river, w / 2, h / 2 + LOBBY.riverY);
 		centreLine(you, w / 2, h / 2 + LOBBY.youY);
