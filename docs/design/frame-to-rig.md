@@ -749,10 +749,11 @@ The dialog now ends in **🦴 Create rig** (§6 steps 3–4, the GPU 🎨 Fill a
   `framePartsRequest`), and asks atlas-tool for the sheet `<name>_parts`. The page then creates the
   rig through `/api/rigger/new` with `{manifestKey, templateId, fit}`, as any template create:
   claim, `.atlas`, `template.json` with the fit, `controls.json`, reindex, the missing-parts report.
-  A taken rig name is refused before anything is made. `GET /api/rigger/from-frame?clipId=` lists the
-  clip's kept cuts (the newest per frame): ↺ Reuse opens one at once, before the track, so a kept cut
-  goes straight to Create rig — offered, never opened by itself on a new rig (§13.1d). A cut now names its clip and
-  frame (`cut.json` `clip`); one made before is matched by the page and region it was cut from.
+  A taken rig name is refused before anything is made. `GET /api/rigger/from-frame?clipId=` lists
+  the clip's kept cuts (the newest per frame): ↺ Reuse opens one at once, before the track, so a
+  kept cut goes straight to Create rig — offered, never opened by itself on a new rig (§13.1d). A
+  cut now names its clip and frame (`cut.json` `clip`); one made before is matched by the page and
+  region it was cut from.
 - **The fit** (§4.6, as `proof.py fit()`): the scale is the template's shoulder width over the
   frame's, the origin the hips' middle; the chest sits on the shoulder line, the head on the eyes'
   line (each eye's centre, not its corner), each limb aims at its next joint and takes its length
@@ -1616,14 +1617,24 @@ reachable, offered and never applied by itself:
   - The listing still shows each frame's newest cut, so a fresh cut of a frame shadows the old one
     the next time the dialog opens. A rig made from the old one still reaches it through ✂ Edit
     cut, by job.
-- **↺ Start over** (an icon button) puts the dialog back to that first guess as one step, which **↶**
-  takes back. It asks first when there is a hand edit not kept anywhere:
+- **↺ Start over** (an icon button) puts the dialog back to that first guess as one step, which
+  **↶** takes back. It asks first when there is a hand edit not kept anywhere:
   - Sheet: anything changed since the suggestion or the reuse (`s2r.dirty`, which the suggestion now
     clears). Start over reads the names as ⇄ Swap sides is set.
   - Frame: touch-ups not 💾 kept, dragged joints, a part's frame picked by hand. The open cut stays
     kept, for ↺ Reuse; ✂ Cut then makes a fresh one.
 - 🗺 Edit mapping and ✂ Edit cut still open the rig's own mapping or cut. Start over works there too;
   Reuse is for new rigs only (the sheet dialog shows none while editing).
+- **Closing and opening again loses nothing** (the #1927 review):
+  - Frame: ＋ New rig → 🎞 puts the dialog back to the first guess the way ↺ Start over does, as one
+    step **↶** takes back, so dragged joints, a part's frame picked by hand and an open cut come
+    back with it. A ↶ pending from a Start over stays when nothing changed since. Opened while a cut
+    is running, the dialog is left as it is, so the cut lands.
+  - Sheet: closed after ↺ Start over with nothing changed since, the mapping Start over replaced is
+    what is left for ↺ Reuse what you left. Start over and ↶ each move `s2r.gen` on, so a face
+    track started before lands on neither; a head whose track ↶ cut short is tracked again.
+  - Only one left mapping is remembered (`s2r.left`, the last one closed), offered only on its own
+    sheet and template.
 
 **Gates:**
 - `sheet-rig-browser.mjs` (53 checks, 11 new page mutants):
@@ -1687,8 +1698,9 @@ dragged, ◧ Arranged (every part drawn where the preview puts it, sampled pixel
 dragged carrying its hand, snapped, turned about its elbow; the next preview agreeing to 0.02 px; a
 prop dragged and turned), the create's body with the arrangement, the rig opened with its `frame`
 clip, the report, a new rig on the first guess and ↺ Reuse of the mapping and its arrangement, ↺
-Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:rigger-writes`: the preview route places as the create would, writes nothing, and
-refuses another client's sheet and a misfit.
+Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:rigger-writes`: the
+preview route places as the create would, writes nothing, and refuses another client's sheet and a
+misfit.
 
 ### 13.4 Owed
 
