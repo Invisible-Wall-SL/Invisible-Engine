@@ -493,12 +493,16 @@ Today:
 
 - Leaving-the-page sends have not yet been checked on a real iPhone or Android phone.
 - A scripted read (`window.__IE_PERF__('reset' | 'take')`) never sends on its own.
+- A capture card that opens through a partner session (`/api/partner-session`, for example "Book of
+  Borut — Emanuele's RGS") lands on the game without the readout: profile that game from its own card.
 - Reading the list means scanning rows; there is no filter, grouping or chart. The page shows the
   newest 500 readings.
 - A reading cannot be deleted by hand; untick **Keep** and the clean-up removes it once it is past
   15 days.
 - What a page downloads is read only from a readout of `perf: 9` on; older readings show `–` under
-  **Transfer MB** and are not judged on it. A file from a site that sends no Timing-Allow-Origin
+  **Transfer MB** and are not judged on it. An arcade game whose title screen is a web page (Salmons)
+  draws its first frame only after the player joins, so its **1st frame** includes the time spent on
+  the title. A file from a site that sends no Timing-Allow-Origin
   (the partner's RGS, the arcade game server's matchmaking) has its time but not its size. A 3D
   arcade game does not count its room's messages yet. The browser keeps the first 250 files before
   the readout starts listening; a page that fetched more before that misses the earliest.
