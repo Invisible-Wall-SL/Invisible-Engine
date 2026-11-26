@@ -22,9 +22,14 @@
 	import ProfilerLabRuns from '$lib/ProfilerLabRuns.svelte';
 	import {
 		browserStackLiveUrl,
+		CLOUD_PHONE_GROUPS,
 		CLOUD_PHONES,
 		cloudPhoneLabel,
 		cloudPhoneOfLabel,
+		CUSTOM_DEVICE_MAX,
+		customCloudPhone,
+		osName,
+		type CloudOs,
 	} from '$lib/profilerCloudPhones';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
@@ -104,6 +109,8 @@
 		id: string;
 		label: string;
 		url: string;
+		/** The same link as a launcher redirect with no `?` or `&`: what is copied and sent to Live. */
+		go: string;
 		qr: string;
 	}
 	interface CaptureSessionView {
@@ -173,11 +180,19 @@
 
 	/** The cloud phone picked for the next session: it names the device label. */
 	let cloudPhoneId = $state('');
+	let customDevice = $state('');
+	let customOs = $state<CloudOs>('android');
+	let customOsVersion = $state('');
+	const customPhone = $derived(customCloudPhone(customDevice, customOs, customOsVersion));
 	function pickCloudPhone(id: string): void {
 		cloudPhoneId = id;
-		const phone = CLOUD_PHONES.find((p) => p.id === id);
+		const phone = id === 'custom' ? customPhone : CLOUD_PHONES.find((p) => p.id === id);
 		if (phone) deviceLabel = cloudPhoneLabel(phone);
 		else if (cloudPhoneOfLabel(deviceLabel)) deviceLabel = '';
+	}
+	/** A typed phone names the label as it is typed. */
+	function typeCustomPhone(): void {
+		if (cloudPhoneId === 'custom') pickCloudPhone('custom');
 	}
 	/** The phone the open session's links were signed for: its BrowserStack Live buttons open it. */
 	const sessionPhone = $derived(cloudPhoneOfLabel(openSessionHere?.label));
@@ -458,19 +473,56 @@
 									aria-label="BrowserStack Live phone for the next session"
 								>
 									<option value="">None — my own phone</option>
-									{#each CLOUD_PHONES as p (p.id)}
-										<option value={p.id}
-											>{p.device} · {p.os === 'ios' ? 'iOS' : 'Android'} {p.osVersion}</option
-										>
+									{#each CLOUD_PHONE_GROUPS as group (group.brand)}
+										<optgroup label={group.brand}>
+											{#each group.phones as p (p.id)}
+												<option value={p.id}>{p.model} · {osName(p.os)} {p.osVersion}</option>
+											{/each}
+										</optgroup>
 									{/each}
+									<option value="custom">Other phone…</option>
 								</select>
 								<InfoTip>
 									A BrowserStack Live phone. Open a session with one picked and each link gets a
-									<strong>BrowserStack Live</strong> button that starts that phone on it — sign in to
-									BrowserStack in this browser first. The device label names the phone, so its readings
-									say which one.
+									<strong>BrowserStack Live</strong> button that starts that phone on it — sign in
+									to BrowserStack in this browser first. The device label names the phone, so its
+									readings say which one. On the cloud phone tap <strong>Send</strong>: Copy only
+									reaches the cloud phone's own clipboard.
 								</InfoTip>
 							</label>
+							{#if cloudPhoneId === 'custom'}
+								<label class="field">
+									<span>Live device name</span>
+									<input
+										type="text"
+										maxlength={CUSTOM_DEVICE_MAX}
+										placeholder="e.g. Samsung Galaxy A14"
+										bind:value={customDevice}
+										oninput={typeCustomPhone}
+									/>
+								</label>
+								<label class="field">
+									<span>OS</span>
+									<select bind:value={customOs} onchange={typeCustomPhone}>
+										<option value="android">Android</option>
+										<option value="ios">iOS</option>
+									</select>
+								</label>
+								<label class="field">
+									<span>OS version</span>
+									<input
+										type="text"
+										maxlength="12"
+										placeholder={customOs === 'ios' ? 'e.g. 18' : 'e.g. 15.0'}
+										bind:value={customOsVersion}
+										oninput={typeCustomPhone}
+									/>
+									<InfoTip>
+										Type the device name and OS version exactly as BrowserStack Live's device list
+										shows them — Live only starts a phone whose name matches.
+									</InfoTip>
+								</label>
+							{/if}
 							<button type="button" class="primary" disabled={opening} onclick={openSession}>
 								{opening ? 'Opening…' : openSessionHere ? 'New session' : 'Open capture'}
 							</button>
@@ -499,15 +551,16 @@
 														<button
 															type="button"
 															class="linkish"
-															onclick={() => copyLink(link.url)}
+															onclick={() => copyLink(link.go)}
+															title={link.go}
 														>
-															{copiedUrl === link.url ? 'Copied' : 'Copy link'}
+															{copiedUrl === link.go ? 'Copied' : 'Copy link'}
 														</button>
 														{#if sessionPhone}
 															<!-- BrowserStack's dashboard, in the tester's own signed-in tab. -->
 															<!-- eslint-disable svelte/no-navigation-without-resolve -->
 															<a
-																href={browserStackLiveUrl(sessionPhone, link.url)}
+																href={browserStackLiveUrl(sessionPhone, link.go)}
 																target="_blank"
 																rel="noopener"
 																title={`Start ${sessionPhone.device} on BrowserStack Live with this link`}
@@ -516,6 +569,7 @@
 															<!-- eslint-enable svelte/no-navigation-without-resolve -->
 														{/if}
 													</span>
+													<code class="go">{link.go}</code>
 												</figcaption>
 											</figure>
 										{/each}
@@ -1081,6 +1135,17 @@
 		gap: 2px;
 		margin-top: 6px;
 		font-size: 13px;
+	}
+	figcaption .go {
+		font-size: 10px;
+		color: #8a8a99;
+		overflow-wrap: anywhere;
+		user-select: all;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 	figcaption .actions {
 		display: flex;

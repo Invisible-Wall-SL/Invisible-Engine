@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
  * New capture: `{ "project": "<key>", "label"?: "<device>" }` → a 24-hour capture session for that
  * project, with each published game's capture links and their QR codes.
  */
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = async ({ request, locals, url }) => {
 	const user = await requireTool(locals, PROFILER_TOOL, 'Invisible Profiler');
 	const body = await jsonBody(request);
 	const { clientKey, projectKey } = await requireProjectScope(
@@ -17,5 +17,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		typeof body.project === 'string' ? body.project : null,
 	);
 	const label = typeof body.label === 'string' ? body.label.trim().slice(0, 80) || null : null;
-	return json(await openCaptureSession({ clientKey, projectKey, uid: user.id, label }));
+	return json(
+		await openCaptureSession({ clientKey, projectKey, uid: user.id, label, origin: url.origin }),
+	);
 };

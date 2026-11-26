@@ -1,6 +1,8 @@
 import {
 	SALMONS_ART_GENERATORS,
 	SALMONS_DRAWN_ZONE_FAMILIES,
+	SALMONS_PROJECT_SHEETS,
+	salmonsProjectSheetOf,
 	ZONE_ART_LIMITS,
 	normalizeZoneArt,
 	zoneFamilyOf,
@@ -9,6 +11,7 @@ import {
 	type ZoneArtSource,
 } from 'game-config';
 
+import { SALMONS_BUILT_IN_ZONE_ART } from './zoneArtBuiltIn';
 import { countBy } from './zones';
 
 /**
@@ -135,4 +138,36 @@ export function removeZoneArt(doc: GameConfigDoc, family: string): void {
 export function clipThumbRef(clip: { assetKey: string; firstFrame: string } | undefined): string {
 	if (!clip?.firstFrame) return '';
 	return clip.firstFrame.includes('::') ? clip.firstFrame : `${clip.assetKey}::${clip.firstFrame}`;
+}
+
+/** What a family with no zone art draws today: a line for it, and its pictures as scoped refs. */
+export { SALMONS_BUILT_IN_ZONE_ART };
+
+export type ZoneArtDefault = { label: string; thumbs: string[] };
+
+/**
+ * What `family` draws with no entry: Salmons' built-in art for a Salmons generator (its pictures
+ * from the project's copy of the sheet, none when the project has no such sheet), else nothing.
+ */
+export function zoneArtDefault(
+	family: string,
+	generator: string | undefined,
+	sheets: readonly { key: string }[],
+): ZoneArtDefault {
+	const builtIn =
+		generator && SALMONS_ART_GENERATORS.includes(generator)
+			? SALMONS_BUILT_IN_ZONE_ART[family]
+			: undefined;
+	if (!builtIn) return { label: 'Nothing drawn', thumbs: [] };
+	const keyOf = new Map(
+		sheets.flatMap((s) => {
+			const sheet = salmonsProjectSheetOf(s.key);
+			return sheet ? [[sheet, s.key] as const] : [];
+		}),
+	);
+	const thumbs = builtIn.pictures.flatMap(([sheet, region]) => {
+		const key = keyOf.get(SALMONS_PROJECT_SHEETS[sheet]);
+		return key ? [`${key}::${region}`] : [];
+	});
+	return { label: builtIn.label, thumbs };
 }

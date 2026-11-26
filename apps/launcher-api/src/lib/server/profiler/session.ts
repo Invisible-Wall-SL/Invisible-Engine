@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import {
 	CAPTURE_SESSION_TTL_SECONDS,
+	captureGoUrl,
 	captureLinks,
 	isCapturableGameUrl,
 	type CaptureLink,
@@ -11,7 +12,8 @@ import { captureSigningKey, mintCaptureToken, newCaptureSessionId } from './capt
 export interface CaptureGame {
 	key: string;
 	name: string;
-	links: (CaptureLink & { qr: string })[];
+	/** `go`: the link as a launcher redirect with no `?` or `&` (`captureGoUrl`). */
+	links: (CaptureLink & { go: string; qr: string })[];
 }
 
 export interface CaptureSession {
@@ -31,6 +33,8 @@ export async function openCaptureSession(input: {
 	projectKey: string;
 	uid: string;
 	label: string | null;
+	/** The launcher's own origin: what a GO link starts with. */
+	origin: string;
 	now?: number;
 }): Promise<CaptureSession> {
 	const now = input.now ?? Date.now();
@@ -39,35 +43,36 @@ export async function openCaptureSession(input: {
 	const games = await Promise.all(
 		(await listGamesOwnedByProject(input.projectKey))
 			.filter((g) => isCapturableGameUrl(g.url))
-			.map(async (g) => ({
-				key: g.key,
-				name: g.name,
-				links: await Promise.all(
-					captureLinks(
-						g.url,
-						// One token per game: the reading then names the game it was taken on.
-						mintCaptureToken(
-							key,
-							{
-								sid,
-								client: input.clientKey,
-								project: input.projectKey,
-								game: g.key,
-								uid: input.uid,
-								label: input.label,
-							},
-							now,
-						),
-					).map(async (link) => ({
-						...link,
-						qr: await QRCode.toString(link.url, {
-							type: 'svg',
-							margin: 1,
-							errorCorrectionLevel: 'L',
-						}),
-					})),
-				),
-			})),
+			.map(async (g) => {
+				// One token per game: the reading then names the game it was taken on.
+				const token = mintCaptureToken(
+					key,
+					{
+						sid,
+						client: input.clientKey,
+						project: input.projectKey,
+						game: g.key,
+						uid: input.uid,
+						label: input.label,
+					},
+					now,
+				);
+				return {
+					key: g.key,
+					name: g.name,
+					links: await Promise.all(
+						captureLinks(g.url, token).map(async (link) => ({
+							...link,
+							go: captureGoUrl(input.origin, link.id, token),
+							qr: await QRCode.toString(link.url, {
+								type: 'svg',
+								margin: 1,
+								errorCorrectionLevel: 'L',
+							}),
+						})),
+					),
+				};
+			}),
 	);
 	const exp = Math.floor(now / 1000) + CAPTURE_SESSION_TTL_SECONDS;
 	return { sid, expiresAt: new Date(exp * 1000).toISOString(), games };

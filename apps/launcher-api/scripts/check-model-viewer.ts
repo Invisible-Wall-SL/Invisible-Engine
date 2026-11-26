@@ -485,7 +485,22 @@ same('published tiers: full and what the layout names', context.publishedTiers, 
 	'quarter',
 ]);
 same('no doc names a model yet', context.reached, []);
-check('the config has a 3D world', context.world3d);
+{
+	const { cachedProjectIsView3d, forgetProjectIsView3d } = (await import(
+		src('view3d.ts')
+	)) as typeof import('../src/lib/server/view3d');
+	check(
+		'the config has a 3D world: the launcher offers the tool',
+		await cachedProjectIsView3d(C, P),
+	);
+	const doc = R2.get(paths.gameConfigDocKey(C, P));
+	R2.set(paths.gameConfigDocKey(C, P), enc(JSON.stringify({ arcade: {} })));
+	check('…still cached until a save forgets it', await cachedProjectIsView3d(C, P));
+	forgetProjectIsView3d(C, P);
+	check('…and no 3D world after: not offered', !(await cachedProjectIsView3d(C, P)));
+	if (doc) R2.set(paths.gameConfigDocKey(C, P), doc);
+	forgetProjectIsView3d(C, P);
+}
 {
 	const overrides: TierOverrides = {
 		half: { maps: { baseColor: 256, orm: 'drop' } },

@@ -18,6 +18,7 @@
 			tools?: ToolDef[];
 			family?: GameFamily;
 			familyProjectKey?: string;
+			world3d?: boolean;
 			projects?: { key: string; name: string }[];
 		};
 	} = $props();
@@ -30,6 +31,15 @@
 		if (!tool || !family) return undefined;
 		const project = data?.projects?.find((p) => p.key === data.familyProjectKey);
 		return { tool, family, project: project?.name ?? data?.familyProjectKey ?? '' };
+	});
+
+	// Invisible Model Viewer on an arcade project with no 3D world (`arcade.world3d` in Game Config).
+	const no3dWorld = $derived.by(() => {
+		if (hiddenTool || data?.family !== 'arcade' || data.world3d) return undefined;
+		const path = page.url.pathname;
+		if (path !== '/models' && !path.startsWith('/models/')) return undefined;
+		const project = data.projects?.find((p) => p.key === data.familyProjectKey);
+		return { project: project?.name ?? data.familyProjectKey ?? '' };
 	});
 
 	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, rig,
@@ -97,6 +107,18 @@
 			<p>
 				<strong>{hiddenTool.project}</strong> is a project for {FAMILY_LABELS[hiddenTool.family]}
 				games, so the launcher does not offer this tool for it.
+			</p>
+			<a href={resolve('/')}>Back to the launcher</a>
+		</main>
+	</div>
+{:else if no3dWorld}
+	<div class="family-notice">
+		<ToolTopBar current="" tools={data?.tools ?? []} />
+		<main>
+			<h1>Invisible Model Viewer is for 3D games</h1>
+			<p>
+				<strong>{no3dWorld.project}</strong> has no 3D world in its Game Config, so the launcher does
+				not offer this tool for it. Add a 3D world in Invisible Game Config to use it.
 			</p>
 			<a href={resolve('/')}>Back to the launcher</a>
 		</main>

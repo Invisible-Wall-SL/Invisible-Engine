@@ -18,6 +18,7 @@
 		setZoneArtScale,
 		setZoneArtSource,
 		shownZoneArtRows,
+		zoneArtDefault,
 		zoneArtRows,
 	} from './zoneArtDoc';
 
@@ -54,7 +55,7 @@
 	const clipsById = $derived(new Map(clips.map((c) => [c.id, c])));
 
 	const KINDS = [
-		['', 'Not drawn'],
+		['', 'Default'],
 		['sprite', 'Sheet frame'],
 		['flipbook', 'Flipbook clip'],
 	] as const;
@@ -112,7 +113,13 @@
 				>
 			{/each}
 		</select>
-		{#if kind === 'sprite'}
+		{#if !kind && !index}
+			{@const current = zoneArtDefault(family, generator, pickSheets)}
+			<span class="default">{current.label}</span>
+			{#each current.thumbs as thumb (thumb)}
+				<span class="thumb" title="Used now"><CardArt value={thumb} size={40} /></span>
+			{/each}
+		{:else if kind === 'sprite'}
 			<RegionPicker
 				sheets={pickSheets}
 				value={source?.kind === 'sprite' ? source.region : ''}
@@ -271,6 +278,10 @@
 		align-items: center;
 		gap: 6px 8px;
 		margin-bottom: 4px;
+	}
+	.default {
+		font-size: 12px;
+		color: #8b8b98;
 	}
 	.thumb {
 		display: inline-flex;

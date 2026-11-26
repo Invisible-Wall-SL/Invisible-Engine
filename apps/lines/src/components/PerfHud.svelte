@@ -491,6 +491,11 @@
 					{#if copied === 'yes'}<span>copied</span>{/if}
 				</div>
 				{#if sent}<div class:warn={!sent.ok}>{sent.text}</div>{/if}
+				{#if !canSend}
+					<div>
+						no Send: this link has no capture session (perfsession) — open a Profiler capture link
+					</div>
+				{/if}
 				{#if copied === 'no'}
 					<textarea readonly rows="4" onfocus={(e) => e.currentTarget.select()}>{copyText}</textarea
 					>

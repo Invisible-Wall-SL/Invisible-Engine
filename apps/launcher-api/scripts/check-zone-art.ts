@@ -654,5 +654,31 @@ for (const [project, base] of [
 	);
 }
 
+{
+	const { zoneArtDefault } = cardEdits;
+	const props = `invisible_wall/salmons/manifests/${gc.salmonsProjectManifestName('salmons_props')}`;
+	eq(
+		'9. a Salmons rock shows its 9 built-in rocks from the project sheet',
+		zoneArtDefault('rock#', 'salmonsMap', [{ key: props }]),
+		{
+			label: 'Built-in rocks, one of 9 per rock',
+			thumbs: Array.from({ length: 9 }, (_, i) => `${props}::rock_${i}`),
+		},
+	);
+	eq(
+		'9. without the project sheet the line stays, no thumbnail',
+		zoneArtDefault('whirlpool#', 'salmonsMap', []).thumbs,
+		[],
+	);
+	eq(
+		'9. a plain game draws nothing by default',
+		zoneArtDefault('rock#', undefined, [{ key: props }]),
+		{
+			label: 'Nothing drawn',
+			thumbs: [],
+		},
+	);
+}
+
 console.log(`check:zone-art — ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

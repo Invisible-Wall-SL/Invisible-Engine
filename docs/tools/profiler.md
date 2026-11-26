@@ -77,19 +77,34 @@ BrowserStack Live lends you a real phone in a browser tab, so you can measure ph
 the team owns. A cloud phone cannot scan a QR code, so the Profiler opens the link on it for you:
 
 - Sign in to BrowserStack in this browser once.
-- In **New capture**, pick the phone under **Cloud phone** (Samsung Galaxy S25, Google Pixel 9,
-  Samsung Galaxy A16 5G, iPhone 16 or iPhone 13). The **Device label** becomes
-  "BS Live · <phone>", so its readings carry its name. Click **Open capture**.
+- In **New capture**, pick the phone under **Cloud phone**. The list holds the phones BrowserStack
+  Live lists, grouped by brand (Samsung, Google, Apple iPhone, Xiaomi, OnePlus, Motorola, Vivo,
+  Oppo, Realme, Android tablets, Apple iPad), several with more than one OS version; each reads
+  "<model> · <OS> <version>". The **Device label** becomes "BS Live · <model> · <OS> <version>",
+  so its readings carry the phone's name. Click **Open capture**.
+- For a phone not in the list, pick **Other phone…** at the end and fill in **Live device name**,
+  **OS** and **OS version** exactly as BrowserStack Live's device list shows them (for example
+  "Samsung Galaxy A14", Android, "13.0"). Live only starts a phone whose name matches.
 - Click **BrowserStack Live** under **As shipped** (or under a variant). A new tab starts that
   phone in BrowserStack Live, in Chrome on Android or Safari on iPhone, with the capture link
   already open.
 - Play as in steps 4–5 with the mouse, then tap **Send**. The reading arrives in **Readings**.
+  **Copy does not work on a cloud phone**: it copies to the cloud phone's own clipboard, and
+  nothing brings that back. Always use **Send** there.
 - For another phone, pick it and click **New session**: a session's links carry the label it was
   opened with.
 
-The button only opens BrowserStack's own dashboard; no BrowserStack key is stored. For a phone
-not in the list, type its label, click **Copy link** and paste the link into the phone's address
-bar (the Live toolbar's clipboard button sends your clipboard to the phone).
+The button only opens BrowserStack's own dashboard; no BrowserStack key is stored. What it hands
+the phone is the capture link's short form, shown in grey under each QR code:
+`app.invisiblewall.org/profiler/go/<variant>/<token>`, a launcher address that forwards to the
+game with the capture session. It has no `?` or `&` in it, so BrowserStack cannot cut the session
+off the link. It needs no sign-in and lasts as long as the session (24 hours). **Copy link**
+copies this short form too, so you can also paste it into a phone's address bar yourself.
+
+If the readout on the phone has no **Send**, it says "no Send: this link has no capture session"
+— the game was opened without its session; open it again from the button or a copied link. If
+Send fails, the readout says "not sent: <reason>", for example that the capture link has
+expired, or that the phone could not reach the launcher.
 
 The phone is real, so its fps counts like any phone's. Keep the phone screen at its normal
 size in Live, and play each phase a few seconds (Devices needs 120 frames a phase).

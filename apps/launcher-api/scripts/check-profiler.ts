@@ -6,7 +6,10 @@
  *    into its `perf_reports` summary; a non-report, an unknown version or an empty reading is refused.
  * 2. The capture token verifies only as minted: one project, 24 hours, its own audience.
  * 3. Capture links SET the probe's parameters on the game's launch URL (never append a duplicate).
- *    A BrowserStack Live link starts the picked phone on a capture link that round-trips intact.
+ *    A capture GO link has no `?` or `&`, so the BrowserStack Live URL's `url=` carries none either
+ *    (Live splits its hash on `&`), and the GO route redirects — with no sign-in — to the capture
+ *    link, `perfsession` and all; a bad, expired or other game's token is refused. Every listed
+ *    phone's label names it back, and so does an "Other phone…" label.
  * 4. Retention: the purge deletes an old unkept reading — file and row — and leaves a kept one, a
  *    young one, and a claimed one whose file would not delete (retried on the next run). Keep cannot
  *    land on a claimed row, and a Keep that wins the race is never purged. Presigned uploads never
@@ -37,7 +40,9 @@ import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import {
 	CAPTURE_SESSION_TTL_SECONDS,
+	captureGoUrl,
 	captureLinks,
+	PERF_SESSION_PARAM,
 	PERF_RETENTION_MS,
 	summarizePerfReport,
 	uaFamily,
@@ -58,10 +63,13 @@ import {
 import {
 	BROWSERSTACK_LIVE_DASHBOARD,
 	browserStackLiveUrl,
+	CLOUD_PHONE_GROUPS,
 	CLOUD_PHONES,
 	cloudPhoneLabel,
 	cloudPhoneOfLabel,
+	customCloudPhone,
 } from '../src/lib/profilerCloudPhones.ts';
+import { resolveCaptureGo } from '../src/lib/server/profiler/go.ts';
 import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
 import {
 	purgeExpired,
@@ -248,24 +256,110 @@ test('3. capture links set the probe on the published URL, once each', () => {
 	assert.equal(new URL(links[3].url).searchParams.get('aa'), '0');
 });
 
-test('3. a BrowserStack Live link starts the picked phone on the capture link, intact', () => {
+test('3. a BrowserStack Live link starts the picked phone on a GO link with no ? or &', () => {
 	const game = 'https://games.invisiblewall.org/borut/?runtime=1&project=borut&k=a%2Bb&lang=en#x';
-	const [plain] = captureLinks(game, 'v1.eyJ0eXAiOiJwZXJmIn0.sig_-');
-	const phone = CLOUD_PHONES.find((p) => p.id === 's25');
+	const token = mintCaptureToken('k', {
+		sid: 's',
+		client: 'iw',
+		project: 'borut',
+		game: 'borut',
+		uid: 'u',
+		label: 'BS Live · Galaxy S25 · Android 15.0',
+	});
+	const phone = CLOUD_PHONES.find((p) => p.device === 'Samsung Galaxy S25');
 	assert.ok(phone);
-	const live = browserStackLiveUrl(phone, plain.url);
-	assert.ok(live.startsWith(`${BROWSERSTACK_LIVE_DASHBOARD}#`));
-	const params = new URLSearchParams(live.slice(live.indexOf('#') + 1));
-	assert.equal(params.get('url'), plain.url, 'the capture link round-trips');
-	assert.deepEqual(
-		[params.get('os'), params.get('os_version'), params.get('device'), params.get('start')],
-		['android', '15.0', 'Samsung Galaxy S25', 'true'],
-	);
-	assert.equal(live.split('#').length, 2, "the link's own # is encoded");
-	assert.equal(cloudPhoneOfLabel(cloudPhoneLabel(phone)), phone, 'the label names its phone');
-	assert.equal(cloudPhoneOfLabel('Galaxy A14'), null);
+	for (const link of captureLinks(game, token)) {
+		const go = captureGoUrl('https://app.invisiblewall.org/', link.id, token);
+		assert.ok(go.startsWith('https://app.invisiblewall.org/profiler/go/'), go);
+		assert.ok(!/[?&#]/.test(go), `the GO link has no query: ${go}`);
+		const live = browserStackLiveUrl(phone, go);
+		assert.ok(live.startsWith(`${BROWSERSTACK_LIVE_DASHBOARD}#`));
+		const hash = live.slice(live.indexOf('#') + 1);
+		const raw = hash.split('&').find((kv) => kv.startsWith('url='));
+		assert.ok(raw, 'the hash carries url=');
+		assert.ok(!/[?&#]/.test(decodeURIComponent(raw.slice(4))), 'url= carries no raw ? & or #');
+		// Whatever Live does — split the hash first or decode it first — it reads the same link.
+		assert.equal(new URLSearchParams(hash).get('url'), go, 'split first');
+		const decodedFirst = Object.fromEntries(
+			decodeURIComponent(hash)
+				.split('&')
+				.map((kv) => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)]),
+		);
+		assert.equal(decodedFirst.url, go, 'decoded first');
+		assert.deepEqual(
+			[decodedFirst.os, decodedFirst.os_version, decodedFirst.device, decodedFirst.start],
+			['android', '15.0', 'Samsung Galaxy S25', 'true'],
+		);
+	}
+});
+
+test('3. the GO route redirects a signed-out phone to the capture link, perfsession and all', async () => {
+	const key = 'k';
+	const game = 'https://games.invisiblewall.org/borut/?runtime=1&project=borut&lang=en';
+	const claims = { sid: 's', client: 'iw', project: 'borut', game: 'borut', uid: 'u', label: null };
+	const token = mintCaptureToken(key, claims);
+	const games = new Map([
+		['borut', { projectKey: 'borut', url: game }],
+		['other', { projectKey: 'other', url: game }],
+	]);
+	const deps = { key, gameOf: async (k: string) => games.get(k) };
+	for (const link of captureLinks(game, token)) {
+		const out = await resolveCaptureGo(link.id, token, deps);
+		assert.ok(out.ok, `${link.id} redirects`);
+		assert.equal(out.url, link.url, 'to exactly the capture link');
+		const url = new URL(out.url);
+		assert.equal(url.searchParams.get(PERF_SESSION_PARAM), token, 'it lands with perfsession');
+		assert.equal(url.searchParams.get('perf'), '1');
+	}
+	const refused = async (linkId: string, t: string, d: Parameters<typeof resolveCaptureGo>[2]) => {
+		const out = await resolveCaptureGo(linkId, t, d);
+		assert.ok(!out.ok, `${linkId} refused`);
+		return out.status;
+	};
+	assert.equal(await refused('plain', `${token}x`, deps), 410, 'a changed token');
+	assert.equal(await refused('plain', token, { ...deps, key: 'other' }), 410, 'another key');
+	const later = Date.now() + CAPTURE_SESSION_TTL_SECONDS * 1000 + 1;
+	assert.equal(await refused('plain', token, { ...deps, now: later }), 410, 'an expired token');
+	assert.equal(await refused('nope', token, deps), 404, 'a link id that is no capture switch');
+	const otherProject = mintCaptureToken(key, { ...claims, game: 'other' });
+	assert.equal(await refused('plain', otherProject, deps), 404, "another project's game");
+	const unpublished = mintCaptureToken(key, { ...claims, game: 'gone' });
+	assert.equal(await refused('plain', unpublished, deps), 404, 'a game no longer published');
+});
+
+test('3. every cloud phone is grouped, uniquely labelled and named back by its label', () => {
+	assert.ok(CLOUD_PHONES.length >= 100, `a long list: ${CLOUD_PHONES.length}`);
+	assert.equal(new Set(CLOUD_PHONES.map((p) => p.id)).size, CLOUD_PHONES.length, 'unique ids');
 	assert.equal(new Set(CLOUD_PHONES.map((p) => cloudPhoneLabel(p))).size, CLOUD_PHONES.length);
-	for (const p of CLOUD_PHONES) assert.ok(cloudPhoneLabel(p).length <= 80, 'fits a device label');
+	assert.equal(
+		CLOUD_PHONE_GROUPS.reduce((n, g) => n + g.phones.length, 0),
+		CLOUD_PHONES.length,
+		'every phone in one group',
+	);
+	for (const brand of ['Samsung', 'Google', 'Apple iPhone', 'Xiaomi', 'OnePlus', 'Motorola']) {
+		assert.ok(CLOUD_PHONE_GROUPS.find((g) => g.brand === brand)?.phones.length, brand);
+	}
+	for (const p of CLOUD_PHONES) {
+		const label = cloudPhoneLabel(p);
+		assert.ok(label.startsWith('BS Live · ') && label.length <= 80, label);
+		assert.equal(cloudPhoneOfLabel(label), p, `${label} names its phone`);
+		assert.ok(p.device.endsWith(p.model) && p.device.trim() === p.device, p.device);
+	}
+	const typed = customCloudPhone(' Samsung  Galaxy A14 ', 'android', '13.0');
+	assert.ok(typed);
+	assert.deepEqual(
+		[typed.device, typed.os, typed.osVersion],
+		['Samsung Galaxy A14', 'android', '13.0'],
+	);
+	assert.equal(cloudPhoneLabel(typed), 'BS Live · Samsung Galaxy A14 · Android 13.0');
+	assert.deepEqual(cloudPhoneOfLabel(cloudPhoneLabel(typed)), typed, 'a typed label names it back');
+	assert.equal(customCloudPhone('', 'ios', '18'), null);
+	assert.equal(customCloudPhone('iPhone 16', 'ios', ''), null);
+	assert.equal(customCloudPhone('x'.repeat(51), 'ios', '18'), null);
+	const longest = customCloudPhone('x'.repeat(50), 'android', '16.0');
+	assert.ok(longest && cloudPhoneLabel(longest).length <= 80, 'the longest typed name fits');
+	assert.equal(cloudPhoneOfLabel('Galaxy A14'), null);
+	assert.equal(cloudPhoneOfLabel(null), null);
 });
 
 interface Row {
