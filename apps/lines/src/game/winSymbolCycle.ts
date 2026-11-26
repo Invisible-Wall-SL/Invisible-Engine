@@ -413,7 +413,7 @@ export const startWinCycle = async (): Promise<void> => {
 		if (
 			await showAllWinLines(
 				entries.map((entry) => entry.win),
-				{ stamp: cfg.showText },
+				{ stamp: cfg.showText, replay: true },
 			)
 		)
 			lineOnScreen = true;
@@ -449,6 +449,7 @@ export const startWinCycle = async (): Promise<void> => {
 					fullPoints: winLineFullPointsFor(win),
 					color: winLineColorFor(win.meta?.lineIndex),
 					...stamp,
+					replay: true,
 				});
 				if (token !== generation) return;
 			}

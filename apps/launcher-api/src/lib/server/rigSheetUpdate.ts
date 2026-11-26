@@ -10,10 +10,15 @@
  *   hashes otherwise was edited by hand, and may be kept while it still draws the same region.
  * - **The `frame` clip** (the arrangement) is the new build's, unless the author keyed it themselves
  *   since: then theirs stays and the report says so. A drawing re-arranged moves with it.
+ * - **The layers**: the rig keeps its own draw order (a Setup reorder too) unless the author changed
+ *   the mapping's Layers list since; then the slots it lists take its order.
  */
 import type { SheetMapping } from '../rigSheetMap';
+import { sheetLayerList } from '../rigSheetMap';
+import { inDrawOrder } from '../rigSlotOrder';
 import {
 	frameRigUpdate,
+	keepDrawOrders,
 	madeAttachments,
 	madeParts,
 	type FrameUpdateReport,
@@ -49,6 +54,8 @@ export interface SheetUpdateResult {
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean }[];
 		frame: FrameClipChange;
+		/** The slots the Layers list moved, when the author changed it: else the rig's order stays. */
+		layered: string[];
 	};
 }
 
@@ -153,6 +160,27 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 			animations.frame = structuredClone(neu);
 		}
 	}
+	// The layers: the edited list's order when the author changed it, every draw-order key still
+	// drawing what it drew; else the rig's own order stays (a Setup reorder included).
+	const layered: string[] = [];
+	if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {
+		const slotOf = (part: string) => o.template.parts.find((p) => p.name === part)?.slot ?? part;
+		const want = sheetLayerList(
+			o.template.slots.map((s) => s.name),
+			slotOf,
+			o.mapping,
+		).reverse();
+		const slots = (doc.slots ?? []) as { name: string }[];
+		const byName = new Map(slots.map((s) => [s.name, s]));
+		const was = slots.map((s) => s.name);
+		const now = inDrawOrder(was, want);
+		if (now.some((n, i) => n !== was[i])) {
+			const back = keepDrawOrders(doc as Parameters<typeof keepDrawOrders>[0]);
+			doc.slots = now.map((n) => byName.get(n)!);
+			back();
+			layered.push(...now.filter((n, i) => n !== was[i]));
+		}
+	}
 	return {
 		ok: true,
 		value: {
@@ -161,6 +189,7 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
 				frame,
+				layered,
 			},
 		},
 	};
