@@ -506,7 +506,7 @@ check(
 	);
 	check(
 		"7 fresh timeline ids clear every listed timeline of the project, not just the source's",
-		body.includes('takenTimelineIds: [...listed, ...BUILTIN_TIMELINES]'),
+		body.includes('takenTimelineIds: [...listed, ...BUILTIN_LIBRARY_TIMELINES]'),
 		true,
 	);
 	check(
