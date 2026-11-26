@@ -157,7 +157,7 @@ import {
 	setRoomDocChange,
 } from '../editor-scenes';
 import { typingInto } from './flowKeys';
-import { zoneStampsOf } from './zoneArt';
+import { zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
 import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
@@ -270,13 +270,17 @@ const salmonsArt = async (
 		zoneArt,
 	);
 
-/** The zone art a generator's own art draws the room's zones with (`game/zoneArt.ts`); none for a
- *  config with none, so the art draws as it does without. */
+/** The zone art a generator's own art draws the room's zones and its trees with
+ *  (`game/zoneArt.ts`); none for a config with none, so the art draws as it does without. */
 function roomZoneArt(zones: OnlineGame['zones'], seed: number): SalmonsZoneArt | undefined {
 	const stamps = zoneStampsOf(zones, seed);
-	return stamps.length
-		? { stamps, assets: () => stateApp.loadedAssets as Record<string, unknown> | undefined }
-		: undefined;
+	const trees = zoneSceneryOf('@trees');
+	if (!stamps.length && !trees) return undefined;
+	return {
+		stamps,
+		trees,
+		assets: () => stateApp.loadedAssets as Record<string, unknown> | undefined,
+	};
 }
 
 /** How see-through a game draws its rules' marks (`arcade.online.rules.stains`, read off the

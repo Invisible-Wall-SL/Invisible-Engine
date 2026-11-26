@@ -4,10 +4,13 @@ import {
 	SALMONS_PROJECT_SHEETS,
 	salmonsProjectSheetOf,
 	ZONE_ART_LIMITS,
+	ZONE_ART_SCENERY,
+	isZoneArtScenery,
 	normalizeZoneArt,
 	zoneFamilyOf,
 	type GameConfigDoc,
 	type ZoneArt,
+	type ZoneArtScenery,
 	type ZoneArtSource,
 } from 'game-config';
 
@@ -17,9 +20,10 @@ import { countBy } from './zones';
 /**
  * What `/config`'s ZONE ART card shows and writes (`arcade.zoneArt`, `docs/design/zone-art.md`):
  * one row per zone family of the zones the game plays (the config's own, or the level a seed
- * makes), and the edits of an entry. Every write goes through `game-config` `normalizeZoneArt`, so
- * what is stored is what the runtime reads; an edit that leaves nothing usable removes the entry.
- * Pure, so `check:zone-art` runs it on the real modules.
+ * makes), one per piece of scenery its art places (`game-config` `ZONE_ART_SCENERY`), and the
+ * edits of an entry, a family's or a scenery key's alike. Every write goes through `game-config`
+ * `normalizeZoneArt`, so what is stored is what the runtime reads; an edit that leaves nothing
+ * usable removes the entry. Pure, so `check:zone-art` runs it on the real modules.
  */
 
 export type ZoneArtRow = {
@@ -31,12 +35,16 @@ export type ZoneArtRow = {
 	art: ZoneArt | undefined;
 };
 
+/** Whether a generator's rooms are drawn in Salmons' art, the one art that draws scenery. */
+const drawnInSalmonsArt = (generator: string | undefined): boolean =>
+	!!generator && SALMONS_ART_GENERATORS.includes(generator);
+
 /** The families a generator's own art draws, or `undefined` when every family may be drawn. */
 const drawnFamilies = (generator: string | undefined): readonly string[] | undefined =>
-	generator && SALMONS_ART_GENERATORS.includes(generator) ? SALMONS_DRAWN_ZONE_FAMILIES : undefined;
+	drawnInSalmonsArt(generator) ? SALMONS_DRAWN_ZONE_FAMILIES : undefined;
 
 /** The card's rows: the zones' families, most first, then an entry no zone has (it draws
- *  nothing, and is kept to be removed or for another level). */
+ *  nothing, and is kept to be removed or for another level). Scenery has rows of its own. */
 export function zoneArtRows(
 	zones: readonly { id: string }[],
 	doc: GameConfigDoc,
@@ -44,16 +52,43 @@ export function zoneArtRows(
 ): ZoneArtRow[] {
 	const map = doc.arcade?.zoneArt ?? {};
 	const drawn = drawnFamilies(generator);
-	const rows: ZoneArtRow[] = countBy(zones.map((z) => zoneFamilyOf(z.id))).map((g) => ({
+	const families = zones.map((z) => zoneFamilyOf(z.id)).filter((f) => !isZoneArtScenery(f));
+	const rows: ZoneArtRow[] = countBy(families).map((g) => ({
 		family: g.label,
 		count: g.count,
 		ruleOnly: !!drawn && !drawn.includes(g.label),
 		art: map[g.label],
 	}));
 	for (const [family, art] of Object.entries(map))
-		if (!rows.some((r) => r.family === family))
+		if (!isZoneArtScenery(family) && !rows.some((r) => r.family === family))
 			rows.push({ family, count: 0, ruleOnly: false, art });
 	return rows;
+}
+
+export type ZoneArtSceneryRow = {
+	key: ZoneArtScenery;
+	label: string;
+	/** An entry in a game whose art places no scenery: it draws nothing, and is kept to be removed. */
+	stale: boolean;
+	art: ZoneArt | undefined;
+};
+
+const SCENERY_LABELS: Readonly<Record<ZoneArtScenery, string>> = { '@trees': 'Trees' };
+
+/** The card's Scenery rows: every scenery key for a game drawn in Salmons' art, and for any other
+ *  game only a key it has an entry for. */
+export function zoneArtSceneryRows(
+	doc: GameConfigDoc,
+	generator: string | undefined,
+): ZoneArtSceneryRow[] {
+	const map = doc.arcade?.zoneArt ?? {};
+	const placed = drawnInSalmonsArt(generator);
+	return ZONE_ART_SCENERY.filter((key) => placed || map[key]).map((key) => ({
+		key,
+		label: SCENERY_LABELS[key],
+		stale: !placed,
+		art: map[key],
+	}));
 }
 
 /** The rows the card lists: rule-only families only when asked, or when they have art. */
@@ -146,9 +181,9 @@ export { SALMONS_BUILT_IN_ZONE_ART };
 export type ZoneArtDefault = { label: string; thumbs: string[]; drawn?: SalmonsCodeDrawn };
 
 /**
- * What `family` draws with no entry: Salmons' built-in art for a Salmons generator (its pictures
- * from the project's copy of the sheet, none when the project has no such sheet), else nothing. A
- * rule-only family (an invisible wall or area) says so.
+ * What `family` (or a scenery key) draws with no entry: Salmons' built-in art for a Salmons
+ * generator (its pictures from the project's copy of the sheet, none when the project has no such
+ * sheet), else nothing. A rule-only family (an invisible wall or area) says so.
  */
 export function zoneArtDefault(
 	family: string,
@@ -157,10 +192,7 @@ export function zoneArtDefault(
 	ruleOnly = false,
 ): ZoneArtDefault {
 	if (ruleOnly) return { label: 'Invisible (rules only)', thumbs: [] };
-	const builtIn =
-		generator && SALMONS_ART_GENERATORS.includes(generator)
-			? SALMONS_BUILT_IN_ZONE_ART[family]
-			: undefined;
+	const builtIn = drawnInSalmonsArt(generator) ? SALMONS_BUILT_IN_ZONE_ART[family] : undefined;
 	if (!builtIn) return { label: 'Nothing drawn', thumbs: [] };
 	const keyOf = new Map(
 		sheets.flatMap((s) => {

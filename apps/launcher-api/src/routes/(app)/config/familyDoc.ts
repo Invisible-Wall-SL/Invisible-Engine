@@ -353,8 +353,9 @@ export function removeZone(doc: GameConfigDoc, index: number): void {
 	pruneArcade(doc);
 }
 
-/** One field of a zone. An id must be new and not blank, a size positive, a corner a number;
- *  anything else leaves the zone as it was. */
+/** One field of a zone. An id must be new, not blank and free of `@` (zone art's scenery keys,
+ *  `game-config` `ZONE_ART_SCENERY`, are `@`-names), a size positive, a corner a number; anything
+ *  else leaves the zone as it was. */
 export function setZoneField(
 	doc: GameConfigDoc,
 	index: number,
@@ -365,7 +366,8 @@ export function setZoneField(
 	if (!zone) return;
 	if (field === 'id') {
 		const id = value.trim();
-		if (id && !doc.arcade!.zones!.some((z, i) => i !== index && z.id === id)) zone.id = id;
+		if (id && !id.includes('@') && !doc.arcade!.zones!.some((z, i) => i !== index && z.id === id))
+			zone.id = id;
 		return;
 	}
 	if (field === 'w' || field === 'h') {

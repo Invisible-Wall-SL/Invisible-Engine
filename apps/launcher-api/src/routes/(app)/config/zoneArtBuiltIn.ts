@@ -1,9 +1,10 @@
 /**
  * What Salmons' own drawing code (`engine-layout` `salmonsArt/river.ts`) draws for each zone family
- * it draws, as `/config`'s Zone art card shows it under **Default**: a line, and its pictures by
- * built-in sheet (a `SALMONS_PROJECT_SHEETS` key) and region name, the names its project sheets
- * keep. Import-free, so `check:salmons-art` holds every name to `SALMONS_REGIONS` and every family
- * to `SALMONS_DRAWN_ZONE_FAMILIES` without reaching the art.
+ * it draws, and for each piece of scenery it places (`@trees`), as `/config`'s Zone art card shows
+ * it under **Default**: a line, and its pictures by built-in sheet (a `SALMONS_PROJECT_SHEETS` key)
+ * and region name, the names its project sheets keep. Import-free, so `check:salmons-art` holds
+ * every name to `SALMONS_REGIONS` and every key to `SALMONS_DRAWN_ZONE_FAMILIES` and
+ * `ZONE_ART_SCENERY` without reaching the art.
  */
 export type SalmonsBuiltInSheet = 'terrain' | 'props' | 'waterfall_face' | 'cliff';
 
@@ -45,4 +46,11 @@ export const SALMONS_BUILT_IN_ZONE_ART: Readonly<
 		drawn: 'source',
 	},
 	sea: { label: 'Built-in sea water, drawn in code', pictures: [], drawn: 'sea' },
+	'@trees': {
+		label: 'Built-in trees, 6 kinds',
+		pictures: Array.from({ length: 6 }, (_, i): [SalmonsBuiltInSheet, string] => [
+			'props',
+			`tree_${i}`,
+		]),
+	},
 };

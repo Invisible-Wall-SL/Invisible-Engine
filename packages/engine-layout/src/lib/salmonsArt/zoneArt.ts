@@ -1,5 +1,5 @@
 import { DEFAULT_FLIPBOOK_FPS, resolveClipFrames } from 'engine-flipbook';
-import type { ZoneArtSource, ZoneStamp } from 'game-config';
+import type { ZoneArt, ZoneArtSource, ZoneStamp } from 'game-config';
 import type { Texture } from 'pixi.js';
 
 import { editorArtTextureKey } from '../editorArtKey';
@@ -7,13 +7,16 @@ import { resolveFlipbook } from '../registerFlipbooks';
 
 /**
  * THE ZONE ART A SALMONS RIVER IS DRAWN WITH (`docs/design/zone-art.md`): the room's zone stamps
- * (`game-config` `zoneArtStamps` of the room's own zones) and the game's loaded assets, read when
- * the river mounts. `river.ts` draws a rock or a whirlpool whose zone has a stamp with the stamp's
- * picture in the built-in one's place, and any other stamp upright on its zone. A zone with no
- * stamp, or one whose picture is not loaded, draws as the built-in art does.
+ * (`game-config` `zoneArtStamps` of the room's own zones), the scenery's art (`@trees`) and the
+ * game's loaded assets, read when the river mounts. `river.ts` draws a rock or a whirlpool whose
+ * zone has a stamp with the stamp's picture in the built-in one's place, any other stamp upright on
+ * its zone, and every tree with one of the trees' pictures in place of `tree_N`. A zone with no
+ * stamp, a tree with no art, or one whose picture is not loaded, draws as the built-in art does.
  */
 export type SalmonsZoneArt = {
 	stamps: readonly ZoneStamp[];
+	/** What every scattered and forest tree is drawn with (`arcade.zoneArt['@trees']`). */
+	trees?: ZoneArt;
 	/** The game's loaded assets (`pixi-svelte` `stateApp.loadedAssets`). */
 	assets: () => Record<string, unknown> | undefined;
 };

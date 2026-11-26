@@ -6,6 +6,8 @@ import {
 	zoneArtOf,
 	zoneArtStamps,
 	type ArcadeZone,
+	type ZoneArt,
+	type ZoneArtScenery,
 	type ZoneStamp,
 } from 'game-config';
 
@@ -28,6 +30,11 @@ import { bakedGameConfig } from '../editor-scenes';
 export function zoneStampsOf(zones: readonly ArcadeZone[], seed: number | string): ZoneStamp[] {
 	return zoneArtStamps(zones, zoneArtOf(bakedGameConfig()), seed);
 }
+
+/** What the config's zone art draws the generator's scenery `key` with (`@trees`); none ⇒ the
+ *  built-in scenery. */
+export const zoneSceneryOf = (key: ZoneArtScenery): ZoneArt | undefined =>
+	zoneArtOf(bakedGameConfig())?.[key];
 
 /** A registered clip's Bounds box: a stamp of it keeps its ratio. */
 const clipSize = (clipId: string) => {

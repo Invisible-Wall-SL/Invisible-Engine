@@ -25,7 +25,16 @@
  *     sheet of a frame and the clip (and its sheet) named ONLY by zone art, for a plain game and
  *     for Salmons, and name the frame in the index's `characterArt` (what the boot keeps loaded by);
  *     a sheet and a clip nothing names do not; without zone art none of them does, and an empty
- *     map exports exactly what a config without the field exports.
+ *     map exports exactly what a config without the field exports. Salmons' trees' art (`@trees`)
+ *     ships the same way, with no code of its own;
+ *  9. the card's Default line: Salmons' built-in pictures from the project's sheets, its trees too;
+ * 10. SCENERY (`ZONE_ART_SCENERY`, `@trees`): a reserved key in the same map, kept by the
+ *     normalizer, the save and Raw JSON as a family's entry is; no zone's family (`@` is in no
+ *     generator's zone id, `/config` refuses one, and a zone so named is never stamped); not warned
+ *     of in a Salmons config, and in a game with no generator warned of as scenery, never as a
+ *     family no zone has; each tree's picture is picked by the seed and its cell alone; the card
+ *     lists a Trees row for a Salmons generator only (and a stale one where an entry is left), not
+ *     as a zone family, and its edits store what the normalizer keeps.
  *
  * Run: pnpm --filter launcher-api check:zone-art
  */
@@ -109,9 +118,12 @@ mock.module(r2Url, {
 
 const gc = await import('game-config');
 const {
+	ZONE_ART_SCENERY,
+	isZoneArtScenery,
 	normalizeGameConfigDoc,
 	normalizeZoneArt,
 	onlineGameOf,
+	sceneryArtSourceFor,
 	shapedOnlineGame,
 	withOnlineSlide,
 	zoneArtClipRoots,
@@ -133,6 +145,7 @@ const { ZONE_ART_NODE, withZoneArtNodes } =
 	await import('../../../packages/engine-layout/src/lib/zoneArtNodes.ts');
 const { zoneGroups, generatedZones } = await import('../src/routes/(app)/config/zones.ts');
 const cardEdits = await import('../src/routes/(app)/config/zoneArtDoc.ts');
+const { setZoneField } = await import('../src/routes/(app)/config/familyDoc.ts');
 const { exportEditorArt } = await import('../src/lib/server/editorArtExport.ts');
 const { prepareGameConfigDoc } = await import('../src/lib/server/gameConfigStorage.ts');
 const { applyPasted } = await import('../src/routes/(app)/config/pageDoc.ts');
@@ -371,9 +384,15 @@ const SALMONS_ART = {
 	},
 	'whirlpool#': { source: { kind: 'flipbook', clip: 'swirl' }, placement: 'stamp' },
 	'sandbank#': { source: { kind: 'sprite', region: `${SHEET}::sand` }, placement: 'stamp' },
+	'@trees': {
+		source: { kind: 'sprite', region: `${SHEET}::pine` },
+		variants: [{ kind: 'flipbook', clip: 'tree_sway' }],
+		placement: 'stamp',
+		scale: 1.2,
+	},
 };
 eq(
-	'5. a Salmons config’s zone art is not warned of (its zones are its generator’s)',
+	'5. a Salmons config’s zone art, its trees’ too, is not warned of (its zones are its generator’s)',
 	issuesOf(withArt(salmonsRaw(), SALMONS_ART)),
 	[],
 );
@@ -407,7 +426,7 @@ try {
 		if ('refused' in played) continue;
 		const stamps = zoneArtStamps(played.game.zones, normalizeZoneArt(SALMONS_ART), seed);
 		ok(
-			`5. seed ${seed}: its stamps are of its rocks, whirlpools and sandbanks only`,
+			`5. seed ${seed}: its stamps are of its rocks, whirlpools and sandbanks only (the trees are no zone)`,
 			stamps.length > 0 &&
 				stamps.every((s) => ['rock#', 'whirlpool#', 'sandbank#'].includes(s.family)) &&
 				stamps.filter((s) => s.family === 'rock#').length ===
@@ -593,18 +612,29 @@ for (const [project, base] of [
 	const ripple = sheetIn(project, 'S_Ripple', 'ripple_0');
 	const other = sheetIn(project, 'S_Other', 'tree');
 	const otherClip = sheetIn(project, 'S_OtherClip', 'leaf_0');
+	const pines = sheetIn(project, 'S_Pines', 'pine');
+	const sway = sheetIn(project, 'S_Sway', 'sway_0');
 	clipIn(project, 'pond_ripple', ripple, 'ripple_0');
 	clipIn(project, 'leaf_fall', otherClip, 'leaf_0');
+	clipIn(project, 'tree_sway', sway, 'sway_0');
 	put(editorDocKey(CLIENT, project), LAYOUT);
+	const salmons = project !== 'plain';
 	const art = {
-		[project === 'plain' ? 'rock#' : 'rock#']: {
-			source: { kind: 'sprite', region: `${rocks}::boulder` },
-			placement: 'stamp',
-		},
-		[project === 'plain' ? 'pond' : 'whirlpool#']: {
+		'rock#': { source: { kind: 'sprite', region: `${rocks}::boulder` }, placement: 'stamp' },
+		[salmons ? 'whirlpool#' : 'pond']: {
 			source: { kind: 'flipbook', clip: 'pond_ripple' },
 			placement: 'stamp',
 		},
+		// Salmons' trees: a frame of one sheet, a clip of another, in the same map.
+		...(salmons
+			? {
+					'@trees': {
+						source: { kind: 'sprite', region: `${pines}::pine` },
+						variants: [{ kind: 'flipbook', clip: 'tree_sway' }],
+						placement: 'stamp',
+					},
+				}
+			: {}),
 	};
 	const config = (zoneArt?: unknown) =>
 		put(gameConfigDocKey(CLIENT, project), zoneArt === undefined ? base : withArt(base, zoneArt));
@@ -615,6 +645,13 @@ for (const [project, base] of [
 	const shipped = (key: string) => index.sheets.some((s) => s.key === key);
 	ok(`8. ${project}: the clip zone art names is played`, !!played?.has('pond_ripple'));
 	ok(`8. ${project}: a clip nothing names is not`, !!played && !played.has('leaf_fall'));
+	ok(
+		`8. ${project}: the trees’ clip is played (Salmons), and ships its sheet with the trees’ frame’s`,
+		salmons
+			? !!played?.has('tree_sway') && shipped(pines) && shipped(sway)
+			: !played?.has('tree_sway') && !shipped(pines) && !shipped(sway),
+		JSON.stringify(index.sheets.map((s) => s.key)),
+	);
 	ok(
 		`8. ${project}: the frame’s sheet and the clip’s sheet ship, written under deploy/editor-art/`,
 		shipped(rocks) &&
@@ -631,21 +668,45 @@ for (const [project, base] of [
 	);
 	ok(`8. ${project}: a sheet nothing names does not ship`, !shipped(other) && !shipped(otherClip));
 	ok(
-		`8. ${project}: the index names the frame, so the game's boot keeps its sheet loaded`,
-		isDeepStrictEqual(index.characterArt, [`${rocks}::boulder`]),
+		`8. ${project}: the index names the frame (and the trees’), so the game's boot keeps its sheet loaded`,
+		isDeepStrictEqual(
+			index.characterArt,
+			salmons ? [`${rocks}::boulder`, `${pines}::pine`] : [`${rocks}::boulder`],
+		),
 		JSON.stringify(index.characterArt),
+	);
+	ok(
+		`8. ${project}: the trees’ frame is covered, not dangling`,
+		!index.missing.includes('pine'),
+		JSON.stringify(index.missing),
 	);
 
 	config(undefined);
 	const without = await exportEditorArt(CLIENT, project);
 	const playedWithout = await collectPlayedClipIds(CLIENT, project);
 	ok(
-		`8. ${project}: without zone art neither sheet ships, the clip is not played, nothing is named`,
+		`8. ${project}: without zone art no sheet of it ships, no clip is played, nothing is named`,
 		without.characterArt === undefined &&
-			!without.sheets.some((s) => s.key === rocks || s.key === ripple) &&
+			!without.sheets.some((s) => [rocks, ripple, pines, sway].includes(s.key)) &&
 			!!playedWithout &&
-			!playedWithout.has('pond_ripple'),
+			!playedWithout.has('pond_ripple') &&
+			!playedWithout.has('tree_sway'),
 	);
+	if (salmons) {
+		config({ '@trees': art['@trees'] });
+		const treesOnly = await exportEditorArt(CLIENT, project);
+		const playedTrees = await collectPlayedClipIds(CLIENT, project);
+		ok(
+			`8. ${project}: the trees’ art alone ships its frame’s and its clip’s sheets, and no other`,
+			treesOnly.sheets.some((s) => s.key === pines) &&
+				treesOnly.sheets.some((s) => s.key === sway) &&
+				!treesOnly.sheets.some((s) => s.key === rocks || s.key === ripple) &&
+				isDeepStrictEqual(treesOnly.characterArt, [`${pines}::pine`]) &&
+				!!playedTrees?.has('tree_sway') &&
+				!playedTrees.has('pond_ripple'),
+			JSON.stringify([treesOnly.sheets.map((s) => s.key), treesOnly.characterArt]),
+		);
+	}
 	config({});
 	const empty = await exportEditorArt(CLIENT, project);
 	ok(
@@ -687,6 +748,167 @@ for (const [project, base] of [
 			label: 'Nothing drawn',
 			thumbs: [],
 		},
+	);
+	eq(
+		'9. Salmons’ trees show the 6 built-in trees from the project sheet',
+		zoneArtDefault('@trees', 'salmonsRiver', [{ key: props }]),
+		{
+			label: 'Built-in trees, 6 kinds',
+			thumbs: Array.from({ length: 6 }, (_, i) => `${props}::tree_${i}`),
+		},
+	);
+}
+
+// 10. Scenery: a reserved key in the same map.
+{
+	const TREES = {
+		source: { kind: 'sprite', region: `${SHEET}::pine` },
+		variants: [
+			{ kind: 'sprite', region: `${SHEET}::birch` },
+			{ kind: 'flipbook', clip: 'tree_sway', fps: 6 },
+		],
+		placement: 'stamp',
+		scale: 1.5,
+	};
+	eq('10. the scenery keys', [...ZONE_ART_SCENERY], ['@trees']);
+	ok(
+		'10. no zone Salmons’ generator makes has an @ in its id; every scenery key is an @-name',
+		[0, 7, 31337].every((seed) =>
+			generatedZones(salmonsRaw(), 'salmonsMap', seed).zones.every(
+				(z) => !z.id.includes('@') && !isZoneArtScenery(zoneFamilyOf(z.id)),
+			),
+		) && ZONE_ART_SCENERY.every((key) => key.startsWith('@') && zoneFamilyOf(key) === key),
+	);
+	eq(
+		'10. the trees’ entry is kept as authored, beside a family’s',
+		normalizeZoneArt({ '@trees': TREES, 'rock#': PLAIN_ART['rock#'] }),
+		{ '@trees': TREES, 'rock#': PLAIN_ART['rock#'] },
+	);
+	eq(
+		'10. … and dropped as a family’s is when unusable',
+		normalizeZoneArt({
+			'@trees': { source: { kind: 'sprite', region: 'pine' }, placement: 'stamp' },
+		}),
+		undefined,
+	);
+	const salmonsTrees = withArt(salmonsRaw(), { '@trees': TREES });
+	const savedTrees = prepareGameConfigDoc(salmonsTrees);
+	ok(
+		'10. a Salmons save carries the trees’ art, normalized, and warns of nothing in it',
+		isDeepStrictEqual(savedTrees.doc.arcade?.zoneArt, { '@trees': TREES }) &&
+			!savedTrees.warnings.some((i) => i.path.startsWith('arcade.zoneArt')) &&
+			isDeepStrictEqual(applyPasted(salmonsTrees)?.arcade?.zoneArt, { '@trees': TREES }),
+		JSON.stringify(savedTrees.warnings.filter((i) => i.path.startsWith('arcade.zoneArt'))),
+	);
+	ok(
+		'10. the normalizer every runtime carries drops it: a Salmons config normalizes as without it',
+		isDeepStrictEqual(normalizeGameConfigDoc(salmonsTrees), normalizeGameConfigDoc(salmonsRaw())),
+	);
+	eq(
+		'10. in a game with no generator the trees are warned of as scenery, not as a family',
+		issuesOf(withArt(PLAIN, { ...PLAIN_ART, '@trees': TREES })).map((i) => [
+			i.path,
+			i.message.includes('scenery'),
+			i.message.includes('No zone'),
+		]),
+		[['arcade.zoneArt.@trees', true, false]],
+	);
+	const named = {
+		...PLAIN,
+		arcade: { ...PLAIN.arcade, zones: [{ id: '@trees', x: 0, y: 0, w: 50, h: 50 }] },
+	} as unknown as GameConfigDoc;
+	eq(
+		'10. a zone stored as `@trees` is never stamped with the trees’ art',
+		zoneArtStamps(named.arcade!.zones!, normalizeZoneArt({ '@trees': TREES }), 0),
+		[],
+	);
+	const edited = structuredClone(PLAIN);
+	setZoneField(edited, 0, 'id', '@trees');
+	setZoneField(edited, 1, 'id', 'tree@1');
+	setZoneField(edited, 2, 'id', 'lake');
+	eq(
+		'10. /config refuses an @ in a zone id',
+		edited.arcade?.zones?.map((z) => z.id),
+		['rock1', 'rock2', 'lake'],
+	);
+	const art = normalizeZoneArt({ '@trees': TREES })!['@trees'];
+	const single = normalizeZoneArt({ '@trees': { source: TREES.source, placement: 'stamp' } })![
+		'@trees'
+	];
+	const cells = Array.from({ length: 200 }, (_, i) => [i % 20, Math.floor(i / 20)] as const);
+	const treePicks = (seed: number) => cells.map(([c, r]) => sceneryArtSourceFor(art, c, r, seed));
+	ok(
+		'10. a tree’s picture is picked by the seed and its cell alone, the same every time',
+		isDeepStrictEqual(treePicks(5), treePicks(5)) &&
+			isDeepStrictEqual(
+				treePicks(5),
+				cells.map(([c, r]) => zoneArtSourceFor(art, `${c},${r}`, 5)),
+			),
+	);
+	ok(
+		'10. every picture is drawn on some tree, and another seed picks otherwise',
+		new Set(treePicks(5)).size === 3 && !isDeepStrictEqual(treePicks(5), treePicks(6)),
+	);
+	eq(
+		'10. one picture: every tree draws it',
+		new Set(cells.map(([c, r]) => sceneryArtSourceFor(single, c, r, 5))).size,
+		1,
+	);
+
+	// The card.
+	const level = generatedZones(salmonsRaw(), 'salmonsMap', 7).zones;
+	const withTrees = structuredClone(salmonsTrees);
+	eq(
+		'10. the card: a Salmons game has one Trees row, under Scenery, and no zone row of it',
+		[
+			cardEdits
+				.zoneArtSceneryRows(salmonsRaw(), 'salmonsMap')
+				.map((r) => [r.key, r.label, r.stale, !!r.art]),
+			cardEdits.zoneArtSceneryRows(withTrees, 'salmonsRiver').map((r) => [r.key, !!r.art]),
+			cardEdits.zoneArtRows(level, withTrees, 'salmonsMap').some((r) => isZoneArtScenery(r.family)),
+		],
+		[[['@trees', 'Trees', false, false]], [['@trees', true]], false],
+	);
+	eq(
+		'10. … a plain game none, but a stale row where an entry was left, to be binned',
+		[
+			cardEdits.zoneArtSceneryRows(PLAIN, undefined),
+			cardEdits
+				.zoneArtSceneryRows(withArt(PLAIN, { '@trees': TREES }), undefined)
+				.map((r) => [r.key, r.stale]),
+			cardEdits
+				.zoneArtRows(PLAIN.arcade!.zones!, withArt(PLAIN, { '@trees': TREES }), undefined)
+				.map((r) => r.family),
+		],
+		[[], [['@trees', true]], ['rock#', 'pond']],
+	);
+	const card = structuredClone(salmonsRaw());
+	const before = structuredClone(card);
+	cardEdits.setZoneArtSource(card, '@trees', 0, { kind: 'sprite', region: `${SHEET}::pine` });
+	ok(
+		'10. a pick writes the trees’ entry; a variant is added',
+		cardEdits.addZoneArtVariant(card, '@trees'),
+	);
+	cardEdits.setZoneArtSource(card, '@trees', 1, { kind: 'flipbook', clip: 'tree_sway' });
+	cardEdits.setZoneArtScale(card, '@trees', '0.8');
+	eq('10. … changed, with a scale', card.arcade?.zoneArt, {
+		'@trees': {
+			source: { kind: 'sprite', region: `${SHEET}::pine` },
+			variants: [{ kind: 'flipbook', clip: 'tree_sway' }],
+			placement: 'stamp',
+			scale: 0.8,
+		},
+	});
+	cardEdits.removeZoneArt(card, '@trees');
+	ok('10. the bin leaves the config as it was', isDeepStrictEqual(card, before));
+	eq(
+		'10. an empty map is unchanged: no field, no stamp, nothing shipped',
+		[
+			normalizeZoneArt({}),
+			zoneArtStillRoots(withArt(PLAIN, {})),
+			zoneArtClipRoots(withArt(PLAIN, {})),
+		],
+		[undefined, [], []],
 	);
 }
 
