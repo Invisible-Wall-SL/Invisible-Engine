@@ -222,6 +222,8 @@ export const FIT_BEND_GRID: [number, number] = [3, 32];
 /** A prop's placeholder size, until its art is attached. */
 const PROP_SIZE: [number, number] = [64, 64];
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/** The slots a fit's `order` (a sheet mapping's layers) may list: every template slot and prop. */
+export const MAX_LAYERS = 256;
 /** How far a fitted bone may turn off its template direction (float noise, not a turn). */
 const TURN_EPS = 2e-4;
 /** The longest a fitted bone may be (px): past it the world sums overflow to Infinity. */
@@ -367,11 +369,11 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 	if (raw.order !== undefined) {
 		if (
 			!Array.isArray(raw.order) ||
-			raw.order.length > 256 ||
+			raw.order.length > MAX_LAYERS ||
 			!raw.order.every((n) => typeof n === 'string' && NAME.test(n)) ||
 			new Set(raw.order).size !== raw.order.length
 		)
-			return no('`order` is a list of up to 256 slot names, back to front, each once');
+			return no(`\`order\` is a list of up to ${MAX_LAYERS} slot names, back to front, each once`);
 		fit.order = [...(raw.order as string[])];
 	}
 	if (raw.bends !== undefined) {

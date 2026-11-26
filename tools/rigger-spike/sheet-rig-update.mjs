@@ -23,8 +23,9 @@
 //    drew), is kept when asked and replaced when not;
 //  - finite: the updated rig passes the `.irig` save check and every clip poses finite;
 //  - layers: a reorder in Setup's slots stays through the update while the 🗺 Layers list is unchanged
-//    (or opened from the rig's own order); a changed list orders the slots it lists, every other slot
-//    and every draw-order key's drawing kept;
+//    (or opened from the rig's own order, even an arm Setup drew behind the head, which the Arm depth
+//    control would refuse from the list); a changed list orders the slots it lists, every other slot
+//    and every draw-order key's drawing kept, and is held to the depth controls;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig-update.mjs [--only <guard>]
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -539,8 +540,9 @@ const GUARDS = {
 
 	/**
 	 * 🗺 Layers: a reorder in Setup's slots stays through 🔄 Update rig while the Layers list is
-	 * unchanged, or opened from the rig's own order as 🗺 Edit mapping opens it; a changed list orders
-	 * the slots it lists, every other slot and every draw-order key's drawing kept.
+	 * unchanged, or opened from the rig's own order as 🗺 Edit mapping opens it (one a depth control
+	 * would refuse from the list too); a changed list orders the slots it lists, every other slot and
+	 * every draw-order key's drawing kept, and meets the depth controls.
 	 */
 	layers(M, log) {
 		let good = true;
@@ -631,6 +633,49 @@ const GUARDS = {
 				"layers: the author's draw-order key still draws what it drew",
 				keyed(changed.doc) === keyed(before) && keyed(before) !== setup(before).join(),
 				`${keyed(changed.doc)}\n        ${keyed(before)}`,
+			) && good;
+		// Setup's slots against a depth control: the left upper arm dragged behind the head, which the
+		// Arm depth control steps it behind. 🗺 Edit mapping opens that order, and 🔄 Update rig keeps it;
+		// a list then changed to move a slot meets the control.
+		const armBack = clone(before);
+		const arm = armBack.slots.splice(
+			armBack.slots.findIndex((s) => s.name === 'upper_arm_l'),
+			1,
+		)[0];
+		armBack.slots.splice(
+			armBack.slots.findIndex((s) => s.name === 'head'),
+			0,
+			arm,
+		);
+		const armList = setup(armBack)
+			.filter((n) => drawn.has(n))
+			.reverse();
+		const armUpdate = (layers) =>
+			M.updateSheetRig({
+				template: t,
+				regions: REGIONS,
+				was: base,
+				mapping: { ...clone(base), layers },
+				current: armBack,
+			});
+		const armKept = armUpdate(armList);
+		good =
+			ok(
+				"layers: Setup's arm behind the head kept through 🔄 Update rig, not refused by the depth control",
+				armKept.ok && setup(armKept.value.doc).join() === setup(armBack).join(),
+				armKept.ok ? setup(armKept.value.doc).join(' ') : armKept.problem,
+			) && good;
+		const armMoved = [...armList];
+		armMoved.splice(armMoved.indexOf('prop_chain'), 1);
+		armMoved.splice(armMoved.indexOf('torso') + 1, 0, 'prop_chain');
+		const armRefused = armUpdate(armMoved);
+		good =
+			ok(
+				'layers: a changed list that leaves the arm behind the head refused, naming the depth control',
+				!armRefused.ok &&
+					/the Layers draw "upper_arm_l" behind "head"/.test(armRefused.problem) &&
+					/depth/i.test(armRefused.problem),
+				armRefused.ok ? 'updated' : armRefused.problem,
 			) && good;
 		log(`${drawn.size} layers; the chain moved behind the torso, the key's drawing kept`);
 		return good;
@@ -724,6 +769,20 @@ const MUTANTS = [
 		[UPD, '\t\t).reverse();\n\t\tconst slots', '\t\t);\n\t\tconst slots'],
 	],
 	['layers', "a draw-order key's drawing not kept", [UPD, '\t\t\tback();\n', '']],
+	[
+		'layers',
+		"Setup's order held to the depth controls on every update",
+		[
+			UPD,
+			'const fitted = sheetRig(t, regions, { ...m, layers: undefined });',
+			'const fitted = sheetRig(t, regions, m);',
+		],
+	],
+	[
+		'layers',
+		'a changed list never held to the depth controls',
+		[UPD, '\t\t\tif (!checked.ok) return checked;\n', ''],
+	],
 	[
 		'handedit',
 		'a hand-edited mesh never kept',

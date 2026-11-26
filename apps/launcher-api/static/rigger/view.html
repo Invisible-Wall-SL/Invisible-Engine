@@ -1105,7 +1105,7 @@
           <div id="s2rParts"></div>
           <div id="s2rProps"></div>
           <details class="wsSec" id="s2rLayersSec" open>
-            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays).">Layers</summary>
+            <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays). A clip's draw-order keys still draw what they drew, so a new order shows at setup and in the clips that key no draw order.">Layers</summary>
             <div id="s2rLayers"></div>
           </details>
         </div>
@@ -12250,8 +12250,9 @@ const s2r = {
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
   view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
   aview: null, adrag: null, swap: false,
-  // layers: the author's Layers list, slot names front to back (null: the template's order, `sheetLayerList`).
-  layers: null, ldrag: null,
+  // layers: the author's Layers list, slot names front to back (null: the template's order, `sheetLayerList`);
+  // layersRig: the list 🗺 Edit mapping opened from the open rig's slots.
+  layers: null, layersRig: null, ldrag: null,
   // left: { mapping, at } a new rig's mapping closed unmade (↺ Reuse); undo: what ↺ Start over replaced.
   left: null, undo: null,
 };
@@ -12315,6 +12316,7 @@ function closeSheetToRig(){
   // Closed on ↺ Start over's first guess: the mapping it replaced is the one left.
   else if (!s2r.edit && s2r.sheet && !s2r.dirty && u && u.dirty && Object.keys(u.map).length) s2r.left = { mapping: s2rMapping(u), at: Date.now() };
   $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
+  s2rLayerDragEnd();
 }
 
 // ↺ Reuse: a mapping of this template made before, for the sheet picked (or its own while none is):
@@ -12356,7 +12358,7 @@ async function s2rReuse(c){
 // step, which ↶ takes back.
 function s2rStartOver(){
   if (!s2r.sheet || !s2r.tpl) return;
-  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
+  if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props, the arrangement and the Layers go back to the first guess.\n\n↶ brings them back.")) return;
   s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
   Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
   // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
@@ -12521,7 +12523,7 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, layersRig: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
   s2rSwapUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
@@ -12983,12 +12985,15 @@ function s2rLayersOut(st = s2r){
   return list.join() === s2rLayerList(false, st).join() ? {} : { layers: list };
 }
 // 🗺 Edit mapping: the list starts as the open rig draws its slots (a reorder in Setup's slots
-// included), so 🔄 Update rig keeps that order unless it is changed here.
+// included), so 🔄 Update rig keeps that order unless it is changed here. Until it is, the preview
+// goes without it: the launcher holds a list to the depth controls only when it moves a slot.
+const s2rLayersAsRig = () => !!s2r.edit && !!s2r.layersRig && !!s2r.layers && s2r.layers.join() === s2r.layersRig.join();
 function s2rLayersFromRig(){
   if (!rawDoc || !s2r.sheet || !s2r.tpl) return;
   const drawn = new Set(s2rLayerList(false));
   const own = rawDoc.slots.map((s) => s.name).filter((n) => drawn.has(n)).reverse();
   if (own.length) s2r.layers = own;
+  s2r.layersRig = own.length ? [...own] : null;
   s2rRender();
 }
 // The slot a pick draws in: a part's, a prop's own.
@@ -13279,7 +13284,7 @@ async function s2rPreview(){
   const gen = ++s2r.pgen;
   try {
     const r = await fetch("/api/rigger/from-sheet/preview", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping() }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: { ...s2rMapping(), ...(s2rLayersAsRig() ? { layers: undefined } : {}) } }),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const p = await r.json();

@@ -10,8 +10,9 @@
  *   hashes otherwise was edited by hand, and may be kept while it still draws the same region.
  * - **The `frame` clip** (the arrangement) is the new build's, unless the author keyed it themselves
  *   since: then theirs stays and the report says so. A drawing re-arranged moves with it.
- * - **The layers**: the rig keeps its own draw order (a Setup reorder too) unless the author changed
- *   the mapping's Layers list since; then the slots it lists take its order.
+ * - **The layers**: the rig keeps its own draw order (a Setup reorder too, even one a depth control
+ *   would refuse from the list) unless the author changed the mapping's Layers list since and it
+ *   moves a slot; then the slots it lists take its order, held to the depth controls as a create's.
  */
 import type { SheetMapping } from '../rigSheetMap';
 import { sheetLayerList } from '../rigSheetMap';
@@ -24,7 +25,7 @@ import {
 	type FrameUpdateReport,
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
-import { sheetRig } from './rigSheetFit';
+import { sheetMappingProblem, sheetRig } from './rigSheetFit';
 import { fitTemplate, frameWorld } from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
@@ -94,9 +95,14 @@ export function sameKeys(a: unknown, b: unknown): boolean {
 	return true;
 }
 
-/** The rig a mapping builds, as 🦴 Create rig builds it. */
+/**
+ * The rig a mapping builds, as 🦴 Create rig builds it but in the template's order: the layers are
+ * applied to the merged rig, and held to the depth controls only when they move one of its slots.
+ */
 function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMapping) {
-	const fitted = sheetRig(t, regions, m);
+	const bad = sheetMappingProblem(t, regions, m);
+	if (bad) return { ok: false as const, problem: bad };
+	const fitted = sheetRig(t, regions, { ...m, layers: undefined });
 	if (!fitted.ok) return fitted;
 	const { fit, art } = fitted.value;
 	return {
@@ -160,8 +166,9 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 			animations.frame = structuredClone(neu);
 		}
 	}
-	// The layers: the edited list's order when the author changed it, every draw-order key still
-	// drawing what it drew; else the rig's own order stays (a Setup reorder included).
+	// The layers: the edited list's order when the author changed it and it moves a slot, every
+	// draw-order key still drawing what it drew; else the rig's own order stays (a Setup reorder
+	// included, even one a depth control would refuse from the list).
 	const layered: string[] = [];
 	if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {
 		const slotOf = (part: string) => o.template.parts.find((p) => p.name === part)?.slot ?? part;
@@ -175,6 +182,8 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		const was = slots.map((s) => s.name);
 		const now = inDrawOrder(was, want);
 		if (now.some((n, i) => n !== was[i])) {
+			const checked = sheetRig(o.template, o.regions, o.mapping);
+			if (!checked.ok) return checked;
 			const back = keepDrawOrders(doc as Parameters<typeof keepDrawOrders>[0]);
 			doc.slots = now.map((n) => byName.get(n)!);
 			back();

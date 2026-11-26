@@ -46,7 +46,9 @@
 //    order at once; the arm put behind the head shows the launcher's word under the list; the order
 //    goes out with the create and the rig draws it; ↺ Reuse brings it back; on the made rig, Setup's
 //    ⋮⋮ drags a sheet's prop as the slot it is; 🗺 Edit mapping opens the rig's own order, Ctrl+] in
-//    the dialog never moves the rig's slots behind it, and 🔄 Update rig keeps Setup's order;
+//    the dialog never moves the rig's slots behind it, and 🔄 Update rig keeps Setup's order; on a
+//    rig whose Setup drew the arm behind the head the preview goes without that list (no depth
+//    warning) until it is changed there;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -241,10 +243,10 @@ const PAGE_MUTANTS = [
 		'Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {},',
 		'Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {},',
 	],
-	['🗺 Layers: the order not sent', '    ...s2rLayersOut(),\n', ''],
+	['🗺 Layers: the order not sent', '    ...s2rLayersOut(st),\n', ''],
 	[
 		'🗺 Layers: the list without the props',
-		'const plain = { parts, props: s2r.props.map(({ name, region, host }) => ({ name, region, host })) };',
+		'const plain = { parts, props: st.props.map(({ name, region, host }) => ({ name, region, host })) };',
 		'const plain = { parts, props: [] };',
 	],
 	[
@@ -276,6 +278,16 @@ const PAGE_MUTANTS = [
 		"🗺 Layers: a kept mapping's layers not read back",
 		's2r.layers = Array.isArray(kept.layers) ? [...kept.layers] : null;',
 		's2r.layers = null;',
+	],
+	[
+		"🗺 Layers: Edit mapping's preview sending the rig's own order (a depth control's warning on Setup's)",
+		'...(s2rLayersAsRig() ? { layers: undefined } : {})',
+		'',
+	],
+	[
+		"🗺 Layers: Edit mapping's preview never sending a list changed there",
+		'&& s2r.layers.join() === s2r.layersRig.join();',
+		'|| true;',
 	],
 	[
 		"🗺 Layers: the launcher's word on an order not shown",
@@ -411,6 +423,7 @@ const seen = {
 	kept: null,
 	keptEtag: null,
 	previews: 0,
+	preview: null,
 	updates: [],
 	saves: 0,
 	sheetPuts: [],
@@ -509,6 +522,7 @@ const server = createServer(async (req, res) => {
 		if (p === '/api/rigger/from-sheet/preview') {
 			const body = await readBody(req);
 			seen.previews++;
+			seen.preview = body.sheet;
 			const parsed = S.parseSheetMapping(body.sheet);
 			if ('problem' in parsed)
 				return json({ message: `bad sheet mapping: ${parsed.problem}` }, 400);
@@ -1136,7 +1150,10 @@ try {
 	const behindTorso = [...launcherList];
 	behindTorso.splice(behindTorso.indexOf(CHAIN), 1);
 	behindTorso.splice(behindTorso.indexOf('torso') + 1, 0, CHAIN);
-	/** Where to grab `slot`'s ⋮⋮ in `list`, and where to let go to drop it just behind `under`. */
+	/**
+	 * Where to grab `slot`'s ⋮⋮ in `list`, and where to let go to drop it just behind `under`; `room`:
+	 * how far both are inside what the list's scroller shows (a drag scrolls it near its edges).
+	 */
 	const layerSpot = (list, slot, under) => `(() => {
 		const rows = [...document.querySelectorAll(${q(list)})];
 		const row = (n) => rows.find((r) => r.dataset.slot === n);
@@ -1152,7 +1169,11 @@ try {
 		const g = row(${q(slot)}).querySelector(".slotGrip").getBoundingClientRect();
 		const t = (next || row(${q(under)})).getBoundingClientRect();
 		const x = g.left + g.width / 2;
-		return { from: { x, y: g.top + g.height / 2 }, to: { x, y: next ? t.top + 2 : t.bottom + 4 } };
+		const from = { x, y: g.top + g.height / 2 }, to = { x, y: next ? t.top + 2 : t.bottom + 4 };
+		const box = sc ? sc.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+		const [top, bottom] = [Math.max(0, box.top), Math.min(innerHeight, box.bottom)];
+		const room = Math.min(...[from.y, to.y].flatMap((y) => [y - top, bottom - y]));
+		return { from, to, room: Math.round(room) };
 	})()`;
 	const grabbed = await evaluate(layerSpot('#s2rLayers .s2rLayer', CHAIN, 'torso'));
 	await evaluate('window.__pv = s2r.preview; true');
@@ -1408,8 +1429,23 @@ try {
 	await evaluate(
 		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); if (!editMode) setEditMode(true); document.getElementById("secBones").open = false; document.getElementById("secSlots").open = true; renderSlotList(); true',
 	);
+	// The rig panel above the list takes most of the side: a tall window gives the list room, so the
+	// grip and the drop sit clear of the edges a drag scrolls at.
+	await send('Emulation.setDeviceMetricsOverride', {
+		width: 1600,
+		height: 2000,
+		deviceScaleFactor: 1,
+		mobile: false,
+	});
 	const slotSpot = await evaluate(layerSpot('#slotList .trow[data-slot]', CHAIN, 'neck'));
+	const edge = await evaluate('SLOT_DRAG_EDGE');
+	ok(
+		'Setup’s slots: the chain’s ⋮⋮ and its drop are clear of the edges a drag scrolls the list at',
+		slotSpot.room > edge,
+		q({ slotSpot, edge }),
+	);
 	await pointerDrag(slotSpot.from, slotSpot.to);
+	await send('Emulation.clearDeviceMetricsOverride');
 	const setupOrder = await evaluate('rawDoc.slots.map((s) => s.name)');
 	ok(
 		'Setup’s slots: the chain, a prop of the sheet, is a slot its ⋮⋮ drags over the torso, just behind the neck',
@@ -1444,6 +1480,37 @@ try {
 		q(editRows) === q(rigList),
 		q({ editRows, rigList }),
 	);
+	// A rig whose Setup drew the arm behind the head (which the Arm depth control would refuse from the
+	// list): opened so, the preview goes without the list, so no warning; changed, it goes with it.
+	const armBack = [...editRows];
+	armBack.splice(armBack.indexOf('upper_arm_l'), 1);
+	armBack.splice(armBack.indexOf('head') + 1, 0, 'upper_arm_l');
+	// A preview the page took: one no later preview overtook.
+	await evaluate(
+		'window.settled = async () => { for (;;) { const g = s2r.pgen; await s2rPreview(); if (s2r.pgen === g + 1) return true; } }; true',
+	);
+	const asRig = async (rig) => {
+		await evaluate(
+			`(() => { window.__layersWas = [s2r.layers, s2r.layersRig]; s2r.layers = ${q(armBack)}; s2r.layersRig = ${rig}; return settled(); })()`,
+		);
+		const got = {
+			sent: seen.preview && seen.preview.layers,
+			warn: await evaluate('!!document.querySelector("#s2rLayers .s2rLayerWarn")'),
+		};
+		await evaluate('[s2r.layers, s2r.layersRig] = window.__layersWas; true');
+		return got;
+	};
+	const openedArm = await asRig(q(armBack));
+	const changedArm = await asRig('null');
+	ok(
+		'🗺 Edit mapping on a rig Setup drew with the arm behind the head: the preview goes without that list (no warning), one changed here goes with it (and warns)',
+		openedArm.sent === undefined &&
+			!openedArm.warn &&
+			q(changedArm.sent) === q(armBack) &&
+			changedArm.warn,
+		q({ openedArm, changedArm }),
+	);
+	await evaluate('settled()');
 	await evaluate(
 		`document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); selectSlot("torso"); document.querySelector('#s2rLayers .s2rLayer[data-slot="${CHAIN}"] .s2rName').click(); document.activeElement && document.activeElement.blur(); true`,
 	);

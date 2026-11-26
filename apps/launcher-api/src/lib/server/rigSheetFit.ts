@@ -36,6 +36,7 @@ import {
 	controlTarget,
 	fitTemplate,
 	frameWorld,
+	MAX_LAYERS,
 	type Affine,
 	type RigFit,
 	type RigFitProp,
@@ -69,8 +70,6 @@ const NAME = /^[^\0/\\]{1,200}$/;
 /** The face mesh the tracker finds (468, or 478 with the irises). */
 const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
-/** The slots a mapping's layers may list: every template slot and every prop. */
-const MAX_LAYERS = 256;
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
 const MAX_PX = 100_000;
 /** A turn on the arrange canvas, degrees either way. */
