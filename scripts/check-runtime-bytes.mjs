@@ -88,6 +88,11 @@ export const lastVerifiedMain = (runs) =>
 			r.steps.some((s) => s.name === BUILD_STEP && s.conclusion === 'success'),
 	)?.headSha;
 
+/** What a failed comparison ends on. Pipeline Changes recognises it by `a runtime is not the bytes it was`. */
+const CLOSING =
+	'check:runtime-bytes: a runtime is not the bytes it was. If the change is meant to reach it, ' +
+	're-record with `pnpm check:runtime-bytes --update` and commit the manifests; if not, it leaked.';
+
 const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
 function* walk(dir, rel = '') {
@@ -295,10 +300,9 @@ async function main(argv) {
 	console.log(`\n${rows.length} runtime build(s) in ${Math.round((Date.now() - started) / 1000)}s`);
 	if (failures.length) {
 		console.error(`\n${failures.join('\n\n')}`);
-		console.error(
-			'\ncheck:runtime-bytes: a runtime is not the bytes it was. If the change is meant to reach it, ' +
-				're-record with `pnpm check:runtime-bytes --update` and commit the manifests; if not, it leaked.',
-		);
+		console.error(`\n${CLOSING}`);
+		// An annotation on the job: Invisible Pipeline Changes reads it and offers the re-record.
+		if (process.env.GITHUB_ACTIONS) console.error(`::error title=runtime-bytes::${CLOSING}`);
 		process.exit(1);
 	}
 	if (!update) console.log('runtime bytes ok');

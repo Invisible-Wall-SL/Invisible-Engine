@@ -40,6 +40,7 @@ import {
 	type AgentEvalCheck,
 	type EvalVerdict,
 } from './pipelineAgentEval';
+import { readInstruction } from './pipelineAnnotations';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
 
@@ -198,10 +199,16 @@ export interface ChangeList {
 export type CheckState = 'pending' | 'pass' | 'fail' | 'skipped';
 
 export interface CheckJob {
+	/** The check run's id, which names its annotations. */
+	id: number;
 	name: string;
 	state: CheckState;
 	conclusion: string | null;
 	url: string | null;
+	/** A failed job's own instruction (its closing annotation); null when it has none or the job did not fail. */
+	instruction: string | null;
+	/** A failed job whose annotations GitHub would not give: shown as a state, never an error. */
+	instructionUnread: boolean;
 }
 
 /** Check 1: one workflow's jobs on the head, with the pass count read from their summaries. */
@@ -403,10 +410,13 @@ export function groupCheckRuns(
 			groups.set(name, group);
 		}
 		group.jobs.push({
+			id: run.id,
 			name: run.name,
 			state: checkState(run.status, run.conclusion),
 			conclusion: run.conclusion,
 			url: run.html_url,
+			instruction: null,
+			instructionUnread: false,
 		});
 	}
 	for (const group of groups.values()) {
@@ -415,6 +425,17 @@ export function groupCheckRuns(
 		group.passed = group.jobs.filter((j) => j.state === 'pass').length;
 	}
 	return [...groups.values()];
+}
+
+/** Each failed job with what its check run says to do (`pipelineAnnotations.ts`). */
+async function withInstructions(app: GithubApp, groups: CheckGroup[]): Promise<CheckGroup[]> {
+	const failed = groups.flatMap((g) => g.jobs).filter((j) => j.state === 'fail');
+	await mapWithConcurrency(failed, PER_CHANGE_CONCURRENCY, async (job) => {
+		const text = await readInstruction(app, repo(), job.id);
+		if (text === undefined) job.instructionUnread = true;
+		else job.instruction = text;
+	});
+	return groups;
 }
 
 export interface StatusInput {
@@ -700,7 +721,7 @@ async function readChanges(app: GithubApp, generation: number): Promise<ChangeLi
 }
 
 /** The PR behind a change number, or the 404 that says why it is not a change. */
-async function readPull(number: number, app: GithubApp): Promise<GhPull> {
+export async function readPull(number: number, app: GithubApp): Promise<GhPull> {
 	const res = await app.fetch(`/repos/${repo()}/pulls/${number}`);
 	if (res.status === 404) throw error(404, `There is no change #${number}.`);
 	if (!res.ok) {
@@ -791,7 +812,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		files: changeFiles,
 		filesTruncated: truncated,
 		familyPacks: familyPackFilesOf(changeFiles),
-		checks: groupCheckRuns(head.checkRuns, head.workflowRuns),
+		checks: await withInstructions(app, groupCheckRuns(head.checkRuns, head.workflowRuns)),
 		harness: {
 			status,
 			run: run && {

@@ -77,6 +77,8 @@ export function overlaps<B extends Body>(
 	bodies: readonly B[],
 	pairs: readonly (readonly [string, string])[],
 	options?: OverlapOptions,
+	/** A profiler's counts: the candidate pairs tested are added to `pairs`. */
+	counts?: { pairs: number },
 ): Overlap<B>[];
 export function inZone(body: Body, zone: StaticShape): boolean;
 export function createStaticIndex<S extends StaticShape>(

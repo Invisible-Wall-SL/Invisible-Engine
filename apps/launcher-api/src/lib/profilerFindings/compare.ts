@@ -1,12 +1,20 @@
 /**
- * Compare: two readings side by side — per phase fps / p95 / >33 ms hitches / frames, then the
- * per-frame counts each phase holds (draws, passes, uploads, GL calls, JS ms) and texture MB, with
- * `B − A`. `better` says which way is good, so the page colours a delta, never judges it: a delta
- * between a phone and a lab run is still only a difference.
+ * Compare: two readings side by side — per phase fps / p95 / >33 ms hitches / frames (every phase
+ * either reading's set has), then the per-frame counts each phase holds (draws, passes, uploads, GL
+ * calls, JS ms; an arcade phase also its sim steps, sim ms, bodies, room ms, patches and patch
+ * bytes) and texture MB, with `B − A`. `better` says which way is good, so the page colours a
+ * delta, never judges it: a delta between a phone and a lab run is still only a difference.
  */
 
 import { PERF_PHASES, type PerfReportListItem } from '../profiler';
-import { LAB_COUNT_KEYS, LAB_COUNT_LABELS, LAB_PHASES } from '../profilerLab';
+import {
+	ARCADE_COUNT_KEYS,
+	ARCADE_COUNT_LABELS,
+	LAB_COUNT_KEYS,
+	LAB_COUNT_LABELS,
+	LAB_PHASES,
+	type ArcadeCountKey,
+} from '../profilerLab';
 
 export interface CompareRow {
 	group: string;
@@ -18,6 +26,16 @@ export interface CompareRow {
 	/** Which way is good; `none` for a count that is neither (frames). */
 	better: 'higher' | 'lower' | 'none';
 }
+
+/** Bodies and patches follow what the field did: a difference, neither better nor worse. */
+const ARCADE_BETTER: Record<ArcadeCountKey, CompareRow['better']> = {
+	simSteps: 'lower',
+	simMs: 'lower',
+	bodies: 'none',
+	netMs: 'lower',
+	patches: 'none',
+	patchBytes: 'lower',
+};
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -58,6 +76,21 @@ export function compareReadings(a: PerfReportListItem, b: PerfReportListItem): C
 				ca?.[key] ?? null,
 				cb?.[key] ?? null,
 				'lower',
+			);
+		}
+	}
+	// After the lab counts, in the same "<phase> per frame" group (the page groups by first use).
+	for (const phase of ['menu', 'play'] as const) {
+		const ca = a.counts?.[phase] ?? null;
+		const cb = b.counts?.[phase] ?? null;
+		if (!ca && !cb) continue;
+		for (const key of ARCADE_COUNT_KEYS) {
+			row(
+				`${phase} per frame`,
+				ARCADE_COUNT_LABELS[key],
+				ca?.[key] ?? null,
+				cb?.[key] ?? null,
+				ARCADE_BETTER[key],
 			);
 		}
 	}

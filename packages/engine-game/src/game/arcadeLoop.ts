@@ -144,6 +144,27 @@ export interface ArcadeLoopOptions extends ArcadeCharacterIo {
 	seed: string | number;
 	/** The world camera, when the play field's screen declares one. Absent ⇒ none (as P10.8). */
 	camera?: ArcadeCameraOptions;
+	/** Where a profiler counts the frames' work, read at each frame's start; absent or `undefined`
+	 *  ⇒ nothing is counted. */
+	perf?: () => ArcadeLoopPerf | undefined;
+}
+
+/**
+ * A frame's work, counted in place (`apps/lines` `arcadePerf.ts`, the `?perf=1` probe): the steps
+ * run, the time in them and the frame time they dropped past their cap, the bodies after the frame
+ * (a level), the candidate pairs `overlaps` tested, the bodies spawned and despawned, the
+ * characters decided each step and how far the camera moved, px.
+ */
+export interface ArcadeLoopPerf {
+	simSteps: number;
+	simDroppedMs: number;
+	simMs: number;
+	bodies: number;
+	pairs: number;
+	spawns: number;
+	despawns: number;
+	looks: number;
+	cameraPx: number;
 }
 
 const NO_LIFTS: ReadonlyMap<string, number> = new Map();
@@ -280,10 +301,12 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	const forces = rules.forces?.length ? zoneForces(rules.zones, rules.forces) : undefined;
 	/** The step running, from 1 (an ability's times are in steps). */
 	let stamp = 0;
+	/** The last frame's counts: a spawn between frames is counted there too. */
+	let perf: ArcadeLoopPerf | undefined;
 	if (options.camera) attachCamera(options.camera);
 
 	const forget = (id: string) => {
-		bodies.delete(id);
+		if (bodies.delete(id) && perf) perf.despawns += 1;
 		outside.delete(id);
 		inZones.delete(id);
 		moved.delete(id);
@@ -305,6 +328,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				if (bodies.has(instance.id)) continue;
 				const body = bodyFor(instance, rules);
 				bodies.set(instance.id, body);
+				if (perf) perf.spawns += 1;
 				characters?.attach(body);
 				const character = abilities && characterByLook.get(body.componentId);
 				if (character) abilities?.attach(body, character);
@@ -391,7 +415,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		stamp += 1;
 		const all = [...bodies.values()];
 		const list = abilities ? all.filter((body) => !abilities?.held(body.id)) : all;
-		characters?.decide(list, clock.dt);
+		const decided = characters?.decide(list, clock.dt);
+		if (perf && decided) perf.looks += decided;
 		const unpush = push(list);
 		for (const body of list) if (body.vx || body.vy) moved.add(body.id);
 		const area = field();
@@ -412,7 +437,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			} else if (!edge) outside.delete(body.id);
 		}
 		const now = new Map<string, readonly [string, string]>();
-		for (const hit of overlaps(touchable, rules.pairs)) {
+		for (const hit of overlaps(touchable, rules.pairs, undefined, perf)) {
 			if (characters?.passesOver(hit.a, hit.b)) continue;
 			const key = JSON.stringify([hit.a.id, hit.b.id, hit.tagA, hit.tagB]);
 			now.set(key, [hit.a.id, hit.b.id]);
@@ -584,8 +609,22 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	return {
 		frame(dtMs) {
 			if (disposed) return 0;
+			perf = options.perf?.();
 			watchNewLayers();
+			const alpha = perf ? clock.alpha : 0;
+			const fromX = perf && camera ? camera.x : 0;
+			const fromY = perf && camera ? camera.y : 0;
+			const started = perf ? performance.now() : 0;
 			const ran = clock.advance(dtMs, runStep);
+			if (perf) {
+				perf.simMs += performance.now() - started;
+				perf.simSteps += ran;
+				// Past its cap the step drops whole steps (`%= stepMs`): the rounding is float error only.
+				if (Number.isFinite(dtMs) && dtMs > 0)
+					perf.simDroppedMs +=
+						Math.round(alpha + dtMs / clock.stepMs - ran - clock.alpha) * clock.stepMs;
+				if (camera) perf.cameraPx += Math.hypot(camera.x - fromX, camera.y - fromY);
+			}
 			if (moved.size) {
 				live.move(
 					[...moved].flatMap((id) => {
@@ -599,6 +638,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			cullNow();
 			const due = queue.splice(0);
 			for (const { name, payload } of due) signal(name, payload);
+			if (perf) perf.bodies = bodies.size;
 			return ran;
 		},
 		effects,
