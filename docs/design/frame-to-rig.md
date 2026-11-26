@@ -1766,13 +1766,14 @@ under the list; sent with the create and the rig drawn so; ↺ Reuse brings it b
 sheet's prop slot; 🗺 Edit mapping opens the rig's own order; Ctrl+] in the dialog never moves the
 rig's slots; 🔄 Update rig keeps Setup's order; 12 page mutants).
 
-Jointed mouth and custom parts (§13.1f): `sheet-rig.mjs` `mouth` (the names; no jointed slot or
+Jointed mouth and custom parts (§13.1f): `sheet-mouth.mjs` `mouth` (the names; no jointed slot or
 `teeth_upper` bone on a rig without them; each part on its region and slot; the lips meshes; Jaw open
 drops the lower lip's middle, the lower teeth and the tongue by the jaw's move and the upper ones not
 at all; Smile left lifts both lips at that corner only; a face capture's jawOpen opens it as 🎥
-Motion keys it; shapes and parts both mapped, the parts' slots empty; Layers order; 10 mutants) and
-`custom` (read back, its own bone under the bone picked, in Layers, its name, bad names refused; 3
-mutants); `sheet-rig-update.mjs` `custom` (🔄 Update rig gives a custom part its bone and slot; 1
+Motion keys it; shapes and parts both mapped, the parts' slots empty; the upper teeth's bone placed
+with the drawn face only where drawn; Layers order; 11 mutants) and `custom` (read back, its own bone
+under the bone picked, in Layers, its name, bad names refused; 3 mutants) — a gate of its own, so
+`sheet-rig.mjs` stays inside `check:all`'s five minutes; `sheet-rig-update.mjs` `custom` (🔄 Update rig gives a custom part its bone and slot; 1
 mutant); `check:rig-templates` keys each control over the made rig's own slots;
 `sheet-rig-browser.mjs` (the Face group's jointed rows and tooltip, ＋🦴, the launcher drawing them,
 the report; 5 page mutants, `--only-mutants` to run a subset).
