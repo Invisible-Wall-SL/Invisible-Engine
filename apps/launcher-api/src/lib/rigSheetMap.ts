@@ -53,11 +53,13 @@ export const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,40}$/;
  * (`Nelly_0008_HoodBack` → `hood_back`).
  */
 export function customName(region: string): string {
-	const layer = /(?:^|_)(?:\d{4}s_)*\d{4}_(.+)$/.exec(region);
-	const base = nameWords(layer ? layer[1] : region)
-		.join('_')
-		.slice(0, 41);
+	const base = nameWords(layerName(region)).join('_').slice(0, 41);
 	return /^[a-z]/.test(base) ? base : `part_${base}`.slice(0, 41);
+}
+
+/** A region's own name past a Photoshop Export Layers file and index (`Nelly_0002s_0000_Glasses` → `Glasses`). */
+export function layerName(region: string): string {
+	return /(?:^|_)(?:\d{4}s_)*\d{4}_(.+)$/.exec(region)?.[1] ?? region;
 }
 
 /**
@@ -262,6 +264,7 @@ const SYNONYMS: Record<string, string[]> = {
 	lids: ['lid'],
 	lips: ['mouth'],
 	boca: ['mouth'],
+	under: ['lower'],
 	labio: ['lip'],
 	tooth: ['teeth'],
 	diente: ['teeth'],
@@ -413,6 +416,9 @@ export function canonicalWords(name: string, swap = false): Set<string> {
 		out.add(SEGMENTED[limb[0]][Number(digit) - 1]);
 	// Teeth named alone are the upper ones, the row a closed mouth shows.
 	if (out.has('teeth') && !out.has('upper') && !out.has('lower')) out.add('upper');
+	// An eye named alone is its white: the drawing the pupil and the lids sit on.
+	if (out.has('eye') && !['white', 'pupil', 'lid', 'brow'].some((w) => out.has(w)))
+		out.add('white');
 	// `3 q` (from `3q`) is one word in the template's names.
 	if (words.some((w, i) => w === '3' && words[i + 1] === 'q')) out.add('3q');
 	return out;
@@ -479,11 +485,40 @@ export function suggestSheetMap(
 
 /** Words naming a worn thing, and the part it is worn on (`_s` the side the name says, else `l`). */
 const PROP_HOSTS: [string[], string][] = [
-	[['hat', 'cap', 'helmet', 'crown', 'glasses', 'sunglasses', 'earring', 'mask', 'hood'], 'head'],
-	[['chain', 'necklace', 'pendant', 'scarf', 'tie', 'badge', 'medal'], 'torso'],
+	[['hat', 'cap', 'helmet', 'crown', 'glasses', 'sunglasses', 'earring', 'mask'], 'head'],
+	// A hood is a hoodie's, worn down over the shoulders (one worn up is moved to the head in Props).
+	[['chain', 'necklace', 'pendant', 'scarf', 'tie', 'badge', 'medal', 'hood'], 'torso'],
 	[['watch', 'bracelet', 'bangle', 'cuff'], 'lower_arm_s'],
 	[['sword', 'weapon', 'gun', 'staff', 'wand', 'shield', 'ring', 'cup', 'flag', 'axe'], 'hand_s'],
 ];
+
+/**
+ * The 🗺 dialog's first guess for a sheet: each template part's region by name (`suggestSheetMap`),
+ * each other region named like a worn thing as a prop on its part (`suggestProp`), and the regions
+ * left, which the dialog offers as ＋ Custom parts.
+ */
+export function suggestSheet(
+	parts: readonly string[],
+	regions: readonly string[],
+	swap = false,
+): {
+	parts: Record<string, string>;
+	props: { region: string; name: string; host: string }[];
+	left: string[];
+} {
+	const got = suggestSheetMap(parts, regions, swap);
+	const taken = new Set(Object.values(got));
+	const mapped = new Set(Object.keys(got));
+	const props: { region: string; name: string; host: string }[] = [];
+	const left: string[] = [];
+	for (const region of regions) {
+		if (taken.has(region)) continue;
+		const p = suggestProp(region, mapped, swap);
+		if (p) props.push({ region, ...p });
+		else left.push(region);
+	}
+	return { parts: got, props, left };
+}
 
 /**
  * A region named like a worn thing (`Hat_01`, `sword_R`): its prop name and the part it is on (its
@@ -507,7 +542,7 @@ export function suggestProp(
 /** A prop's name from its region's (`prop_` and up to 40 lowercase letters, digits and _). */
 export function propName(region: string): string {
 	const base =
-		nameWords(region)
+		nameWords(layerName(region))
 			.join('_')
 			.replace(/^prop_?/, '')
 			.slice(0, 40) || 'item';
@@ -563,11 +598,16 @@ function psdOrdered<T>(list: readonly T[], region: (x: T) => string): T[] {
 /** A prop's slot drawn just before or after the slot it names, in the order they are inserted. */
 export type SheetPropPlace = SlotPlace & { prop: SheetProp };
 
+/** Worn over the hair, not under it: a prop on the head named so is drawn over `hair_front`. */
+const OVER_HAIR = new Set(['hat', 'cap', 'helmet', 'crown']);
+
 /**
  * Where each prop's slot goes among the template's `slots` (back to front), in the order they are
  * inserted: just over its host's slot (after an arm's last slot, so a watch covers the fingers'
- * seam), or just behind it where the artist's file draws it behind its part (`psdBehind`); the props
- * on one part keep the file's order among themselves. `host` gives a mapped part's slot and region.
+ * seam; on the head over every face part — eye whites, pupils, lids, brows, nose, mouth — and under
+ * the front hair, so glasses sit over the eyes, or over the hair for a hat), or just behind it where
+ * the artist's file draws it behind its part (`psdBehind`); the props on one part keep the file's
+ * order among themselves. `host` gives a mapped part's slot and region.
  */
 export function sheetPropPlaces(
 	slots: readonly string[],
@@ -584,11 +624,15 @@ export function sheetPropPlaces(
 	]) {
 		const slot = host(prop.host).slot;
 		const side = /^(hand|lower_arm)_([lr])$/.exec(slot)?.[2];
-		const beside = side ? armTail(slots, side) : slot;
+		const onFace = slot === 'head' && slots.includes('hair_front');
+		const overHair = onFace && [...canonicalWords(prop.region)].some((w) => OVER_HAIR.has(w));
+		const beside = side ? armTail(slots, side) : overHair ? 'hair_front' : slot;
 		if (behind(prop)) {
 			const key = `-${slot}`;
 			out.push({ prop, name: prop.name, before: after.get(key) ?? slot });
 			after.set(key, prop.name);
+		} else if (onFace && !overHair) {
+			out.push({ prop, name: prop.name, before: 'hair_front' });
 		} else {
 			out.push({ prop, name: prop.name, after: after.get(beside) ?? beside });
 			after.set(beside, prop.name);
