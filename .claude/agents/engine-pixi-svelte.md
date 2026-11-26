@@ -10,7 +10,8 @@ rendering/runtime foundation the tool agents build on.
 
 ## Read first (the plan/state is in the files)
 - **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
-  `docs/knowledge/lessons/current-games.md` and `docs/knowledge/lessons/rgs.md`
+  `docs/knowledge/lessons/current-games.md`, `docs/knowledge/lessons/engine-shell.md` and
+  `docs/knowledge/lessons/rgs.md`
   (what has bitten this area before: symptom → cause → fix → guard).
 - Root **`CLAUDE.md`** — the PixiJS 8 / Svelte 5 primer, Key Patterns, and house rules
   (don't restate them; they live there).

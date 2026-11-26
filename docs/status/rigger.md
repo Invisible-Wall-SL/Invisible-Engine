@@ -183,8 +183,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
-- 2026-11-26 — **🔄 Update rig no longer refused by Setup's own order (the #1942 review).** A rig
-  whose Setup drew `upper_arm_l` behind `head` could not be updated after any 🗺 Edit mapping change:
+- 2026-11-26 — **🔄 Update rig no longer refused by Setup's own order (the #1942 review).** Live on
+  `main` since #1948 (which stacked on #1942's Layers code) and fixed by #1942: a rig whose Setup
+  drew `upper_arm_l` behind `head` could not be updated after any 🗺 Edit mapping change:
   the Layers list opens from the rig's slots, goes out as `layers`, and the edited mapping's build
   held it to the Arm depth control. `updateSheetRig` now builds both mappings in the template's order
   (`sheetRig` `fitLayers: false`), applies the list to the merged rig only when it changed since the
@@ -205,12 +206,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   key none. `sheet-rig-browser.mjs` gave Setup's ⋮⋮ drag room: the rig panel left the slot list's
   scroller 9 px tall, so the grip sat in the drag's auto-scroll edge and the drop landed rows off
   (65/67 every run); it now drags in a 2000 px-tall viewport and checks both points clear the edge
-  first. Guards: `sheet-rig-update.mjs` 160/160 (5 checks, 7 mutants new; each check failed on the
-  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 70/70, 54/54 page mutants (3
+  first. Guards: `sheet-rig-update.mjs` 163/163 (5 checks, 7 mutants new; each check failed on the
+  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 75/75, 59/59 page mutants (3
   new; 2 Layers mutants re-anchored on `s2rMapping(st)`'s text, where #1941 had left them
   unplanted). ⏳ Not live-verified.
 
-- 2026-11-26 — **🗺 From my sheet: a Layers list (#1942).** The owner could not set which added
+- 2026-11-26 — **🗺 From my sheet: a Layers list (#1942; on `main` first with #1948, stacked on
+  it).** The owner could not set which added
   shape sits in front of which at setup. The dialog's side panel lists every slot the mapping draws
   in (each mapped part's, each prop's), front at the top: the template's order, each prop over its
   part (or behind it where the Photoshop layer names say); ⋮⋮ drags a row (mouse, pen, finger),

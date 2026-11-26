@@ -249,11 +249,18 @@ export function controlTarget(name: string): string | null {
 	return `${at}_${m[2]}`;
 }
 
-/** The template's `face` bone and every bone under it (the face block, rig-templates §4). */
-export function faceBones(bones: readonly RigTemplateBone[]): Set<string> {
+/**
+ * The template's `face` bone and every bone under it (the face block, rig-templates §4): an optional
+ * one (a jointed mouth's upper teeth) only when `optional` names it, or is true for every one.
+ */
+export function faceBones(
+	bones: readonly RigTemplateBone[],
+	optional: ReadonlySet<string> | true = new Set(),
+): Set<string> {
 	const out = new Set<string>();
 	for (const b of bones)
-		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent))) out.add(b.name);
+		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent)))
+			if (!b.optional || optional === true || optional.has(b.name)) out.add(b.name);
 	return out;
 }
 
@@ -542,7 +549,7 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 			return `it places "${name}" at no length, or past ${MAX_FIT_LENGTH} px`;
 	}
 	if (fit.features) {
-		const under = faceBones(t.bones);
+		const under = faceBones(t.bones, true);
 		for (const [name, f] of Object.entries(fit.features.at)) {
 			if (!under.has(name) || name === 'face')
 				return `it places a feature "${name}" that is not a bone under the template's face`;

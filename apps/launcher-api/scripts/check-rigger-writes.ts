@@ -2381,6 +2381,39 @@ for (const hold of ['before', 'after'] as const) {
 		[409, 'conflict', true],
 	);
 
+	// ↕ Depth order off (rig-2p5d §4.5): the bake keys no draw order, so a draw order keyed by hand in a
+	// 3D clip is the author's: it saves as keyed. On, the same edit is the bake's and is refused.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), { ...sidecar, depthOrder: false });
+	const handOrder = opened();
+	const slotNames = (handOrder.slots as { name: string }[]).map((s) => s.name);
+	const keyedOrder = [
+		{ time: 0.5, offsets: [{ slot: slotNames[0], offset: slotNames.length - 1 }] },
+	];
+	(handOrder.animations.reach as Record<string, unknown>).drawOrder = keyedOrder;
+	const handSaved = await save2d(handOrder);
+	check(
+		'rig3d: with depth order off, a draw order keyed by hand in a 3D clip saves as keyed',
+		[
+			handSaved.status,
+			JSON.stringify((stored(IRIG).animations.reach as Record<string, unknown>).drawOrder),
+		],
+		[200, JSON.stringify(keyedOrder)],
+	);
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const onOrder = opened();
+	(onOrder.animations.reach as Record<string, unknown>).drawOrder = keyedOrder;
+	const onSaved = await save2d(onOrder);
+	check(
+		'rig3d: …with it on, the same edit is refused: the bake owns the draw order',
+		[
+			onSaved.status,
+			(onSaved.body.clips as { parts: string[] }[] | undefined)?.[0]?.parts.includes('draw order'),
+		],
+		[409, true],
+	);
+
 	// A tab that keeps the rig open after its own save re-baked it: it still holds the earlier bake.
 	seed3d();
 	await save3d(rig3dFx.irigOf(), sidecar);

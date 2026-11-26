@@ -47,6 +47,10 @@
 				 *  currency formatter `amount` was built with, so every counting frame reads like the
 				 *  one that lands. Absent ⇒ no count is possible and `amount` is used as-is. */
 				amountAt?: WinAmountFormatter;
+				/** A RESTING-CYCLE replay of a line the round already showed (`winSymbolCycle.ts`): drawn
+				 *  as before, but its draw and impact sounds stay silent — they belong to the line's
+				 *  first show. Absent ⇒ a first show. */
+				replay?: boolean;
 		  }
 		| {
 				type: 'winLineHide';
@@ -79,11 +83,24 @@
 	import { ResponsiveBitmapText } from 'components-pixi';
 	import { roundSkip } from 'utils-shared/skipToken';
 
+	import {
+		pathHeadPose,
+		pathLength,
+		pathSlice,
+		taperRuns,
+		WIN_LINE_CORE_RATIO,
+		WIN_LINE_TIP_FADE_MS,
+		type WinLineHeadPose,
+		type WinLineTaperRun,
+	} from 'engine-layout';
+
 	import { getContext } from '../game/context';
-	import { BoardContainer } from 'engine-game';
+	import { BoardContainer, FlightView } from 'engine-game';
 	import { SYMBOL_SIZE } from 'engine-game';
 	import { boardDimensions } from '../game/gameConfig';
-	import { bakedWinLineConfig } from '../editor-scenes';
+	import { bakedEffects, bakedWinLineConfig, type BookVfxLayer } from '../editor-scenes';
+	import type { SoundEffectName } from '../game/sound';
+	import SymbolLayer from './SymbolLayer.svelte';
 
 	type DrawGraphics = Parameters<GraphicsProps['draw']>[0];
 
@@ -136,7 +153,31 @@
 		 *  cap, not the drawn width). Until it has measured, a font-size estimate keeps the FIRST
 		 *  frame close so the amount doesn't visibly jump once the real size arrives. */
 		labelSize: { width: number; height: number };
+		/** The styled payline's moving head — its tip and its trail. Only on a traced path of a
+		 *  project that authored a tip or a trail; absent otherwise, and nothing is mounted for it. */
+		head?: LineHead;
 	};
+
+	/**
+	 * One line's head (Invisible Symbols State Machine → Payline style). Where it is comes from the
+	 * line's own progress (`pathHeadPose`, the end of the stroke `tracePath` draws); this holds what
+	 * it is doing. `trailing` is whether the trail still emits — on while an animated line draws, off
+	 * the moment it lands, after which the particles live out their lives until the line is cleared.
+	 */
+	class LineHead {
+		/** Mount the trail at all: only a line that animates its draw has a path to trail along. */
+		readonly trails: boolean;
+		trailing = $state(false);
+		/** The tip is drawn (gone once it bursts, or has faded out). */
+		tipShown = $state(true);
+		/** The end effect of a tip that bursts, playing. */
+		bursting = $state(false);
+		readonly tipAlpha = new Tween(1, { duration: 0 });
+		constructor(trails: boolean) {
+			this.trails = trails;
+			this.trailing = trails;
+		}
+	}
 
 	let lines = $state<DrawnLine[]>([]);
 	let nextId = 0;
@@ -164,6 +205,32 @@
 	 *  the whole broadcast when BOTH are off, so at least one of these is true here. */
 	const showLine = line.enabled;
 	const showText = text.enabled;
+
+	/** The styled payline. Each switch is off for a project that never authored it, and with all of
+	 *  them off the line strokes, mounts and draws exactly as before they existed. */
+	const glowAdd = line.glow && line.blend === 'add';
+	const tapered = line.taper.alpha < 1 || line.taper.width < 1;
+	const tip = line.tip;
+	const headFx = !!tip || line.trailFx.length > 0;
+	const trailDocs = $derived(
+		line.trailFx.flatMap((id) => bakedEffects().find((doc) => doc.id === id) ?? []),
+	);
+
+	/** The line's own sounds — authored names, cast at this boundary as `soundBindings.ts` does (an
+	 *  unknown name is inaudible, never an error). Unset ⇒ nothing is broadcast. */
+	const playSound = (name: string | undefined): void => {
+		if (name) context.eventEmitter.broadcast({ type: 'soundOnce', name: name as SoundEffectName });
+	};
+
+	/** The tip as the symbol layer that draws it (`SymbolLayer`: a sprite frame, a flipbook clip or
+	 *  an effect, sized to a cell). */
+	const tipLayer: BookVfxLayer | undefined = tip && {
+		kind: tip.kind === 'effect' ? 'fx' : tip.kind,
+		assetKey: tip.assetKey,
+		clipId: tip.clipId,
+		effectId: tip.effectId,
+		blendMode: tip.blend === 'add' ? 'add' : undefined,
+	};
 
 	/** Stamp the amount in the middle of the reel window instead of at the line's end. In this mode
 	 *  only the most recently shown line stamps — with "show all win lines at once" every amount
@@ -198,14 +265,31 @@
 	const lineKey = (points: WinLinePoint[], shape: WinLineShape): string =>
 		`${shape}|${points.map((point) => `${Math.round(point.x)}:${Math.round(point.y)}`).join(',')}`;
 
-	/** Total pixel length of the polyline (for a length-proportional draw duration). */
-	function pathLength(pts: WinLinePoint[]): number {
-		let total = 0;
-		for (let i = 1; i < pts.length; i += 1) {
-			total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+	/**
+	 * The head once the line is drawn: the trail stops (its particles live on), and the tip does what
+	 * it was authored to — stays, fades out, or is removed while its end effect plays at the final
+	 * point. A skipped round shows the end state at once: no fade to watch, no burst to play.
+	 */
+	function landHead(head: LineHead): void {
+		head.trailing = false;
+		const end = tip?.atEnd ?? 'stay';
+		if (end === 'stay') return;
+		if (end === 'fade') {
+			void head.tipAlpha
+				.set(0, { duration: tweenMs(WIN_LINE_TIP_FADE_MS) })
+				.then(() => (head.tipShown = false));
+			return;
 		}
-		return total;
+		head.tipShown = false;
+		head.bursting = !!tip?.endEffectId && !roundSkip.isSkipped();
 	}
+
+	/** Where the head is at progress `p`, and which way the line runs there. */
+	const poseOf = (pts: WinLinePoint[], p: number): WinLineHeadPose =>
+		pathHeadPose(pts, p) ?? { ...pts[0], angle: 0 };
+
+	const headPose = (drawn: DrawnLine): WinLineHeadPose =>
+		poseOf(drawn.points, drawn.progress.current);
 
 	context.eventEmitter.subscribeOnMount({
 		winLineShow: async (emitterEvent) => {
@@ -241,6 +325,10 @@
 				count: new Tween(counts ? 0 : amountValue, { duration: 0 }),
 				fade: new Tween(fades ? 0 : 1, { duration: 0 }),
 				labelSize: { width: 0, height: 0 },
+				head:
+					headFx && showLine && shape === 'path' && emitterEvent.points.length >= 2
+						? new LineHead(animated && line.trailFx.length > 0)
+						: undefined,
 			};
 			// Publish the reusable win colour so any asset shown on this win can tint itself to the
 			// winning payline. Cleared on hide. `null` when the line has no authored colour. With every
@@ -253,6 +341,9 @@
 				else lines.push(entry);
 			}
 			if (animated) {
+				// The whoosh: once per animated line, as it starts drawing — never on a slammed round,
+				// which draws the line complete and so never takes this branch, nor on a replay.
+				if (!emitterEvent.replay) playSound(line.drawSound);
 				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
 				const len = pathLength(emitterEvent.points);
 				const duration = Math.min(
@@ -261,6 +352,11 @@
 				);
 				await entry.progress.set(1, { duration });
 			}
+			// Cleared while it drew (a hide, the next spin): it lands nowhere — no tip end, no impact
+			// sounding into the next round.
+			if (!lines.some((drawn) => drawn.id === entry.id)) return;
+			if (entry.head) landHead(entry.head);
+			if (showLine && !emitterEvent.replay && !roundSkip.isSkipped()) playSound(line.endSound);
 			// The fade is deliberately NOT awaited: it runs WHILE the count does, so the number is
 			// already moving as the stamp arrives rather than starting once it is fully opaque.
 			if (fades) void entry.fade.set(1, { duration: tweenMs(fadeInMs) });
@@ -409,27 +505,53 @@
 	/** Trace the polyline into the graphics path, but only up to `p` (0→1) of its total
 	 *  length — interpolating the final partial segment so the head advances smoothly. */
 	function tracePath(graphics: DrawGraphics, pts: WinLinePoint[], p: number): void {
+		tracePoints(graphics, pathSlice(pts, 0, p));
+	}
+
+	function tracePoints(graphics: DrawGraphics, pts: WinLinePoint[]): void {
 		graphics.moveTo(pts[0].x, pts[0].y);
-		if (p >= 1) {
-			for (let i = 1; i < pts.length; i += 1) graphics.lineTo(pts[i].x, pts[i].y);
-			return;
+		for (let i = 1; i < pts.length; i += 1) graphics.lineTo(pts[i].x, pts[i].y);
+	}
+
+	/** A round end of a tapered stroke: the half disc on the far side of `angle` from the line
+	 *  (`'tail'` faces back along it, `'head'` forward), so it never overlaps the butt-ended run. */
+	function capArc(
+		graphics: DrawGraphics,
+		pose: WinLineHeadPose,
+		radius: number,
+		facing: 'tail' | 'head',
+	): void {
+		const start = pose.angle + (facing === 'head' ? -Math.PI / 2 : Math.PI / 2);
+		graphics.moveTo(pose.x + Math.cos(start) * radius, pose.y + Math.sin(start) * radius);
+		graphics.arc(pose.x, pose.y, radius, start, start + Math.PI);
+		graphics.closePath();
+	}
+
+	/** Stroke a tapered line: each run butt-ended at its own alpha and width, the two ends capped
+	 *  round at the run's — the tail faintest and thinnest, the tip full. */
+	function strokeRuns(
+		graphics: DrawGraphics,
+		runs: WinLineTaperRun[],
+		ends: { tail: WinLineHeadPose; head: WinLineHeadPose },
+		style: { color: string; width: number; alpha: number },
+	): void {
+		if (!runs.length) return;
+		for (const run of runs) {
+			tracePoints(graphics, run.points);
+			graphics.stroke({
+				color: style.color,
+				width: style.width * run.width,
+				alpha: style.alpha * run.alpha,
+				cap: 'butt',
+				join: 'round',
+			});
 		}
-		const target = pathLength(pts) * p;
-		let acc = 0;
-		for (let i = 1; i < pts.length; i += 1) {
-			const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-			if (acc + d <= target) {
-				graphics.lineTo(pts[i].x, pts[i].y);
-				acc += d;
-			} else {
-				const t = d > 0 ? (target - acc) / d : 0;
-				graphics.lineTo(
-					pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t,
-					pts[i - 1].y + (pts[i].y - pts[i - 1].y) * t,
-				);
-				return;
-			}
-		}
+		const first = runs[0];
+		const last = runs[runs.length - 1];
+		capArc(graphics, ends.tail, (style.width * first.width) / 2, 'tail');
+		graphics.fill({ color: style.color, alpha: style.alpha * first.alpha });
+		capArc(graphics, ends.head, (style.width * last.width) / 2, 'head');
+		graphics.fill({ color: style.color, alpha: style.alpha * last.alpha });
 	}
 
 	/** `'cells'` — one vertical segment per winning cell, from its centre ± half a cell. Sub-paths in
@@ -468,8 +590,18 @@
 
 	// Re-created whenever the points or the draw progress change, so the <Graphics>
 	// redraws the growing line (the closure captures the current progress value). Called from the
-	// template per drawn line, so each line in the all-at-once set gets its own stroke pass.
+	// template per drawn line, so each line in the all-at-once set gets its own stroke pass. With an
+	// ADDITIVE glow the halo strokes in its own `<Graphics blendMode="add">` beneath this one
+	// (`glowFor`), and this one draws the rest.
 	function drawFor(entry: DrawnLine) {
+		return paint(entry, glowAdd ? 'line' : 'both');
+	}
+
+	function glowFor(entry: DrawnLine) {
+		return paint(entry, 'glow');
+	}
+
+	function paint(entry: DrawnLine, part: 'both' | 'glow' | 'line') {
 		const pts = entry.points;
 		const full = entry.fullPoints;
 		const p = entry.progress.current;
@@ -491,12 +623,32 @@
 			if (drawn === 'cells') return traceColumns(graphics, pts, half);
 			return tracePath(graphics, pts, p);
 		};
+		// A tapered path strokes in runs that fade and thin toward its start. The runs are cut once
+		// for every stroke, clear of the corners by the widest stroke, so each layer's bands line up.
+		const taper =
+			tapered && drawn === 'path' && pts.length >= 2
+				? {
+						runs: taperRuns(
+							pts,
+							p,
+							line.taper.alpha,
+							line.taper.width,
+							((line.glow ? 4.5 : 1) * coreWidth) / 2,
+						),
+						ends: { tail: poseOf(pts, 0), head: poseOf(pts, p) },
+					}
+				: undefined;
+		const strokeLine = (graphics: DrawGraphics, color: string, width: number, alpha: number) => {
+			if (taper) return strokeRuns(graphics, taper.runs, taper.ends, { color, width, alpha });
+			trace(graphics);
+			graphics.stroke({ color, width, alpha, cap: 'round', join: 'round' });
+		};
 		return (graphics: DrawGraphics) => {
 			// Optional full-payline underlay: the WHOLE path (all reels), drawn COMPLETE (no
 			// animated reveal — it is context, not the win) BENEATH the winning segment, in its own
 			// colour. Off by default, so an un-authored game draws nothing here. Skipped for a column
 			// win — a "full payline" is a connected-line notion that a bar shape has no analogue for.
-			if (drawn === 'path' && line.fullPayline && full.length >= 2) {
+			if (part !== 'glow' && drawn === 'path' && line.fullPayline && full.length >= 2) {
 				tracePath(graphics, full, 1);
 				graphics.stroke({
 					color: line.fullPaylineColor,
@@ -509,41 +661,84 @@
 			if (pts.length < 2) return;
 			// Optional glow: a soft halo built from a few progressively wider, fainter
 			// strokes in the glow colour under the core line (no filter dependency).
-			if (line.glow) {
+			if (line.glow && part !== 'line') {
 				const halos = [
 					{ w: coreWidth * 4.5, a: 0.08 },
 					{ w: coreWidth * 3, a: 0.13 },
 					{ w: coreWidth * 1.8, a: 0.2 },
 				];
-				for (const halo of halos) {
-					trace(graphics);
-					graphics.stroke({
-						color: haloColor,
-						width: halo.w,
-						alpha: halo.a,
-						cap: 'round',
-						join: 'round',
-					});
-				}
+				for (const halo of halos) strokeLine(graphics, haloColor, halo.w, halo.a);
 			}
-			trace(graphics);
-			graphics.stroke({
-				color: coreColor,
-				width: coreWidth,
-				alpha: 0.95,
-				cap: 'round',
-				join: 'round',
-			});
+			if (part === 'glow') return;
+			strokeLine(graphics, coreColor, coreWidth, 0.95);
+			// The white-hot centre: a thinner stroke in its own colour on top of the core.
+			if (line.coreColor) {
+				strokeLine(graphics, line.coreColor, coreWidth * WIN_LINE_CORE_RATIO, 1);
+			}
 		};
 	}
 </script>
+
+<!-- A line's head (Payline style): the trail, emitting from the head while the line draws — its
+     container never moves, the emitter's owner does, so each particle stays where it was born — and
+     the tip riding the head, turned to the line when authored. Gone with the line. -->
+{#snippet headOf(entry: DrawnLine)}
+	{#if entry.head}
+		{@const head = entry.head}
+		{#if head.trails}
+			{#each trailDocs as doc (doc.id)}
+				<FlightView
+					position={() => headPose(entry)}
+					scale={1}
+					emit={head.trailing}
+					headShown={false}
+					trailDoc={doc}
+				/>
+			{/each}
+		{/if}
+		{#if tip && tipLayer && head.tipShown}
+			{@const pose = headPose(entry)}
+			<Container
+				x={pose.x}
+				y={pose.y}
+				rotation={tip.rotateWithLine ? pose.angle : undefined}
+				scale={tip.scale}
+				alpha={head.tipAlpha.current}
+			>
+				<SymbolLayer layer={tipLayer} x={0} y={0} />
+			</Container>
+		{/if}
+		{#if head.bursting && tip?.endEffectId}
+			{@const end = poseOf(entry.points, 1)}
+			<Container x={end.x} y={end.y}>
+				<SymbolLayer
+					layer={{ kind: 'fx', effectId: tip.endEffectId }}
+					x={0}
+					y={0}
+					once
+					oncomplete={() => (head.bursting = false)}
+				/>
+			</Container>
+		{/if}
+	{/if}
+{/snippet}
 
 {#if keep ? !!keptLine : lines.length || cue}
 	<BoardContainer>
 		{#if keep}
 			{#if keptLine}
 				{#if showLine}
+					{#if glowAdd}
+						<Graphics draw={glowFor(keptLine)} visible={keptUp} blendMode="add" />
+					{/if}
 					<Graphics draw={drawFor(keptLine)} visible={keptUp} />
+				{/if}
+				{#if headFx}
+					<Container>
+						{#each lines as entry (entry.id)}
+							{@render headOf(entry)}
+						{/each}
+					</Container>
 				{/if}
 				{#if drawsKeptStamp}
 					<Container
@@ -574,8 +769,18 @@
 			     line's graphics can never be drawn over an earlier line's amount. -->
 			{#if showLine}
 				{#each lines as entry (entry.id)}
+					{#if glowAdd}
+						<Graphics draw={glowFor(entry)} blendMode="add" />
+					{/if}
 					<Graphics draw={drawFor(entry)} />
 				{/each}
+			{/if}
+			{#if headFx}
+				<Container>
+					{#each lines as entry (entry.id)}
+						{@render headOf(entry)}
+					{/each}
+				</Container>
 			{/if}
 
 			{#each lines as entry, index (entry.id)}

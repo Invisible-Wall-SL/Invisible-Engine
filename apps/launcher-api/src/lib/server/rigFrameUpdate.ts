@@ -424,7 +424,9 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 	const freshBones = new Map(fresh.bones.map((b) => [b.name, b]));
 	const freshNames = fresh.bones.map((b) => b.name);
 	const reorder = keepDrawOrders(doc);
-	const isProp = (name: string) => name.startsWith('prop_');
+	// A prop is `prop_…`, or one the input names (a sheet's custom part, named freely).
+	const named = new Set([...input.props, ...input.made.props].map((p) => p.name));
+	const isProp = (name: string) => name.startsWith('prop_') || named.has(name);
 
 	// What the cut no longer makes goes first, so the bones it frees do not stay numbered.
 	for (const [name, was] of Object.entries(input.made.parts)) {

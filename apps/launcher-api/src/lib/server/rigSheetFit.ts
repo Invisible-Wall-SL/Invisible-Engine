@@ -43,12 +43,14 @@ import {
 } from './rigTemplateFit';
 import {
 	templateFitProblem,
+	templateMade,
 	type RigTemplate,
 	type RigTemplateChannel,
 	type TemplateArt,
 	type TemplateRegion,
 } from './rigTemplates';
 import {
+	CUSTOM_NAME,
 	SHEET_JOINTS,
 	sheetKind,
 	sheetLayerList,
@@ -73,6 +75,8 @@ const NAME = /^[^\0/\\]{1,200}$/;
 /** The face mesh the tracker finds (468, or 478 with the irises). */
 const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
+/** The slot the template's mouth shapes swap in. */
+const MOUTH_SLOT = 'mouth';
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
 const MAX_PX = 100_000;
 /** A turn on the arrange canvas, degrees either way. */
@@ -140,16 +144,19 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 	for (const p of raw.props) {
 		if (
 			!isRecord(p) ||
-			extraKey(p, ['name', 'region', 'host', 'bone', 'at', 'turn']) !== undefined ||
+			extraKey(p, ['name', 'region', 'host', 'bone', 'at', 'turn', 'custom']) !== undefined ||
 			typeof p.name !== 'string' ||
 			typeof p.region !== 'string' ||
 			!NAME.test(p.region) ||
 			typeof p.host !== 'string' ||
 			typeof p.bone !== 'string' ||
 			!px(p.at) ||
-			(p.turn !== undefined && !turn(p.turn))
+			(p.turn !== undefined && !turn(p.turn)) ||
+			(p.custom !== undefined && p.custom !== true)
 		)
-			return no('a prop is { name, region, host, bone, at: [x, y], turn?: degrees }');
+			return no(
+				'a prop is { name, region, host, bone, at: [x, y], turn?: degrees, custom?: true }',
+			);
 		props.push({
 			name: p.name,
 			region: p.region,
@@ -157,6 +164,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 			bone: p.bone,
 			at: [p.at[0], p.at[1]],
 			...(p.turn !== undefined ? { turn: p.turn as number } : {}),
+			...(p.custom === true ? { custom: true as const } : {}),
 		});
 	}
 	let arrange: Record<string, SheetPlace> | undefined;
@@ -234,7 +242,9 @@ export function sheetMappingProblem(
 	const bones = new Set(t.bones.map((b) => b.name));
 	const taken = new Set([...t.slots.map((s) => s.name), ...t.parts.map((p) => p.name), ...bones]);
 	for (const p of m.props) {
-		if (!PROP_NAME.test(p.name))
+		if (p.custom && !CUSTOM_NAME.test(p.name))
+			return `a custom part is named with a lowercase letter, then up to 40 lowercase letters, digits or _ (${p.name})`;
+		if (!p.custom && !PROP_NAME.test(p.name))
 			return `a prop is named prop_ and up to 40 lowercase letters, digits or _ (${p.name})`;
 		if (taken.has(p.name))
 			return `the prop ${p.name} is named twice, or like a part of the template`;
@@ -267,6 +277,8 @@ export interface SheetRig {
 	 * up): where an arrangement puts the rig, else (0, 0).
 	 */
 	origin: P;
+	/** Jointed mouth parts made with their slots empty: mouth shapes are mapped too, and win. */
+	hidden: string[];
 }
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -546,6 +558,11 @@ export function sheetRig(
 				: rest.get(x.part)!);
 		art[x.part] = { region: x.map.region, matrix };
 	}
+	// A mouth drawn both as shapes and as its parts: the shapes win (the Mouth control swaps them),
+	// and the jointed parts (the template's optional mouth slots) are made with their slots empty.
+	const shapes = mapped.some((x) => x.slot.name === MOUTH_SLOT);
+	const hidden = shapes ? mapped.filter((x) => x.slot.optional).map((x) => x.part) : [];
+	for (const part of hidden) art[part].hidden = true;
 
 	// The face on a drawn head, where the tracker found it; else the head's middle on the face.
 	const drawnHead = mapped.find((x) => x.kind === 'head' && x.main);
@@ -554,7 +571,12 @@ export function sheetRig(
 		? head.map.face!.map((p) => apply(art[head.part].matrix, imagePoint(head.r, p)))
 		: null;
 	const lengthened: RigFit = { bones, ...(frame ? { frame } : {}) };
-	const found = faceWorld ? frameFace(t, lengthened, faceWorld) : null;
+	// The optional bones the mapped parts ride (a jointed mouth's upper teeth) are placed with the face.
+	const ridden = new Set(mapped.map((x) => x.slot.bone));
+	const optional = new Set(
+		t.bones.filter((b) => b.optional && ridden.has(b.name)).map((b) => b.name),
+	);
+	const found = faceWorld ? frameFace(t, lengthened, faceWorld, optional) : null;
 	const drawn =
 		found ??
 		(drawnHead
@@ -562,6 +584,7 @@ export function sheetRig(
 					t,
 					lengthened,
 					inkBox(drawnHead.r).map((p) => apply(art[drawnHead.part].matrix, p)),
+					optional,
 				)
 			: null);
 
@@ -637,6 +660,7 @@ export function sheetRig(
 			scale: k,
 			face: found ? faceNote(found.moves) : drawn ? APART_FACE : '',
 			origin,
+			hidden,
 		},
 	};
 }
@@ -744,11 +768,15 @@ export function sheetPreview(
 	const made = sheetRig(t, regions, m, { fitLayers: !rig });
 	if (!made.ok) return made;
 	const { fit, art, scale, origin } = made.value;
-	const ft = fitTemplate(t, fit);
+	const all = fitTemplate(t, fit);
+	const ft = templateMade(
+		all,
+		new Set(Object.keys(art).map((n) => all.parts.find((p) => p.name === n)?.slot ?? n)),
+	);
 	const want = sheetLayerOrder(t, m);
 	if (rig && layersJudged(t, fit, m, rig.layers, rig.slots)) {
 		const against =
-			slotsAgainstDepth(ft.channels, inDrawOrder(rig.slots, want), new Set(want)) ??
+			slotsAgainstDepth(all.channels, inDrawOrder(rig.slots, want), new Set(want)) ??
 			layersAgainstDepth(t, { ...fit, order: want });
 		if (against) return { ok: false, problem: against };
 	}

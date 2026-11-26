@@ -8,10 +8,14 @@ import {
 	isManifestAssetKey,
 	normalizeFlights,
 	pruneCoinLabel,
+	pruneWinLineStyle,
 	SYMBOL_STATES,
 	TUMBLE_PATTERNS,
 	TUMBLE_STEP_MS_DEFAULT,
 	TUMBLE_STEP_MS_MAX,
+	WIN_LINE_BLENDS,
+	WIN_LINE_TIP_ENDS,
+	WIN_LINE_TIP_KINDS,
 } from 'engine-layout';
 import { pruneSymbolFx, type SymbolFxMap } from '$lib/symbolFx';
 import { putDocWithBackup, type BackupMode } from './docBackups';
@@ -361,6 +365,33 @@ const winLineLineSchema = z
 		/** The beat between two lines appearing in `allAtOnce` mode, in SECONDS. Unset ⇒ the coded
 		 *  default resolved in `bakedWinLineConfig()`. Only meaningful with `allAtOnce` on. */
 		allAtOnceDelay: z.number().optional(),
+		/** The STYLED PAYLINE (`engine-layout` `winLineStyle.ts`, one home for the shape and its
+		 *  prune): an inner hot-core stroke, the glow's blend, the tail fade, the asset riding the
+		 *  moving tip, the effects trailing it and the draw / impact sounds. Every one absent ⇒ the
+		 *  line as it always drew, silently. */
+		coreColor: z.string().optional(),
+		blend: z.enum(WIN_LINE_BLENDS).optional(),
+		taper: z
+			.object({ alpha: z.number().optional(), width: z.number().optional() })
+			.strict()
+			.optional(),
+		tip: z
+			.object({
+				kind: z.enum(WIN_LINE_TIP_KINDS),
+				assetKey: z.string().optional(),
+				clipId: z.string().optional(),
+				effectId: z.string().optional(),
+				scale: z.number().optional(),
+				rotateWithLine: z.boolean().optional(),
+				blend: z.enum(WIN_LINE_BLENDS).optional(),
+				atEnd: z.enum(WIN_LINE_TIP_ENDS).optional(),
+				endEffectId: z.string().optional(),
+			})
+			.strict()
+			.optional(),
+		trailFx: z.array(z.string()).optional(),
+		drawSound: z.string().optional(),
+		endSound: z.string().optional(),
 	})
 	.strict();
 
@@ -871,7 +902,8 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 	if (!winLine) return undefined;
 	const next: NonNullable<SymbolsDoc['winLine']> = {};
 	if (winLine.enabled === false) next.enabled = false;
-	if (winLine.line && Object.keys(winLine.line).length) next.line = winLine.line;
+	const line = winLine.line ? pruneWinLineStyle(winLine.line) : undefined;
+	if (line && Object.keys(line).length) next.line = line;
 	if (winLine.text) {
 		const text = { ...winLine.text };
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;

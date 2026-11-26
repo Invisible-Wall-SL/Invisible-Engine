@@ -2688,7 +2688,10 @@ const GUARDS = {
 				drawnOrder(skel.drawOrder.map((s) => s.data.name)).join() === own.join(),
 			) && good;
 		const ref = JSON.stringify({ id: t.id, version: t.version, fit: layered.sr.fit });
-		const reopened = M.sidecarTemplate(t, ref).slots.map((s) => s.name);
+		const made = new Set(slots.map((s) => s.name));
+		const reopened = M.sidecarTemplate(t, ref)
+			.slots.map((s) => s.name)
+			.filter((n) => made.has(n));
 		good =
 			ok(
 				"layers: the fit kept in template.json reopens in the author's order",

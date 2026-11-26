@@ -127,6 +127,10 @@
 			0,
 			324
 		],
+		"teeth_upper": [
+			0,
+			314
+		],
 		"jaw": [
 			0,
 			310
@@ -355,6 +359,36 @@
 			"name": "mouth_wide",
 			"slot": "mouth",
 			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "tongue",
+			"slot": "tongue",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "teeth_lower",
+			"slot": "teeth_lower",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "teeth_upper",
+			"slot": "teeth_upper",
+			"bone": "teeth_upper",
+			"required": false
+		},
+		{
+			"name": "lip_lower",
+			"slot": "lip_lower",
+			"bone": "lip_lower",
+			"required": false
+		},
+		{
+			"name": "lip_upper",
+			"slot": "lip_upper",
+			"bone": "lip_upper",
 			"required": false
 		},
 		{
