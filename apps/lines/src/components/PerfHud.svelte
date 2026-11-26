@@ -141,7 +141,12 @@
 	 * came before this mounted, so First Contentful Paint stands in for it.
 	 */
 	const watchNetwork = () => {
-		if (!PerformanceObserver.supportedEntryTypes?.includes('resource')) return;
+		if (
+			typeof PerformanceObserver === 'undefined' ||
+			!PerformanceObserver.supportedEntryTypes?.includes('resource')
+		) {
+			return;
+		}
 		if ((stateApp.pixiApplication?.ticker?.lastTime ?? -1) >= 0) {
 			framed = true;
 			const paint = performance.getEntriesByName('first-contentful-paint')[0];

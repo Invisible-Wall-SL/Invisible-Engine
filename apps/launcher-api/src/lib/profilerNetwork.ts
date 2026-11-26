@@ -169,8 +169,79 @@ const size = (v: unknown): number | null => {
 export const isText = (f: Pick<NetFileFact, 'class' | 'path'>): boolean =>
 	['document', 'js', 'css', 'json'].includes(f.class) || /\.svg$/i.test(f.path);
 
-/** A path as kept: never a query or a hash, even from a probe that sent one. */
-const pathOnly = (v: unknown): string => (str(v, 400) ?? '?').split(/[?#]/)[0].slice(0, 200) || '/';
+/**
+ * The launcher routes whose path carries a credential, and how many segments after the prefix are
+ * one (the probe's `TOKEN_ROUTES` in `apps/lines/src/game/perfNetwork.ts`; `check:profiler` holds the
+ * two equal). Redacted again here, so no token is stored even from an old or untrusted device.
+ */
+export const TOKEN_ROUTES: Readonly<Record<string, number>> = {
+	'/api/deploy/f': 1,
+	'/api/published/f': 1,
+	'/play': 1,
+	'/profiler/go': 2,
+};
+
+/** Each route where it starts a path: the string's start, a host, or the start of a word. */
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Each route where it starts a path: the string's start, after a host, or after any character a
+ * path name cannot hold (prose, `url:`, `[`, `../`). Single slashes: {@link redactTokens} collapses
+ * doubled ones first, so no part of the pattern can backtrack over a run of slashes.
+ */
+const TOKEN_ROUTE_RES = Object.entries(TOKEN_ROUTES).map(
+	([route, n]) =>
+		new RegExp(`(^|//[^/\\s?#]+|[^A-Za-z0-9_~/-])(${escapeRe(route)})((?:/[^/?#]*){1,${n}})`, 'g'),
+);
+
+/**
+ * A string with every token a {@link TOKEN_ROUTES} route carries read `…`. It is matched with its
+ * slashes decoded (`%2F`, `\/`) and doubled ones collapsed (never a scheme's `://`); a token's segment
+ * runs to the next `/`, `?` or `#`, spaces included, since a secret can hold any of them. A string
+ * with no token is returned exactly as it came; one with a token comes back in its decoded form.
+ */
+export function redactTokens(text: string): string {
+	const decoded = text
+		.replace(/%2F/gi, '/')
+		.replace(/\\\//g, '/')
+		.replace(/(?<!:)\/{2,}/g, '/');
+	let out = decoded;
+	for (const re of TOKEN_ROUTE_RES) {
+		out = out.replace(re, (_, lead: string, route: string, rest: string) => {
+			const segments = rest.split('/').length - 1;
+			return `${lead}${route}${'/…'.repeat(segments)}`;
+		});
+	}
+	return out === decoded ? text : out;
+}
+
+/** A path as kept: never a query or a hash, even from a probe that sent one, and never a token. */
+const pathOnly = (v: unknown): string =>
+	redactTokens((str(v, 400) ?? '?').split(/[?#]/)[0]).slice(0, 200) || '/';
+
+const scrub = (v: unknown): unknown =>
+	typeof v === 'string'
+		? redactTokens(v)
+		: Array.isArray(v)
+			? v.map(scrub)
+			: isObj(v)
+				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), scrub(x)]))
+				: v;
+
+/**
+ * A report's text as the launcher keeps it in R2: every string in it, keys included, with its route
+ * tokens read `…` ({@link redactTokens}), whichever field and whichever probe sent it. Text that is not JSON is
+ * returned as it came (the summary refuses it).
+ */
+export function redactReportText(text: string): string {
+	let json: unknown;
+	try {
+		json = JSON.parse(text);
+	} catch {
+		return text;
+	}
+	const kept = JSON.stringify(scrub(json));
+	return kept === JSON.stringify(json) ? text : kept;
+}
 
 function file(v: Obj): NetFileFact {
 	const transfer = size(v.transfer);
@@ -212,8 +283,9 @@ function socket(v: unknown): SocketFacts | null {
 	const inn = isObj(v.in) ? v.in : {};
 	const out = isObj(v.out) ? v.out : {};
 	const per = isObj(v.perSecond) ? v.perSecond : {};
+	const rate = (r: unknown) => Math.max(0, num(r) ?? 0);
 	return {
-		seconds: num(v.seconds) ?? 0,
+		seconds: rate(v.seconds),
 		inMessages: count(inn.messages),
 		inBytes: count(inn.bytes),
 		inLargest: count(inn.largest),
@@ -222,9 +294,9 @@ function socket(v: unknown): SocketFacts | null {
 		outMessages: count(out.messages),
 		outBytes: count(out.bytes),
 		outLargest: count(out.largest),
-		inBytesPerSecond: num(per.inBytes) ?? 0,
-		inMessagesPerSecond: num(per.inMessages) ?? 0,
-		outBytesPerSecond: num(per.outBytes) ?? 0,
+		inBytesPerSecond: rate(per.inBytes),
+		inMessagesPerSecond: rate(per.inMessages),
+		outBytesPerSecond: rate(per.outBytes),
 	};
 }
 

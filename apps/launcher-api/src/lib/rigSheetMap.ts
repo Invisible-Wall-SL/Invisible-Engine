@@ -598,11 +598,16 @@ function psdOrdered<T>(list: readonly T[], region: (x: T) => string): T[] {
 /** A prop's slot drawn just before or after the slot it names, in the order they are inserted. */
 export type SheetPropPlace = SlotPlace & { prop: SheetProp };
 
+/** Worn over the hair, not under it: a prop on the head named so is drawn over `hair_front`. */
+const OVER_HAIR = new Set(['hat', 'cap', 'helmet', 'crown']);
+
 /**
  * Where each prop's slot goes among the template's `slots` (back to front), in the order they are
  * inserted: just over its host's slot (after an arm's last slot, so a watch covers the fingers'
- * seam), or just behind it where the artist's file draws it behind its part (`psdBehind`); the props
- * on one part keep the file's order among themselves. `host` gives a mapped part's slot and region.
+ * seam; on the head over every face part — eye whites, pupils, lids, brows, nose, mouth — and under
+ * the front hair, so glasses sit over the eyes, or over the hair for a hat), or just behind it where
+ * the artist's file draws it behind its part (`psdBehind`); the props on one part keep the file's
+ * order among themselves. `host` gives a mapped part's slot and region.
  */
 export function sheetPropPlaces(
 	slots: readonly string[],
@@ -619,11 +624,15 @@ export function sheetPropPlaces(
 	]) {
 		const slot = host(prop.host).slot;
 		const side = /^(hand|lower_arm)_([lr])$/.exec(slot)?.[2];
-		const beside = side ? armTail(slots, side) : slot;
+		const onFace = slot === 'head' && slots.includes('hair_front');
+		const overHair = onFace && [...canonicalWords(prop.region)].some((w) => OVER_HAIR.has(w));
+		const beside = side ? armTail(slots, side) : overHair ? 'hair_front' : slot;
 		if (behind(prop)) {
 			const key = `-${slot}`;
 			out.push({ prop, name: prop.name, before: after.get(key) ?? slot });
 			after.set(key, prop.name);
+		} else if (onFace && !overHair) {
+			out.push({ prop, name: prop.name, before: 'hair_front' });
 		} else {
 			out.push({ prop, name: prop.name, after: after.get(beside) ?? beside });
 			after.set(beside, prop.name);

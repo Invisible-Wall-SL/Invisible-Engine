@@ -202,9 +202,10 @@ whole page load (Reset does not clear it):
   API / RGS, other), what asked for it, its transfer / encoded / decoded sizes, its start and
   duration, its load stage, and where it came from (cache, a 304, the network).
 - **Paths only.** The query and the hash are dropped before anything is kept (`perfsession`, `sid`
-  and `k` travel there), and a path segment that is a token (`/api/deploy/f/<token>/…`, any long
-  base64url / JWT-like segment) reads `…`. The host is named only when it is not the game's. The
-  launcher strips a query again on receipt.
+  and `k` travel there), and a path segment that is a token (by position under every launcher
+  route that carries one, whatever its format; else any long base64url / JWT-like segment) reads
+  `…`. The host is named only when it is not the game's. The launcher strips a query and redacts
+  those routes again on receipt, before anything is stored.
 - **Size unknown is not 0.** A cross-origin response without `Timing-Allow-Origin` reports every size
   as 0; the probe marks it unknown and counts it apart. The launcher's `/api/deploy`,
   `/api/editor/runtime` and `/api/editor/doc` now send `Timing-Allow-Origin: *` (they already
