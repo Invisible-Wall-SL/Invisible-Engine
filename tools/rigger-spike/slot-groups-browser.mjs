@@ -33,7 +33,7 @@ const MUTANTS = [
 	['⤓ in Setup sets the alpha instead of multiplying it', 'const alphaTimes = (hex, k) => hex.slice(0, 6) + hex2(parseInt(hex.slice(6, 8) || "ff", 16) / 255 * k);', 'const alphaTimes = (hex, k) => hex.slice(0, 6) + hex2(k);'],
 	['⤓ leaves the slider where it was', '  setSlotGroupAlpha(g.id, 1);\n  renderSlotGroups();\n}\n\n// The group eyes again', '  renderSlotGroups();\n}\n\n// The group eyes again'],
 	['a slot rename does not follow into the groups', '  renameInControls("slot", oldName, newName);\n', ''],
-	['⤓ in Animate keys rgba over split rgb / alpha keys', '      if (slotSplitColour(n)) keySlotSplitAlpha', '      if (false) keySlotSplitAlpha'],
+	['⤓ in Animate keys rgba over split rgb / alpha keys', 'if (slotSplitColour(slotName)){ keySlotSplit(slotName, hex, part, null); return; }', 'if (false){ keySlotSplit(slotName, hex, part, null); return; }'],
 	['the group rename leaves its opacity behind', '  setSlotGroupAlpha("u:" + from, 1); setSlotGroupAlpha("u:" + to, a);\n', ''],
 ];
 

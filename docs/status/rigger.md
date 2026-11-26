@@ -183,6 +183,23 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **A slot's colour keys go on the timeline its clip already uses.** The slot panel's
+  opacity slider and ◆ Key opacity, its colour picker, ◆ Key, ◆ Key all and ⤓ wrote an `rgba` key
+  on a slot whose clip colours it with the split 4.2 `rgb` / `alpha` (or `rgb2`) timelines, and
+  engine-rig reads `rgba` after them, so the game lost the clip's fades. One path now:
+  `keySlotColor(slot, hex, part)` keys `alpha` for an opacity change and `rgb` (`rgb2`, carrying the
+  dark, on a two-colour slot) for a colour change on such a slot; with no `part` (◆ Key, Key all)
+  only the split timelines the clip has. Slots with no colour keys or with `rgba` / `rgba2` keep
+  today's keys, so no clip ends with both kinds on a slot. A dark colour over `rgb` keys, which carry
+  none, is refused with a hint. The panel reads the opacity the split keys play
+  (`slotColorAt` / `slotDarkAt` via `splitColourAt`), the Animate stage now poses `rgb` / `rgb2` /
+  `alpha` keys in the clip's order (`poseAtTime`), and they get timeline rows (✕ / retime / copy).
+  Re-keying an eased colour key now refits its value handles to the new value
+  (`upsertBoneKey`, now given the colour key's values). Setup is unchanged: there the only
+  colour writers are ⤓ (setup alpha) and the dark-colour switch. Guard:
+  `tools/rigger-spike/slot-colour-keys-browser.mjs` (26 checks played through engine-rig,
+  `--mutants` 8/8). Open: the easing buttons still cover only `rgba` / `rgba2` keys.
+
 - 2026-11-25 — **Your own slot groups, with a view opacity.** ＋ in the Slots header saves the
   Shift / Ctrl selection as a named group, beside the template's groups (layers, swap `hides`), with
   the same eye (click, Alt / right-click solo); ✎ renames, 🗑 deletes. The groups are kept in the
@@ -198,9 +215,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   colours with the split `rgb` / `alpha` timelines, since an `rgba` key is read after them and
   would override both — and the slider goes back to 100 %. Guards: `check:rig-controls` (schema,
   fit, rename), `tools/rigger-spike/slot-groups-browser.mjs` (46 checks vs engine-rig's playback,
-  `--mutants` 7/7). Open: the slot panel's own opacity slider and ◆ Key still key `rgba` on a slot
-  with split `rgb` / `alpha` keys (the bug ⤓ avoids), and `keySlotColor` keeps an eased key's curve
-  without refitting its value handles. Not yet confirmed in the authed WebGL page.
+  `--mutants` 7/7). Not yet confirmed in the authed WebGL page.
 
 - 2026-11-25 — **↑ ↓ on a slot no longer throws the panel back to the top.** Every structural
   rebuild (`rebuildFromRawDoc` → `buildInspector`) empties the inspector's lists, which clamped the

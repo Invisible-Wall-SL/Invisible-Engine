@@ -12923,7 +12923,7 @@ function renderShapeKeys(det, slotName){
 }
 
 // Animate-mode slot editor: key the slot's ATTACHMENT (which image shows) and COLOUR
-// at the playhead. Stepped attachment swaps + rgba colour fades.
+// at the playhead. Stepped attachment swaps + colour fades (on the split rgb / alpha keys when the clip has them).
 function renderSlotAnimDetail(det, slotIndex, sd){
   det.innerHTML = "";
   const title = document.createElement("div");
@@ -12954,7 +12954,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const l = document.createElement("span"); l.textContent = "colour"; l.style.cssText = "width:54px;";
     const cp = document.createElement("input"); cp.type = "color"; cp.value = "#" + hex.slice(0, 6); cp.style.cssText = "width:38px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel2);border-radius:5px;";
     const note = document.createElement("span"); note.textContent = "tint"; note.style.cssText = "color:var(--dim);";
-    cp.oninput = () => keySlotColor(sd.name, cp.value.slice(1) + slotColorAt(sd.name, animTime).slice(6, 8));
+    cp.oninput = () => keySlotColor(sd.name, cp.value.slice(1) + slotColorAt(sd.name, animTime).slice(6, 8), "rgb");
     r.appendChild(l); r.appendChild(cp); r.appendChild(note); det.appendChild(r);
   }
   // opacity (alpha): dedicated keyframable control — fade the object in / out over time
@@ -12964,7 +12964,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const l = document.createElement("span"); l.textContent = "opacity"; l.style.cssText = "width:54px;";
     const av = document.createElement("input"); av.type = "range"; av.min = "0"; av.max = "100"; av.value = Math.round(alpha * 100); av.style.flex = "1";
     const aPct = document.createElement("span"); aPct.textContent = Math.round(alpha * 100) + "%"; aPct.style.cssText = "width:40px;text-align:right;";
-    const commit = () => keySlotColor(sd.name, slotColorAt(sd.name, animTime).slice(0, 6) + hex2(parseInt(av.value, 10) / 100));
+    const commit = () => keySlotColor(sd.name, slotColorAt(sd.name, animTime).slice(0, 6) + hex2(parseInt(av.value, 10) / 100), "alpha");
     av.oninput = () => { aPct.textContent = av.value + "%"; }; av.onchange = commit;
     r.appendChild(l); r.appendChild(av); r.appendChild(aPct); det.appendChild(r);
     const kb = document.createElement("button");
@@ -14435,27 +14435,6 @@ function deleteSlotGroup(name){
   setSlotGroupAlpha("u:" + name, 1);
   renderSlotGroups();
 }
-// A slot whose open clip colours it with the 4.2 split timelines (`rgb`, `rgb2`, `alpha`): an `rgba`
-// key would be read after them and override both, so its opacity is keyed on `alpha`.
-function slotSplitColour(slotName){ const cs = slotChannel(slotName); return !!cs && !!(cs.alpha || cs.rgb || cs.rgb2); }
-// Such a slot's alpha at `t`: its `alpha` keys (value 0 when a key has none, as the reader takes it),
-// its setup alpha before the first one or without any.
-function slotSplitAlphaAt(slotName, t){
-  const cs = slotChannel(slotName), keys = (cs && cs.alpha) || [];
-  if (!keys.length || t < keys[0].time) return hexToRGBA(slotColorAt(slotName, t)).a;
-  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
-  const a = keys[i], b = keys[i + 1], va = a.value ?? 0;
-  if (!b || a.curve === "stepped") return va;
-  const vb = b.value ?? 0;
-  if (Array.isArray(a.curve)) return bezierValue(a.time, va, a.curve[0], a.curve[1], a.curve[2], a.curve[3], b.time, vb, t);
-  return b.time > a.time ? va + (vb - va) * (t - a.time) / (b.time - a.time) : va;
-}
-function keySlotSplitAlpha(slotName, value){
-  const cs = rawDoc.animations[curAnim].slots[slotName];
-  cs.alpha = cs.alpha || [];
-  upsertBoneKey(cs.alpha, roundN(animTime, 4), { value: roundN(value, 4) });
-  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
-}
 // ⤓ writes a group's view opacity into the rig. Setup MULTIPLIES each member's setup alpha by it,
 // which is what the stage showed (setup alpha × view opacity), where setting it would change any
 // slot not at 100%; Animate keys each member's opacity at the playhead as its alpha there × it. The
@@ -14476,10 +14455,7 @@ function applySlotGroupAlpha(g){
       return true;
     }
     if (!ensureCurAnim()) return false;
-    for (const n of names){
-      if (slotSplitColour(n)) keySlotSplitAlpha(n, slotSplitAlphaAt(n, animTime) * k);
-      else keySlotColor(n, alphaTimes(slotColorAt(n, animTime), k));
-    }
+    for (const n of names) keySlotColor(n, alphaTimes(slotColorAt(n, animTime), k), "alpha");
     return true;
   });
   if (!done) return;
@@ -17852,7 +17828,7 @@ function poseAtTime(name, t, additive){
       } else bone[prop] = (additive ? bone[prop] : bd[prop]) + (k.value || 0);
     }
   }
-  // slot channels (5.4): attachment swap (stepped) + rgba colour
+  // slot channels (5.4): attachment swap (stepped) + colour (rgba, rgba2 and the split rgb / rgb2 / alpha)
   if (a.slots){
     for (const [sn, ch] of Object.entries(a.slots)){
       const slot = skeleton.findSlot(sn); if (!slot) continue;
@@ -17864,6 +17840,11 @@ function poseAtTime(name, t, additive){
       if (ch.rgba && ch.rgba.length){ const c = sampleColor(ch.rgba, t); if (c) slot.color.set(c.r, c.g, c.b, c.a); }
       // §18.4 two-color tinting: rgba2 drives slot.color (light) AND slot.darkColor (dark).
       if (ch.rgba2 && ch.rgba2.length){ const c = sampleColor2(ch.rgba2, t); if (c){ slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a); if (slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a); } }
+      if (ch.rgb || ch.rgb2 || ch.alpha){
+        const c = splitColourAt(ch, slot.data.color, slot.data.darkColor, t);
+        slot.color.set(c.light.r, c.light.g, c.light.b, c.light.a);
+        if (c.dark && slot.darkColor) slot.darkColor.set(c.dark.r, c.dark.g, c.dark.b, slot.darkColor.a);
+      }
     }
   }
   // draw-order channel: reorder the live draw order to the last key ≤ t (setup otherwise)
@@ -17967,14 +17948,17 @@ function upsertKey(arr, time, fields){
 // key's own curve (the segment out of it) and the previous key's (the segment into it) are refitted
 // to the new value: each handle keeps its place between the segment's two values (a flat segment's
 // first handle follows its start, its second its end — where every ease preset puts them).
-function upsertBoneKey(arr, time, fields){
+// `valuesOf(key)`: the key's values in curve order when they are not `fields` as numbers (a colour
+// key's channels, `COLOUR_KEY_VALUES`).
+function upsertBoneKey(arr, time, fields, valuesOf = (k) => Object.keys(fields).map((n) => k[n] ?? 0)){
   const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4), old = i >= 0 ? arr[i] : null;
   upsertKey(arr, time, fields);
   if (!old) return;
-  const names = Object.keys(fields), key = arr[i], prev = arr[i - 1], next = arr[i + 1];
+  const key = arr[i], prev = arr[i - 1], next = arr[i + 1];
   const refit = (seg, a, b, a2, b2) => { // seg's curve: values a→b become a2→b2
-    for (let vi = 0; vi < names.length; vi++) for (let c = 0; c < 2; c++){
-      const n = vi * 4 + c * 2 + 1, va = a[names[vi]] ?? 0, vb = b[names[vi]] ?? 0, wa = a2[names[vi]] ?? 0, wb = b2[names[vi]] ?? 0;
+    const [A, B, A2, B2] = [a, b, a2, b2].map(valuesOf);
+    for (let vi = 0; vi < A.length; vi++) for (let c = 0; c < 2; c++){
+      const n = vi * 4 + c * 2 + 1, va = A[vi], vb = B[vi], wa = A2[vi], wb = B2[vi];
       if (typeof seg.curve[n] !== "number") continue;
       seg.curve[n] = roundN(Math.abs(vb - va) > 1e-9 ? wa + (seg.curve[n] - va) / (vb - va) * (wb - wa) : seg.curve[n] + (c ? wb - vb : wa - va), 4);
     }
@@ -18193,21 +18177,25 @@ function slotAttachmentAt(slotName, t){
 }
 function slotColorAt(slotName, t){
   const cs = slotChannel(slotName);
+  if (slotSplitColour(slotName)) return rgbaToHex(splitColourAt(cs, hexToRGBA(slotSetupColour(slotName)), null, t).light);
   // Two-color slots carry their LIGHT colour on the rgba2 timeline (not rgba).
   if (slotIsTwoColor(slotName)){ if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbaToHex(c.light); } }
   else if (cs && cs.rgba && cs.rgba.length){ const c = sampleColor(cs.rgba, t); if (c) return rgbaToHex(c); }
-  const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff";
+  return slotSetupColour(slotName);
 }
-// Resolved DARK colour (rgb hex) for a two-color slot at the playhead (rgba2 over setup `dark`).
+function slotSetupColour(slotName){ const sd = rawDoc.slots.find((s) => s.name === slotName); return (sd && sd.color) || "ffffffff"; }
+// Resolved DARK colour (rgb hex) for a two-color slot at the playhead (rgba2 / rgb2 over setup `dark`).
 function slotDarkAt(slotName, t){
   const cs = slotChannel(slotName);
+  if (slotSplitColour(slotName)) return rgbToHex(splitColourAt(cs, hexToRGBA(slotSetupColour(slotName)), hexToRGBA(slotSetupDark(slotName)), t).dark);
   if (cs && cs.rgba2 && cs.rgba2.length){ const c = sampleColor2(cs.rgba2, t); if (c) return rgbToHex(c.dark); }
   return slotSetupDark(slotName);
 }
 // Key a slot's attachment (stepped) / colour at the playhead.
 /** A slot's channels in the open clip: a drawing slot's image keys in a 3D clip are its bake's (§4.7). */
 function slotChs(slotName){
-  return clip3d(curAnim) && rig3d.doc.views && rig3d.doc.views[slotName] ? ["rgba", "rgba2"] : ["attachment", "rgba", "rgba2"];
+  const colour = ["rgba", "rgba2", "rgb", "alpha", "rgb2"];
+  return clip3d(curAnim) && rig3d.doc.views && rig3d.doc.views[slotName] ? colour : ["attachment", ...colour];
 }
 function keySlotAttachment(slotName, name){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
@@ -18221,31 +18209,86 @@ function keySlotAttachment(slotName, name){
   if (i >= 0) cs.attachment[i] = key; else { cs.attachment.push(key); cs.attachment.sort((x, y) => x.time - y.time); }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
-function keySlotColor(slotName, hex){
-  if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  // Two-color slots key LIGHT + DARK together through rgba2; carry the current dark.
-  if (slotIsTwoColor(slotName)){ keySlotRgba2(slotName, hex.slice(0, 8), slotDarkAt(slotName, animTime)); return; }
+// The open clip's keys for a slot, made when it has none.
+function slotKeysOf(slotName){
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  return ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+}
+// A colour key's values in curve order, by timeline (as the 4.2 reader takes them; `alpha`'s
+// missing value is 0).
+const COLOUR_KEY_VALUES = {
+  rgba: (k) => { const c = hexToRGBA(k.color); return [c.r, c.g, c.b, c.a]; },
+  rgb: (k) => { const c = hexToRGBA(k.color); return [c.r, c.g, c.b]; },
+  alpha: (k) => [k.value ?? 0],
+  rgba2: (k) => { const l = hexToRGBA(k.light), d = hexToRGBA(k.dark); return [l.r, l.g, l.b, l.a, d.r, d.g, d.b]; },
+  rgb2: (k) => { const l = hexToRGBA(k.light), d = hexToRGBA(k.dark); return [l.r, l.g, l.b, d.r, d.g, d.b]; },
+};
+// Keys `keys` play at `t`: null before the first, where the reader holds the setup colour.
+function sampleCurveKeys(keys, t, valuesOf){
+  if (!keys || !keys.length || t < keys[0].time) return null;
+  let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
+  const a = keys[i], b = keys[i + 1], va = valuesOf(a);
+  if (!b || a.curve === "stepped") return va;
+  const vb = valuesOf(b), u = b.time > a.time ? (t - a.time) / (b.time - a.time) : 0;
+  return va.map((v, vi) => Array.isArray(a.curve)
+    ? bezierValue(a.time, v, a.curve[vi * 4], a.curve[vi * 4 + 1], a.curve[vi * 4 + 2], a.curve[vi * 4 + 3], b.time, vb[vi], t)
+    : v + (vb[vi] - v) * u);
+}
+// A slot the open clip colours with the 4.2 split timelines (`rgb` / `rgb2`, `alpha`): its keys go
+// there, since an `rgba` / `rgba2` key is read after them and overrides both. So no clip gets both.
+function slotSplitColour(slotName){ const cs = slotChannel(slotName); return !!cs && !!(cs.alpha || cs.rgb || cs.rgb2); }
+// The colour split timelines `ch` play at `t` over `light` / `dark` (the setup's; dark may be null),
+// in the clip's own order as the reader runs them.
+function splitColourAt(ch, light, dark, t){
+  const L = { r: light.r, g: light.g, b: light.b, a: light.a }, D = dark ? { r: dark.r, g: dark.g, b: dark.b } : null;
+  for (const [kind, keys] of Object.entries(ch)){
+    if (kind !== "rgb" && kind !== "rgb2" && kind !== "alpha") continue;
+    const v = sampleCurveKeys(keys, t, COLOUR_KEY_VALUES[kind]); if (!v) continue;
+    if (kind === "alpha"){ L.a = v[0]; continue; }
+    L.r = v[0]; L.g = v[1]; L.b = v[2];
+    if (kind === "rgb2" && D){ D.r = v[3]; D.g = v[4]; D.b = v[5]; }
+  }
+  return { light: L, dark: D };
+}
+// Key a slot's colour `hex` (rrggbbaa) at the playhead. `part` says what changed ("rgb", "alpha";
+// none: both): a split slot keys only that timeline (none: those its clip has, so ◆ Key adds no
+// kind); every other slot keys rgba (two-colour: rgba2, carrying the dark) as a whole.
+function keySlotColor(slotName, hex, part){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  if (slotSplitColour(slotName)){ keySlotSplit(slotName, hex, part, null); return; }
+  if (slotIsTwoColor(slotName)){ keySlotRgba2(slotName, hex.slice(0, 8), slotDarkAt(slotName, animTime)); return; }
+  const cs = slotKeysOf(slotName);
   cs.rgba = cs.rgba || [];
-  const i = cs.rgba.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
-  const key = { time: roundN(animTime, 4), color: hex };
-  if (i >= 0){ if (cs.rgba[i].curve) key.curve = cs.rgba[i].curve; cs.rgba[i] = key; } else { cs.rgba.push(key); cs.rgba.sort((x, y) => x.time - y.time); }
+  upsertBoneKey(cs.rgba, animTime, { color: hex }, COLOUR_KEY_VALUES.rgba);
+  markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
+}
+// A split slot's key: `alpha` for its opacity, its light timeline for its colour — `rgb2` (carrying
+// `dark`, or the dark there) when the clip has it, or on a two-colour slot the clip gives neither.
+function keySlotSplit(slotName, hex, part, dark){
+  const cs = slotKeysOf(slotName), light = cs.rgb2 || (!cs.rgb && slotIsTwoColor(slotName)) ? "rgb2" : "rgb";
+  if (part === "alpha" || (!part && cs.alpha)){
+    cs.alpha = cs.alpha || [];
+    upsertBoneKey(cs.alpha, animTime, { value: roundN(hexToRGBA(hex).a, 4) }, COLOUR_KEY_VALUES.alpha);
+  }
+  if (part === "rgb" || part === "dark" || (!part && cs[light])){
+    cs[light] = cs[light] || [];
+    upsertBoneKey(cs[light], animTime, light === "rgb2" ? { light: hex.slice(0, 6), dark: dark || slotDarkAt(slotName, animTime) } : { color: hex.slice(0, 6) }, COLOUR_KEY_VALUES[light]);
+  }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 // Key a two-color slot's DARK colour at the playhead; carries the current light.
 function keySlotDark(slotName, darkHex){
   if (!rawDoc || !animMode || !ensureCurAnim() || !slotIsTwoColor(slotName)) return;
-  keySlotRgba2(slotName, slotColorAt(slotName, animTime).slice(0, 8), darkHex.slice(0, 6));
+  if (!slotSplitColour(slotName)){ keySlotRgba2(slotName, slotColorAt(slotName, animTime).slice(0, 8), darkHex.slice(0, 6)); return; }
+  const cs = slotChannel(slotName);
+  if (cs.rgb && !cs.rgb2){ $("#hint").textContent = "🎨 This clip colours " + slotName + " with rgb keys, which carry no dark colour"; return; }
+  keySlotSplit(slotName, slotColorAt(slotName, animTime), "dark", darkHex.slice(0, 6));
 }
 // Write a single rgba2 key {light: rrggbbaa, dark: rrggbb} at the playhead (two-color slots).
 function keySlotRgba2(slotName, lightHex, darkHex){
-  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
+  const cs = slotKeysOf(slotName);
   cs.rgba2 = cs.rgba2 || [];
-  const i = cs.rgba2.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
-  const key = { time: roundN(animTime, 4), light: lightHex, dark: darkHex };
-  if (i >= 0){ if (cs.rgba2[i].curve) key.curve = cs.rgba2[i].curve; cs.rgba2[i] = key; } else { cs.rgba2.push(key); cs.rgba2.sort((x, y) => x.time - y.time); }
+  upsertBoneKey(cs.rgba2, animTime, { light: lightHex, dark: darkHex }, COLOUR_KEY_VALUES.rgba2);
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 // Outgoing-curve type of a slot's colour key at a time ("linear"|"stepped"|"bezier").
@@ -18326,7 +18369,7 @@ function retimeBoneKey(boneName, oldTime, newTime){
 }
 
 const BONE_CH_LABEL = { orient: "3D turn", rotate: "rotation", depth: "depth", translate: "translate", scale: "scale", shear: "shear" };
-const SLOT_CH_LABEL = { attachment: "image", rgba: "colour", rgba2: "colour (2-tone)" };
+const SLOT_CH_LABEL = { attachment: "image", rgba: "colour", rgba2: "colour (2-tone)", rgb: "colour (rgb)", alpha: "opacity", rgb2: "colour (2-tone rgb)" };
 // Tracks shown as rows. Overview ("sel" off) = one collapsed row per keyed bone/slot.
 // Focused ("sel" on) = the selected bone/slot EXPANDED into per-channel rows, so each
 // keyframe is clearly tied to a property (rotation / translate / scale / image / colour).

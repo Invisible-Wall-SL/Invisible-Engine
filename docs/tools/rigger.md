@@ -943,7 +943,13 @@ Three things to know before you use it:
     (Linear / Stepped / Ease In / Out / In-Out) shape the interpolation out of it.
 
   Colour and opacity share one `rgba` timeline under the hood (byte-valid rig
-  4.2), so editing one never clobbers the other.
+  4.2), so editing one never clobbers the other. A clip that already colours the slot with
+  separate colour and alpha keys (common in rigs from other editors) keeps them: opacity keys go on
+  its alpha keys and colour keys on its colour keys, so the game plays both. The panel shows the
+  opacity the game plays there, and the timeline lists those keys as **opacity** / **colour (rgb)**
+  rows. The easing buttons cover the `rgba` keys only. A two-tone slot with separate keys keys its
+  dark colour with its colour; over colour keys that carry no dark colour, the dark colour is not
+  keyed and the hint says why.
 - **Mesh shapes (deform keys).** Select a mesh's slot (in the tree) and its vertices
   show as handles: **drag a vertex** to key the mesh's shape at the playhead. Scrub
   elsewhere and drag again for a second shape; the mesh eases from one to the next.
