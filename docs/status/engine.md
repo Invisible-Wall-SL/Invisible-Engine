@@ -610,6 +610,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
+  (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
+  too high: title cut, a black strip over Safari's toolbar, the profiler readout off the top. iOS
+  scrolls a body that only has `overflow: hidden`. `apps/lines/src/app.html` (every runtime's shell)
+  now pins `html`/`body` (`position: fixed; inset: 0`, `overscroll-behavior: none`,
+  `touch-action: manipulation`) and the viewport tag has `initial-scale=1`; `PerfHud` follows
+  `visualViewport`. An embed delivery has no shell of ours, so `scripts/build-embed.mjs`'s `game.js`
+  pins only the `#game` container (never the partner's page or body), and `EMBED.md` says so. #1937
+  re-recorded all five runtimes in `scripts/runtime-bytes/`; the follow-up re-recorded the two arcade ones. Checked in Chromium at 430 × 739 (no
+  scroll, canvas fills, readout shown); **not yet checked on a real iPhone** (Chromium does not
+  scroll like Safari). Lesson: `docs/knowledge/lessons/engine-shell.md`.
+
 - 2026-11-19 — **Runtime builds no longer depend on the checkout's folder** (#1728). Svelte names a
   component from `rootDir`, by default the build's cwd (`apps/lines`), so a component under
   `packages/*` kept its absolute path and its `svelte-<hash>` class hashed it: one commit built in
