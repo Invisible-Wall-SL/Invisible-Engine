@@ -15,6 +15,22 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-26 · Phase 12 · director-backend + director-frontend (15A built)
+- Did: Update from main (`POST …/update`, `update-branch` as the App with `expected_head_sha`;
+  409 `head_moved` / `conflict` / `workflow_refused`, GitHub's text kept, capped) and On hold /
+  Resume (`…/hold`, `…/resume`: the `on-hold` label and one App comment). Held changes read grey,
+  sort last, and every action refuses them on the server. The 14-day hint on a conflicted draft.
+  Pure decisions in `view.ts`. `BLOCKED_CONFLICT_TEXT` unchanged; no Resolve button.
+- Files: `pipelineUpdate.ts`, `pipelineHold.ts`, `pipelineChanges.ts`, `pipelineMerge.ts`,
+  `pipelineRuntimeBytes.ts`, three routes under `api/pipeline/changes/[number]/`, `view.ts`,
+  `ChangeDetailPanel.svelte`, `+page.svelte`, `check-pipeline-changes.ts`, the tool doc, status.
+- Branch / PR: `pipeline-15a`, based on #1936; not pushed.
+- Tests: `check:pipeline-changes` pass; `check:bug-fix-runs` 172 pass; svelte-check 44 (baseline 44);
+  lint and `check:undefined-names` clean.
+- Decisions: Put on hold is offered with the 14-day hint only; "since <date>" is the detail's.
+- Next: the workflows spike after deploy (steps in `docs/status/bug-reports.md`); owner makes the
+  `on-hold` label; 15B1 and 15C.
+
 ## 2026-11-26 · Phase 12 · director-architect (ADR-0015 proposed)
 - Did: wrote ADR-0015 after the owner's "no way to fix [the conflict] from the pipeline". Measured
   the window 11-04…11-26: 219 of 298 branch merges of main conflicted (112 PRs); 52% purely

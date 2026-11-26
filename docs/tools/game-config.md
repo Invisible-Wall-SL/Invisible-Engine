@@ -433,15 +433,28 @@ has no family control at all. Three more families exist
     Salmons' 9 built-in rocks as thumbnails from the project's `salmons_props` sheet; a swatch in
     the game's colours for what the river draws in code (bridges, sea, source); "Invisible (rules
     only)" for a rule-only family; "Nothing drawn" for a family no built-in art draws), **Sheet frame** (the Scene
-    Editor's region picker, over the project's sheets), or **Flipbook clip** (a list of the
-    project's clips; greyed out when the project has none). Clips have an optional **fps** (blank:
-    the clip's own). A thumbnail of the frame, or of the clip's first frame, sits beside it.
+    Editor's region picker, over the project's sheets), **Flipbook clip** (a list of the
+    project's clips; greyed out when the project has none), or **Rig** (greyed out when the
+    project has no rigs). Clips have an optional **fps** (blank: the clip's own). A thumbnail of
+    the frame, or of the clip's first frame, sits beside it.
+    - **Rig** shows the rig picker Invisible Characters uses (the project's rigs, then the shared
+      library's marked "(shared)"), then **Animation**, a list of that rig's animations ("Reading
+      its animations…" while they load). Picking another rig keeps the animation when the new rig
+      has one of that name, and otherwise asks for one before anything is saved. **Loop** (on by
+      default): on, every zone starts the animation at its own point, picked by the room's seed,
+      so neighbours do not move in step; off, it plays once from its start and holds its last
+      pose. A rig or animation the project no longer has shows "(not in this project)" or
+      "(not in this rig)". There is no preview of the rig on the card. A family drawn with a rig on
+      more than 100 zones of the level shown (Salmons' 318 sandbanks) shows an amber warning: as
+      many rigs on screen cost a phone several milliseconds a frame.
   - **＋ Variant** adds a picture, a copy of the first, to change (at most 8). Each zone draws one
     of the pictures, chosen by the room's seed and the zone, the same on every device. A variant's
     **Remove variant** takes it out. Setting the first picture to **Default** moves the first
     variant up.
   - **Scenery → Trees** (Salmons' generators only): a row under the zone rows, with the same
-    **Drawn with**, **＋ Variant**, **Scale** and bin. Hover **Scenery** for what it does. Trees
+    **Drawn with**, **＋ Variant**, **Scale** and bin, but no **Rig**: it is greyed out (hover it
+    for why). Salmons draws about 430 trees, and as many rigs are too heavy for a phone. Hover
+    **Scenery** for what it does. Trees
     are not a zone: the river places them itself (the forest past the source and the sea and
     beyond the banks, and the trees on the grass). **Default** reads "Built-in trees, 6 kinds",
     with `tree_0`–`tree_5` from the project's `salmons_props` sheet as thumbnails. With a picture
@@ -461,8 +474,9 @@ has no family control at all. Three more families exist
   - A family that no stored zone has is listed in amber, and the save warns that it is never
     drawn. A generated level is not checked: its families depend on the seed.
   - The art is for the eye only: it changes no rule and no level, and a room does not check it.
-    The frames and clips it names ship with the game though no scene places them. Raw JSON keeps
-    a pasted `arcade.zoneArt`.
+    The frames, clips and rigs it names ship with the game though no scene places them. Raw JSON
+    keeps a pasted `arcade.zoneArt`. A rig picture with no rig or no animation, or one on the
+    trees, is dropped on save, and the save warns of it.
 - **Card game** — the duel's rules
   ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
   default:

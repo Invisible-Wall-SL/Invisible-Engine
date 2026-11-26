@@ -76,6 +76,7 @@
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import FamilySection from './FamilySection.svelte';
+	import type { ZoneArtRigs } from './zoneArtDoc';
 	import GameModesSection from './GameModesSection.svelte';
 	import WildsSections from './WildsSections.svelte';
 	import {
@@ -549,24 +550,41 @@
 		return [...keys];
 	});
 
-	// Prefetch manifest meta for each needed bundle once (hit OR miss). A key that later resolves
-	// re-renders its dropdown via the `SvelteMap`; a transient failure retries on a fresh key set.
+	/** Fetch a bundle's manifest meta once (hit OR miss). A key that later resolves re-renders its
+	 *  dropdown via the `SvelteMap`. */
+	function readRigAnimations(key: string) {
+		if (requestedRigKeys.has(key)) return;
+		requestedRigKeys.add(key);
+		void (async () => {
+			try {
+				const res = await fetch(`/api/editor/rig/meta?key=${encodeURIComponent(key)}`);
+				if (!res.ok) return;
+				const body = (await res.json()) as { found?: boolean; animations?: string[] };
+				if (body.found) rigAnimations.set(key, body.animations ?? []);
+			} catch {
+				/* offline / transient */
+			}
+		})();
+	}
 	$effect(() => {
-		for (const key of neededCardRigKeys) {
-			if (requestedRigKeys.has(key)) continue;
-			requestedRigKeys.add(key);
-			void (async () => {
-				try {
-					const res = await fetch(`/api/editor/rig/meta?key=${encodeURIComponent(key)}`);
-					if (!res.ok) return;
-					const body = (await res.json()) as { found?: boolean; animations?: string[] };
-					if (body.found) rigAnimations.set(key, body.animations ?? []);
-				} catch {
-					/* offline / transient — a later edit re-triggers via a fresh key set */
-				}
-			})();
-		}
+		for (const key of neededCardRigKeys) readRigAnimations(key);
 	});
+
+	/** The project's rigs for the Zone art card (the list a character sheet's rig picker shows),
+	 *  their animations read through the same cache. */
+	const zoneArtRigs: ZoneArtRigs = {
+		get list() {
+			return data.spines;
+		},
+		animationsOf: (name) => {
+			const key = rigKeyForName(name);
+			return key ? rigAnimations.get(key) : undefined;
+		},
+		read: (name) => {
+			const key = rigKeyForName(name);
+			if (key) readRigAnimations(key);
+		},
+	};
 
 	/** A `color`-kind param stores a NUMBER (e.g. 0xffffff); `<input type="color">` speaks `#rrggbb`. */
 	function toColorInput(value: string | number | boolean | undefined, fallback: number): string {
@@ -1655,6 +1673,7 @@
 				projectKey={data.projectKey}
 				pickSheets={data.pickSheets}
 				clips={data.clips}
+				rigs={zoneArtRigs}
 			/>
 		{/if}
 

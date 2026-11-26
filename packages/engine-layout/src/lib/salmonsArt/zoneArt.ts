@@ -4,6 +4,7 @@ import type { Texture } from 'pixi.js';
 
 import { editorArtTextureKey } from '../editorArtKey';
 import { resolveFlipbook } from '../registerFlipbooks';
+import type { ZoneRigDraw } from '../zoneArtRig';
 
 /**
  * THE ZONE ART A SALMONS RIVER IS DRAWN WITH (`docs/design/zone-art.md`): the room's zone stamps
@@ -11,7 +12,8 @@ import { resolveFlipbook } from '../registerFlipbooks';
  * game's loaded assets, read when the river mounts. `river.ts` draws a rock or a whirlpool whose
  * zone has a stamp with the stamp's picture in the built-in one's place, any other stamp upright on
  * its zone, and every tree with one of the trees' pictures in place of `tree_N`. A zone with no
- * stamp, a tree with no art, or one whose picture is not loaded, draws as the built-in art does.
+ * stamp, a tree with no art, or one whose picture is not loaded (a rig too, or one with no rig
+ * drawing), draws as the built-in art does.
  */
 export type SalmonsZoneArt = {
 	stamps: readonly ZoneStamp[];
@@ -19,12 +21,21 @@ export type SalmonsZoneArt = {
 	trees?: ZoneArt;
 	/** The game's loaded assets (`pixi-svelte` `stateApp.loadedAssets`). */
 	assets: () => Record<string, unknown> | undefined;
+	/** Loads the rig drawing (`engine-layout/zone-art-rig`), handed by the runtime only when the
+	 *  art names a rig, so this chunk never imports it; `undefined` when it did not load. The art
+	 *  loads it beside its textures (`loadSalmonsArt`). */
+	loadRig?: () => Promise<ZoneRigDraw | undefined>;
 };
+
+/** The zone art as the river draws it: the rig drawing loaded. Absent ⇒ a rig picture draws the
+ *  built-in piece. */
+export type RiverZoneArt = Omit<SalmonsZoneArt, 'loadRig'> & { rig?: ZoneRigDraw };
 
 /** A stamp's picture as the river draws it: its frames (one for a sheet's frame) and their rate. */
 export type ZoneFrames = { textures: Texture[]; fps: number };
 
-/** `source`'s frames among `assets`, or `undefined` while any is missing (the built-in draws). */
+/** `source`'s frames among `assets`, or `undefined` while any is missing (the built-in draws);
+ *  none for a rig, which is drawn by the rig drawing. */
 export function zoneFrames(
 	source: ZoneArtSource,
 	assets: Record<string, unknown> | undefined,
@@ -36,6 +47,7 @@ export function zoneFrames(
 		] as Texture | undefined;
 		return texture ? { textures: [texture], fps: 0 } : undefined;
 	}
+	if (source.kind !== 'flipbook') return undefined;
 	const clip = resolveFlipbook(source.clip);
 	if (!clip) return undefined;
 	const { textures, missing } = resolveClipFrames(clip, assets);

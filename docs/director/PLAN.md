@@ -163,7 +163,9 @@ change says in plain words what it is. Nothing starts until the owner approves A
 
 Update from main when GitHub can merge cleanly; Resolve conflict otherwise: mechanical files by
 rules in code, real conflicts proposed by Claude Code, nothing lands until a person accepts. Cards
-15A–15D are in the ADR's phasing. 15A (Update from main, On hold, the workflows spike) is in progress.
+15A–15D are in the ADR's phasing. 15A built 2026-11-26 (Update from main, On hold and Resume; branch
+`pipeline-15a`, the owner merges). Left: the workflows spike, which needs the real App after deploy
+(steps in `docs/status/bug-reports.md`), and the owner creating the `on-hold` label. Next: 15B1, 15C.
 
 ## Phase 6 — Pilot
 
