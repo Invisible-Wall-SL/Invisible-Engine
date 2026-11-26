@@ -100,7 +100,6 @@ const EXPRESSIONS = {
 	'secrets.ANTHROPIC_BUG_FIX_API_KEY': CANARY.key,
 	'steps.brief.outputs.budget': '15',
 	'inputs.fix_run': 'abcdef0123',
-	'inputs.mode': 'build',
 };
 function expand(value) {
 	return String(value).replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr) => {

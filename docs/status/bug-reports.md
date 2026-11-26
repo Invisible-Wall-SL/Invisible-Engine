@@ -150,12 +150,12 @@ server module, routes, page components, triage, screenshots, the pull-request li
     409 `{ message, code: 'fix_decision_mismatch' }`. The change detail carries `fixRun`
     (`ChangeFixRun`, `pipelineChanges.ts`), read from the database and never from the PR body, and
     its "why" is the run's `changed`.
-  - **Run names say diagnose or build.** `bug-fix.yml` takes `fix_run` and `mode` (choice) and is
-    named `Fix run <id> · <mode>`; the launcher dispatches both. The job still trusts the brief's
-    mode: `collect.mjs brief` fails when the input and the brief disagree. The binding (first
-    contact, the backstop, Stop's search) accepts the new title for the run's own mode and, for the
-    runs already in flight when this shipped, the bare `Fix run <id>` (`isFixRunTitle`; a live run
-    lasts 90 minutes at most).
+  - **Run names say diagnose or build (follow-up PR, not shipped with 14B).** `bug-fix.yml` is
+    unchanged here: one input, `fix_run`, named `Fix run <id>`. The follow-up PR, which edits the
+    workflow and so is merged by the owner by hand, adds a `mode` input (choice), names the run
+    `Fix run <id> · <mode>`, dispatches both inputs, and has `collect.mjs brief` fail when the
+    input and the brief's mode disagree. The binding (first contact, the backstop, Stop's search)
+    already accepts both titles (`isFixRunTitle`), so that PR can land at any time.
   - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
     One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).
     `reason` holds the launcher's own sentence and `summary` the run's words. `result_at` is the
@@ -290,9 +290,8 @@ server module, routes, page components, triage, screenshots, the pull-request li
   `risks`; `parseResult`/`settleChange` refuse a result without them and a build with no recorded
   decision; `publication()` writes the PR body under the fixed headings; `fixDecisionState`,
   `ChangeFixRun`/`fixRunOfChange` and the 409 `fix_decision_mismatch` at `markReadyForReview` and
-  `mergeChange`; `bug-fix.yml` gains the `mode` input and the `Fix run <id> · <mode>` name, with
-  the old name still bound. `check:bug-fix-workflow` gains `inputs-checked` and
-  `explanation-fields`, an input/brief mismatch mutant and mutants for the new trigger and name;
+  `mergeChange`; the binding accepts `Fix run <id>` and `Fix run <id> · <mode>`.
+  `check:bug-fix-workflow` gains `explanation-fields`;
   `check:bug-fix-runs` (172), `check:pipeline-changes` (7,972) and `check:bug-reports` (144) cover
   the new paths. `prove-cli.mjs` and `bug-fix-proof.yml` are unchanged. **Open:** the Pipeline
   Changes "What you're approving" card (reads `ChangeDetail.fixRun`), and the Actions run-name in

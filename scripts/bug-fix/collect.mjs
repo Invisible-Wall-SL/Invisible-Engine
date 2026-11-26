@@ -254,7 +254,7 @@ export function diagnosisText({ diagnosis: d }) {
 }
 
 /** The brief's answer, checked: what the later steps rely on, never echoed. */
-export function checkBrief(body, id, inputMode) {
+export function checkBrief(body, id) {
 	if (!body || typeof body !== 'object') fail('The brief is not a JSON object.');
 	if (body.fixRun !== id) fail('The brief is for another fix run.');
 	if (typeof body.baseSha !== 'string' || !SHA.test(body.baseSha)) {
@@ -278,7 +278,6 @@ export function checkBrief(body, id, inputMode) {
 	}
 	const mode = body.mode === undefined ? 'build' : body.mode;
 	if (!MODES.includes(mode)) fail('The brief names a mode the job does not know.');
-	if (inputMode !== mode) fail('The mode the run was started with is not the brief’s mode.');
 	const chosen =
 		body.mode === 'build'
 			? checkDecision(body.decision, body.diagnosis)
@@ -302,7 +301,7 @@ async function brief() {
 	const auth = { authorization: `Bearer ${token}`, accept: 'application/json' };
 	const res = await request(launcher(`${id}/brief`), { headers: auth }, 'for the brief');
 	if (!res.ok) fail(`The launcher answered ${res.status} for the brief.`);
-	const got = checkBrief(await res.json().catch(() => null), id, env('FIX_MODE'));
+	const got = checkBrief(await res.json().catch(() => null), id);
 	mkdirSync(p.bug, { recursive: true });
 	writeFileSync(join(p.bug, 'brief.md'), `${got.brief.replace(/\r\n?/g, '\n').trimEnd()}\n`);
 	if (got.decision) {

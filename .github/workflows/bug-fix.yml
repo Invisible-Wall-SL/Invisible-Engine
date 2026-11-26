@@ -1,9 +1,7 @@
 # Bug fix — a fix run on a pipeline bug (ADR-0013, docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md).
 #
-# The launcher dispatches this on `main` through its GitHub App when a person presses Start fix (a
-# diagnose run) or Build (a build run), with TWO inputs, the fix run's id and its mode (inputs are
-# public; the bug's number and text never are). The mode is only the run's name: the job trusts the
-# brief's mode, and collect.mjs fails it when the two disagree. The job
+# The launcher dispatches this on `main` through its GitHub App when a person presses Start fix,
+# with ONE input, the fix run's id (inputs are public; the bug's number and text never are). The job
 # reads the bug back from the launcher with a GitHub OIDC token, runs Claude Code headless with the
 # repository's build agents (pipeline-triage → the owning agent → the gates → code-reviewer), and
 # POSTs the change it leaves in the checkout. It never commits, pushes or opens anything: the
@@ -49,8 +47,8 @@
 
 name: Bug fix
 
-# The launcher binds the run by this title (`fixRunRunName`, apps/launcher-api/src/lib/bugFixRuns.ts).
-run-name: Fix run ${{ inputs.fix_run }} · ${{ inputs.mode }}
+# The launcher binds the run by this title (`fixRunName`, apps/launcher-api/src/lib/bugFixRuns.ts).
+run-name: Fix run ${{ inputs.fix_run }}
 
 on:
   workflow_dispatch:
@@ -59,13 +57,6 @@ on:
         description: The launcher's fix run id (10 lowercase hex characters)
         required: true
         type: string
-      mode:
-        description: What the run does (diagnose or build)
-        required: true
-        type: choice
-        options:
-          - diagnose
-          - build
 
 permissions:
   contents: read
@@ -73,7 +64,6 @@ permissions:
 
 env:
   FIX_RUN: ${{ inputs.fix_run }}
-  FIX_MODE: ${{ inputs.mode }}
   LAUNCHER_URL: https://app.invisiblewall.org
   CLAUDE_CODE_VERSION: 2.1.311
   CLAUDE_CODE_INTEGRITY: sha512-dk1lVMt7n+NlYucKM7dLp/PfrK32pa/4oKQkacfazlSj8rG+hkH67wnDnaFG9Gs2al3OjK8PTVHgZ2WGHXoWUg==
@@ -90,10 +80,6 @@ jobs:
         run: |
           if [[ ! "$FIX_RUN" =~ ^[0-9a-f]{10}$ ]]; then
             echo '::error title=bug-fix::fix_run is not a fix run id'
-            exit 1
-          fi
-          if [[ ! "$FIX_MODE" =~ ^(diagnose|build)$ ]]; then
-            echo '::error title=bug-fix::mode is not diagnose or build'
             exit 1
           fi
 

@@ -52,7 +52,6 @@ const FILES = {
 	currentGames: read('.github/workflows/current-games.yml'),
 	launcher: read('apps/launcher-api/src/lib/bugFixRuns.ts'),
 	server: read('apps/launcher-api/src/lib/server/bugFixRuns.ts'),
-	actions: read('apps/launcher-api/src/lib/server/bugFixRunsActions.ts'),
 	change: read('apps/launcher-api/src/lib/server/bugFixRunsChange.ts'),
 	vendored: read('apps/launcher-api/scripts/check-vendored-bundles.mjs'),
 };
@@ -487,36 +486,12 @@ export function problems(files) {
 		.map((s) => `${s.run ?? ''}\n${JSON.stringify(s.env ?? {})}\n${JSON.stringify(s.with ?? {})}`)
 		.join('\n');
 
-	// ADR §10: a trigger other than workflow_dispatch; two inputs, the run's id and its mode (ADR-0014:
-	// a choice of the launcher's own modes, which only names the run: the job trusts the brief's).
-	const launcherModes = quoted(
-		/\nexport const FIX_RUN_MODES = \[([\s\S]*?)\] as const/.exec(files.launcher)?.[1] ?? '',
-	);
-	const inputs = wf.on?.workflow_dispatch?.inputs ?? {};
+	// ADR §10: a trigger other than workflow_dispatch; one input, the run's id.
 	rule(
 		'trigger',
 		Object.keys(wf.on ?? {}).join() === 'workflow_dispatch' &&
-			Object.keys(inputs).join() === 'fix_run,mode' &&
-			inputs.fix_run.type === 'string' &&
-			inputs.mode.type === 'choice' &&
-			launcherModes.length === 2 &&
-			same(inputs.mode.options ?? [], launcherModes) &&
-			files.actions.includes('inputs: { fix_run: id, mode },'),
-	);
-	// Both inputs are checked before anything runs, and the mode input reaches the brief step as an
-	// environment variable (never pasted into a script), where collect.mjs holds it against the brief's.
-	const checkRun = String(named('Check the fix run id').run ?? '');
-	rule(
-		'inputs-checked',
-		wf.env?.FIX_RUN === '${{ inputs.fix_run }}' &&
-			wf.env?.FIX_MODE === '${{ inputs.mode }}' &&
-			checkRun.includes('[[ ! "$FIX_RUN" =~ ^[0-9a-f]{10}$ ]]') &&
-			checkRun.includes('[[ ! "$FIX_MODE" =~ ^(diagnose|build)$ ]]') &&
-			(checkRun.match(/exit 1/g) ?? []).length === 2 &&
-			files.collect.includes(
-				"checkBrief(await res.json().catch(() => null), id, env('FIX_MODE'))",
-			) &&
-			files.collect.includes('if (inputMode !== mode) fail('),
+			Object.keys(wf.on.workflow_dispatch?.inputs ?? {}).join() === 'fix_run' &&
+			wf.on.workflow_dispatch.inputs.fix_run.type === 'string',
 	);
 	// ADR §10: permissions other than contents: read and id-token: write, at any level.
 	rule(
@@ -664,7 +639,7 @@ export function problems(files) {
 	// The launcher binds the Actions run by its title.
 	rule(
 		'run-name',
-		wf['run-name'] === 'Fix run ${{ inputs.fix_run }} · ${{ inputs.mode }}' &&
+		wf['run-name'] === 'Fix run ${{ inputs.fix_run }}' &&
 			files.launcher.includes(
 				'export const fixRunName = (id: string): string => `Fix run ${id}`;',
 			) &&
@@ -1335,14 +1310,8 @@ const MUTANTS = [
 	[
 		'run-name',
 		'workflow',
-		'run-name: Fix run ${{ inputs.fix_run }} · ${{ inputs.mode }}',
 		'run-name: Fix run ${{ inputs.fix_run }}',
-	],
-	[
-		'run-name',
-		'workflow',
-		'run-name: Fix run ${{ inputs.fix_run }} · ${{ inputs.mode }}',
-		'run-name: Bug fix ${{ inputs.fix_run }} · ${{ inputs.mode }}',
+		'run-name: Bug fix ${{ inputs.fix_run }}',
 	],
 	[
 		'run-name',
@@ -1350,24 +1319,12 @@ const MUTANTS = [
 		'title === fixRunRunName(id, mode) || title === fixRunName(id)',
 		'title === fixRunRunName(id, mode)',
 	],
-	['trigger', 'workflow', '      mode:\n', '      mode_of_run:\n'],
-	['trigger', 'workflow', '        type: choice\n', '        type: string\n'],
-	['trigger', 'workflow', '          - build\n', '          - build\n          - publish\n'],
-	['trigger', 'actions', 'inputs: { fix_run: id, mode },', 'inputs: { fix_run: id },'],
 	[
-		'inputs-checked',
-		'workflow',
-		'          if [[ ! "$FIX_MODE" =~ ^(diagnose|build)$ ]]; then\n            echo \'::error title=bug-fix::mode is not diagnose or build\'\n            exit 1\n          fi\n',
-		'',
+		'run-name',
+		'launcher',
+		'title === fixRunRunName(id, mode) || title === fixRunName(id)',
+		'title === fixRunName(id)',
 	],
-	['inputs-checked', 'workflow', '  FIX_MODE: ${{ inputs.mode }}\n', '  FIX_MODE: build\n'],
-	[
-		'inputs-checked',
-		'collect',
-		"checkBrief(await res.json().catch(() => null), id, env('FIX_MODE'))",
-		"checkBrief(await res.json().catch(() => null), id, 'build')",
-	],
-	['inputs-checked', 'collect', 'if (inputMode !== mode) fail(', 'if (false) fail('],
 	[
 		'audience',
 		'collect',
@@ -2254,9 +2211,9 @@ const goodBrief = {
 	brief: 'text',
 	screenshots: [],
 };
-const refuses = (b, input = b.mode ?? 'build') => {
+const refuses = (b) => {
 	try {
-		C.checkBrief(b, 'abcdef0123', input);
+		C.checkBrief(b, 'abcdef0123');
 		return false;
 	} catch {
 		return true;
@@ -2286,19 +2243,13 @@ const diagnosis = {
 };
 const decision = { optionId: 'B', name: 'Leave it', change: 'ch', note: null };
 const buildBrief = { ...goodBrief, mode: 'build', decision, diagnosis };
+check(C.checkBrief(goodBrief, 'abcdef0123').mode === 'build', 'a brief with no mode is a build');
 check(
-	C.checkBrief(goodBrief, 'abcdef0123', 'build').mode === 'build',
-	'a brief with no mode is a build',
-);
-check(
-	C.checkBrief(
-		{ ...goodBrief, mode: 'diagnose', decision: null, diagnosis: null },
-		'abcdef0123',
-		'diagnose',
-	).mode === 'diagnose',
+	C.checkBrief({ ...goodBrief, mode: 'diagnose', decision: null, diagnosis: null }, 'abcdef0123')
+		.mode === 'diagnose',
 	'checkBrief takes a diagnose brief',
 );
-const built = C.checkBrief(buildBrief, 'abcdef0123', 'build');
+const built = C.checkBrief(buildBrief, 'abcdef0123');
 check(
 	built.mode === 'build' &&
 		built.decision.optionId === 'B' &&
@@ -2326,18 +2277,6 @@ for (const [why, b] of [
 	['a diagnose run that carries a decision', { ...goodBrief, mode: 'diagnose', decision }],
 ])
 	check(refuses(b), `checkBrief refuses ${why}`);
-
-// The mode the run was dispatched with is only its name: the job fails when the brief disagrees.
-const diagnoseBrief = { ...goodBrief, mode: 'diagnose', decision: null, diagnosis: null };
-check(
-	refuses(buildBrief, 'diagnose') &&
-		refuses(diagnoseBrief, 'build') &&
-		refuses(goodBrief, 'diagnose') &&
-		refuses(buildBrief, null) &&
-		refuses(buildBrief, 'fixit') &&
-		!refuses(diagnoseBrief, 'diagnose'),
-	'checkBrief refuses an input mode that is not the brief’s, absent or unknown',
-);
 
 // The usage: the result line's whole-run figures; without one, the streamed messages once each.
 const streamWithResult = [
@@ -2831,7 +2770,6 @@ const runCollect = (cmd) =>
 				PATH: process.env.PATH,
 				SYSTEMROOT: process.env.SYSTEMROOT,
 				FIX_RUN: 'abcdef0123',
-				FIX_MODE: 'build',
 				LAUNCHER_URL: base,
 				RUNNER_TEMP: rt,
 				GITHUB_WORKSPACE: ws,
@@ -3005,25 +2943,12 @@ const COLLECT_MUTANTS = [
 		async (M) => M.forMode(FILES.coordinator, 'diagnose').includes('Implement only this option'),
 	],
 	[
-		'the input mode must be the brief’s',
-		'if (inputMode !== mode) fail(',
-		'if (false) fail(',
-		async (M) => {
-			try {
-				M.checkBrief(buildBrief, 'abcdef0123', 'diagnose');
-				return true;
-			} catch {
-				return false;
-			}
-		},
-	],
-	[
 		'a build must carry its decision',
 		"body.mode === 'build'\n\t\t\t? checkDecision",
 		'false\n\t\t\t? checkDecision',
 		async (M) => {
 			try {
-				M.checkBrief({ ...goodBrief, mode: 'build' }, 'abcdef0123', 'build');
+				M.checkBrief({ ...goodBrief, mode: 'build' }, 'abcdef0123');
 				return true;
 			} catch {
 				return false;

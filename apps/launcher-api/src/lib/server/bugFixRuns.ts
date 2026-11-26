@@ -350,7 +350,7 @@ async function mainSha(app: GithubApp): Promise<string> {
  * `dispatched` for the backstop to find (or give up on at 15 minutes).
  */
 async function dispatch(app: GithubApp, run: BugFixRun): Promise<BugFixRun> {
-	const sent = await dispatchFixRun(app, run.id, run.mode);
+	const sent = await dispatchFixRun(app, run.id);
 	if (sent.kind === 'refused') {
 		const ended = await settleFixRun(
 			run.id,
