@@ -150,7 +150,10 @@ export interface NetworkBlock {
 	byStage: Record<NetStage, NetTotals>;
 	/** The heaviest files by weight (size-unknown ones last), heaviest first. */
 	heaviest: NetFile[];
-	/** Paths whose body crossed the network more than once in this load. */
+	/**
+	 * Paths whose body crossed the network more than once in this load. Only the first
+	 * {@link CROSSED_KEPT} distinct paths are watched: a later one's second download is not seen.
+	 */
 	repeats: { path: string; host?: string; count: number; bytes: number }[];
 	rgs: RgsStats;
 	socket?: SocketStats;
@@ -254,6 +257,7 @@ export function safeUrl(raw: string, pageOrigin: string): SafeUrl {
 	let prefix = '';
 	let tokens = 0;
 	const path = url.pathname
+		.replace(/\/{2,}/g, '/')
 		.split('/')
 		.map((segment, i) => {
 			tokens = Math.max(tokens - 1, TOKEN_ROUTES[prefix] ?? 0);
@@ -588,7 +592,14 @@ export function createNetworkMonitor(pageOrigin: string, loadId: number): Networ
 					.filter((r) => r.count > 1)
 					.sort((a, b) => b.bytes - a.bytes)
 					.slice(0, REPEATS_KEPT),
-				rgs: { ...rgs, slowest: [...rgs.slowest], ms: msStats(rgsMs) },
+				rgs: {
+					requests: rgs.requests,
+					bytes: rgs.bytes,
+					unknown: rgs.unknown,
+					largest: rgs.largest,
+					ms: msStats(rgsMs),
+					slowest: [...rgs.slowest],
+				},
 				...(opts?.socket && opts.socket.inMessages + opts.socket.outMessages > 0
 					? { socket: socketStats(opts.socket) }
 					: {}),

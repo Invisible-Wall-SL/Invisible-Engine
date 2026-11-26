@@ -182,24 +182,36 @@ export const TOKEN_ROUTES: Readonly<Record<string, number>> = {
 };
 
 /** Each route where it starts a path: the string's start, a host, or the start of a word. */
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Each route where it starts a path: the string's start, after a host, or after any character a
+ * path name cannot hold (prose, `url:`, `[`, `../`). Single slashes: {@link redactTokens} collapses
+ * doubled ones first, so no part of the pattern can backtrack over a run of slashes.
+ */
 const TOKEN_ROUTE_RES = Object.entries(TOKEN_ROUTES).map(
-	([route, n]) => new RegExp(`(^|//[^/\\s?#]+|[\\s"'(=,])(${route})((?:/[^/?#]*){1,${n}})`, 'g'),
+	([route, n]) =>
+		new RegExp(`(^|//[^/\\s?#]+|[^A-Za-z0-9_~/-])(${escapeRe(route)})((?:/[^/?#]*){1,${n}})`, 'g'),
 );
 
 /**
- * A string with every token a {@link TOKEN_ROUTES} route carries read `…`, where the route starts
- * the string, follows a host (`https://app…/api/deploy/f/<token>/…`) or starts a word in prose. A
- * token's segment runs to the next `/`, `?` or `#`, spaces included: a secret can hold any of them.
+ * A string with every token a {@link TOKEN_ROUTES} route carries read `…`. It is matched with its
+ * slashes decoded (`%2F`, `\/`) and doubled ones collapsed (never a scheme's `://`); a token's segment
+ * runs to the next `/`, `?` or `#`, spaces included, since a secret can hold any of them. A string
+ * with no token is returned exactly as it came; one with a token comes back in its decoded form.
  */
 export function redactTokens(text: string): string {
-	let out = text;
+	const decoded = text
+		.replace(/%2F/gi, '/')
+		.replace(/\\\//g, '/')
+		.replace(/(?<!:)\/{2,}/g, '/');
+	let out = decoded;
 	for (const re of TOKEN_ROUTE_RES) {
 		out = out.replace(re, (_, lead: string, route: string, rest: string) => {
 			const segments = rest.split('/').length - 1;
 			return `${lead}${route}${'/…'.repeat(segments)}`;
 		});
 	}
-	return out;
+	return out === decoded ? text : out;
 }
 
 /** A path as kept: never a query or a hash, even from a probe that sent one, and never a token. */
@@ -212,12 +224,12 @@ const scrub = (v: unknown): unknown =>
 		: Array.isArray(v)
 			? v.map(scrub)
 			: isObj(v)
-				? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x)]))
+				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), scrub(x)]))
 				: v;
 
 /**
- * A report's text as the launcher keeps it in R2: every string in it with its route tokens read `…`
- * ({@link redactTokens}), whichever field and whichever probe sent it. Text that is not JSON is
+ * A report's text as the launcher keeps it in R2: every string in it, keys included, with its route
+ * tokens read `…` ({@link redactTokens}), whichever field and whichever probe sent it. Text that is not JSON is
  * returned as it came (the summary refuses it).
  */
 export function redactReportText(text: string): string {

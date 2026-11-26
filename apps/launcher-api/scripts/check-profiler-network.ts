@@ -277,6 +277,24 @@ test('20. the launcher never stores a route token, even from a probe that sent o
 		'a clean report is kept byte for byte',
 	);
 	assert.equal(redactTokens('/assets/play/button.png'), '/assets/play/button.png');
+	// The code review's forms (2026-11-26): a key, any separator before a route, doubled slashes,
+	// slashes escaped or percent-encoded.
+	const forms = [
+		`url:/play/${DIGITLESS}`,
+		`[/play/${DIGITLESS}]`,
+		`<a>/play/${DIGITLESS}`,
+		`;/api/deploy/f/${DIGITLESS}/x`,
+		`../api/deploy/f/${DIGITLESS}/x`,
+		`//api/deploy/f/${DIGITLESS}`,
+		`/api/deploy/f//${SECRET}/x`,
+		`https://h//api/published/f/${SECRET}/x`,
+		`\\/play\\/${DIGITLESS}`,
+		`redirect=%2Fplay%2F${DIGITLESS}`,
+		`%2Fapi%2Fpublished%2Ff%2F${encodeURIComponent(SECRET)}%2Fx`,
+	];
+	for (const f of forms) assert.deepEqual(leaked(redactTokens(f)), [], f);
+	const keyed = redactReportText(JSON.stringify({ perf: 9, map: { [`/play/${DIGITLESS}`]: 1 } }));
+	assert.deepEqual(leaked(keyed), [], 'an object key');
 	// Mutant: a launcher that redacts only the deploy tree keeps the published token.
 	const deployOnly = (t: string) => t.replace(/(\/api\/deploy\/f\/)[^/"]+/g, '$1…');
 	assert.throws(() => assert.deepEqual(leaked(deployOnly(sent)), []), assert.AssertionError);

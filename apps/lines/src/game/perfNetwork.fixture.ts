@@ -101,6 +101,8 @@ check(
 		safeUrl(`https://app.invisiblewall.org/api/published/f/${secret}/borut/s7/a.webp`, PAGE).path,
 		safeUrl(`https://app.invisiblewall.org/play/${digitless}`, PAGE).path,
 		safeUrl(`https://app.invisiblewall.org/profiler/go/link-1/${digitless}`, PAGE).path,
+		safeUrl(`https://app.invisiblewall.org/api/deploy/f//${digitless}/x`, PAGE).path,
+		safeUrl(`https://app.invisiblewall.org//api/published/f/${digitless}/x`, PAGE).path,
 	],
 	[
 		'/api/published/f/…/borut/s7/a.webp',
@@ -108,6 +110,8 @@ check(
 		'/api/published/f/…/borut/s7/a.webp',
 		'/play/…',
 		'/profiler/go/…/…',
+		'/api/deploy/f/…/x',
+		'/api/published/f/…/x',
 	],
 );
 /** A browser's timing entry: its fields are prototype getters, so a spread of it copies nothing. */

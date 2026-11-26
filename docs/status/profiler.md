@@ -449,8 +449,10 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   - **Token leak.** The probe redacted only `/api/deploy/f/<token>` by position; a published boot's
     `/api/published/f/<token>/…` relied on the shape guess, which misses a digit-less read token
     (~0.8% of `mintReadToken`'s) and any `EDITOR_DOC_SECRET`. Now `TOKEN_ROUTES` (the deploy and
-    published trees, `/play/<token>`, `/profiler/go/<link>/<token>`) redacts by position in the probe,
-    and the launcher scrubs every string of a report before it writes R2 and in the facts' paths.
+    published trees, `/play/<token>`, `/profiler/go/<link>/<token>`) redacts by position in the probe
+    (doubled slashes collapsed first), and the launcher scrubs every string and key of a report
+    before it writes R2 and in the facts' paths — a route after any non-path character, with `%2F` /
+    `\/` slashes decoded and doubled ones collapsed (linear: ~0.2 s on an 8 MB worst case).
     Gate 19 holds the two lists equal and equal to every `[token]` folder under `src/routes`, with a
     digit-less token and a free-form secret; gate 20 sends a leaky report from an "old probe" and
     finds no token in R2's text or the facts; a mutant dropping `/api/published/f` fails both.
@@ -461,6 +463,12 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
     `check:profiler`) proves a 21,800-entry soak gives the same block whether the stages settled
     before the files or after.
   - Nits: `socket()` clamps negative seconds and rates; `profiler.ts`'s long comment line wrapped.
+  - Known limit: `repeats` watches the first 2000 distinct paths (`CROSSED_KEPT`), so a later
+    path's second download is not seen; above 2000 files held before the first frame and boot, a
+    file is folded at the stage it reads then.
+  - Reviewed by `code-reviewer` (nothing blocking); its gaps in the launcher's scrub (keys, other
+    separators, encoded or doubled slashes) and the probe's doubled-slash miss were fixed, each with a
+    gate case.
 
 - 2026-11-26 — **P9 "Network" (#1939, merged as c6945262d; a runtime release)**: the owner asked, after
   profiling Salmons, to see whether anything is too heavy to transfer. Design:
