@@ -45,10 +45,12 @@
 <SectionCard scope="profiler" id="compare" title="Compare">
 	{#snippet info()}
 		<p>
-			Any two readings side by side: per phase fps, p95 frame time, frames over 33 ms and frames,
-			then what each frame did (draws, passes, texture uploads, GL calls, JS ms) and texture memory,
-			with B − A. Green is better, red worse — a difference, not a verdict: two devices, or a lab
-			run beside a phone, differ for reasons a build did not cause.
+			Any two readings side by side: per phase fps, p95 frame time, frames over 33 ms and frames
+			(idle, spinning and round for a slot; menu and play for an arcade game), then what each frame
+			did (draws, passes, texture uploads, GL calls, JS ms — and an arcade game's sim steps, sim ms,
+			bodies, room ms and patches) and texture memory, with B − A. Green is better, red worse — a
+			difference, not a verdict: two devices, or a lab run beside a phone, differ for reasons a
+			build did not cause.
 		</p>
 	{/snippet}
 	<div class="pick">

@@ -269,7 +269,11 @@ export function chooseSalmonsStart(host: SalmonsStartHost): Promise<StartChoice>
 				if (sum !== undefined && total !== undefined && sum > total) {
 					splash.play();
 					rivers.animate(
-						[{ transform: 'scale(1)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }],
+						[
+							{ transform: 'scale(1)' },
+							{ transform: `scale(${1 + MENU.popGrow})` },
+							{ transform: 'scale(1)' },
+						],
 						MENU.popMs,
 					);
 				}

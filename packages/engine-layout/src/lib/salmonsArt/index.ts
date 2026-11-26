@@ -25,7 +25,7 @@ import { createWading, type WadeDrawn, type WadeFrame } from './wade';
 import { wadeSurface, warmWade } from './wadeFilter';
 import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';
-import type { SalmonsZoneArt } from './zoneArt';
+import type { RiverZoneArt, SalmonsZoneArt } from './zoneArt';
 
 /**
  * SALMONS' ORIGINAL ART, BUILT IN (`engine-layout/salmons-art`): the river and the characters
@@ -123,8 +123,8 @@ export type SalmonsArt = {
  * Load the art and make the kit that draws `river` (a room's own, from its `seed`): each region
  * from the project's published sheets (`sheets`) when they ship it, else the built-in copy.
  * `stains` is how see-through the game's config draws the blood (`arcade.online.rules.stains`);
- * `zoneArt` the room's zone stamps and its trees' art (Game Config `arcade.zoneArt`), none ⇒ the
- * built-in art alone.
+ * `zoneArt` the room's zone stamps and its trees' art (Game Config `arcade.zoneArt`), its rig
+ * drawing loaded beside the textures when it names a rig; none ⇒ the built-in art alone.
  */
 export async function loadSalmonsArt(
 	river: SalmonsRiverDrawing,
@@ -133,7 +133,14 @@ export async function loadSalmonsArt(
 	stains?: { opacity?: number; trailOpacity?: number },
 	zoneArt?: SalmonsZoneArt,
 ): Promise<SalmonsArt> {
-	const textures = await loadSalmonsTextures(sheets);
+	// The rig drawing, when zone art names a rig, loads beside the textures.
+	const [textures, rig] = await Promise.all([loadSalmonsTextures(sheets), zoneArt?.loadRig?.()]);
+	const riverZoneArt: RiverZoneArt | undefined = zoneArt && {
+		stamps: zoneArt.stamps,
+		trees: zoneArt.trees,
+		assets: zoneArt.assets,
+		...(rig ? { rig } : {}),
+	};
 	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
 	const elevation = riverElevation(river.waterfalls);
 	const blood = createBlood(
@@ -155,7 +162,7 @@ export async function loadSalmonsArt(
 				river,
 				seed,
 				worldDrawing().projector,
-				zoneArt,
+				riverZoneArt,
 			);
 			const stains = blood.mount(into, app);
 			warmWade(app);

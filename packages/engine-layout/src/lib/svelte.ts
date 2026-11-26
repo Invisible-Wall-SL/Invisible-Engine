@@ -100,6 +100,8 @@ export {
 	setFieldArt,
 	type ArtMount,
 } from './arcadeArt.svelte';
+// Art drawn in code mounted in a node's place: the arcade runtime's zone-art rig stamps use it too.
+export { default as MountedArt } from './MountedArt.svelte';
 export {
 	clearMarks,
 	setLinks,

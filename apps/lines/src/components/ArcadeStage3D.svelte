@@ -20,6 +20,7 @@
 		registerCamera3dFlow,
 		type Camera3dFlowHost,
 	} from '../game/camera3dFlow';
+	import { arcadePerf } from '../game/arcadePerf';
 	import { gameAssetsBase } from '../game/assets';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
@@ -341,6 +342,8 @@
 				// Online, the room view and its state listener live with the room (`game/online3d.ts`);
 				// a failure below gives the seat back, and leaving detaches them.
 				const field = room3d ? online(three, room3d) : offline(three);
+				if (room3d)
+					arcadePerf.info = { online: true, fixedHz: room3d.tickHz, patchHz: room3d.patchHz };
 				undo.push(() => field.release());
 				const models = (bakedBundleData() as { models?: unknown } | undefined)?.models;
 				const hasModels = ((models as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
@@ -603,6 +606,11 @@
 						face,
 						view?.aims ? view.pitch : 0,
 					);
+					if (
+						arcadePerf.on &&
+						(!room3d || (room3d.room.state as { phase?: string }).phase === 'running')
+					)
+						arcadePerf.phase = 'play';
 					bodies = field.bodies();
 					const own = bodies.find((b) => b.kind === 'hero');
 					ownId = own?.id;

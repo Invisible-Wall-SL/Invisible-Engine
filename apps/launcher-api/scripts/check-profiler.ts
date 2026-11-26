@@ -2,8 +2,10 @@
  * Invisible Profiler contracts (P1 readings … P6 lab runs, P4 findings), run over the REAL modules:
  *   pnpm --filter launcher-api check:profiler
  *
- * 1. A probe report (`perf: 7`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is read
- *    into its `perf_reports` summary; a non-report, an unknown version or an empty reading is refused.
+ * 1. A probe report (`perf: 7` / `8` / `9`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is
+ *    read into its `perf_reports` summary; a non-report, an unknown version or an empty reading is
+ *    refused. A `perf: 8` slot report reads as its `perf: 7` twin; an arcade one reads menu and play.
+ *    A `perf: 7` 30 fps cap counts only when the frames' work fits 0.75 of a 60 Hz frame.
  * 2. The capture token verifies only as minted: one project, 24 hours, its own audience.
  * 3. Capture links SET the probe's parameters on the game's launch URL (never append a duplicate).
  *    A capture GO link has no `?` or `&`, so the BrowserStack Live URL's `url=` carries none either
@@ -21,10 +23,12 @@
  * 8. A reading joins its build by the stamp: same build number, and the same commit when both name one.
  * 9. Build retention: an old unkept build goes, but never the newest of its game key and kind — not
  *    even a lone build past 15 days — and once a newer one lands the old newest goes too.
- * 10. Budgets: the studio defaults are the owner's numbers; a project override replaces one line and
- *     a reset falls back; a line out of range or with its warn past its fail is refused.
+ * 10. Budgets: the studio defaults are the owner's numbers (the arcade phases' by analogy); a
+ *     project override replaces one line and a reset falls back; a line out of range or with its
+ *     warn past its fail is refused; the Budgets tab lists the project's phase set.
  * 11. Evaluation: pass / warn / fail on both sides of a line; a phase with too few frames is "not
- *     enough data", never pass; a device group is judged on its median, as-shipped readings only.
+ *     enough data", never pass; a device group is judged on its median, as-shipped readings only,
+ *     on its readings' own phase sets; a reading at a browser's 30 fps cap is never an fps failure.
  * 12. A build's verdicts: shipped size and the GPU estimate from its breakdown, each device class
  *     from the as-shipped readings taken on it.
  * 13. Lab runs (P6): a reading's per-phase counts; a lab token is minted only for the lab opener and
@@ -34,16 +38,22 @@
  *    and Compare — `check-profiler-findings.ts`, imported at the end.
  * 17–18. File as bug (P5): a finding's list, area and text; once per finding, its evidence kept —
  *    `check-profiler-bugs.ts`, imported at the end.
+ * 19–21. Network (`perf: 9`): the probe's block (paths only, sizes unknown never 0, the caps), the
+ *    launcher's summary, facts and transfer budgets, and the five network rules each with a planted
+ *    mutant — `check-profiler-network.ts`, imported at the end.
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import {
+	CAP_BUSY_MAX_MS,
 	CAPTURE_SESSION_TTL_SECONDS,
 	captureGoUrl,
 	captureLinks,
 	PERF_SESSION_PARAM,
 	PERF_RETENTION_MS,
+	phaseSetOf,
+	phasesOf,
 	summarizePerfReport,
 	uaFamily,
 	type PerfReportListItem,
@@ -54,6 +64,8 @@ import {
 	verifyCaptureToken,
 } from '../src/lib/server/profiler/captureToken.ts';
 import {
+	ARCADE_COUNT_KEYS,
+	LAB_TOLERANCE,
 	labComparison,
 	perfCounts,
 	previousLabReading,
@@ -92,6 +104,7 @@ import {
 } from '../src/lib/profilerBuilds.ts';
 import {
 	budgetKeyId,
+	budgetLinesFor,
 	budgetRefusal,
 	deviceGroups,
 	effectiveBudgets,
@@ -187,6 +200,207 @@ test('1. browser families', () => {
 		'Edge 131 · Windows',
 	);
 	assert.equal(uaFamily(null), null);
+});
+
+// ── perf: 8: the phase set by kind, the browser cap ──
+
+const late = (count: number, p95: number) => ({ count, p50: p95 / 2, p95, max: p95 * 2 });
+
+const ARCADE_REPORT = {
+	perf: 8,
+	kind: 'arcade',
+	ua: REPORT.ua,
+	dpr: 2.625,
+	device: { class: 'phone', reason: 'coarse pointer' },
+	canvas: '1080x2340',
+	flags: {},
+	gpu: { gpu: 'Adreno 750', webgl: 2 },
+	textures: [{ format: 'rgba8unorm', count: 4, mb: 12 }],
+	refreshHz: 60,
+	capped30: false,
+	menu: bucket(400, 59.9),
+	play: bucket(1800, 52),
+	// A stray slot bucket: an arcade reading never reads it.
+	idle: bucket(900, 60),
+	work: {
+		menu: {
+			frames: 400,
+			perFrame: { draws: { mean: 14, max: 20 }, jsMs: { mean: 2.1, max: 6 } },
+		},
+		play: {
+			frames: 1800,
+			perFrame: {
+				draws: { mean: 40, max: 70 },
+				passes: { mean: 1, max: 1 },
+				calls: { mean: 120, max: 200 },
+				jsMs: { mean: 7.5, max: 19 },
+				simSteps: { mean: 1.1, max: 3 },
+				simMs: { mean: 2.4, max: 9 },
+				bodies: { mean: 22, max: 40 },
+				netMs: { mean: 0, max: 0 },
+				patches: { mean: 0, max: 0 },
+				patchBytes: { mean: 0, max: 0 },
+			},
+		},
+	},
+	arcade: { online: false, fixedHz: 60, lateMs: { menu: late(0, 0), play: late(0, 0) } },
+	spikeCauses: { menu: {}, play: { sim: 2 } },
+	spikes: [],
+	build: { version: '3', sha: 'def5678' },
+};
+
+test('1. a perf: 8 slot report reads exactly as its perf: 7 twin, but for its version and kind', () => {
+	const v7 = summarizePerfReport(REPORT);
+	const v8 = summarizePerfReport({ ...REPORT, perf: 8, kind: 'slot' });
+	assert.ok(v7.ok && v8.ok);
+	assert.deepEqual({ ...v8.summary, perfVersion: 7, kind: null }, v7.summary);
+	assert.deepEqual(
+		[v8.summary.perfVersion, v8.summary.kind, v8.summary.phaseSet],
+		[8, 'slot', 'slot'],
+	);
+	assert.deepEqual([v7.summary.kind, v7.summary.phaseSet], [null, 'slot'], 'perf: 7 is a slot');
+	for (const kind of ['match3', 'card', undefined]) {
+		const r = summarizePerfReport({ ...REPORT, perf: 8, kind });
+		assert.ok(r.ok);
+		assert.equal(r.summary.phaseSet, 'slot', `${kind}: anything but arcade is the slot set`);
+	}
+});
+
+const v7Slot = () => {
+	const r = summarizePerfReport(REPORT);
+	assert.ok(r.ok);
+	return r.summary;
+};
+
+test('1. a perf: 8 arcade report reads menu and play, its kind and its own cap', () => {
+	const r = summarizePerfReport(ARCADE_REPORT);
+	assert.ok(r.ok);
+	const s = r.summary;
+	assert.deepEqual([s.perfVersion, s.kind, s.phaseSet, s.capped30], [8, 'arcade', 'arcade', false]);
+	assert.deepEqual(s.phases.play, { frames: 1800, fps: 52, p50: 16.7, p95: 21.3, hitches: 2 });
+	assert.equal(s.phases.menu?.frames, 400);
+	assert.deepEqual(
+		[s.phases.idle, s.phases.spinning, s.phases.round],
+		[null, null, null],
+		'a slot bucket is never read off an arcade report',
+	);
+	assert.deepEqual([s.drawsMean, s.jsMs], [40, 7.5], 'draws and JS from play');
+	assert.deepEqual([s.counts.idle, s.counts.spinning], [null, null]);
+	assert.deepEqual(
+		[s.counts.play?.draws, s.counts.play?.simMs, s.counts.play?.bodies, s.counts.menu?.simMs],
+		[40, 2.4, 22, null],
+	);
+	const menuOnly = summarizePerfReport({ ...ARCADE_REPORT, play: bucket(0, 0) });
+	assert.ok(menuOnly.ok);
+	assert.equal(menuOnly.summary.drawsMean, 14, 'menu when it never played');
+	const capped = summarizePerfReport({ ...ARCADE_REPORT, capped30: true });
+	assert.ok(capped.ok && capped.summary.capped30, 'a perf: 8 probe decides its cap itself');
+	assert.deepEqual(phasesOf([s, v7Slot()]), ['idle', 'spinning', 'round', 'menu', 'play']);
+	assert.deepEqual(phasesOf([s]), ['menu', 'play']);
+});
+
+test('1. "no frames yet" is judged on the reading’s own phase set', () => {
+	const none = summarizePerfReport({ ...ARCADE_REPORT, menu: bucket(0, 0), play: bucket(0, 0) });
+	assert.equal(none.ok, false, 'an idle bucket does not make an arcade reading');
+	const slot = summarizePerfReport({
+		...REPORT,
+		perf: 8,
+		kind: 'slot',
+		idle: bucket(0, 0),
+		spinning: bucket(0, 0),
+		menu: bucket(500, 60),
+	});
+	assert.equal(slot.ok, false, 'a menu bucket does not make a slot reading');
+});
+
+/** The owner's Salmons reading (26 Nov 09:48, BS Live · Galaxy S24 Ultra, perf: 7). */
+const SALMONS_V7 = {
+	...REPORT,
+	flags: {},
+	gpu: { gpu: 'Adreno (TM) 750', webgl: 2 },
+	refreshHz: 30,
+	capped30: true,
+	idle: {
+		frames: 5153,
+		fps: 29.8,
+		p50: 33.3,
+		p95: 33.4,
+		max: 50,
+		over33: 9,
+		over50: 0,
+		over100: 0,
+	},
+	spinning: bucket(0, 0),
+	round: bucket(0, 0),
+	work: {
+		idle: {
+			frames: 5153,
+			perFrame: {
+				jsMs: { mean: 19.4, max: 31 },
+				tickMs: { mean: 18.5, max: 29 },
+				renderMs: { mean: 14.9, max: 24 },
+				lateMs: { mean: 3.8, max: 9 },
+				afterMs: { mean: 3.1, max: 8 },
+			},
+		},
+		spinning: { frames: 0, perFrame: {} },
+		round: { frames: 0, perFrame: {} },
+	},
+};
+
+/** iOS Low Power Mode on perf: 7: held to 30 fps with ~5 ms of work a frame. */
+const LOW_POWER_V7 = {
+	...SALMONS_V7,
+	idle: { ...SALMONS_V7.idle, frames: 3000 },
+	spinning: bucket(300, 30),
+	work: {
+		...SALMONS_V7.work,
+		idle: {
+			frames: 3000,
+			perFrame: {
+				jsMs: { mean: 5.2, max: 9 },
+				tickMs: { mean: 4.4, max: 8 },
+				renderMs: { mean: 3, max: 6 },
+				lateMs: { mean: 0.5, max: 2 },
+				afterMs: { mean: 0.6, max: 2 },
+			},
+		},
+		// Fewer frames than idle, so not the phase the cap is read on.
+		spinning: {
+			frames: 300,
+			perFrame: {
+				tickMs: { mean: 20, max: 30 },
+				lateMs: { mean: 2, max: 4 },
+				afterMs: { mean: 2, max: 4 },
+			},
+		},
+	},
+};
+
+test('1. a perf: 7 capped30 is a browser cap only when its frames had room for 60', () => {
+	assert.equal(CAP_BUSY_MAX_MS, 12.5, '0.75 of a 60 Hz frame');
+	const salmons = summarizePerfReport(SALMONS_V7);
+	assert.ok(salmons.ok);
+	assert.equal(
+		salmons.summary.capped30,
+		false,
+		'3.8 + 18.5 + 3.1 ms a frame cannot fit 16.7 ms: the game missed 60, vsync halved it',
+	);
+	const lowPower = summarizePerfReport(LOW_POWER_V7);
+	assert.ok(lowPower.ok && lowPower.summary.capped30, 'about 5.5 ms of work held to 30: a cap');
+	const unflagged = summarizePerfReport({ ...LOW_POWER_V7, capped30: false });
+	assert.ok(unflagged.ok && !unflagged.summary.capped30, 'never a cap the probe did not see');
+	const blind = summarizePerfReport({
+		...LOW_POWER_V7,
+		work: {
+			...LOW_POWER_V7.work,
+			idle: { frames: 3000, perFrame: { tickMs: { mean: 4.4, max: 8 } } },
+		},
+	});
+	assert.ok(
+		blind.ok && !blind.summary.capped30,
+		'without the work means nothing shows room: judged',
+	);
 });
 
 const SECRET = 'profiler-test-secret';
@@ -887,11 +1101,17 @@ const reading = (over: Partial<PerfReportListItem> = {}): PerfReportListItem => 
 	buildSha: 'abcdef1',
 	runtimeRelease: null,
 	flags: {},
+	kind: null,
+	phaseSet: 'slot',
 	idle: phaseOf(600, 59.8, 17.4),
 	spinning: phaseOf(300, 56, 19),
 	round: phaseOf(900, 57, 19.5),
+	menu: null,
+	play: null,
+	capped30: false,
 	drawsMean: 80,
 	textureMb: 90,
+	counts: null,
 	keep: false,
 	expiresAt: null,
 	...over,
@@ -1238,5 +1458,160 @@ test('13. a lab reading compares with the previous lab reading of its game and s
 	assert.ok(withinLabTolerance('idle', 'calls', 153.2, 171.4));
 	assert.ok(!withinLabTolerance('spinning', 'draws', 40, 36.4), 'a 10% spinning draw change shows');
 });
+// ── perf: 8: budgets per phase set, the browser cap ──
+
+const arcadeReading = (over: Partial<PerfReportListItem> = {}): PerfReportListItem =>
+	reading({
+		kind: 'arcade',
+		phaseSet: 'arcade',
+		idle: null,
+		spinning: null,
+		round: null,
+		menu: phaseOf(400, 59.9, 17),
+		play: phaseOf(1800, 57, 19),
+		...over,
+	});
+
+test('10. the arcade phases have studio lines by analogy: menu as idle, play as spinning', () => {
+	const eff = effectiveBudgets([]);
+	const get = (deviceClass: string, metric: string, phase: string) => {
+		const b = eff.find(
+			(x) => x.deviceClass === deviceClass && x.metric === metric && x.phase === phase,
+		);
+		return [b?.warn, b?.fail];
+	};
+	for (const c of ['phone', 'tablet']) {
+		assert.deepEqual(get(c, 'fps', 'menu'), get(c, 'fps', 'idle'), `${c}: menu fps = idle's`);
+		assert.deepEqual(get(c, 'fps', 'menu'), [58, 55]);
+		assert.deepEqual(get(c, 'fps', 'play'), [55, 50], `${c}: play fps = spinning's`);
+	}
+	for (const c of ['phone', 'tablet', 'desktop']) {
+		for (const phase of ['menu', 'play']) assert.deepEqual(get(c, 'p95', phase), [20, 25]);
+	}
+	assert.deepEqual(
+		[get('desktop', 'fps', 'menu'), get('desktop', 'fps', 'play')],
+		[
+			[58, 55],
+			[58, 55],
+		],
+	);
+	assert.deepEqual(
+		[phaseSetOf('arcade'), phaseSetOf('slot'), phaseSetOf('lines'), phaseSetOf(null)],
+		['arcade', 'slot', 'slot', 'slot'],
+	);
+});
+
+test('10. the Budgets tab lists its game kind’s phases, plus any phase overridden', () => {
+	const play: BudgetOverride = {
+		deviceClass: 'phone',
+		metric: 'fps',
+		phase: 'play',
+		warn: 45,
+		fail: 40,
+		rev: 3,
+		updatedAt: '',
+		updatedBy: null,
+	};
+	const eff = effectiveBudgets([play]);
+	const shown = (set: 'slot' | 'arcade', deviceClass = 'phone') => [
+		...new Set(
+			budgetLinesFor(eff, set)
+				.filter((b) => b.deviceClass === deviceClass && b.metric === 'fps')
+				.map((b) => b.phase),
+		),
+	];
+	assert.deepEqual(shown('arcade'), ['menu', 'play']);
+	assert.deepEqual(shown('slot'), ['idle', 'spinning', 'round', 'play'], 'an override still shows');
+	assert.deepEqual(shown('slot', 'tablet'), ['idle', 'spinning', 'round']);
+	assert.ok(
+		budgetLinesFor(eff, 'arcade').some((b) => b.metric === 'shippedMb'),
+		'not per phase',
+	);
+});
+
+test('11. a reading is judged on its own phase set only', () => {
+	const eff = effectiveBudgets([]);
+	const ms = evaluateReadings('phone', [arcadeReading({ play: phaseOf(1800, 52, 21) })], eff);
+	assert.deepEqual([...new Set(ms.filter((m) => m.phase).map((m) => m.phase))], ['menu', 'play']);
+	assert.equal(verdictOf(ms, 'fps', 'play'), 'warn', '52 fps: under the 55 warn line');
+	assert.equal(verdictOf(ms, 'fps', 'menu'), 'pass');
+	const slot = evaluateReadings('phone', [reading()], eff);
+	assert.ok(slot.every((m) => m.phase !== 'menu' && m.phase !== 'play'));
+	assert.equal(
+		worstVerdict(slot.map((m) => m.verdict)),
+		'pass',
+		'a slot device never reads "not enough data" off an arcade line',
+	);
+	assert.equal(
+		worstVerdict(evaluateReadings('phone', [arcadeReading()], eff).map((m) => m.verdict)),
+		'pass',
+		'nor an arcade device off a slot line',
+	);
+	const groups = deviceGroups([arcadeReading({ id: 'a' }), reading({ id: 's' })], eff);
+	assert.equal(groups.length, 1, 'one device');
+	assert.deepEqual(
+		[...new Set(groups[0].metrics.filter((m) => m.phase).map((m) => m.phase))],
+		['idle', 'spinning', 'round', 'menu', 'play'],
+		'a device with both kinds of reading is judged on both sets',
+	);
+});
+
+test('11. a reading at a browser’s 30 fps cap is never an fps failure; its draws and MB count', () => {
+	const eff = effectiveBudgets([]);
+	const capped = reading({
+		id: 'cap',
+		capped30: true,
+		idle: phaseOf(5000, 30, 33.4),
+		spinning: phaseOf(300, 30, 33.4),
+		round: phaseOf(900, 30, 33.4),
+		drawsMean: 120,
+		textureMb: 170,
+	});
+	const ms = evaluateReadings('phone', [capped], eff);
+	for (const m of ms.filter((x) => x.metric === 'fps' || x.metric === 'p95')) {
+		assert.equal(m.verdict, 'nodata', `${m.metric} ${m.phase}: the browser's rate, not judged`);
+	}
+	assert.equal(verdictOf(ms, 'gpuMb'), 'fail', 'its texture MB still counts');
+	assert.equal(ms.find((m) => m.metric === 'draws')?.value, 120, 'its draws still count');
+	const uncapped = evaluateReadings('phone', [{ ...capped, capped30: false }], eff);
+	assert.equal(verdictOf(uncapped, 'fps', 'idle'), 'fail', 'the cap is what spares it');
+	const mixed = evaluateReadings('phone', [capped, reading({ id: 'ok' })], eff);
+	assert.equal(verdictOf(mixed, 'fps', 'idle'), 'pass', 'judged on the uncapped reading alone');
+	assert.equal(mixed.find((m) => m.metric === 'fps' && m.phase === 'idle')?.frames, 600);
+	const v = evaluateBuild(
+		{
+			id: 'b',
+			gameKey: 'slots',
+			build: '12',
+			engineSha: 'abcdef1',
+			kind: 'publish',
+		} as PerfBuildListItem,
+		[{ ...capped, textureMb: 90 }],
+		eff,
+	);
+	assert.equal(v.devices.phone?.verdict, 'nodata', 'a capped reading never fails a build’s phones');
+});
+
+test('13. an arcade reading’s menu and play counts; their lab band is idle’s', () => {
+	assert.deepEqual(LAB_TOLERANCE.menu, LAB_TOLERANCE.idle, 'not measured yet: the widest band');
+	assert.deepEqual(LAB_TOLERANCE.play, LAB_TOLERANCE.idle);
+	const s = summarizePerfReport(ARCADE_REPORT);
+	assert.ok(s.ok);
+	const now = s.summary.counts;
+	const before = { ...now, play: now.play && { ...now.play, draws: 28, simMs: 9 } };
+	const rows = labComparison(now, before);
+	assert.deepEqual(
+		[...new Set(rows.map((x) => x.phase))],
+		['menu', 'play', 'all'],
+		'compared on its own set',
+	);
+	const draws = rows.find((x) => x.phase === 'play' && x.key === 'draws');
+	assert.deepEqual([draws?.delta, draws?.changed], [12, true], '28 → 40: past ±35%');
+	assert.ok(
+		rows.every((x) => !(ARCADE_COUNT_KEYS as readonly string[]).includes(x.key)),
+		'sim and room counts are for Compare, never lab-judged',
+	);
+});
 import './check-profiler-findings.ts';
 import './check-profiler-bugs.ts';
+import './check-profiler-network.ts';

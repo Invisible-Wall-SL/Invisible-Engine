@@ -127,8 +127,9 @@ time field, and a **Speed** control.
 **Pen tablet (Wacom) and touch.** The pen drags wherever the mouse does: bones and the gizmo
 on the stage, keys and box selects in the dopesheet and the graph editor, the Picker, the
 frame-to-rig stage, both of 🗺 From my sheet's stages and the panel splitters. The tip is the left
-button, and so is the eraser end. On the stage the **barrel button pans**, like the middle mouse
-button, even over a bone,
+button, and so is the eraser end. On the stage and on the canvases of the two rig-building
+workspaces ([below](#the-rig-building-workspaces-zoom-pan-and-shortcuts)) the **barrel button
+pans**, like the middle mouse button, even over a bone or a joint,
 and neither the barrel's click nor a pen held still (Windows Ink's press-and-hold) opens the
 browser's menu. Elsewhere the barrel is the right button, so on a dopesheet key it opens the
 easing menu. Pressure is ignored. A finger on a touch screen works the same. Those surfaces no
@@ -1271,6 +1272,59 @@ template** below), listed as `<name> (template v<n>)`.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
+#### The rig-building workspaces: zoom, pan and shortcuts
+
+**🎞 From a Flipbook frame** and **🗺 From my sheet** (both below) each open as a workspace over the
+whole Rigger window. The canvas fills the space on the left; the side panel on the right holds the
+lists — a foldable **Frames** (🎞) or **Regions** (🗺) section first, then the parts, props or
+mapping table. Drag the splitter between them to resize the side panel (a double-click resets it);
+**◨** at the right end of the bar above the canvas hides or shows it, and both are remembered.
+**✕** or **Esc** goes back to the rig.
+
+The bar above the canvas holds the view (**◧ Assembled / ▣ This frame**, or **▭ One part /
+◧ Arranged**), 🎞's **🖌 Brush** and **◌ Lasso**, 🗺's **⟲ ⇅ ⤺**, and the zoom: **−**, the zoom
+readout, **+**, **Fit** and **1:1**. 100% is one pixel of the picture to one pixel of your screen.
+Until you zoom or pan, the canvas keeps the picture fitted to the window. After that each workspace
+keeps its zoom while the page is open (◧ Arranged keeps its own), and the next drawing you pick in
+▭ One part opens at the same zoom, centred.
+
+| To | Do |
+| --- | --- |
+| Zoom at the pointer | Mouse wheel, Ctrl+wheel, or pinch (trackpad or touch screen) |
+| Pan | Hold **Space** and drag; or drag with the middle button, the pen's barrel button, or two fingers (trackpad or touch screen) |
+| Fit the picture | **F**, or **Fit** |
+| 100% | **1**, or **1:1** |
+| Zoom in / out | **+** (or **=**) / **−**, or the bar's + and − |
+| Move the picked joint, part or prop | **← ↑ → ↓**: one pixel of the picture; with **Shift**, ten |
+| Snap the other way while dragging | Hold **Alt** (see below) |
+| Brush size (🎞) | **[** smaller, **]** bigger |
+| Leave | **Esc**, or **✕** |
+
+Joint dots, handles and labels stay one size on the screen at any zoom. Past 200% the picture's
+pixels are drawn as squares, so you can see which pixel a joint is on. A dragged joint keeps the
+point you grabbed it by under the pointer, so at 400% it moves a quarter of a pixel at a time. A pan
+never moves a joint, even one under the pointer. The keys work anywhere in the workspace except
+while you type in a field.
+
+**Precise placing.**
+
+- **The selection.** The joint you clicked last (🎞, ▭ One part), or the part or prop picked in
+  ◧ Arranged, has a blue ring. The arrow keys move it, and its numbers sit at the top of the side
+  panel: **x** and **y** in the picture's pixels, and for an arranged part or prop its turn **↻** in
+  degrees. Type a number and leave the field to put it there; a turn typed for a part turns it about
+  its first joint, with the parts it holds.
+- **Names.** The joint or part under the pointer is named beside it, and ringed or outlined.
+- **The loupe.** While you drag a joint, a loupe beside the pointer shows the picture around the
+  joint, four times the zoom, one picture pixel to a square. The joint is where the cross's arms
+  meet.
+- **Alt while dragging.** In ◧ Arranged, a part dragged near the joint it meets snaps onto it; hold
+  Alt to place it near without snapping. In ▭ One part, joints do not snap; hold Alt to snap one
+  onto the drawing's edge (the middle of an inked pixel beside a clear one) or onto its other joint.
+  The snap reaches 12 screen pixels.
+- **🎞's brush** is a size on the screen, so zooming in paints finer. Its ring follows the pointer.
+
+An arranged part has no size of its own to set: every drawing keeps the size it was drawn at.
+
 #### Make a rig from a Flipbook frame (🎞 From a Flipbook frame)
 
 A character that already exists as a Flipbook clip can be split into the template's parts and made
@@ -1279,24 +1333,26 @@ into a rig, instead of drawn part by part. Pick **Half body** (or a template sav
 of the panel. What each step does is the tooltip on the dialog's title.
 
 1. **Pick the clip.** Its frames are tracked in this browser (face, body and hands, as 🎥 Motion
-   does), and the strip shows every frame with a score: 1 means every arm segment lies flat in the
-   picture, nothing covers the body and everything was found. The best frame (★) is picked; hover a
+   does), and the **Frames** section of the side panel (the strip) shows every frame with a score:
+   1 means every arm segment lies flat in the picture, nothing covers the body and everything was
+   found. The best frame (★) is picked; hover a
    frame for why it scores lower — `right forearm at 0.27 of its length` (pointing at the camera, so
    the part would be cut short), `right upper arm, right forearm out of the picture` (a joint past
    the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
    the face`, `an arm joint hard to see`, `no face found`, `one hand not found`. Click another frame
    to use it instead. A new rig always starts here as the first time — the best frame, its joints as
-   tracked, each part's frame planned, no cut open — even when the clip was cut before.
-   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on its
-     frame in the strip): the picked frame's, else the newest. It opens that cut as it was kept —
-     parts, touch-ups, props and the frames its parts are cut from — at once, before the tracking
-     ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut opens it
-     when picked.
+   tracked, each part's frame planned, no cut open — even when the clip was cut before. Closed and
+   opened again, the dialog starts over the same way, and **↶** brings back what you had.
+   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on
+     its frame in the strip): the picked frame's, else the newest. It opens that cut as it was
+     kept — parts, touch-ups, props and the frames its parts are cut from — at once, before the
+     tracking ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut
+     opens it when picked.
    - Until you reuse one, nothing kept opens by itself: picking a frame with a kept cut shows the
      frame, ✂ Cut makes a new cut of it (the kept one stays as it was), and a part taken from
      another frame is cut there anew.
-   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best frame,
-     no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
+   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best
+     frame, no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
      picked a part's frame; **↶** brings back what it replaced. The cut that was open stays kept,
      for ↺ Reuse.
    - **✂ Edit cut** on a frame-made rig opens the cut it was made from (see below).
@@ -1325,11 +1381,12 @@ of the panel. What each step does is the tooltip on the dialog's title.
    - The **bone** list on a prop's row picks the bone it hangs from (any bone of the template but the
      controls); left at "on …", it hangs from the bone its part is drawn on.
    - **🗑** removes one: each of its pixels goes back to the part it lies nearest.
-5. **Touch up with the brush or the lasso.** Tick **🖌 Brush**, pick the part (or prop) to paint as
-   and the radius, and paint on the frame: the pixels under the brush move to that part. Or tick
-   **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
-   never past the character's outline, and work on **▣ This frame** (step 6). With both off, the
-   joints drag again.
+5. **Touch up with the brush or the lasso.** Tick **🖌 Brush** in the bar above the canvas, pick the
+   part (or prop) to paint as and the brush's size (a size on the screen: zoom in to paint finer;
+   **[** and **]** change it), and paint on the frame: the pixels under the brush move to that
+   part. Or tick **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels
+   between parts, never past the character's outline, and work on **▣ This frame** (step 6). With
+   both off, the joints drag again.
 6. **Each part from its best frame.** Every part is scored on every frame of the clip too: whole
    (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its
    joints sure. The **Parts** list is that table: each part, the frame it is cut from, its score
@@ -1338,8 +1395,9 @@ of the panel. What each step does is the tooltip on the dialog's title.
    that shows it clearly better — 0.15 more, or three quarters of what this frame lacks (a head turned
    23°, 0.92, moves for a face to the camera) — the nearest frame of those within 0.01 of its best.
    **✂ Cut** cuts this frame, then takes each such part from its frame (a cut of that frame made in
-   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
-   head; a hand stays on this frame unless you pick otherwise (its finger bones are this frame's).
+   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way
+   is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the head; a hand stays on this frame
+   unless you pick otherwise (its finger bones are this frame's).
    - **Where each part comes from shows everywhere.** Each frame a part is cut from gets a colour:
      the chip on that part's row is outlined in it, the frame in the strip is framed in it with the
      parts' own colours in its corner, and the stage shows the cut **◧ Assembled** — every part
@@ -1448,7 +1506,8 @@ renaming or redrawing anything. Pick a template in **＋ New rig → Apply saved
 (Half body for the full result), pick the sheet in **Atlas (images)**, then click **🗺 From my
 sheet…**. What each step does is the tooltip on the dialog's title.
 
-1. **The regions.** The strip shows every region of the sheet with the part it is mapped to under it.
+1. **The regions.** The **Regions** section of the side panel shows every region of the sheet with
+   the part it is mapped to under it.
    Each template part is matched to the region its name says, read as words in any order or case
    (`L_arm_upper`, `arm_upper_left`, `ArmL1` and `brazo_izq_1` are all `upper_arm_l`; `ArmR2` is
    `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is
@@ -1524,7 +1583,9 @@ A mapping made before is offered beside the sheet, never taken by itself:
 - **↺ Reuse “name”**: the mapping the open rig was made from (when it is of this sheet and
   template), every joint where you left it and the arrangement as you left it. 🦴 Create rig then
   makes a new rig from it.
-- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig.
+- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig (closed
+  right after ↺ Start over, the mapping Start over replaced). Only the last one you left is
+  remembered, and it is offered only on its own sheet and template.
 - **↺ Start over** (the icon) takes the open mapping back to the first guess, reading the names as ⇄
   Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
 

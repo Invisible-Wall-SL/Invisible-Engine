@@ -7,6 +7,9 @@
  * 15. Each rule has a fixture over planted readings and builds, and a PLANTED MUTANT — the rule
  *     with one plausible bug (a lab reading's fps read, a wrong field, an old build judged, a
  *     guessed estimate…) — that the same fixture must fail, so no fixture goes vacuous.
+ *     `perf: 8` arcade readings: their facts, the Salmons reading CPU-bound against a 60 Hz frame
+ *     (its mutant: JS read against the achieved interval), spikes in play never the menus, and the
+ *     four arcade rules (sim catch-up, spawn churn, cost per body, patch stutter), each with one.
  * 16. Ranking (severity, then saving, unmeasured last), owners from the real owners.json, Compare.
  */
 import assert from 'node:assert/strict';
@@ -18,11 +21,17 @@ import { deviceGroups, effectiveBudgets } from '../src/lib/profilerBudgets.ts';
 import type { PerfBuildListItem } from '../src/lib/profilerBuilds.ts';
 import type { PerfCounts } from '../src/lib/profilerLab.ts';
 import {
+	ARCADE_WORK_KEYS,
 	buildFacts,
 	reportFacts,
+	type ArcadeFacts,
+	type ArcadeWorkKey,
 	type BuildFacts,
+	type LateStats,
+	type MeanMax,
 	type ReportFacts,
 } from '../src/lib/profilerFindings/facts.ts';
+import { gpuCpuBoundAgainst } from '../src/lib/profilerFindings/rules/gpuCpuBound.ts';
 import {
 	compareReadings,
 	findings,
@@ -69,9 +78,14 @@ const reading = (id: string, over: Partial<PerfReportListItem> = {}): PerfReport
 	buildSha: 'abcdef1',
 	runtimeRelease: null,
 	flags: {},
+	kind: null,
+	phaseSet: 'slot',
 	idle: phase(600, 59.8),
 	spinning: phase(300, 57),
 	round: phase(900, 58),
+	menu: null,
+	play: null,
+	capped30: false,
 	drawsMean: 80,
 	textureMb: 90,
 	counts: counts(80),
@@ -741,6 +755,485 @@ test('15. regression: size against the previous build, fps and lab counts agains
 			readings: ctx.readings.map((r) => ({ ...r, source: 'capture' as const })),
 		});
 	holds('regression', check, RULES.regression, labFps);
+});
+
+// ── perf: 8: arcade readings ──
+
+const arcadeItem = (id: string, over: Partial<PerfReportListItem> = {}): PerfReportListItem =>
+	reading(id, {
+		kind: 'arcade',
+		phaseSet: 'arcade',
+		idle: null,
+		spinning: null,
+		round: null,
+		menu: phase(400, 59.9),
+		play: phase(1800, 58),
+		counts: null,
+		...over,
+	});
+
+const mm = (mean: number, max = mean): MeanMax => ({ mean, max });
+const lateness = (count: number, p95: number, max: number): LateStats => ({
+	count,
+	p50: p95 / 2,
+	p95,
+	max,
+});
+
+const arcadeWork = (over: Partial<Record<ArcadeWorkKey, MeanMax>> = {}) =>
+	({
+		...Object.fromEntries(ARCADE_WORK_KEYS.map((k) => [k, null])),
+		...over,
+	}) as Record<ArcadeWorkKey, MeanMax | null>;
+
+interface ArcadeFixture {
+	play?: Partial<Record<ArcadeWorkKey, MeanMax>>;
+	menu?: Partial<Record<ArcadeWorkKey, MeanMax>>;
+	playLate?: LateStats;
+	menuLate?: LateStats;
+	online?: boolean;
+	patchHz?: number;
+}
+
+const arcadeFacts = (a: ArcadeFixture, over: Partial<ReportFacts> = {}): ReportFacts =>
+	facts({
+		timing: {},
+		arcade: {
+			online: a.online ?? false,
+			fixedHz: 60,
+			patchHz: a.patchHz ?? null,
+			menu: { work: arcadeWork(a.menu), lateMs: a.menuLate ?? null },
+			play: { work: arcadeWork(a.play), lateMs: a.playLate ?? null },
+		},
+		...over,
+	});
+
+const mapArcade = (m: ReadonlyMap<string, ReportFacts>, fn: (a: ArcadeFacts) => ArcadeFacts) =>
+	new Map([...m].map(([id, f]) => [id, f.arcade ? { ...f, arcade: fn(f.arcade) } : f]));
+/** The planted "read the menu as play" bug. */
+const swapMenuPlay = (m: ReadonlyMap<string, ReportFacts>) =>
+	mapArcade(m, (a) => ({ ...a, menu: a.play, play: a.menu }));
+
+test('14. an arcade report: menu / play timing and spikes, the sim and room work, lateness', () => {
+	const f = reportFacts({
+		perf: 8,
+		kind: 'arcade',
+		refreshHz: 60,
+		menu: { frames: 400 },
+		play: { frames: 1800 },
+		idle: { frames: 900 },
+		work: {
+			menu: { frames: 400, perFrame: { jsMs: mm(2), simSteps: mm(0) } },
+			play: {
+				frames: 1800,
+				perFrame: {
+					jsMs: mm(8, 20),
+					renderMs: mm(3, 6),
+					tickMs: mm(6, 15),
+					simSteps: mm(1.3, 4),
+					simCatchUp: mm(0.2, 1),
+					simMs: mm(2.5, 9),
+					bodies: mm(20, 36),
+					patches: mm(0.33, 2),
+					patchBytes: mm(120, 900),
+				},
+			},
+			idle: { frames: 900, perFrame: { jsMs: mm(1) } },
+		},
+		arcade: {
+			online: true,
+			fixedHz: 30,
+			patchHz: 20,
+			lateMs: { menu: lateness(10, 9, 12), play: lateness(600, 41, 90) },
+		},
+		spikeCauses: {
+			menu: { 'tilemap/upload': 2 },
+			play: { 'sim catch-up': 3 },
+			idle: { 'first use': 5 },
+		},
+		spikes: [
+			{ at: 1, ms: 80, cause: 'tilemap/upload', why: 'built the field' },
+			{ at: 9, ms: 60, play: true, cause: 'sim catch-up', why: '3 steps' },
+		],
+	});
+	assert.deepEqual(Object.keys(f.timing), ['menu', 'play'], 'the reading’s own set');
+	assert.deepEqual(f.timing.play, {
+		frames: 1800,
+		renderMs: 3,
+		tickMs: 6,
+		jsMs: 8,
+		gpuWaitMs: null,
+	});
+	assert.deepEqual(f.spikeCauses, { menu: { 'tilemap/upload': 2 }, play: { 'sim catch-up': 3 } });
+	assert.deepEqual(
+		f.spikes.map((s) => [s.ms, s.phase]),
+		[
+			[80, 'menu'],
+			[60, 'play'],
+		],
+	);
+	assert.deepEqual([f.arcade?.online, f.arcade?.fixedHz, f.arcade?.patchHz], [true, 30, 20]);
+	assert.deepEqual(f.arcade?.play?.work.simCatchUp, { mean: 0.2, max: 1 });
+	assert.equal(f.arcade?.play?.work.netMs, null, 'a key the probe did not report');
+	assert.deepEqual(f.arcade?.play?.lateMs, lateness(600, 41, 90));
+	assert.equal(reportFacts({ perf: 7, kind: 'arcade' }).arcade, undefined, 'perf: 7 is a slot');
+	const slot = reportFacts({ perf: 8, kind: 'slot' });
+	assert.equal(slot.arcade, undefined);
+	assert.deepEqual(Object.keys(slot.timing), ['idle', 'spinning', 'round']);
+});
+
+test('15. GPU- or CPU-bound: the Salmons reading is CPU-bound against a 60 Hz frame', () => {
+	// The owner's reading (26 Nov, BS Live · Galaxy S24 Ultra): 29.8 fps, JS 19.4, render 14.9,
+	// tick 18.5 at refreshHz 30 — "between CPU and GPU" against the 33.6 ms it achieved.
+	const ctx = ctxOf({
+		readings: [
+			reading('salmons', {
+				gpu: 'Adreno (TM) 750',
+				idle: phase(5153, 29.8, 33.4),
+				spinning: null,
+				round: null,
+			}),
+			arcadeItem('arc', { gpu: 'Adreno 610', play: phase(1800, 40) }),
+			reading('cap', { gpu: 'Apple GPU', capped30: true, idle: phase(3000, 30, 33.4) }),
+		],
+		readingFacts: new Map([
+			[
+				'salmons',
+				facts({
+					refreshHz: 30,
+					timing: { idle: timing(5153, 19.4, 14.9, 18.5), spinning: null, round: null },
+				}),
+			],
+			['arc', facts({ timing: { menu: timing(400, 2, 1, 1.5), play: timing(1800, 14, 4, 12) } })],
+			['cap', facts({ refreshHz: 30, timing: { idle: timing(3000, 5, 3, 4) } })],
+		]),
+	});
+	const check = (rule: Rule) => {
+		const fs = rule(ctx);
+		const s = fs.find((f) => f.id.includes('Adreno (TM) 750'));
+		assert.match(s?.title ?? '', /^idle is CPU-bound/, 'JS 19.4 ms of a 16.7 ms frame');
+		assert.ok(s?.detail.some((d) => d.includes('second vsync')));
+		assert.ok(s?.detail.some((d) => d.includes('the render submit (14.9 ms)')));
+		const a = fs.find((f) => f.id.includes('Adreno 610'));
+		assert.match(a?.title ?? '', /^play is CPU-bound/, 'an arcade reading is judged on play');
+		assert.ok(
+			fs.every((f) => !f.id.endsWith(':menu')),
+			'its menu at 59.9 fps passes',
+		);
+		assert.ok(!fs.some((f) => f.id.includes('Apple GPU')), 'a capped reading is never an fps miss');
+	};
+	holds(
+		'gpuCpuBound (achieved interval)',
+		check,
+		RULES.gpuCpuBound,
+		gpuCpuBoundAgainst(({ fps }) => 1000 / fps),
+	);
+});
+
+test('15. fps below budget: an arcade game’s play line, owned by its kind’s agent', () => {
+	const fs = RULES.fpsBelowBudget(
+		ctxOf({ gameKind: 'arcade', readings: [arcadeItem('s', { play: phase(1800, 40) })] }),
+	);
+	assert.deepEqual(
+		fs.map((f) => [f.id.split(':').at(-1), f.severity, f.owner.id]),
+		[['play', 'high', 'arcade-games']],
+	);
+});
+
+test('15. spikes by cause: an arcade game counts play, never its menus', () => {
+	const check = (rule: Rule) => {
+		const ctx = ctxOf({
+			gameKind: 'arcade',
+			readings: [arcadeItem('a')],
+			readingFacts: new Map([
+				[
+					'a',
+					facts({
+						timing: {},
+						spikeCauses: {
+							menu: { 'tilemap/upload': 6 },
+							play: { 'sim catch-up': 3, sim: 1, 'state patch': 2 },
+						},
+					}),
+				],
+			]),
+		});
+		const fs = rule(ctx);
+		assert.deepEqual(
+			fs.map((f) => [f.title.split(' from ')[1].split(' on ')[0], f.estimate?.value]).sort(),
+			[
+				['sim catch-up', 3],
+				['state patch', 2],
+			],
+			'the lobby’s tilemap build is left out; one-offs too',
+		);
+		assert.ok(fs.every((f) => f.owner.id === 'arcade-games' && f.title.includes('mid-play')));
+		assert.ok(
+			fs.find((f) => f.title.includes('state patch'))?.detail[0].startsWith('room messages'),
+			'each arcade cause has its FIX line',
+		);
+	};
+	const menuCounted: Rule = (ctx) =>
+		RULES.spikes({
+			...ctx,
+			readingFacts: new Map(
+				[...ctx.readingFacts].map(([id, f]) => [
+					id,
+					f.spikeCauses
+						? { ...f, spikeCauses: { play: { ...f.spikeCauses.play, ...f.spikeCauses.menu } } }
+						: f,
+				]),
+			),
+		});
+	holds('spikes (arcade)', check, RULES.spikes, menuCounted);
+});
+
+test('15. sim catch-up: the share of play frames that ran extra sim steps', () => {
+	const check = (rule: Rule) => {
+		const ctx = ctxOf({
+			gameKind: 'arcade',
+			readings: [
+				arcadeItem('slow', { play: phase(1800, 41) }),
+				arcadeItem('fine', { gpu: 'Adreno 740', play: phase(1800, 60) }),
+				arcadeItem('lab', { source: 'lab', gpu: 'SwiftShader' }),
+				arcadeItem('short', { gpu: 'Mali-G57', play: phase(60, 30) }),
+			],
+			readingFacts: new Map([
+				[
+					'slow',
+					arcadeFacts({
+						play: { simCatchUp: mm(0.3, 1), simSteps: mm(1.4, 3), simMs: mm(2.2, 7) },
+						menu: { simCatchUp: mm(0) },
+					}),
+				],
+				[
+					'fine',
+					arcadeFacts({
+						play: { simCatchUp: mm(0.02, 1), simSteps: mm(1, 2) },
+						menu: { simCatchUp: mm(0.9, 1) },
+					}),
+				],
+				['lab', arcadeFacts({ play: { simCatchUp: mm(0.9, 1) } })],
+				['short', arcadeFacts({ play: { simCatchUp: mm(0.9, 1) } })],
+			]),
+		});
+		const fs = rule(ctx);
+		assert.equal(fs.length, 1, 'the slow phone only: never a lab run, never too few frames');
+		const f = fs[0];
+		assert.match(f.title, /^30% of play frames catch up the sim on phone · Mali-G52 MC2$/);
+		assert.equal(f.severity, 'medium', '30% ≥ 25%');
+		assert.ok(f.detail.some((d) => d.includes('1.4 a frame on average, up to 3')));
+		assert.ok(f.detail.some((d) => d.includes('A 60 Hz fixed step at 41 fps')));
+		assert.deepEqual([f.estimate, f.owner.id], [null, 'arcade-games']);
+		assert.ok(f.id.startsWith('simCatchUp:slots|phone · Mali-G52 MC2:12'), 'carries the build');
+		const dropped = rule(
+			ctxOf({
+				readings: [arcadeItem('d')],
+				readingFacts: new Map([
+					['d', arcadeFacts({ play: { simCatchUp: mm(0.12, 1), simDroppedMs: mm(0.4, 30) } })],
+				]),
+			}),
+		);
+		assert.equal(dropped[0]?.severity, 'medium', '12% of frames, but the sim dropped time');
+	};
+	const menuAsPlay: Rule = (ctx) =>
+		RULES.simCatchUp({ ...ctx, readingFacts: swapMenuPlay(ctx.readingFacts) });
+	holds('simCatchUp', check, RULES.simCatchUp, menuAsPlay);
+});
+
+test('15. spawn churn: bodies spawned and despawned a play frame, counted together', () => {
+	const check = (rule: Rule) => {
+		const ctx = ctxOf({
+			readings: [
+				arcadeItem('churn'),
+				arcadeItem('calm', { gpu: 'Adreno 740' }),
+				arcadeItem('burst', { gpu: 'Mali-G57' }),
+			],
+			readingFacts: new Map([
+				[
+					'churn',
+					arcadeFacts(
+						{ play: { spawns: mm(0.3, 4), despawns: mm(0.3, 5) } },
+						{ spikeCauses: { menu: {}, play: { 'spawn burst': 2 } } },
+					),
+				],
+				['calm', arcadeFacts({ play: { spawns: mm(0.1, 2), despawns: mm(0.1, 2) } })],
+				['burst', arcadeFacts({ play: { spawns: mm(0.05, 14), despawns: mm(0.05, 3) } })],
+			]),
+		});
+		const fs = rule(ctx);
+		const churn = fs.find((f) => f.id.includes('Mali-G52'));
+		assert.match(churn?.title ?? '', /^0\.6 spawns a play frame \(up to 5\)/, '0.3 + 0.3');
+		assert.equal(churn?.severity, 'medium', 'its spawn bursts already cost spikes');
+		assert.ok(churn?.detail.some((d) => d.startsWith('Pool bodies')));
+		assert.ok(
+			churn?.detail.some((d) => d.includes('(34.8 a second)')),
+			'0.6 × 58 fps',
+		);
+		const burst = fs.find((f) => f.id.includes('Mali-G57'));
+		assert.deepEqual([burst?.severity, burst?.title.includes('up to 14')], ['low', true]);
+		assert.ok(!fs.some((f) => f.id.includes('Adreno 740')), '0.2 a frame, 2 at most: calm');
+		assert.ok(fs.every((f) => f.estimate === null && f.owner.id === 'arcade-games'));
+	};
+	const spawnsOnly: Rule = (ctx) =>
+		RULES.spawnChurn({
+			...ctx,
+			readingFacts: mapArcade(ctx.readingFacts, (a) => ({
+				...a,
+				play: a.play && { ...a.play, work: { ...a.play.work, despawns: null } },
+			})),
+		});
+	holds('spawnChurn', check, RULES.spawnChurn, spawnsOnly);
+});
+
+test('15. cost per body: the sim a body a step, at the most bodies seen, against 60 Hz', () => {
+	const check = (rule: Rule) => {
+		const ctx = ctxOf({
+			readings: [
+				arcadeItem('heavy'),
+				arcadeItem('light', { gpu: 'Adreno 740' }),
+				arcadeItem('few', { gpu: 'Mali-G57' }),
+			],
+			readingFacts: new Map([
+				[
+					'heavy',
+					arcadeFacts({
+						play: { simMs: mm(4, 11), simSteps: mm(1, 2), bodies: mm(20, 50), pairs: mm(180, 900) },
+					}),
+				],
+				[
+					'light',
+					arcadeFacts({ play: { simMs: mm(1.2, 3), simSteps: mm(1, 2), bodies: mm(30, 34) } }),
+				],
+				['few', arcadeFacts({ play: { simMs: mm(6, 9), simSteps: mm(1), bodies: mm(3) } })],
+			]),
+		});
+		const fs = rule(ctx);
+		const heavy = fs.find((f) => f.id.includes('Mali-G52'));
+		assert.equal(heavy?.severity, 'medium', '0.2 ms a body × 50 bodies = 10 ms: 60% of 16.7');
+		assert.ok(heavy?.detail.some((d) => d.includes('about 0.2 ms a body a step')));
+		assert.ok(
+			heavy?.detail.some(
+				(d) => d.includes('At the 50 bodies seen') && d.includes('about 10 ms — 60%'),
+			),
+		);
+		assert.ok(heavy?.detail.includes("The longest frame's sim took 11 ms."));
+		const light = fs.find((f) => f.id.includes('Adreno 740'));
+		assert.equal(light?.severity, 'low', '0.04 ms × 34 bodies = 1.4 ms: 8%');
+		assert.ok(!fs.some((f) => f.id.includes('Mali-G57')), 'under 4 bodies: not judged');
+		assert.ok(fs.every((f) => f.estimate === null && f.owner.id === 'arcade-games'));
+	};
+	const atTheMean: Rule = (ctx) =>
+		RULES.bodyCost({
+			...ctx,
+			readingFacts: mapArcade(ctx.readingFacts, (a) => {
+				const bodies = a.play?.work.bodies;
+				return {
+					...a,
+					play: a.play && {
+						...a.play,
+						work: { ...a.play.work, bodies: bodies ? { ...bodies, max: bodies.mean } : null },
+					},
+				};
+			}),
+		});
+	holds('bodyCost', check, RULES.bodyCost, atTheMean);
+});
+
+test('15. patch stutter: room states arriving late in play, online only', () => {
+	const check = (rule: Rule) => {
+		const ctx = ctxOf({
+			readings: [
+				arcadeItem('jitter'),
+				arcadeItem('steady', { gpu: 'Adreno 740' }),
+				arcadeItem('local', { gpu: 'Mali-G57' }),
+			],
+			readingFacts: new Map([
+				[
+					'jitter',
+					arcadeFacts({
+						online: true,
+						patchHz: 20,
+						playLate: lateness(600, 45, 120),
+						menuLate: lateness(20, 5, 9),
+						play: { patchBytes: mm(150, 900), netMs: mm(2.5, 9) },
+					}),
+				],
+				[
+					'steady',
+					arcadeFacts({
+						online: true,
+						patchHz: 20,
+						playLate: lateness(600, 8, 15),
+						menuLate: lateness(40, 80, 200),
+					}),
+				],
+				['local', arcadeFacts({ playLate: lateness(0, 0, 0) })],
+			]),
+		});
+		const fs = rule(ctx);
+		assert.equal(fs.length, 1, 'a late lobby is not play; an offline game has no room');
+		const f = fs[0];
+		assert.match(f.title, /^Room patches up to 45 ms late on phone · Mali-G52 MC2$/);
+		assert.equal(f.severity, 'low', '45 ms: past half the 50 ms period, under a whole one');
+		assert.ok(f.detail[0].includes('motion stutters while fps holds'));
+		assert.ok(
+			f.detail.some((d) => d.startsWith('8.5 KB a second')),
+			'150 bytes × 58 fps',
+		);
+		assert.ok(f.detail.some((d) => d.includes('takes 2.5 ms a frame')));
+		assert.deepEqual([f.estimate, f.owner.id], [null, 'arcade-games']);
+		const whole = rule(
+			ctxOf({
+				readings: [arcadeItem('w')],
+				readingFacts: new Map([
+					['w', arcadeFacts({ online: true, patchHz: 20, playLate: lateness(600, 60, 140) })],
+				]),
+			}),
+		);
+		assert.equal(whole[0]?.severity, 'medium', 'a whole patch period late');
+	};
+	const menuLateness: Rule = (ctx) =>
+		RULES.patchStutter({ ...ctx, readingFacts: swapMenuPlay(ctx.readingFacts) });
+	holds('patchStutter', check, RULES.patchStutter, menuLateness);
+});
+
+test('16. Compare puts arcade readings side by side, menu and play with their sim counts', () => {
+	const c = (simMs: number, bodies: number): PerfCounts => ({
+		idle: null,
+		spinning: null,
+		menu: null,
+		play: {
+			frames: 1800,
+			draws: 40,
+			passes: 1,
+			textureUploads: 0,
+			calls: 120,
+			jsMs: 7,
+			simSteps: 1.1,
+			simMs,
+			bodies,
+			netMs: 0,
+			patches: 0,
+			patchBytes: 0,
+		},
+		textureMb: 12,
+	});
+	const rows = compareReadings(
+		arcadeItem('a', { counts: c(2.4, 22) }),
+		arcadeItem('b', { play: phase(1800, 50), counts: c(3.1, 30) }),
+	);
+	const get = (group: string, label: string) =>
+		rows.find((r) => r.group === group && r.label === label);
+	assert.deepEqual(
+		[...new Set(rows.map((r) => r.group))],
+		['menu', 'play', 'play per frame', 'memory'],
+		'no slot phase on an arcade pair',
+	);
+	assert.equal(get('play', 'fps')?.delta, -8);
+	assert.equal(get('play per frame', 'sim ms')?.delta, 0.7);
+	assert.equal(get('play per frame', 'draws')?.delta, 0);
+	assert.equal(get('play per frame', 'bodies')?.better, 'none', 'a level, not better or worse');
 });
 
 // ── 16. The list ──

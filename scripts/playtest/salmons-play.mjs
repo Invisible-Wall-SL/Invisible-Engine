@@ -43,7 +43,8 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees] [--bridge-component]
+//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees] [--zone-rig]
+//     [--bridge-component]
 //
 // `--bridge-component` plays ONE room too (prop components P5, docs/design/arcade-prop-components.md
 // §4–§5): page BF, a fisherman, in a room of the original's level (the wading's), its bridges drawn
@@ -57,6 +58,14 @@
 // exports one, in the room of the game's own config (zone art is cosmetic). Every tree of its
 // river is drawn with the frame and none with the built-in trees, the rest of the river is drawn
 // in the original images as without it, and the magenta is on screen.
+//
+// `--zone-rig` plays ONE room too (zone art's rig source, docs/design/zone-art.md): page ZR boots
+// the game with `arcade.zoneArt['rock#']` and `['whirlpool#']` drawn by a stub rig exported as a
+// publish exports one (`editorArt.spines`, named in `characterArt`): one slot whose `blink` shows
+// a cyan drawing, then a yellow one, every second. Every rock and whirlpool of its river is drawn
+// with the rig and none with the built-in pictures, the rest of the river as without it, the rig's
+// colours are on screen and change as it plays. Trees are never a rig (`game-config`
+// `zoneArtTakesRig`); what 430 rigs cost is measured by `zone-art-play.mjs --cost`.
 //
 // `--rig` plays ONE room too (character pipeline C6a): page R's salmon is of a class whose sheet
 // names a RIG (one rig for every facing: a swim named for the action alone, a hop named for one
@@ -128,6 +137,7 @@ import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
 	withZoneArt,
+	zoneArtArtNames,
 } from '../../packages/game-config/index.ts';
 import { heldBy } from '../../services/game-server/src/addresses.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
@@ -136,6 +146,7 @@ import { createGameServer } from '../../services/game-server/src/server.ts';
 import { openPage } from '../current-games/lib/browser.mjs';
 import { playScenario } from '../current-games/lib/play.mjs';
 import { serveSnapshot, startTestServer, testServerTree } from '../current-games/lib/serve.mjs';
+import { BLINK_RIG, CYAN, YELLOW, exportStubRig } from './fixtures/zoneRigStubs.mjs';
 import { headlessShell } from './headless-shell.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -157,6 +168,7 @@ const { values: opt } = parseArgs({
 		turn: { type: 'boolean', default: false },
 		trees: { type: 'boolean', default: false },
 		'bridge-component': { type: 'boolean', default: false },
+		'zone-rig': { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -677,6 +689,37 @@ const snapTrees = await serveSnapshot({
 	bundleFile: withTrees,
 	name: 'Salmons',
 	snapshotId: 'salmons-trees',
+});
+// `--zone-rig`: the game's own config with its rocks and whirlpools drawn by a stub rig, as a
+// publish stores the config and exports the rig.
+const ZONE_RIG = 'ZoneRigStub';
+const zoneRigEntry = exportStubRig(snapshot, ZONE_RIG, BLINK_RIG, png);
+const withZoneRig = join(work, 'runtime-zone-rig.json');
+{
+	const blink = { kind: 'rig', rig: ZONE_RIG, animation: 'blink' };
+	const zoneArt = {
+		'rock#': { source: blink, placement: 'stamp' },
+		'whirlpool#': { source: blink, placement: 'stamp' },
+	};
+	writeFileSync(
+		withZoneRig,
+		JSON.stringify({
+			doc,
+			componentDefs,
+			componentDefaults: {},
+			config: withZoneArt(config, { ...authored, arcade: { ...authored.arcade, zoneArt } }),
+			flowV2: SALMONS_SEED_DOC,
+			editorArt: { sheets: [], images: [], spines: [zoneRigEntry] },
+			// As the art export lists them (`zoneArtArtNames`): the rig, kept loaded by the boot.
+			characterArt: zoneArtArtNames({ arcade: { zoneArt } }),
+		}),
+	);
+}
+const snapZoneRig = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withZoneRig,
+	name: 'Salmons',
+	snapshotId: 'salmons-zone-rig',
 });
 // `--rig`: the same room with the salmon class naming a sheet whose source is a rig, and the bear
 // class one of still images. Both sheets are the ones Invisible Characters' own edits make of a
@@ -2708,6 +2751,87 @@ play: try {
 		const errors = await t.page.evaluate('window.__AR_ERRORS__');
 		verdict('page T: no page error', errors.length === 0, errors);
 		await t.page.close();
+		break play;
+	}
+	if (opt['zone-rig']) {
+		const zr = await ready(
+			await boot('zr', {
+				rooms_name: 'Zora',
+				rooms_character: 'salmon',
+				editorDocBase: snapZoneRig.origin,
+			}),
+		);
+		await settle(zr, 1500);
+		const regions = (await drawnOf(zr)).art?.regions ?? {};
+		const sum = (prefix) =>
+			Object.entries(regions)
+				.filter(([name]) => name.startsWith(prefix))
+				.reduce((total, [, n]) => total + n, 0);
+		const made = (await riverOf(zr, config)).made?.made;
+		verdict(
+			'zone rig: page ZR draws every rock and whirlpool of its river with the rig, none built in',
+			!!made &&
+				regions['zoneArt:rock#'] === (made.rocks?.length ?? 0) &&
+				regions['zoneArt:whirlpool#'] === made.whirlpools.length &&
+				sum('rock_') === 0 &&
+				sum('whirlpool_') === 0,
+			{
+				rocks: [regions['zoneArt:rock#'], made?.rocks?.length, sum('rock_')],
+				pools: [regions['zoneArt:whirlpool#'], made?.whirlpools.length, sum('whirlpool_')],
+			},
+		);
+		verdict(
+			'…and the rest of its river in the original images, as without it',
+			!!made &&
+				regions.grass_c > 100 &&
+				sum('tree_') > 50 &&
+				(regions.waterfall_face ?? 0) === (made.waterfalls?.length ?? 0) * 2,
+			regions,
+		);
+		const near = (data, i, rgb) => rgb.every((c, k) => Math.abs(data[i + k] - c) <= 40);
+		const coloursOf = async () => {
+			const shot = await zr.page.screenshot();
+			const { data } = PNG.sync.read(shot);
+			const seen = { cyan: 0, yellow: 0 };
+			for (let k = 0; k < data.length; k += 4)
+				if (near(data, k, CYAN)) seen.cyan += 1;
+				else if (near(data, k, YELLOW)) seen.yellow += 1;
+			return { shot, seen };
+		};
+		// Upstream (the salmon starts at the sea) until a piece of the rig is well in view, then at
+		// rest (the current carries it back down: the piece is watched while it is in view).
+		// Whether two pieces start apart is held in Node (`check:salmons-art`): the room's river
+		// is another every run, and two pieces are not always in one view.
+		await zr.key('ArrowUp', 'down');
+		for (let i = 0; i < 60; i++) {
+			await settle(zr, 200);
+			const { seen } = await coloursOf();
+			if (seen.cyan + seen.yellow > 400) {
+				await settle(zr, 600);
+				break;
+			}
+		}
+		await zr.key('ArrowUp', 'up');
+		const colours = [];
+		for (let i = 0; i < 16; i++) {
+			await zr.play([{ op: 'step', frames: 4 }]);
+			const { shot, seen } = await coloursOf();
+			if (i === 0) {
+				writeFileSync(join(out, 'zone-rig.png'), shot);
+				result.shots.push('zone-rig.png');
+			}
+			colours.push(seen);
+		}
+		const shown = colours.filter((c) => c.cyan + c.yellow > 100);
+		verdict(
+			'…the rig is on screen, and plays: both of its drawings show over a second',
+			shown.length >= 3 && shown.some((c) => c.cyan > 100) && shown.some((c) => c.yellow > 100),
+			colours,
+		);
+		const errorsZr = await zr.page.evaluate('window.__AR_ERRORS__');
+		verdict('page ZR: no page error', errorsZr.length === 0, errorsZr);
+		await zr.page.close();
+
 		break play;
 	}
 	if (opt.sheet) {

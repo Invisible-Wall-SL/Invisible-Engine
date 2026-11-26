@@ -188,15 +188,43 @@
     padding:12px 14px; }
   .modal-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
   .modal-head b { letter-spacing:.06em; }
+  /* A workspace (🎞 Frame to rig, 🗺 From my sheet): the whole window, its canvas filling the free space
+     through its camera (`wsCamera`) and a side panel resized by its splitter and folded by ◨. */
+  .rigModal.ws { background:var(--bg); }
+  html:has(.rigModal.ws.open), html:has(.rigModal.ws.open) body { overflow:hidden; }
+  .rigModal.ws > .modal-box { margin:0; width:100%; height:100%; max-height:none; border:0; border-radius:0;
+    box-shadow:none; padding:8px 10px; min-width:0; }
+  .wsBody { display:flex; flex:1; min-height:0; margin-top:6px; }
+  .wsMain { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+  .wsBar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; }
+  .wsBar .f2rRow { margin:0; }
+  .wsBar button { padding:2px 7px; }
+  .wsBar .seg button { padding:2px 8px; }
+  .wsZoom { display:inline-flex; align-items:center; justify-content:center; min-width:46px; padding:0 4px;
+    font-variant-numeric:tabular-nums; cursor:help; border-right:1px solid var(--line); }
+  .wsStage { flex:1; min-height:0; position:relative; overflow:hidden; border-radius:6px; background:#808080; }
+  .wsStage canvas { position:absolute; inset:0; cursor:crosshair; }
+  .wsStage.space canvas { cursor:grab; }
+  .wsStage canvas.wsPanning { cursor:grabbing; }
+  .wsSide { flex:0 0 400px; width:400px; min-width:0; overflow:auto; font-size:11px; padding:0 2px 0 4px; }
+  .rigModal.ws.sideOff .wsSide, .rigModal.ws.sideOff .wsBody > .resizer { display:none; }
+  .wsSec > summary { cursor:pointer; margin:2px 0; color:var(--dim); }
+  .wsStage canvas.wsLoupe { inset:auto; width:144px; height:144px; display:none; z-index:2; pointer-events:none;
+    border:2px solid var(--accent); border-radius:8px; box-shadow:0 4px 18px rgba(0,0,0,.55); background:#808080; }
+  .wsSel { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-height:24px; margin:0 0 4px; }
+  .wsSel:empty { display:none; }
+  .wsSel label { display:flex; align-items:center; gap:3px; margin:0; color:var(--dim); }
+  .wsSel input { width:66px; margin:0; padding:2px 5px; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; font-size:11px; }
+  /* One line each, so a message never resizes the canvas under a drag (the full text is its tooltip). */
+  #f2rWhy, #s2rJoints, .rigModal.ws #s2rNote { height:18px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; flex-wrap:nowrap; }
   /* 🎞 Frame to rig */
-  #f2rStrip { display:flex; gap:4px; overflow-x:auto; padding:6px 0; min-height:96px; }
+  #f2rStrip { display:flex; flex-wrap:wrap; gap:4px; overflow-y:auto; padding:4px 0; max-height:min(250px,32vh); }
   .f2rThumb { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:1px; cursor:pointer;
     border:2px solid transparent; border-radius:5px; padding:1px; font-size:10px; color:var(--dim); }
   .f2rThumb.sel { border-color:var(--accent); color:var(--txt); }
   .f2rThumb.best b { color:var(--accent2); }
   .f2rThumb canvas { width:64px; height:64px; border-radius:3px; background:#808080; }
-  #f2rStage { width:min(520px,56vh); height:min(520px,56vh); background:#808080; border-radius:6px; cursor:crosshair; }
-  #f2rWhy { max-width:min(520px,56vh); }
   .f2rRow { display:flex; align-items:center; gap:6px; margin:6px 0 2px; }
   .f2rRow select { width:auto; min-width:0; }
   .f2rSwatch { display:inline-block; width:10px; height:10px; border-radius:2px; flex:0 0 auto; }
@@ -220,15 +248,14 @@
     border-radius:5px; font-size:11px; }
   #f2rPickBar.on { display:flex; }
   /* 🗺 From my sheet: the regions as frame to rig's strip, the parts as its rows, the stage as its own */
-  #s2rRegions { display:flex; gap:4px; overflow-x:auto; padding:6px 0 10px; min-height:104px; flex:0 0 auto; }
+  #s2rRegions { display:flex; flex-wrap:wrap; gap:4px; overflow-y:auto; padding:4px 0 8px; max-height:min(250px,32vh); }
   #s2rRegions .f2rThumb canvas { width:56px; height:56px; }
   #s2rRegions .f2rThumb b { max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:400; }
   #s2rRegions .f2rThumb i { font-style:normal; font-size:9px; color:var(--accent2); max-width:64px; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; }
   #s2rRegions .f2rThumb button { position:absolute; top:2px; right:2px; padding:0 3px; font-size:10px; line-height:1.2; }
-  #s2rStage, #s2rArrange { width:min(440px,52vh); height:min(440px,52vh); background:#808080; border-radius:6px; cursor:crosshair; }
   #s2rArrange { cursor:grab; }
-  #s2rJoints { max-width:min(440px,52vh); display:flex; flex-wrap:wrap; gap:2px 8px; font-size:11px; color:var(--dim); }
+  #s2rJoints { display:flex; flex-wrap:wrap; gap:2px 8px; font-size:11px; color:var(--dim); min-height:14px; }
   #s2rJoints span { cursor:help; }
   .s2rGroup > summary { cursor:pointer; margin:6px 0 2px; color:var(--dim); }
   .s2rGroup .f2rRow { margin:2px 0; }
@@ -960,8 +987,8 @@
 
   <!-- Frame to rig (docs/design/frame-to-rig.md, F1 + F2b): a Flipbook frame picked, cut into the
        template's parts and props by atlas-tool, touched up here, then made into a sheet and a rig. -->
-  <div id="f2rModal" class="rigModal">
-    <div class="modal-box" style="width:min(980px,96vw);max-height:90vh;margin-top:4vh;">
+  <div id="f2rModal" class="rigModal ws">
+    <div class="modal-box">
       <div class="modal-head">
         <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there; ★ on a kept cut takes it now). The stage shows the cut ◧ Assembled: each part drawn from its own frame, outlined in that frame's colour, which the strip and the Parts list use too; ▣ This frame shows the picked frame alone. Click a part's frame chip, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again). ＋ New rig always starts from the clip's best frame with no cut open, as the first time: ↺ Reuse opens a cut kept before (the picked frame's, else the newest), and ↺ Start over takes the dialog back to that first guess; ✂ Edit cut in a frame-made rig's panel opens the cut it was made from. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
@@ -975,16 +1002,34 @@
         <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
       </div>
       <div id="f2rPickBar" role="status"><span id="f2rPickText" style="flex:1;min-width:0;"></span><button id="f2rPickCancel" class="f2rIcon" style="padding:0 5px;" title="Stop picking (Esc)" aria-label="Stop picking">✕</button></div>
-      <div id="f2rStrip" title="Each frame and its score: 1 = every arm segment in the picture plane, nothing covered, everything found. ★ the best. A frame a part is cut from carries that part's colour in its corner and its own colour round it."></div>
-      <div style="display:flex;gap:10px;min-height:0;flex:1;">
-        <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px;">
-          <span class="seg" id="f2rView" style="align-self:flex-start;">
+      <div class="wsBody">
+        <div class="wsMain">
+          <div class="wsBar">
+          <span class="seg" id="f2rView">
             <button data-view="assembled" title="Each part from the frame it is cut from, at its own length, turned as this frame draws it, outlined in its frame's colour (the strip and the Parts list use the same colour). Hatched: where this frame drew a part another frame gives, which the fill makes. Touch-ups and joints are on ▣ This frame.">◧ Assembled</button><button data-view="frame" title="The picked frame as it is, with its cut's parts over it: the brush, the lasso and the joints work here.">▣ This frame</button>
           </span>
-          <canvas id="f2rStage" width="520" height="520"></canvas>
+          <div class="f2rRow" title="Paint the pixels under the brush onto this part or prop, or draw a loop with the lasso round the pixels to give it (inside the character only). Both off: drag the joints.">
+            <label style="margin:0;"><input type="checkbox" id="f2rBrush"> 🖌 Brush</label>
+            <label style="margin:0;"><input type="checkbox" id="f2rLasso"> ◌ Lasso</label>
+            <select id="f2rPaint" style="min-width:0;max-width:160px;"></select>
+            <input type="range" id="f2rRadius" min="2" max="60" value="12" style="width:70px;" title="The brush's size on the screen ([ and ] change it): zoom in for a finer brush.">
+          </div>
+          <span style="flex:1;"></span>
+          <span class="seg wsCamBar">
+            <button data-cam="out" title="Zoom out (−)" aria-label="Zoom out">−</button><span class="wsZoom" id="f2rZoom" title="The zoom: 100% is one pixel of the frame to one of the screen. The wheel zooms at the pointer (Ctrl+wheel or a pinch on a trackpad too); Space+drag, the middle button, the pen's barrel button or two fingers pan; a pinch zooms on a touch screen. Keys: F fits, 1 is 100%, + and − zoom. Remembered while the page is open.">100%</span><button data-cam="in" title="Zoom in (+)" aria-label="Zoom in">+</button><button data-cam="fit" title="Fit the frame in the window (F)">Fit</button><button data-cam="one" title="100%: one pixel of the frame to one of the screen (1)">1:1</button>
+          </span>
+          <button class="f2rIcon" data-ws-side title="Show or hide the side panel (its splitter resizes it; a double-click on the splitter resets it)" aria-label="Show or hide the side panel">◨</button>
+          </div>
+          <div class="wsStage"><canvas id="f2rStage" class="wsCanvas"></canvas></div>
           <div id="f2rWhy" style="font-size:11px;color:var(--dim);min-height:14px;"></div>
         </div>
-        <div style="flex:1;min-width:0;overflow:auto;font-size:11px;">
+        <div class="resizer" id="f2rRes" title="drag to resize · double-click to reset"></div>
+        <div class="wsSide" id="f2rSide">
+          <div class="wsSel" id="f2rSel" title="The joint picked last: the arrow keys move it a pixel of the frame (Shift: ten); type where it goes."></div>
+          <details class="wsSec" open>
+            <summary title="Each frame and its score: 1 = every arm segment in the picture plane, nothing covered, everything found. ★ the best. A frame a part is cut from carries that part's colour in its corner and its own colour round it.">Frames</summary>
+            <div id="f2rStrip"></div>
+          </details>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button id="f2rCut" title="Cut the frame into the template's parts and props. The first cut on the service loads the models (up to a minute); a re-cut after dragging a joint takes seconds.">✂ Cut</button>
             <button id="f2rSave" disabled title="Keep the touch-ups with the cut: the brush's and the lasso's, the props (added, removed, ✓ / ✗, motion, bone) and the frame each part is cut from. Nothing is cut again.">💾 Keep touch-ups</button>
@@ -992,12 +1037,6 @@
           <div class="f2rRow" title="The new rig's name. Its images go to this project's sheet &lt;name&gt;_parts.">
             <input type="text" id="f2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
             <button id="f2rCreate" disabled title="Make the cut into a sheet and a rig, keeping the touch-ups first, and open it.">🦴 Create rig</button>
-          </div>
-          <div class="f2rRow" title="Paint the pixels under the brush onto this part or prop, or draw a loop with the lasso round the pixels to give it (inside the character only). Both off: drag the joints.">
-            <label style="margin:0;"><input type="checkbox" id="f2rBrush"> 🖌 Brush</label>
-            <label style="margin:0;"><input type="checkbox" id="f2rLasso"> ◌ Lasso</label>
-            <select id="f2rPaint" style="flex:1;min-width:0;"></select>
-            <input type="range" id="f2rRadius" min="2" max="60" value="12" style="width:70px;" title="Brush radius (frame pixels).">
           </div>
           <div id="f2rParts"></div>
           <div id="f2rProps"></div>
@@ -1009,8 +1048,8 @@
 
   <!-- 🗺 From my sheet (docs/design/frame-to-rig.md §13): an artist's own sheet mapped onto the
        template's parts, each placed on its bones by its joints, then made a fitted, skinned rig. -->
-  <div id="s2rModal" class="rigModal">
-    <div class="modal-box" style="width:min(1040px,96vw);max-height:90vh;margin-top:4vh;">
+  <div id="s2rModal" class="rigModal ws">
+    <div class="modal-box">
       <div class="modal-head">
         <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left: ⇄ Swap sides when your names say the character's own); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: 🗺 Edit mapping in its panel changes it. ＋ New rig always starts here from the names and the guesses, as the first time: ↺ Reuse opens a mapping made before (the open rig's, or the one you left here), and ↺ Start over takes this one back to the first guess.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
@@ -1025,23 +1064,35 @@
         <input type="text" id="s2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
         <button id="s2rCreate" disabled title="Make the template rig over this sheet, fitted to the joints, and open it.">🦴 Create rig</button>
       </div>
-      <div id="s2rNote" class="pill" style="margin-top:4px;white-space:normal;"></div>
-      <div id="s2rRegions" title="The sheet's regions: under each, the part it is mapped to. Click one to see it; ＋ wears it as a prop."></div>
-      <div style="display:flex;gap:10px;min-height:0;flex:1;">
-        <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px;">
-          <span class="seg" id="s2rView" style="align-self:flex-start;">
+      <div id="s2rNote" class="pill" style="margin-top:4px;"></div>
+      <div class="wsBody">
+        <div class="wsMain">
+          <div class="wsBar">
+          <span class="seg" id="s2rView">
             <button data-view="part" class="active" title="The part picked, on its own drawing: drag its joints where its bones start and end, or a prop where it sits on it.">▭ One part</button><button data-view="arranged" title="Every mapped part put together as the rig draws it. Drag a part into the character as you drew it — its first joint snaps to the joint it meets (the forearm's elbow on the upper arm's) and it carries the parts it holds — and turn it by its ↻ handle; a prop drags and turns on its part. Arranged, the rig is bound in that pose and keeps it as its clip “frame”, as a rig made from a video frame does.">◧ Arranged</button>
           </span>
-          <canvas id="s2rStage" width="440" height="440"></canvas>
-          <canvas id="s2rArrange" width="440" height="440" style="display:none;"></canvas>
-          <div style="display:flex;gap:6px;align-items:center;">
             <button id="s2rGuess" class="f2rIcon" title="Guess this part's joints from its drawing again" aria-label="Guess the joints again">⟲</button>
             <button id="s2rSwap" class="f2rIcon" title="Swap its two ends: the joint it starts at for the one it ends at" aria-label="Swap the ends">⇅</button>
             <button id="s2rUnarrange" class="f2rIcon" style="display:none;" title="Back to rest: forget the arrangement, each drawing turned onto its bones again (no clip “frame”)" aria-label="Forget the arrangement">⤺</button>
-            <div id="s2rJoints" style="flex:1;"></div>
+          <span style="flex:1;"></span>
+          <span class="seg wsCamBar">
+            <button data-cam="out" title="Zoom out (−)" aria-label="Zoom out">−</button><span class="wsZoom" id="s2rZoom" title="The zoom: 100% is one pixel of the sheet to one of the screen. The wheel zooms at the pointer (Ctrl+wheel or a pinch on a trackpad too); Space+drag, the middle button, the pen's barrel button or two fingers pan; a pinch zooms on a touch screen. Keys: F fits, 1 is 100%, + and − zoom. ▭ One part and ◧ Arranged each keep their own, remembered while the page is open.">100%</span><button data-cam="in" title="Zoom in (+)" aria-label="Zoom in">+</button><button data-cam="fit" title="Fit the drawing in the window (F)">Fit</button><button data-cam="one" title="100%: one pixel of the sheet to one of the screen (1)">1:1</button>
+          </span>
+          <button class="f2rIcon" data-ws-side title="Show or hide the side panel (its splitter resizes it; a double-click on the splitter resets it)" aria-label="Show or hide the side panel">◨</button>
           </div>
+          <div class="wsStage">
+            <canvas id="s2rStage" class="wsCanvas"></canvas>
+            <canvas id="s2rArrange" class="wsCanvas" style="display:none;"></canvas>
+          </div>
+          <div id="s2rJoints"></div>
         </div>
-        <div style="flex:1;min-width:0;overflow:auto;font-size:11px;">
+        <div class="resizer" id="s2rRes" title="drag to resize · double-click to reset"></div>
+        <div class="wsSide" id="s2rSide">
+          <div class="wsSel" id="s2rSel" title="The joint, part or prop picked last: the arrow keys move it a pixel of the sheet (Shift: ten); type where it goes, and an arranged one's turn."></div>
+          <details class="wsSec" open>
+            <summary title="The sheet's regions: under each, the part it is mapped to. Click one to see it; ＋ wears it as a prop.">Regions</summary>
+            <div id="s2rRegions"></div>
+          </details>
           <div id="s2rParts"></div>
           <div id="s2rProps"></div>
         </div>
@@ -10075,6 +10126,531 @@ async function createRigFromImages(files){
   finally { hideLoading(); }
 }
 
+// ---- Workspaces: 🎞 Frame to rig's stage, 🗺 From my sheet's ▭ One part and ◧ Arranged ----------------
+// Each dialog fills the window (`.rigModal.ws`); its canvas fills the free space at the screen's
+// resolution (`wsResize`) and draws its picture through a camera: canvas px = x + picture px × k, so
+// 100% is k = devicePixelRatio. A camera follows its picture, fitted, until it is zoomed or panned by
+// hand (`manual`); then it keeps that view while the dialog closes and opens again, another picture
+// (the next part's drawing) is centred at the same zoom, and F fits again. Handles, dots and hit
+// radii are screen sizes (`wsPx`), the same at any zoom. A pan is Space+drag, the middle button, the
+// pen's barrel button (`wirePenDrags` plays it as the middle button here), two fingers on a trackpad
+// or a touch pinch; the wheel and a pinch zoom about the pointer.
+const WS_ZOOM_MAX = 32;
+const WS_WHEEL = 0.0015;
+const WS_WHEEL_FINE = 0.01;
+const WS_STEP = 1.25;
+let wsSpace = false;
+
+const wsPx = (n) => n * (window.devicePixelRatio || 1);
+function wsCamera(zoomId){ return { k: 1, x: 0, y: 0, fitK: 1, manual: false, key: null, zoomId }; }
+const WS_CAM = { f2r: wsCamera("f2rZoom"), s2r: wsCamera("s2rZoom"), arr: wsCamera("s2rZoom") };
+// A pointer event's point on canvas `cv`, in canvas px; and canvas px per CSS px, on each axis (each is
+// rounded to whole canvas px on its own).
+function wsAt(cv, e){
+  const r = cv.getBoundingClientRect();
+  return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height];
+}
+function wsScale(cv){
+  const r = cv.getBoundingClientRect();
+  return [cv.width / r.width, cv.height / r.height];
+}
+function wsShowZoom(cam){
+  const el = cam.zoomId && document.getElementById(cam.zoomId);
+  if (el) el.textContent = Math.round(cam.k / wsPx(1) * 100) + "%";
+  return cam;
+}
+// Box `b` of the picture ([x0, y0, x1, y1], its px) fitted into `cv` with `margin` screen px round it.
+function wsFit(cam, cv, b, margin){
+  const m = wsPx(margin), w = Math.max(1e-6, b[2] - b[0]), h = Math.max(1e-6, b[3] - b[1]);
+  const k = Math.max(1e-6, Math.min((cv.width - 2 * m) / w, (cv.height - 2 * m) / h));
+  Object.assign(cam, { k, fitK: k, x: (cv.width - w * k) / 2 - b[0] * k, y: (cv.height - h * k) / 2 - b[1] * k, manual: false });
+  return wsShowZoom(cam);
+}
+// The camera to draw picture `key` (box `b`) through: fitted while it follows, else a new picture is
+// centred at the zoom it has.
+function wsFollow(cam, cv, key, b, margin){
+  if (!cam.manual){ cam.key = key; return wsFit(cam, cv, b, margin); }
+  if (cam.key !== key){
+    cam.key = key;
+    cam.x = cv.width / 2 - (b[0] + b[2]) / 2 * cam.k;
+    cam.y = cv.height / 2 - (b[1] + b[3]) / 2 * cam.k;
+  }
+  return cam;
+}
+// Zoom by `f` about canvas point `p`: the picture's point under it stays there.
+function wsZoomAt(cam, p, f){
+  const k = Math.max(Math.min(cam.fitK, wsPx(1)) / 8, Math.min(wsPx(WS_ZOOM_MAX), cam.k * f)), s = k / cam.k;
+  cam.x = p[0] - (p[0] - cam.x) * s;
+  cam.y = p[1] - (p[1] - cam.y) * s;
+  cam.k = k; cam.manual = true;
+  wsShowZoom(cam);
+}
+function wsPan(cam, dx, dy){ cam.x += dx; cam.y += dy; cam.manual = true; }
+
+// The workspace canvases: their dialog, when each is the one shown, the camera it draws through (the
+// arrange canvas's is null until its next draw fits it) and how to fit and redraw it; what is under a
+// canvas point (`hoverAt`), what the loupe shows while a joint is dragged, and the arrows' nudge
+// (`wsPrecision` below). `at` is the pointer on it (canvas px), `hover` what is under it.
+const WS_STAGES = [
+  { id: "f2rStage", modal: "f2rModal", shown: () => true, cam: () => WS_CAM.f2r, fit: () => { WS_CAM.f2r.manual = false; }, draw: () => f2rDraw(),
+    hoverAt: (p) => f2rHoverAt(p), loupe: () => f2rLoupe(), nudge: (dx, dy) => f2rNudge(dx, dy), cursor: () => $("#f2rBrush").checked },
+  { id: "s2rStage", modal: "s2rModal", shown: () => s2r.view !== "arranged", cam: () => WS_CAM.s2r, fit: () => { WS_CAM.s2r.manual = false; }, draw: () => s2rDraw(),
+    hoverAt: (p) => s2rHoverJoint(p), loupe: () => s2rLoupe(), nudge: (dx, dy) => s2rNudge(dx, dy) },
+  { id: "s2rArrange", modal: "s2rModal", shown: () => s2r.view === "arranged", cam: () => s2r.aview, fit: () => { WS_CAM.arr.manual = false; s2r.aview = null; }, draw: () => s2rDraw(),
+    hoverAt: (p) => s2rHoverItem(p), loupe: () => null, nudge: (dx, dy) => s2rNudge(dx, dy) },
+];
+const wsSt = (id) => WS_STAGES.find((st) => st.id === id);
+const wsOpen = (st) => $("#" + st.modal).classList.contains("open");
+function wsActive(){ return WS_STAGES.find((st) => wsOpen(st) && st.shown()) || null; }
+
+// The canvas at its box's size in screen px; a camera moved by hand keeps the picture's point at the
+// middle there, one that follows is fitted again.
+function wsResize(st){
+  const cv = $("#" + st.id), r = cv.parentElement.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return false;
+  const w = Math.round(wsPx(r.width)), h = Math.round(wsPx(r.height));
+  if (cv.width === w && cv.height === h) return false;
+  const cam = st.cam();
+  if (cam && cam.manual){ cam.x += (w - cv.width) / 2; cam.y += (h - cv.height) / 2; }
+  else if (cam) st.fit();
+  cv.width = w; cv.height = h;
+  return true;
+}
+function wsResizeAll(){
+  const draws = new Set();
+  for (const st of WS_STAGES) if (wsResize(st) && wsOpen(st)) draws.add(st.draw);
+  for (const st of WS_STAGES) if (wsOpen(st) && st.shown() && draws.has(st.draw)){ draws.delete(st.draw); st.draw(); }
+}
+
+function wsCommand(st, cmd){
+  if (!st) return;
+  const cv = $("#" + st.id), cam = st.cam();
+  if (cmd === "fit"){ st.fit(); st.draw(); return; }
+  if (!cam) return;
+  const p = st.at || [cv.width / 2, cv.height / 2];
+  wsZoomAt(cam, p, cmd === "one" ? wsPx(1) / cam.k : cmd === "in" ? WS_STEP : 1 / WS_STEP);
+  st.draw();
+}
+
+// The wheel zooms at the pointer: a mouse's notch, Ctrl+wheel or a trackpad's pinch (which comes as
+// Ctrl+wheel). A trackpad's two-finger move (small deltas, or sideways) pans.
+function wsWheel(st, cv, e){
+  e.preventDefault();
+  const cam = st.cam();
+  if (!cam) return;
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1, dx = e.deltaX * unit, dy = e.deltaY * unit;
+  const [sx, sy] = wsScale(cv);
+  if (!e.ctrlKey && e.deltaMode === 0 && (dx !== 0 || Math.abs(dy) < 50)) wsPan(cam, -dx * sx, -dy * sy);
+  else wsZoomAt(cam, wsAt(cv, e), Math.exp(-dy * (Math.abs(dy) < 50 ? WS_WHEEL_FINE : WS_WHEEL)));
+  st.draw();
+}
+
+// Space held, the middle button or the pen's barrel button: a drag pans, and never edits (it runs
+// before the canvas's own mousedown). The right button does neither.
+function wsWire(st){
+  const cv = $("#" + st.id), touches = new Map();
+  let pan = null, pinch = null;
+  cv.addEventListener("mousedown", (e) => {
+    st.at = wsAt(cv, e);
+    const panning = e.button === 1 || (e.button === 0 && wsSpace);
+    if (!panning && e.button !== 2) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!panning || !st.cam()) return;
+    pan = [e.clientX, e.clientY];
+    cv.classList.add("wsPanning");
+  }, true);
+  window.addEventListener("mousemove", (e) => {
+    if (!pan) return;
+    const cam = st.cam(), [sx, sy] = wsScale(cv);
+    if (cam) wsPan(cam, (e.clientX - pan[0]) * sx, (e.clientY - pan[1]) * sy);
+    pan = [e.clientX, e.clientY];
+    st.draw();
+  });
+  window.addEventListener("mouseup", () => {
+    if (pan){ pan = null; cv.classList.remove("wsPanning"); }
+    if (st.loupeOn){ st.loupeOn = false; wsLoupe(st); }
+  });
+  // What is under the pointer is named (not while a button is down); the brush's ring follows it.
+  cv.addEventListener("mousemove", (e) => {
+    st.at = wsAt(cv, e);
+    const hover = e.buttons || pan ? st.hover : st.hoverAt(st.at);
+    if (hover !== st.hover || (st.cursor && st.cursor())){ st.hover = hover; st.draw(); }
+  });
+  cv.addEventListener("mouseleave", () => {
+    st.at = null;
+    if (st.hover || (st.cursor && st.cursor())){ st.hover = null; st.draw(); }
+  });
+  // The loupe follows a joint being dragged (after the dialog's own move put it there; a pen's moves
+  // come to the document, not the canvas).
+  window.addEventListener("mousemove", (e) => {
+    if (pan || !wsOpen(st) || !st.shown()) return;
+    const on = !!st.loupe();
+    if (!on && !st.loupeOn) return;
+    st.at = wsAt(cv, e); st.loupeOn = on;
+    wsLoupe(st);
+  });
+  cv.addEventListener("wheel", (e) => wsWheel(st, cv, e), { passive: false });
+  cv.addEventListener("contextmenu", (e) => e.preventDefault());
+  // Two fingers: the first one's drag is taken back, then they pan and zoom about their middle.
+  const pinchOf = () => {
+    const [a, b] = [...touches.values()];
+    return { c: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d: Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])) };
+  };
+  cv.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (touches.size === 2){ penDragCancel([...touches.values()][0]); pinch = pinchOf(); }
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, [e.clientX, e.clientY]);
+    const cam = st.cam();
+    if (!pinch || touches.size !== 2 || !cam) return;
+    const now = pinchOf(), [sx, sy] = wsScale(cv);
+    wsPan(cam, (now.c[0] - pinch.c[0]) * sx, (now.c[1] - pinch.c[1]) * sy);
+    wsZoomAt(cam, wsAt(cv, { clientX: now.c[0], clientY: now.c[1] }), now.d / pinch.d);
+    pinch = now;
+    st.draw();
+  });
+  for (const type of ["pointerup", "pointercancel"])
+    window.addEventListener(type, (e) => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; });
+}
+
+// A key typed into a field is the field's: Space, F, 1, + and −, the arrows and [ ] work everywhere
+// else in a workspace.
+function wsField(t){
+  return t instanceof HTMLElement && (t.isContentEditable || t.tagName === "TEXTAREA" || t.tagName === "SELECT" ||
+    (t.tagName === "INPUT" && !/^(checkbox|radio|range|button)$/.test(t.type)));
+}
+function wsSpaceUi(){ for (const el of document.querySelectorAll(".wsStage")) el.classList.toggle("space", wsSpace); }
+const WS_KEYS = { f: "fit", F: "fit", 1: "one", "+": "in", "=": "in", "-": "out", _: "out" };
+
+function wireWorkspaces(){
+  for (const st of WS_STAGES) wsWire(st);
+  // A one-line message cut short says the rest on hover.
+  for (const el of [$("#f2rWhy"), $("#s2rNote")])
+    new MutationObserver(() => { el.title = el.textContent; }).observe(el, { childList: true, characterData: true, subtree: true });
+  const ro = new ResizeObserver(wsResizeAll);
+  for (const el of document.querySelectorAll(".wsStage")){
+    ro.observe(el);
+    const loupe = document.createElement("canvas");
+    loupe.className = "wsLoupe";
+    el.appendChild(loupe);
+  }
+  for (const st of WS_STAGES) st.loupeEl = $("#" + st.id).parentElement.querySelector(".wsLoupe");
+  // Alt held: snapping the other way for the drag (read off every pointer event too, so a pen's is).
+  for (const type of ["mousedown", "mousemove"]) window.addEventListener(type, (e) => { wsAlt = e.altKey; }, true);
+  for (const type of ["keydown", "keyup"])
+    window.addEventListener(type, (e) => {
+      if (e.key !== "Alt") return;
+      wsAlt = type === "keydown";
+      if (wsActive()) e.preventDefault();
+    }, true);
+  for (const b of document.querySelectorAll(".wsCamBar button[data-cam]")) b.onclick = () => wsCommand(wsActive(), b.dataset.cam);
+  for (const b of document.querySelectorAll("[data-ws-side]")){
+    const ws = b.closest(".rigModal.ws"), key = "rigger.wsSideOff." + ws.id;
+    try { ws.classList.toggle("sideOff", localStorage.getItem(key) === "1"); } catch { /* shown */ }
+    b.onclick = () => {
+      const off = ws.classList.toggle("sideOff");
+      try { localStorage.setItem(key, off ? "1" : "0"); } catch { /* this tab only */ }
+    };
+  }
+  window.addEventListener("keydown", (e) => {
+    const st = wsActive();
+    if (!st || e.ctrlKey || e.metaKey || e.altKey || wsField(e.target)) return;
+    if (e.code === "Space"){
+      e.preventDefault();
+      if (!wsSpace){ wsSpace = true; wsSpaceUi(); }
+      return;
+    }
+    const arrow = WS_ARROWS[e.key], n = e.shiftKey ? 10 : 1;
+    if (arrow){
+      if (st.nudge(arrow[0] * n, arrow[1] * n)){ e.preventDefault(); e.stopPropagation(); }
+      return;
+    }
+    if ((e.key === "[" || e.key === "]") && st.id === "f2rStage"){
+      e.preventDefault(); e.stopPropagation();
+      f2rBrushStep(e.key === "]");
+      return;
+    }
+    const cmd = WS_KEYS[e.key];
+    if (!cmd) return;
+    e.preventDefault(); e.stopPropagation();
+    wsCommand(st, cmd);
+  }, true);
+  window.addEventListener("keyup", (e) => {
+    if (e.code !== "Space" || !wsSpace) return;
+    wsSpace = false; wsSpaceUi();
+    if (wsActive() && !wsField(e.target)) e.preventDefault();
+  }, true);
+  window.addEventListener("blur", () => { if (wsSpace){ wsSpace = false; wsSpaceUi(); } });
+}
+
+// ---- Workspace precision -------------------------------------------------------------------------------
+// The joint (🎞, ▭ One part) or part or prop (◧ Arranged) picked last is the selection: ringed, nudged by
+// the arrow keys (one pixel of the picture, Shift ten) and shown in numbers at the top of the side panel,
+// where they can be typed. What is under the pointer is named beside it. While a joint is dragged a loupe
+// by the pointer shows the picture round it enlarged, a pixel to a square. Alt during a drag turns
+// snapping the other way: ◧ Arranged lets a part go without snapping onto the joint it meets, ▭ One part
+// snaps a joint onto the drawing's edge or its other joints. 🎞's brush is a size on the screen, so
+// zooming in makes it finer; [ and ] change it.
+const WS_ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const WS_LOUPE = 144;
+const WS_SNAP = 12;
+const WS_PICKED = "#5db0ff";
+let wsAlt = false;
+const wsTenth = (v) => Math.round(v * 10) / 10;
+
+// A name beside a point of the canvas, on a dark tag.
+function wsLabel(g, text, x, y){
+  g.font = "600 " + wsPx(11) + "px system-ui, sans-serif"; g.textAlign = "left"; g.textBaseline = "middle";
+  const w = g.measureText(text).width + wsPx(8), h = wsPx(16);
+  g.fillStyle = "rgba(20,23,28,.85)"; g.fillRect(x, y - h / 2, w, h);
+  g.fillStyle = "#fff"; g.fillText(text, x + wsPx(4), y);
+  g.textBaseline = "alphabetic";
+}
+function wsRing(g, x, y, r, colour, width){
+  g.strokeStyle = colour; g.lineWidth = wsPx(width);
+  g.beginPath(); g.arc(x, y, wsPx(r), 0, Math.PI * 2); g.stroke();
+}
+
+// The loupe: the picture round the dragged joint, `WS_LOUPE` CSS px square beside the pointer, four
+// times the zoom (6 to 32 screen px to a picture pixel), the joint's pixel under its open cross.
+function wsLoupe(st){
+  const el = st.loupeEl, l = st.loupeOn && st.at ? st.loupe() : null;
+  if (!l){ el.style.display = "none"; return; }
+  const cv = $("#" + st.id), [sx, sy] = wsScale(cv), cam = st.cam();
+  const m = Math.max(6, Math.min(32, (cam.k / sx) * 4)), n = Math.round(wsPx(WS_LOUPE)), span = WS_LOUPE / m;
+  if (el.width !== n){ el.width = n; el.height = n; }
+  const g = el.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = "#808080"; g.fillRect(0, 0, n, n);
+  for (const img of l.imgs) g.drawImage(img, l.at[0] - span / 2, l.at[1] - span / 2, span, span, 0, 0, n, n);
+  const c = n / 2, gap = wsPx(7);
+  g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = wsPx(1.5);
+  g.beginPath();
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]){ g.moveTo(c + dx * gap, c + dy * gap); g.lineTo(c + dx * c, c + dy * c); }
+  g.stroke();
+  const box = cv.parentElement.getBoundingClientRect(), ax = st.at[0] / sx, ay = st.at[1] / sy, off = 28;
+  const left = ax + off + WS_LOUPE <= box.width ? ax + off : ax - off - WS_LOUPE;
+  const top = ay - off - WS_LOUPE >= 0 ? ay - off - WS_LOUPE : ay + off;
+  el.style.left = left + "px"; el.style.top = top + "px"; el.style.display = "block";
+}
+
+// The point of drawing `c` nearest `p` (its px) on its edge — an inked pixel beside a clear one, at its
+// middle — or at one of `others`, within `r` px; null when none is.
+const WS_EDGES = new WeakMap();
+function wsEdgeOf(c){
+  let e = WS_EDGES.get(c);
+  if (e) return e;
+  const { width: w, height: h } = c, a = c.getContext("2d").getImageData(0, 0, w, h).data;
+  const ink = (x, y) => x >= 0 && y >= 0 && x < w && y < h && a[(y * w + x) * 4 + 3] >= 128, out = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+    if (ink(x, y) && (!ink(x - 1, y) || !ink(x + 1, y) || !ink(x, y - 1) || !ink(x, y + 1))) out.push(x + 0.5, y + 0.5);
+  WS_EDGES.set(c, e = Float64Array.from(out));
+  return e;
+}
+function wsSnapTo(c, p, others, r){
+  let best = null, d = r;
+  for (const q of others){ const dd = Math.hypot(q[0] - p[0], q[1] - p[1]); if (dd < d){ d = dd; best = [q[0], q[1]]; } }
+  const e = wsEdgeOf(c);
+  for (let i = 0; i < e.length; i += 2){ const dd = Math.hypot(e[i] - p[0], e[i + 1] - p[1]); if (dd < d){ d = dd; best = [e[i], e[i + 1]]; } }
+  return best;
+}
+
+// 🎞: the handles by name, the one under a point, the selection (`f2r.pick`), its nudge and the loupe.
+const F2R_JOINT_NAMES = { 11: "shoulder_r", 12: "shoulder_l", 13: "elbow_r", 14: "elbow_l", 15: "wrist_r", 16: "wrist_l", 23: "hip_r", 24: "hip_l" };
+function f2rSize(){ return f2r.cut ? f2r.cut.size : f2r.src ? [f2r.src.width, f2r.src.height] : [1, 1]; }
+function f2rHandleName(h){
+  if (h.kind !== "hand") return h.kind === "face" ? "face" : F2R_JOINT_NAMES[h.k];
+  const P = f2r.frame.pose.landmarks, d = (k) => (P[k] ? Math.hypot(P[k][0] - h.at[0], P[k][1] - h.at[1]) : Infinity);
+  return d(16) <= d(15) ? "hand_l" : "hand_r";
+}
+const f2rKey = (h) => h.kind + ":" + (h.k ?? "");
+function f2rTouchable(){ return !f2r.busy && f2r.sel >= 0 && !f2rAssembled() && !!f2r.frame && !!f2r.frame.pose; }
+function f2rHandleAt(p){
+  const b = f2rBox();
+  let best = null, d = wsPx(10);
+  for (const h of f2rHandles()){
+    const dd = Math.hypot(b.x + h.at[0] * b.w - p[0], b.y + h.at[1] * b.h - p[1]);
+    if (dd < d){ d = dd; best = h; }
+  }
+  return best;
+}
+function f2rHoverAt(p){ const h = f2rTouchable() && f2rHandleAt(p); return h ? f2rKey(h) : null; }
+const f2rPicked = () => (f2rTouchable() && f2r.pick ? f2rHandles().find((h) => f2rKey(h) === f2r.pick) || null : null);
+function f2rNudge(dx, dy){
+  const h = f2rPicked();
+  if (!h) return false;
+  const [w, hh] = f2rSize();
+  h.move(dx / w, dy / hh);
+  f2r.moved = true; f2r.composite = null;
+  f2rDraw(); f2rRenderCut();
+  return true;
+}
+function f2rLoupe(){
+  const d = f2r.drag, img = d && (f2r.frameImg || (f2r.src && f2r.src.draw(f2r.sel)));
+  if (!img) return null;
+  const [w, h] = f2rSize();
+  return { at: [d.h.at[0] * w, d.h.at[1] * h], imgs: [img, f2r.overlay].filter(Boolean) };
+}
+// The brush's radius in the frame's pixels: its size on the screen over the zoom.
+function f2rBrushRadius(){ return wsPx(Number($("#f2rRadius").value)) / f2rBox().k; }
+function f2rBrushStep(up){
+  const s = $("#f2rRadius"), v = Number(s.value);
+  const next = up ? Math.max(v + 1, Math.round(v * 1.25)) : Math.min(v - 1, Math.round(v / 1.25));
+  s.value = String(Math.max(Number(s.min), Math.min(Number(s.max), next)));
+  f2rDraw();
+}
+// Drawn over the stage: the selection's ring and name, the name under the pointer, the brush's ring.
+function f2rDecorate(g, b){
+  const st = wsSt("f2rStage"), picked = f2rPicked();
+  for (const h of f2rHandles()){
+    const x = b.x + h.at[0] * b.w, y = b.y + h.at[1] * b.h, key = f2rKey(h);
+    if (picked === h) wsRing(g, x, y, 11, WS_PICKED, 2.5);
+    if (picked === h || st.hover === key) wsLabel(g, f2rHandleName(h), x + wsPx(13), y - wsPx(13));
+  }
+  if ($("#f2rBrush").checked && st.at){
+    const r = Number($("#f2rRadius").value);
+    wsRing(g, st.at[0], st.at[1], r, "#000", 3);
+    wsRing(g, st.at[0], st.at[1], r, "#fff", 1.5);
+  }
+}
+
+// 🗺: the joint under a point, the selected joint (`s2r.joint`: { part, j }), nudges, Alt's snap and the loupe.
+const s2rPickedJoint = () => (s2r.joint && s2r.sel && s2r.joint.part === s2r.sel.part ? s2r.joint.j : null);
+function s2rJointUnder(m, b, p){
+  let best = null, d = wsPx(12);
+  for (const [j, q] of Object.entries(m.joints)){
+    const dd = Math.hypot(b.x + q[0] * b.k - p[0], b.y + q[1] * b.k - p[1]);
+    if (dd < d){ d = dd; best = j; }
+  }
+  return best;
+}
+function s2rHoverJoint(p){
+  const sel = s2r.sel, m = sel && sel.part && s2r.map[sel.part];
+  return m ? s2rJointUnder(m, s2rBox(s2rCanvas(m.region)), p) : null;
+}
+function s2rHoverItem(p){
+  if (!s2r.sheet || !s2r.aview) return null;
+  const it = s2rArrangeHit(s2rArrangeItems(), p);
+  return it ? it.name : null;
+}
+function s2rSnap(dr, p, k){
+  const others = dr.m ? Object.entries(dr.m.joints).filter(([j]) => j !== dr.joint).map(([, q]) => q) : [];
+  const q = wsSnapTo(dr.c, p, others, wsPx(WS_SNAP) / k);
+  return q && [wsTenth(q[0]), wsTenth(q[1])];
+}
+function s2rLoupe(){
+  const d = s2r.drag;
+  return d ? { at: d.prop ? d.prop.at : d.m.joints[d.joint], imgs: [d.c] } : null;
+}
+function s2rNudge(dx, dy){
+  const sel = s2r.sel;
+  if (!sel || !s2r.sheet) return false;
+  if (s2r.view === "arranged"){ if (!s2rArrangeNudge(dx, dy)) return false; }
+  else if (sel.prop !== undefined){
+    const p = s2r.props[sel.prop];
+    if (!p) return false;
+    p.at = [wsTenth(p.at[0] + dx), wsTenth(p.at[1] + dy)];
+  } else {
+    const m = sel.part && s2r.map[sel.part], j = s2rPickedJoint();
+    if (!m || !j || !m.joints[j]) return false;
+    m.joints[j] = [wsTenth(m.joints[j][0] + dx), wsTenth(m.joints[j][1] + dy)];
+    if (!m.placed.includes(j)) m.placed.push(j);
+  }
+  s2r.dirty = true;
+  s2rRender(); s2rDraw();
+  return true;
+}
+// ◧ Arranged: the selected part moved with the parts it holds, or a prop on its part, by (dx, dy) of
+// the canvas; and turned by `t` degrees about its first joint (a prop about its middle).
+function s2rArrangeNudge(dx, dy){
+  const it = s2rArrangeItems().find(s2rIsSel);
+  if (!it) return false;
+  if (it.part){
+    const parts = [it.part].concat(s2rBelow(it.part));
+    s2rArranged(parts);
+    for (const p of parts) if (s2r.arrange[p]){ const a = s2r.arrange[p].at; s2r.arrange[p].at = [a[0] + dx, a[1] + dy]; }
+    return true;
+  }
+  const p = s2r.props[it.prop], host = s2r.map[p.host], hp = host && s2rPlaceOf(p.host);
+  if (!hp) return false;
+  const hc = s2rCanvas(host.region), at = s2rOnCanvas(hp, hc, p.at), q = s2rOffCanvas(hp, hc, [at[0] + dx, at[1] + dy]);
+  p.at = [wsTenth(q[0]), wsTenth(q[1])];
+  return true;
+}
+function s2rArrangeTurn(t){
+  const it = s2rArrangeItems().find(s2rIsSel);
+  if (!it || !t) return;
+  if (it.part){
+    const parts = [it.part].concat(s2rBelow(it.part)), o = s2rHandle(it).pivot, r = s2rRad(t), [c, s] = [Math.cos(r), Math.sin(r)];
+    s2rArranged(parts);
+    for (const p of parts){
+      const a = s2r.arrange[p];
+      if (!a) continue;
+      const [qx, qy] = [a.at[0] - o[0], a.at[1] - o[1]];
+      s2r.arrange[p] = { at: [o[0] + c * qx - s * qy, o[1] + s * qx + c * qy], turn: a.turn + t };
+    }
+  } else {
+    const p = s2r.props[it.prop];
+    p.turn = (p.turn || 0) + t;
+  }
+  s2r.dirty = true;
+  s2rRender(); s2rDraw();
+}
+
+// The selection in numbers at the top of a side panel, typed to move it there: x and y in the
+// picture's pixels (◧ Arranged: the drawing's middle on the canvas) and an arranged one's turn.
+function wsSelOf(dialog){
+  if (dialog === "f2r"){
+    const h = f2rPicked();
+    if (!h) return null;
+    const [w, hh] = f2rSize();
+    return { key: "f2r:" + f2r.pick, name: f2rHandleName(h), x: h.at[0] * w, y: h.at[1] * hh };
+  }
+  const sel = s2r.sel;
+  if (!sel || !s2r.sheet) return null;
+  if (s2r.view === "arranged"){
+    const it = s2r.aview && s2rArrangeItems().find(s2rIsSel);
+    return it ? { key: "a:" + it.name, name: it.name, x: it.place.at[0], y: it.place.at[1], turn: it.place.turn } : null;
+  }
+  if (sel.prop !== undefined){
+    const p = s2r.props[sel.prop];
+    return p ? { key: "p:" + p.name, name: p.name + " on " + p.host, x: p.at[0], y: p.at[1] } : null;
+  }
+  const m = sel.part && s2r.map[sel.part], j = s2rPickedJoint();
+  return m && j && m.joints[j] ? { key: "j:" + sel.part + "." + j, name: sel.part + " · " + j, x: m.joints[j][0], y: m.joints[j][1] } : null;
+}
+function wsSelSync(dialog){
+  const box = $("#" + dialog + "Sel"), s = wsSelOf(dialog);
+  if (!s){ if (box.dataset.key){ box.dataset.key = ""; box.innerHTML = ""; } return; }
+  if (box.dataset.key !== s.key){
+    box.dataset.key = s.key; box.innerHTML = "";
+    const name = document.createElement("b");
+    name.textContent = s.name;
+    box.appendChild(name);
+    for (const f of s.turn === undefined ? ["x", "y"] : ["x", "y", "turn"]){
+      const l = document.createElement("label"), i = document.createElement("input");
+      l.textContent = f === "turn" ? "↻" : f;
+      Object.assign(i, { type: "number", step: f === "turn" ? "1" : "0.1", title: f === "turn" ? "Its turn, degrees clockwise" : f + ", pixels of the picture" });
+      i.dataset.f = f;
+      i.onchange = () => wsSelSet(dialog, f, Number(i.value));
+      l.appendChild(i);
+      box.appendChild(l);
+    }
+  }
+  for (const i of box.querySelectorAll("input")) if (document.activeElement !== i) i.value = String(wsTenth(s[i.dataset.f]));
+}
+function wsSelSet(dialog, f, v){
+  const s = wsSelOf(dialog);
+  if (!s || !Number.isFinite(v)) return;
+  if (f === "turn"){ s2rArrangeTurn(v - s.turn); return; }
+  const d = v - s[f];
+  if (dialog === "f2r") f2rNudge(f === "x" ? d : 0, f === "y" ? d : 0);
+  else s2rNudge(f === "x" ? d : 0, f === "y" ? d : 0);
+}
+
 // ---- Frame to rig (docs/design/frame-to-rig.md, F1 + F2b) -------------------------------------------
 // A Flipbook clip is tracked here by vendor/rigger-motion.js (as 🎥 Motion does) and every frame
 // scored (`scoreFrames`); the best is picked. ✂ Cut sends the frame and its joints, with any the author
@@ -10119,6 +10695,7 @@ const f2r = {
   fresh: true, kept: [], cutHere: new Set(), undo: null,
 };
 function f2rDirty(){ return f2r.brushDirty || f2r.propsDirty || f2r.sourcesDirty; }
+function f2rByHand(){ return !!f2r.plan && Object.values(f2r.plan).some((p) => p.byHand); }
 
 function f2rNote(t){ $("#f2rNote").textContent = t || ""; }
 function f2rColour(i){
@@ -10139,6 +10716,8 @@ function openFrameToRig(){
   }
   // A cut opened by ✂ Edit cut belongs to its rig: a new rig starts from a clip of its own.
   if (f2r.edit){ f2r.edit = null; f2rPickClip(""); }
+  const same = !!f2r.tpl && f2r.tpl.id === tpl.id;
+  if (f2r.busy && !same){ $("#newRigNote").textContent = "a ✂ Cut is still running in 🎞: open it again on " + f2r.tpl.label + ", or wait for it"; return; }
   f2r.tpl = tpl;
   f2rModeUi();
   $("#newRigNote").textContent = "";
@@ -10148,7 +10727,16 @@ function openFrameToRig(){
   f2rFillClips();
   if (projectClips === null) loadProjectClips().then(f2rFillClips);
   // A new rig starts as the first time, on the clip still picked: its kept cuts listed again, offered.
-  if (f2r.clip){ f2rFresh(); f2rLoadSaved(f2r.clip, f2r.gen); }
+  // What was open is one step ↶ takes back, as after ↺ Start over (whose own ↶ stays); not mid-cut,
+  // and not another template's.
+  if (f2r.clip && !f2r.busy){
+    const work = same && (f2rDirty() || f2r.moved || f2rByHand() || !!f2r.cut);
+    const undo = !same ? null : work ? f2rSnapshot() : f2r.undo;
+    f2rFresh(); f2r.undo = undo;
+    if (work) f2rNote("started over on the best frame: ↶ brings back what was open");
+    f2rRenderStrip(); f2rRenderCut();
+    f2rLoadSaved(f2r.clip, f2r.gen);
+  }
   f2rDraw();
 }
 
@@ -10195,13 +10783,16 @@ async function f2rReuse(){
 
 // ↺ Start over: back to the first guess as one step, which ↶ takes back; the cut that was open stays
 // kept, for ↺ Reuse.
-function f2rStartOver(){
-  if (f2r.busy || !f2r.clip) return;
-  const byHand = !!f2r.plan && Object.values(f2r.plan).some((p) => p.byHand);
-  if ((f2rDirty() || f2r.moved || byHand) && !confirm("↺ Start over drops what you did not 💾 keep here — touch-ups, dragged joints, the frames you picked for parts — and goes back to the clip's best frame, as it was tracked.\n\n↶ brings it back.")) return;
+// What ↶ brings back: the cut open, its touch-ups, joints and parts' frames, and the cuts made here.
+function f2rSnapshot(){
   const keep = ["sel", "frame", "plan", "labels", "overlay", "frameImg", "moved", "fresh", ...Object.keys(F2R_CLEAN)];
   const undo = Object.fromEntries(keep.map((k) => [k, f2r[k]]));
-  Object.assign(undo, { cut: f2r.cut && JSON.parse(JSON.stringify(f2r.cut)), cutHere: new Set(f2r.cutHere), why: $("#f2rWhy").textContent });
+  return Object.assign(undo, { cut: f2r.cut && JSON.parse(JSON.stringify(f2r.cut)), cutHere: new Set(f2r.cutHere), here: f2r.saved.filter((c) => f2r.cutHere.has(c.job)), why: $("#f2rWhy").textContent });
+}
+function f2rStartOver(){
+  if (f2r.busy || !f2r.clip) return;
+  if ((f2rDirty() || f2r.moved || f2rByHand()) && !confirm("↺ Start over drops what you did not 💾 keep here — touch-ups, dragged joints, the frames you picked for parts — and goes back to the clip's best frame, as it was tracked.\n\n↶ brings it back.")) return;
+  const undo = f2rSnapshot();
   f2rFresh();
   f2r.undo = undo;
   f2rNote(f2r.sel >= 0 ? "started over on frame " + f2r.sel + ", the best: ✂ Cut makes a fresh cut" : "started over: pick a frame, then ✂ Cut");
@@ -10211,8 +10802,13 @@ function f2rUndoStartOver(){
   const u = f2r.undo;
   if (!u || f2r.busy) return;
   if ((f2rDirty() || f2r.moved) && !confirm("↶ brings back the cut from before ↺ Start over, dropping what you did since. Go on?")) return;
-  const { why, ...state } = u;
+  const { why, here, ...state } = u;
   Object.assign(f2r, state, { undo: null, composite: null });
+  // The clip's kept cuts, read again since, may leave out cuts made here.
+  for (const c of here) if (!f2r.saved.some((x) => x.job === c.job)) f2r.saved.push(c);
+  f2r.kept = f2r.kept.filter((c) => !f2r.cutHere.has(c.job));
+  // Taken before the clip was tracked, the cut has no plan yet.
+  if (f2r.cut && !f2r.plan && f2r.track) f2r.plan = f2rPlanFor(f2r.sel);
   const cut = f2r.cut;
   if (cut){
     f2r.saved = f2r.saved.some((x) => x.job === cut.job) ? f2r.saved.map((x) => (x.job === cut.job ? cut : x)) : [cut, ...f2r.saved];
@@ -10480,30 +11076,30 @@ function f2rHandles(){
   return out;
 }
 
-// The stage's frame box: the frame fitted into the canvas.
+// The stage's frame box: the frame on the canvas through its camera.
 function f2rBox(){
-  const cv = $("#f2rStage");
-  const w = f2r.cut ? f2r.cut.size[0] : f2r.src ? f2r.src.width : 1;
-  const h = f2r.cut ? f2r.cut.size[1] : f2r.src ? f2r.src.height : 1;
-  const k = Math.min(cv.width / w, cv.height / h);
-  return { x: (cv.width - w * k) / 2, y: (cv.height - h * k) / 2, w: w * k, h: h * k, k };
+  const cv = $("#f2rStage"), [w, h] = f2rSize();
+  const { k, x, y } = wsFollow(WS_CAM.f2r, cv, w + "x" + h, [0, 0, w, h], 8);
+  return { x, y, w: w * k, h: h * k, k };
 }
 
 function f2rDraw(){
   const cv = $("#f2rStage");
   const g = cv.getContext("2d");
+  wsSelSync("f2r");
   g.fillStyle = "#808080"; g.fillRect(0, 0, cv.width, cv.height);
   f2rRenderView();
   if (f2r.sel < 0 || (!f2r.src && !f2r.frameImg)) return;
   const b = f2rBox();
   const assembled = f2rAssembled() ? f2rComposite() : null;
-  g.imageSmoothingEnabled = true;
+  // Zoomed in past 200%, each pixel of the frame is drawn as a square (where a joint goes on it shows).
+  g.imageSmoothingEnabled = b.k < wsPx(2);
   if (assembled) g.drawImage(assembled, b.x, b.y, b.w, b.h);
   else if (f2r.frameImg) g.drawImage(f2r.frameImg, b.x, b.y, b.w, b.h);
   else g.drawImage(f2r.src.draw(f2r.sel), b.x, b.y, b.w, b.h);
   if (f2r.overlay && !assembled){ g.imageSmoothingEnabled = false; g.drawImage(f2r.overlay, b.x, b.y, b.w, b.h); }
   if (f2r.lasso && f2r.lasso.length > 1){
-    g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.setLineDash([4, 3]); g.beginPath();
+    g.lineWidth = wsPx(1.5); g.strokeStyle = "#fff"; g.setLineDash([wsPx(4), wsPx(3)]); g.beginPath();
     f2r.lasso.forEach(([x, y], k) => (k ? g.lineTo(b.x + x * b.k, b.y + y * b.k) : g.moveTo(b.x + x * b.k, b.y + y * b.k)));
     g.closePath(); g.stroke(); g.setLineDash([]);
   }
@@ -10517,7 +11113,7 @@ function f2rDraw(){
   const f = f2r.frame;
   if (assembled || !f || !f.pose) return;
   const P = (p) => [b.x + p[0] * b.w, b.y + p[1] * b.h];
-  g.lineWidth = 2; g.strokeStyle = "#ffe000";
+  g.lineWidth = wsPx(2); g.strokeStyle = "#ffe000";
   for (const arm of F2R_ARMS){
     g.beginPath();
     arm.forEach((k, n) => { const q = P(f.pose.landmarks[k]); n ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
@@ -10525,10 +11121,11 @@ function f2rDraw(){
   }
   for (const h of f2rHandles()){
     const [x, y] = P(h.at);
-    g.beginPath(); g.arc(x, y, h.kind === "pose" ? 5 : 7, 0, Math.PI * 2);
+    g.beginPath(); g.arc(x, y, wsPx(h.kind === "pose" ? 5 : 7), 0, Math.PI * 2);
     g.fillStyle = h.kind === "pose" ? "#ffe000" : h.kind === "hand" ? "#00e5ff" : "#ff5050";
-    g.fill(); g.strokeStyle = "#000"; g.lineWidth = 1; g.stroke();
+    g.fill(); g.strokeStyle = "#000"; g.lineWidth = wsPx(1); g.stroke();
   }
+  f2rDecorate(g, b);
 }
 
 function f2rBuildOverlay(){
@@ -10802,13 +11399,13 @@ function f2rRenderView(){
 // Each part from another frame tagged with that frame, in its colour, at the part's middle.
 function f2rDrawTags(g, b, at){
   const lends = f2rLends();
-  g.font = "bold 11px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = "bold " + wsPx(11) + "px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
   for (const [fr, parts] of lends) for (const part of parts){
     if (part === "neck" && f2rFrameOf("head") === fr) continue;
     const p = at(part);
     if (!p) continue;
-    const x = b.x + p[0] * b.k, y = b.y + p[1] * b.k, t = "◧ " + fr, tw = g.measureText(t).width + 8;
-    g.fillStyle = f2rColourOf(lends, fr); g.fillRect(x - tw / 2, y - 8, tw, 16);
+    const x = b.x + p[0] * b.k, y = b.y + p[1] * b.k, t = "◧ " + fr, tw = g.measureText(t).width + wsPx(8);
+    g.fillStyle = f2rColourOf(lends, fr); g.fillRect(x - tw / 2, y - wsPx(8), tw, wsPx(16));
     g.fillStyle = "#000"; g.fillText(t, x, y);
   }
 }
@@ -11232,7 +11829,7 @@ function f2rPaintAt(ev){
   const sx = (ev.clientX - r.left) * cv.width / r.width, sy = (ev.clientY - r.top) * cv.height / r.height;
   const [w, h] = f2r.cut.size;
   const fx = (sx - b.x) / b.k, fy = (sy - b.y) / b.k;
-  const rad = Number($("#f2rRadius").value), to = Number($("#f2rPaint").value);
+  const rad = f2rBrushRadius(), to = Number($("#f2rPaint").value);
   let changed = false;
   for (let y = Math.max(0, Math.floor(fy - rad)); y <= Math.min(h - 1, Math.ceil(fy + rad)); y++)
     for (let x = Math.max(0, Math.floor(fx - rad)); x <= Math.min(w - 1, Math.ceil(fx + rad)); x++){
@@ -11594,13 +12191,8 @@ function wireFrameToRig(){
     if (f2r.busy || f2r.sel < 0 || f2rAssembled()) return;
     if ($("#f2rBrush").checked && f2r.cut){ f2r.painting = true; f2rPaintAt(ev); return; }
     if ($("#f2rLasso").checked && f2r.cut){ f2r.lasso = [onFrame(ev)]; f2rDraw(); return; }
-    const b = f2rBox(), [x, y] = at(ev);
-    let best = null, d = 10;
-    for (const h of f2rHandles()){
-      const dd = Math.hypot(b.x + h.at[0] * b.w - x, b.y + h.at[1] * b.h - y);
-      if (dd < d){ d = dd; best = h; }
-    }
-    if (best) f2r.drag = { h: best, x, y };
+    const [x, y] = at(ev), best = f2rHandleAt([x, y]);
+    if (best){ f2r.drag = { h: best, x, y }; f2r.pick = f2rKey(best); f2rDraw(); }
   };
   window.addEventListener("mousemove", (ev) => {
     if (f2r.painting){ f2rPaintAt(ev); return; }
@@ -11702,7 +12294,10 @@ async function openSheetToRig(edit){
 
 // A new rig's mapping changed by hand and closed without 🦴 Create rig is left for ↺ Reuse.
 function closeSheetToRig(){
+  const u = s2r.undo;
   if (!s2r.edit && s2r.sheet && s2r.dirty && Object.keys(s2r.map).length) s2r.left = { mapping: s2rMapping(), at: Date.now() };
+  // Closed on ↺ Start over's first guess: the mapping it replaced is the one left.
+  else if (!s2r.edit && s2r.sheet && !s2r.dirty && u && u.dirty && Object.keys(u.map).length) s2r.left = { mapping: s2rMapping(u), at: Date.now() };
   $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
 }
 
@@ -11748,6 +12343,8 @@ function s2rStartOver(){
   if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
   s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
   Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
+  ++s2r.gen;
   s2rSuggest();
   s2rRender(); s2rDraw();
 }
@@ -11756,6 +12353,9 @@ function s2rUndoStartOver(){
   if (!u) return;
   if (s2r.dirty && !confirm("↶ brings back the mapping from before ↺ Start over, dropping what you changed since. Go on?")) return;
   Object.assign(s2r, u, { undo: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  ++s2r.gen;
+  // A face being found when ↺ Start over came is looked for again.
+  for (const [part, f] of Object.entries(s2r.faces)) if (f === "busy") s2rTrackFace(part);
   s2rSwapUi();
   s2rNote("↶ the mapping as it was before ↺ Start over");
   s2rRender(); s2rDraw();
@@ -12088,19 +12688,20 @@ function s2rSelRegion(){
   return sel.region;
 }
 
-// What the page sends and the rig keeps (`sheet.json`, rigSheetMap.ts SheetMapping).
-function s2rMapping(){
+// What the page sends and the rig keeps (`sheet.json`, rigSheetMap.ts SheetMapping); of `st` (map,
+// props, arrange, swap: ↺ Start over's undo) when given.
+function s2rMapping(st = s2r){
   const turn = (t) => Math.round(((((t % 360) + 540) % 360) - 180) * 1000) / 1000;
   const arrange = {};
-  for (const [part, a] of Object.entries(s2r.arrange || {}))
-    if (s2r.map[part] && s2rMain(s2rPart(part))) arrange[part] = { at: [Math.round(a.at[0] * 100) / 100, Math.round(a.at[1] * 100) / 100], turn: turn(a.turn) };
+  for (const [part, a] of Object.entries(st.arrange || {}))
+    if (st.map[part] && s2rMain(s2rPart(part))) arrange[part] = { at: [Math.round(a.at[0] * 100) / 100, Math.round(a.at[1] * 100) / 100], turn: turn(a.turn) };
   const parts = {};
-  for (const [part, m] of Object.entries(s2r.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
+  for (const [part, m] of Object.entries(st.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
     sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
-    props: s2r.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
+    props: st.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
-    ...(s2r.swap ? { swapSides: true } : {}),
+    ...(st.swap ? { swapSides: true } : {}),
   };
 }
 
@@ -12338,14 +12939,14 @@ function s2rRenderProps(){
   });
 }
 
-// The drawing on the stage: `c` fitted inside it with a margin.
+// The drawing `c` on the stage through its camera (fitted with a margin while it follows).
 function s2rBox(c){
-  const cv = $("#s2rStage"), m = 28;
-  const k = Math.min((cv.width - 2 * m) / c.width, (cv.height - 2 * m) / c.height);
-  return { k, x: (cv.width - c.width * k) / 2, y: (cv.height - c.height * k) / 2 };
+  const { k, x, y } = wsFollow(WS_CAM.s2r, $("#s2rStage"), c, [0, 0, c.width, c.height], 28);
+  return { k, x, y };
 }
 
 function s2rDraw(){
+  wsSelSync("s2r");
   const arranged = s2r.view === "arranged";
   for (const b of document.querySelectorAll("#s2rView button")) b.classList.toggle("active", b.dataset.view === s2r.view);
   $("#s2rStage").style.display = arranged ? "none" : "";
@@ -12359,7 +12960,7 @@ function s2rDraw(){
   const legend = $("#s2rJoints");
   legend.innerHTML = "";
   const sel = s2r.sel;
-  const say = (t) => { g.fillStyle = "#1b1d22"; g.font = "13px system-ui"; g.textAlign = "center"; g.fillText(t, cv.width / 2, cv.height / 2); };
+  const say = (t) => { g.fillStyle = "#1b1d22"; g.font = wsPx(13) + "px system-ui"; g.textAlign = "center"; g.fillText(t, cv.width / 2, cv.height / 2); };
   if (!s2r.sheet) return say(s2r.sheetKey ? "reading the sheet…" : "pick a sheet");
   if (!sel) return say("pick a part or a region");
   if (sel.prop !== undefined){
@@ -12367,10 +12968,11 @@ function s2rDraw(){
     if (!p || !s2r.map[p.host]) return say("pick a part or a region");
     const hc = s2rCanvas(s2r.map[p.host].region), pc = s2rCanvas(p.region);
     const b = s2rBox(hc);
+    g.imageSmoothingEnabled = b.k < wsPx(2);
     g.drawImage(hc, b.x, b.y, hc.width * b.k, hc.height * b.k);
     const x = b.x + (p.at[0] - pc.width / 2) * b.k, y = b.y + (p.at[1] - pc.height / 2) * b.k;
     g.drawImage(pc, x, y, pc.width * b.k, pc.height * b.k);
-    g.setLineDash([4, 3]); g.strokeStyle = "#ffe600"; g.lineWidth = 1.5;
+    g.setLineDash([wsPx(4), wsPx(3)]); g.strokeStyle = "#ffe600"; g.lineWidth = wsPx(1.5);
     g.strokeRect(x, y, pc.width * b.k, pc.height * b.k);
     g.setLineDash([]);
     const s = document.createElement("span");
@@ -12383,6 +12985,7 @@ function s2rDraw(){
   const c = region && s2rCanvas(region);
   if (!c) return say("pick a part or a region");
   const b = s2rBox(c);
+  g.imageSmoothingEnabled = b.k < wsPx(2);
   g.drawImage(c, b.x, b.y, c.width * b.k, c.height * b.k);
   if (!sel.part){
     const s = document.createElement("span");
@@ -12394,24 +12997,27 @@ function s2rDraw(){
   const m = s2r.map[sel.part];
   if (m.face){
     g.fillStyle = "rgba(255,255,255,.35)";
-    for (const [x, y] of m.face) g.fillRect(b.x + x * b.k - 0.5, b.y + y * b.k - 0.5, 1, 1);
+    const d = wsPx(1);
+    for (const [x, y] of m.face) g.fillRect(b.x + x * b.k - d / 2, b.y + y * b.k - d / 2, d, d);
   }
   const kind = s2rKind(sel.part);
   const names = window.RiggerMotion.SHEET_JOINTS[kind];
   const labels = window.RiggerMotion.SHEET_JOINT_LABELS[kind];
   if (names.length === 2){
     const [p0, p1] = names.map((j) => m.joints[j]);
-    g.strokeStyle = "rgba(255,255,255,.7)"; g.lineWidth = 1.5;
+    g.strokeStyle = "rgba(255,255,255,.7)"; g.lineWidth = wsPx(1.5);
     g.beginPath(); g.moveTo(b.x + p0[0] * b.k, b.y + p0[1] * b.k); g.lineTo(b.x + p1[0] * b.k, b.y + p1[1] * b.k); g.stroke();
   }
   names.forEach((j, i) => {
     const [x, y] = m.joints[j];
     const px = b.x + x * b.k, py = b.y + y * b.k;
     g.fillStyle = S2R_JOINT_COLOURS[i % S2R_JOINT_COLOURS.length];
-    g.beginPath(); g.arc(px, py, 6, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = m.placed.includes(j) ? "#ffffff" : "#1b1d22"; g.lineWidth = 2; g.stroke();
-    g.fillStyle = "#ffffff"; g.font = "11px system-ui"; g.textAlign = "left";
-    g.fillText(j, px + 9, py - 7);
+    g.beginPath(); g.arc(px, py, wsPx(6), 0, Math.PI * 2); g.fill();
+    g.strokeStyle = m.placed.includes(j) ? "#ffffff" : "#1b1d22"; g.lineWidth = wsPx(2); g.stroke();
+    if (j === s2rPickedJoint()) wsRing(g, px, py, 10, WS_PICKED, 2.5);
+    if (j === wsSt("s2rStage").hover) wsRing(g, px, py, 13, "#ffffff", 1.5);
+    g.fillStyle = "#ffffff"; g.font = wsPx(11) + "px system-ui"; g.textAlign = "left";
+    g.fillText(j, px + wsPx(9), py - wsPx(7));
     const s = document.createElement("span");
     s.innerHTML = '<i class="f2rSwatch" style="background:' + S2R_JOINT_COLOURS[i % S2R_JOINT_COLOURS.length] + '"></i> ';
     s.append(j);
@@ -12505,7 +13111,9 @@ async function s2rPreview(){
   if (s2r.view === "arranged") s2rDraw();
 }
 
-// The canvas fitted inside the stage with a margin, from where everything is drawn.
+// The camera everything is drawn through: the arrangement fitted inside the stage with a margin, or,
+// put back after the dialog made a new arrangement (`s2r.aview` dropped) while the zoom was set by
+// hand, that zoom about the new arrangement's middle.
 function s2rArrangeFit(){
   const items = s2rArrangeItems();
   if (!items.length) return;
@@ -12515,9 +13123,10 @@ function s2rArrangeFit(){
       const [x, y] = s2rOnCanvas(it.place, it.c, q);
       [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
     }
-  const cv = $("#s2rArrange"), m = 24;
-  const k = Math.min((cv.width - 2 * m) / Math.max(1, x1 - x0), (cv.height - 2 * m) / Math.max(1, y1 - y0));
-  s2r.aview = { k, x: (cv.width - (x1 - x0) * k) / 2 - x0 * k, y: (cv.height - (y1 - y0) * k) / 2 - y0 * k };
+  const cam = WS_CAM.arr, cv = $("#s2rArrange"), box = [x0, y0, Math.max(x1, x0 + 1), Math.max(y1, y0 + 1)];
+  const k = !s2r.aview && cam.manual ? cam.k : null;
+  s2r.aview = wsFit(cam, cv, box, 24);
+  if (k) wsZoomAt(cam, [cv.width / 2, cv.height / 2], k / cam.k);
 }
 const s2rToStage = ([x, y]) => [s2r.aview.x + x * s2r.aview.k, s2r.aview.y + y * s2r.aview.k];
 const s2rFromStage = ([x, y]) => [(x - s2r.aview.x) / s2r.aview.k, (y - s2r.aview.y) / s2r.aview.k];
@@ -12541,7 +13150,8 @@ function s2rHandle(it){
   }
   if (!dir){ const r = s2rRad(it.place.turn); dir = [Math.sin(r), -Math.cos(r)]; }
   const l = Math.hypot(dir[0], dir[1]), st = s2rToStage(pivot);
-  return { pivot, stage: st, handle: [st[0] + dir[0] / l * S2R_HANDLE, st[1] + dir[1] / l * S2R_HANDLE] };
+  const len = wsPx(S2R_HANDLE);
+  return { pivot, stage: st, handle: [st[0] + dir[0] / l * len, st[1] + dir[1] / l * len] };
 }
 
 // The top drawing under `at` (its ink; anywhere in its outline with `box`).
@@ -12585,7 +13195,7 @@ function s2rArrangeDown(at){
   const sel = items.find(s2rIsSel);
   if (sel){
     const h = s2rHandle(sel);
-    if (Math.hypot(at[0] - h.handle[0], at[1] - h.handle[1]) <= 9) return s2rArrangeStart(sel, "turn", at, h.pivot);
+    if (Math.hypot(at[0] - h.handle[0], at[1] - h.handle[1]) <= wsPx(9)) return s2rArrangeStart(sel, "turn", at, h.pivot);
   }
   // The one picked, anywhere in its outline (a prop picked in the table drags under what covers it),
   // else the top one.
@@ -12633,8 +13243,8 @@ function s2rArrangeMove(at){
     d.snapped = null;
     const first = s2rJointAt(d.part, window.RiggerMotion.SHEET_JOINTS[s2rKind(d.part)][0]);
     const target = window.RiggerMotion.sheetSnapTargets(s2rKind(d.part), s2rSide(d.part)).find(([q]) => s2r.map[q] && !d.base[q] && s2rPlaceOf(q));
-    const to = first && target && s2rJointAt(target[0], target[1]);
-    if (to && Math.hypot(to[0] - first[0], to[1] - first[1]) * s2r.aview.k <= S2R_SNAP){
+    const to = !wsAlt && first && target && s2rJointAt(target[0], target[1]);
+    if (to && Math.hypot(to[0] - first[0], to[1] - first[1]) * s2r.aview.k <= wsPx(S2R_SNAP)){
       for (const part of Object.keys(d.base)){
         const a = s2r.arrange[part].at;
         s2r.arrange[part].at = [a[0] + to[0] - first[0], a[1] + to[1] - first[1]];
@@ -12648,9 +13258,9 @@ function s2rArrangeMove(at){
 function s2rArrangeUp(){
   const d = s2r.adrag;
   s2r.adrag = null;
-  // Fitted again when something left the stage.
+  // Fitted again when something left the stage, unless the view was zoomed or panned by hand.
   const cv = $("#s2rArrange");
-  const out = s2rArrangeItems().some((it) => [[0, 0], [it.c.width, it.c.height]].some((q) => {
+  const out = !s2r.aview.manual && s2rArrangeItems().some((it) => [[0, 0], [it.c.width, it.c.height]].some((q) => {
     const [x, y] = s2rToStage(s2rOnCanvas(it.place, it.c, q));
     return x < 0 || y < 0 || x > cv.width || y > cv.height;
   }));
@@ -12665,7 +13275,7 @@ function s2rArrangeDraw(){
   g.clearRect(0, 0, cv.width, cv.height);
   const legend = $("#s2rJoints");
   legend.innerHTML = "";
-  const say = (t) => { g.fillStyle = "#1b1d22"; g.font = "13px system-ui"; g.textAlign = "center"; g.fillText(t, cv.width / 2, cv.height / 2); };
+  const say = (t) => { g.fillStyle = "#1b1d22"; g.font = wsPx(13) + "px system-ui"; g.textAlign = "center"; g.fillText(t, cv.width / 2, cv.height / 2); };
   if (!s2r.sheet) return say(s2r.sheetKey ? "reading the sheet…" : "pick a sheet");
   if (!Object.keys(s2r.map).length) return say("map a part first");
   const key = JSON.stringify(s2rMapping());
@@ -12674,6 +13284,7 @@ function s2rArrangeDraw(){
   if (!s2r.aview) s2rArrangeFit();
   if (!s2r.aview) return say("putting the parts together…");
   const v = s2r.aview, items = s2rArrangeItems();
+  g.imageSmoothingEnabled = v.k < wsPx(2);
   for (const it of items){
     g.setTransform(v.k, 0, 0, v.k, v.x, v.y);
     g.translate(it.place.at[0], it.place.at[1]);
@@ -12685,7 +13296,7 @@ function s2rArrangeDraw(){
   const p = s2r.preview;
   if (p){
     const st = (w) => s2rToStage([p.origin[0] + w[0] / p.scale, p.origin[1] - w[1] / p.scale]);
-    g.strokeStyle = "rgba(255,255,255,.8)"; g.fillStyle = "#ffffff"; g.lineWidth = 1.5;
+    g.strokeStyle = "rgba(255,255,255,.8)"; g.fillStyle = "#ffffff"; g.lineWidth = wsPx(1.5);
     for (const b of s2r.tpl.bones){
       if (!p.bones[b.name] || !s2rBodyBone(b.name)) continue;
       const c = st(p.bones[b.name]);
@@ -12693,14 +13304,14 @@ function s2rArrangeDraw(){
         const a = st(p.bones[b.parent]);
         g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(c[0], c[1]); g.stroke();
       }
-      g.beginPath(); g.arc(c[0], c[1], 2.5, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(c[0], c[1], wsPx(2.5), 0, Math.PI * 2); g.fill();
     }
   }
   // The picked one: its outline, its joints and its ↻ handle.
   const sel = items.find(s2rIsSel);
   if (sel){
     const corners = [[0, 0], [sel.c.width, 0], [sel.c.width, sel.c.height], [0, sel.c.height]].map((q) => s2rToStage(s2rOnCanvas(sel.place, sel.c, q)));
-    g.setLineDash([4, 3]); g.strokeStyle = "#ffe600"; g.lineWidth = 1.5;
+    g.setLineDash([wsPx(4), wsPx(3)]); g.strokeStyle = "#ffe600"; g.lineWidth = wsPx(1.5);
     g.beginPath(); corners.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.stroke();
     g.setLineDash([]);
     if (sel.part){
@@ -12709,17 +13320,27 @@ function s2rArrangeDraw(){
         if (!at) return;
         const [x, y] = s2rToStage(at);
         g.fillStyle = S2R_JOINT_COLOURS[i % S2R_JOINT_COLOURS.length];
-        g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
-        g.strokeStyle = "#1b1d22"; g.lineWidth = 2; g.stroke();
+        g.beginPath(); g.arc(x, y, wsPx(5), 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#1b1d22"; g.lineWidth = wsPx(2); g.stroke();
       });
     }
     const h = s2rHandle(sel);
-    g.strokeStyle = "#ffe600"; g.lineWidth = 1.5;
+    g.strokeStyle = "#ffe600"; g.lineWidth = wsPx(1.5);
     g.beginPath(); g.moveTo(h.stage[0], h.stage[1]); g.lineTo(h.handle[0], h.handle[1]); g.stroke();
-    g.fillStyle = "#1b1d22"; g.beginPath(); g.arc(h.handle[0], h.handle[1], 8, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = "#ffe600"; g.font = "12px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText("↻", h.handle[0], h.handle[1] + 1);
+    g.fillStyle = "#1b1d22"; g.beginPath(); g.arc(h.handle[0], h.handle[1], wsPx(8), 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = "#ffe600"; g.font = wsPx(12) + "px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText("↻", h.handle[0], h.handle[1] + wsPx(1));
     g.textBaseline = "alphabetic";
+  }
+  // The one under the pointer: its outline and its name.
+  const hover = items.find((it) => it.name === wsSt("s2rArrange").hover);
+  if (hover && hover !== sel){
+    const corners = [[0, 0], [hover.c.width, 0], [hover.c.width, hover.c.height], [0, hover.c.height]].map((q) => s2rToStage(s2rOnCanvas(hover.place, hover.c, q)));
+    g.setLineDash([wsPx(3), wsPx(3)]); g.strokeStyle = "rgba(255,255,255,.8)"; g.lineWidth = wsPx(1);
+    g.beginPath(); corners.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.stroke();
+    g.setLineDash([]);
+    const [x, y] = s2rToStage(hover.place.at);
+    wsLabel(g, hover.name, x, y);
   }
   const state = document.createElement("span");
   state.textContent = s2r.arrange ? "◧ arranged" : "at rest";
@@ -12803,7 +13424,7 @@ function wireSheetToRig(){
     s2rRender(); s2rDraw();
   };
   for (const b of document.querySelectorAll("#s2rView button"))
-    b.onclick = () => { s2r.view = b.dataset.view; s2r.aview = null; s2rDraw(); };
+    b.onclick = () => { s2r.view = b.dataset.view; if (s2r.aview && !s2r.aview.manual) s2r.aview = null; s2rDraw(); };
   $("#s2rUnarrange").onclick = () => {
     if (!s2r.arrange) return;
     s2r.arrange = null; s2r.aview = null; s2r.dirty = true;
@@ -12826,38 +13447,33 @@ function wireSheetToRig(){
     const sel = s2r.sel;
     if (!s2r.sheet || !sel) return;
     const [x, y] = at(ev);
+    // A drag keeps the point it grabbed under the pointer: `off` from the drawing's point under it.
+    const grab = (c, b, at) => ({ c, off: [at[0] - (x - b.x) / b.k, at[1] - (y - b.y) / b.k] });
     if (sel.prop !== undefined){
       const p = s2r.props[sel.prop];
       if (!p || !s2r.map[p.host]) return;
-      const b = s2rBox(s2rCanvas(s2r.map[p.host].region)), pc = s2rCanvas(p.region);
+      const hc = s2rCanvas(s2r.map[p.host].region), b = s2rBox(hc), pc = s2rCanvas(p.region);
       const px = b.x + p.at[0] * b.k, py = b.y + p.at[1] * b.k;
-      if (Math.abs(x - px) <= Math.max(10, pc.width * b.k / 2) && Math.abs(y - py) <= Math.max(10, pc.height * b.k / 2))
-        s2r.drag = { prop: p, k: b.k, x, y };
+      if (Math.abs(x - px) <= Math.max(wsPx(10), pc.width * b.k / 2) && Math.abs(y - py) <= Math.max(wsPx(10), pc.height * b.k / 2))
+        s2r.drag = { prop: p, ...grab(hc, b, p.at) };
       return;
     }
     const m = sel.part && s2r.map[sel.part];
     if (!m) return;
-    const b = s2rBox(s2rCanvas(m.region));
-    let best = null, d = 12;
-    for (const [j, p] of Object.entries(m.joints)){
-      const dd = Math.hypot(b.x + p[0] * b.k - x, b.y + p[1] * b.k - y);
-      if (dd < d){ d = dd; best = j; }
-    }
-    if (best) s2r.drag = { m, joint: best, k: b.k, x, y };
+    const c = s2rCanvas(m.region), b = s2rBox(c), best = s2rJointUnder(m, b, [x, y]);
+    if (best){ s2r.drag = { m, joint: best, ...grab(c, b, m.joints[best]) }; s2r.joint = { part: sel.part, j: best }; s2rDraw(); }
   };
   window.addEventListener("mousemove", (ev) => {
     const dr = s2r.drag;
     if (!dr) return;
-    const [x, y] = at(ev);
-    const [dx, dy] = [(x - dr.x) / dr.k, (y - dr.y) / dr.k];
-    const target = dr.prop ? dr.prop.at : dr.m.joints[dr.joint];
-    const moved = [Math.round((target[0] + dx) * 10) / 10, Math.round((target[1] + dy) * 10) / 10];
+    const [x, y] = at(ev), b = s2rBox(dr.c);
+    let moved = [Math.round(((x - b.x) / b.k + dr.off[0]) * 10) / 10, Math.round(((y - b.y) / b.k + dr.off[1]) * 10) / 10];
+    if (wsAlt) moved = s2rSnap(dr, moved, b.k) || moved;
     if (dr.prop) dr.prop.at = moved;
     else {
       dr.m.joints[dr.joint] = moved;
       if (!dr.m.placed.includes(dr.joint)) dr.m.placed.push(dr.joint);
     }
-    dr.x = x; dr.y = y;
     s2r.dirty = true;
     s2rDraw();
   });
@@ -25877,7 +26493,10 @@ function setupResizer(handleId, asideId, edge){
   // double-click resets to the CSS default
   handle.addEventListener("dblclick", () => { aside.style.flex = ""; aside.style.width = ""; try { localStorage.removeItem(key); } catch {} });
 }
-function initResizers(){ setupResizer("resSide", "side", "left"); setupResizer("resIns", "inspector", "right"); setupTimelineResizer(); }
+function initResizers(){
+  setupResizer("resSide", "side", "left"); setupResizer("resIns", "inspector", "right"); setupTimelineResizer();
+  setupResizer("f2rRes", "f2rSide", "right"); setupResizer("s2rRes", "s2rSide", "right");
+}
 
 // Drag the handle above the timeline to set its height (more room for many layers).
 function setupTimelineResizer(){
@@ -25922,15 +26541,25 @@ function penMouseEvent(type, e, button, buttons){
     screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
     ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, button, buttons });
 }
+// A second finger on a workspace canvas starts a pinch: the first finger (now at `at`) is let go
+// where it was pressed, its drag taken back there if it had moved.
+function penDragCancel(at){
+  if (!penDrag) return;
+  const { button, buttons, from } = penDrag, back = { clientX: from[0], clientY: from[1], screenX: 0, screenY: 0 };
+  penDrag = null;
+  if (at[0] !== from[0] || at[1] !== from[1]) document.dispatchEvent(penMouseEvent("mousemove", back, 0, buttons));
+  document.dispatchEvent(penMouseEvent("mouseup", back, button, 0));
+}
 function wirePenDrags(){
   window.addEventListener("pointerdown", (e) => {
     if ((e.pointerType !== "pen" && e.pointerType !== "touch") || !e.isPrimary) return;
     const t = e.target instanceof Element ? e.target : null, surface = t && t.closest(PEN_DRAG);
     if (!surface) return;
-    // The barrel button pans the stage, as the middle button does, and is the right button anywhere
-    // else. The eraser end works like the tip.
-    const button = e.pointerType === "pen" && e.button === 2 ? (surface.id === "cv" ? 1 : 2) : 0;
-    penDrag = { id: e.pointerId, button, buttons: [1, 4, 2][button] };
+    // The barrel button pans the stage and a workspace's canvas, as the middle button does, and is the
+    // right button anywhere else. The eraser end works like the tip.
+    const pans = surface.id === "cv" || surface.classList.contains("wsCanvas");
+    const button = e.pointerType === "pen" && e.button === 2 ? (pans ? 1 : 2) : 0;
+    penDrag = { id: e.pointerId, button, buttons: [1, 4, 2][button], from: [e.clientX, e.clientY] };
     e.preventDefault();
     const field = document.activeElement;
     if (field && field !== document.body && !field.contains(t)) field.blur();
@@ -25957,6 +26586,7 @@ async function boot(){
   wire();
   initResizers();
   wirePenDrags();
+  wireWorkspaces();
   window.addEventListener("keydown", slotOrderKey);
   bindMotionRefHandles();
   renderTextList(); // the outline's Text section exists before any rig does — say so

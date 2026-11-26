@@ -19,6 +19,59 @@ upload.
 
 ## Current state
 
+- **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
+  (2026-11-26; owner: "add rig as a zone art source"; in review; branch
+  `claude/wizardly-galileo-kjszii`; runtime and launcher change, no config change; Salmons draws
+  exactly as before until someone picks a rig).** Plan and the trees decision:
+  [design/zone-art](../design/zone-art.md) §1 "Rig", §3; the card:
+  [status/game-config](game-config.md), [tools/game-config](../tools/game-config.md) "Zone art".
+  - **What a person does.** In `/config` → Zone art, **Drawn with** → **Rig** on a family's row
+    (rocks, whirlpools, or any other), then the rig and one of its animations, with **Loop**. The
+    Trees row greys **Rig** out: trees are never a rig (below).
+  - **In the river** (`salmonsArt/river.ts`): a rock or a whirlpool whose stamp is a rig draws one
+    `RigView` in the built-in picture's place, depth and size times the scale, the rig's Bounds box
+    standing for the picture's (mirrored and squashed as the built-in one is). Any other family's
+    rig stands upright on its zone, fitted inside it. Each starts at the point of its animation the
+    room's seed picks for its zone (`zoneArtPhaseFor`), so neighbours do not move in step, and is
+    moved on by the river's ticker while it is in view. Every `random()` / `forestRandom()` call
+    is made as before, so nothing else moves. Unset, a rig not loaded, or the drawing not loaded,
+    the built-in piece draws.
+  - **Loaded only when named.** `online.ts` `roomZoneArt` hands the art a loader for
+    `engine-layout/zone-art-rig` (`zoneArtRig.ts`, a 930 B gzip chunk) only when zone art names a rig,
+    and `loadSalmonsArt` loads it beside its textures; the Salmons chunk never imports it. A rig
+    named only by zone art ships and is kept loaded at boot (`characterArt`), as a character
+    sheet's rig is.
+  - **Trees are never a rig (decision).** 430 rig trees on one screen measured +1.35 ms of JS a
+    frame in the browser and 2.2–2.7 ms (moving on plus mesh rebuilds) in Node on a 2.1 GHz Xeon
+    core with a modest 8-bone rig, ~75 ms to make them; a phone is 3–5 times slower. The river
+    moves only the rigs in view, but a forest view holds many, and every scattered tree is made
+    when the river mounts. So the normalizer drops a rig for `@trees`, the save warns, and the
+    card refuses it with why. Rocks (~47) and whirlpools (~13) are cheap. A family drawn with a rig
+    on more than 100 zones (the original's 318 sandbanks) is warned of on the card.
+  - **Gates:** `check:salmons-art` 44 (was 39: the river mounted in Node with a stand-in rig
+    drawing, on the band river and the original's map: with no drawing or a rig not loaded,
+    exactly as today; every rock and whirlpool its rig at the built-in place, depth and size times
+    the scale, a sandbank's upright and fitted, every other piece and region unchanged, each rig
+    started at its zone's phase and destroyed with the river; moved on by its ticker only in
+    view), `check:zone-art` 130, `check:room-levels` 15, `check:room-sim` 43,
+    `check:salmons-export` 39, `check:character-sheet` 90, `check:flipbook-characters` 254,
+    svelte-check at baseline.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux; all five runtimes pass): lines,
+    match-3 and card 0 B. arcade: its bundle +590 B gzip (the schema's rig, the stamp node, the
+    bound component), the lazy Salmons art chunk +217 B, the lazy sheet-rig chunk −84 B (its rig
+    box moved to a 328 B chunk the two rig drawings share), and the new lazy zone-art rig chunk
+    930 B, fetched only by a game whose zone art names a rig. arcade3d: its bundle +588 B, the
+    same chunks within 1 B.
+  - **Played** on the branch's arcade runtime (headless shell): `salmons-play.mjs --zone-rig`
+    (new, 4/4; [playtest/salmons](../playtest/salmons.md) "Zone art's rigs"): every rock and
+    whirlpool of page ZR's river is drawn by a stub rig and none built in, the rest of the river as
+    without it, and the rig is on screen and plays both of its drawings. `zone-art-play.mjs` 8/8
+    (was 5: a plain game's rig stamps on two zones, drawn, animating, not in lockstep) and
+    `--cost` 2/2 (430 rigs on one screen). `salmons-play.mjs --trees` 4/4, and with no zone art
+    102/102.
+  - **Owner steps:** none to keep Salmons as it is. To use it: put the rig in the project
+    (Invisible Rigger), pick it in `/config`, save, publish. It reaches rooms with the runtime
+    release of the merge.
 - **The whole lobby clock, and the next game by itself (2026-11-26; owner: "have the all
   countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
   starts automatically"; in review; design [salmons-levels §4.2](../design/salmons-levels.md)).**
@@ -2801,6 +2854,19 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `aloft` (144 on a deck) and `depth` for him. Left: the own device still predicts neither the
     deck's row nor its height (a short correction onto it); a salmon thrown from the deck starts
     its arc from the water's level as its lift eases down.
+
+- 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
+  room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
+  gone. The line now rests at `room / 1.15` there (including canvases that only just fit it), so the whole pop fits inside the margins
+  (`riverLineScale`, `MENU.popGrow`; the start menu's pop reads the same value). Guard:
+  `check:salmons-art` "the lobby's players line pops inside the margins on a narrow canvas".
+
+- 2026-11-26 — **The lobby's lines fit a phone, and "1 player"**: on an iPhone 16 Pro Max
+  (BrowserStack Live) "1 players in Drunken Bear River" ran off both sides in the pixel font (the
+  playtests measured the fallback monospace). The river line and the "You are …" line now shrink
+  to the canvas like the class row (`createLobbyNote`), and `riverRows` says "player" for one, in
+  the lobby and the start menu. Playtest patterns follow. The same report fixed the page sliding
+  under iOS Safari's toolbar (profiler status). Not yet seen on the real phone.
 
 - 2026-11-26 — **The whole lobby clock, and the next game by itself** (owner: "have the all
   countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should

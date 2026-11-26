@@ -59,6 +59,7 @@ import {
 	characterSheetStillRoots,
 	salmonsProjectSheetOf,
 	zoneArtArtNames,
+	zoneArtRigRoots,
 	zoneArtStillRoots,
 	usesSalmonsArt,
 } from 'game-config';
@@ -193,10 +194,11 @@ export interface EditorArtIndex {
 	 *  still looks plausible, so it must not be shippable. Empty when nothing dangles. */
 	clipMissing: { clipId: string; frames: string[] }[];
 	/** The rigs and still images the game config's character sheets name (`game-config`
-	 *  `characterSheetArtNames`), then the frames its zone art names (`zoneArtArtNames`): art the
-	 *  runtime's normalizer drops the config's name of. Both bakes lift it into the bundle as its
-	 *  own `characterArt` section, which the game reads for names, so its boot keeps their art
-	 *  loaded: nothing else in the bundle names it. Absent ⇒ none (parity). */
+	 *  `characterSheetArtNames`), then the frames and rigs its zone art names
+	 *  (`zoneArtArtNames`): art the runtime's normalizer drops the config's name of. Both bakes
+	 *  lift it into the bundle as its own `characterArt` section, which the game reads for names,
+	 *  so its boot keeps their art loaded: nothing else in the bundle names it. Absent ⇒ none
+	 *  (parity). */
 	characterArt?: string[];
 }
 
@@ -629,12 +631,14 @@ export async function exportEditorArt(
 		refs.usedRegions.add(still.region);
 	}
 	// A zone family's picture (`game-config` `zoneArt.ts`): named only in the game config, where the
-	// arcade runtime reads it, as the sheet and the frame a sprite node names.
+	// arcade runtime reads it, as the sheet and the frame a sprite node names, or as the bundle name
+	// a character sheet's rig is.
 	for (const still of zoneArtStillRoots(gameConfig)) {
 		if (!isManifestAssetKey(still.assetKey)) continue;
 		refs.manifestKeys.add(still.assetKey);
 		refs.usedRegions.add(still.region);
 	}
+	for (const name of zoneArtRigRoots(gameConfig)) refs.rigNames.add(name);
 
 	// Reconcile bare region names picked up above into the used-region set (mirrors `collectArtRefs`).
 	for (const n of refs.regionNames) refs.usedRegions.add(n);

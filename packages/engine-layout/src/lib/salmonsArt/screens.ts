@@ -285,15 +285,31 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
 }
 
 /** How a river list is asked for and shown (the start menu's, and the lobby's own river): how often,
- *  how long after no answer, how long an answer may take, how long a risen count pops, and the most
- *  rivers listed. */
-export const MENU = { pollMs: 3000, retryMs: 15000, timeoutMs: 5000, popMs: 400, rows: 5 };
+ *  how long after no answer, how long an answer may take, how long a risen count pops and how much
+ *  bigger it gets at the top of the pop, and the most rivers listed. */
+export const MENU = {
+	pollMs: 3000,
+	retryMs: 15000,
+	timeoutMs: 5000,
+	popMs: 400,
+	popGrow: 0.15,
+	rows: 5,
+};
+
+/** The river line's scale: at rest small enough that the whole pop stays inside the margins on a
+ *  narrow canvas (`room` is how many times the line fits there), and the pop on top of it. */
+export const riverLineScale = (room: number, pop: number) =>
+	Math.min(1, room / (1 + MENU.popGrow)) *
+	(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * MENU.popGrow : 1);
 
 /** A river list: the first {@link MENU.rows} of `sorted`, each named from its room id. */
 export const riverRows = (sorted: readonly RiverListing[]) =>
 	sorted
 		.slice(0, MENU.rows)
-		.map((r) => `${r.players} players in ${riverNameFor(r.roomId)} River`)
+		.map(
+			(r) =>
+				`${r.players} ${r.players === 1 ? 'player' : 'players'} in ${riverNameFor(r.roomId)} River`,
+		)
 		.join('\n');
 
 /** The lobby's note: where each line's middle sits from the canvas's (px), the row's top, how far
@@ -329,9 +345,13 @@ const noteLine = (fontSize: number, fill: number, text = '') =>
 const centreLine = (line: Text, x: number, y: number) =>
 	line.position.set(Math.round(x - line.width / 2), Math.round(y - line.height / 2));
 
+/** How many times `width` px fit between the note's margins on a canvas `w` px wide (never 0). */
+const room = (w: number, width: number) =>
+	Math.max(0.01, (w - 2 * LOBBY.margin) / Math.max(width, 1));
+
 /** The scale at which `width` px fit between the note's margins on a canvas `w` px wide: 1, or
- *  less on a canvas narrower than that (a phone, once the pixel font is shipped). */
-const fitTo = (w: number, width: number) => Math.min(1, (w - 2 * LOBBY.margin) / width);
+ *  less on a canvas narrower than that (a phone, with the pixel font). */
+const fitTo = (w: number, width: number) => Math.min(1, room(w, width));
 
 /**
  * The lobby's note, where a new room waits for its players, under the layout's own title: the
@@ -341,9 +361,9 @@ const fitTo = (w: number, width: number) => Math.min(1, (w - 2 * LOBBY.margin) /
  * While the room lets its people change that (`picking`: until round 1 starts), a row of the
  * classes under it, the one the ROOM has the device as lit: a press asks the room at once
  * (`onPick`), and the row follows what the room answers; a pick it refused (`refused`) says so
- * under the row, in the death screen's words, until the next press. The row and that line are
- * drawn smaller on a canvas narrower than they are. Nothing here leaves the room or types a name:
- * that was the start menu's, before the join (`startMenu.ts`).
+ * under the row, in the death screen's words, until the next press. The note's lines, the row and
+ * the refusal are drawn smaller on a canvas narrower than they are. Nothing here leaves the room or
+ * types a name: that was the start menu's, before the join (`startMenu.ts`).
  */
 function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character: string) => void) {
 	const root = new Container();
@@ -398,7 +418,8 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 		clock += dtMs;
 		root.visible = shown !== undefined;
 		const pop = (clock - popAt) / MENU.popMs;
-		river.scale.set(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1);
+		river.scale.set(riverLineScale(room(w, river.getLocalBounds().width), pop));
+		you.scale.set(fitTo(w, you.getLocalBounds().width));
 		centreLine(river, w / 2, h / 2 + LOBBY.riverY);
 		centreLine(you, w / 2, h / 2 + LOBBY.youY);
 		const picking = shown?.picking === true;

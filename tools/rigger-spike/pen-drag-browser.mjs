@@ -443,7 +443,7 @@ const MUTANTS = [
 	['mouse events only (no pen bridge)', '  initResizers();\n  wirePenDrags();', '  initResizers();'],
 	['the pen’s moves are not played', 'if (penDrag && e.pointerId === penDrag.id) document.dispatchEvent(penMouseEvent("mousemove", e, 0, penDrag.buttons));', ''],
 	['the browser’s own press runs too', '    e.preventDefault();\n    const field = document.activeElement;', '    const field = document.activeElement;'],
-	['the barrel is the right button on the stage', '(surface.id === "cv" ? 1 : 2)', '2'],
+	['the barrel is the right button on the stage', '(pans ? 1 : 2)', '2'],
 	['the stage opens a pen’s menu', 'if (penDrag || e.pointerType === "pen" || e.pointerType === "touch") e.preventDefault();', ''],
 	['dopesheet lanes are not a surface', 'track.className = "tl-lane";', ''],
 	['the graph is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, .pickBoard, .resizer, .resizer-h";'],

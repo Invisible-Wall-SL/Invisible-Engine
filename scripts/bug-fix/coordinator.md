@@ -99,6 +99,11 @@ options, and never do what the owner did not choose, even where the diagnosis re
    fixtures written to disk, caches, scratch files. Every file git does not ignore is sent, and one
    binary file (a NUL byte) refuses the whole change, however good the rest is. A test that needs
    a fixture builds it in a temporary folder at run time, never in the checkout.
+   **Runtime bytes.** A change under `packages/` or `apps/lines/` usually changes the released
+   runtimes, so `pnpm check:runtime-bytes` will fail on the pull request. Do not re-record
+   `scripts/runtime-bytes/*.json` and do not run that gate: the build takes minutes, and a person
+   re-records from Pipeline Changes. Say in `risks` that the runtime fingerprints need
+   re-recording with **Re-record runtime bytes**.
 6. **Review.** Run the `code-reviewer` agent on the change (`git diff`, and `git status` for new
    files). When the change rewrites a parser or a reader of text people supply (an import, a date,
    a number, a file format), or touches money (an amount, a price, a bet, a win, a balance, a

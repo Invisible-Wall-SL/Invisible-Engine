@@ -193,6 +193,8 @@ const gh = {
 	artifacts: new Map<number, Artifact[]>(),
 	jobs: new Map<number, Json[]>(),
 	zips: new Map<number, Buffer>(),
+	/** A check run's annotations by its id, as `GET check-runs/<id>/annotations` answers. */
+	annotations: new Map<number, Json[]>(),
 	posts: [] as { sha: string; body: Json }[],
 	graphql: [] as { query: string; variables: { id: string } }[],
 	graphqlError: null as string | null,
@@ -229,6 +231,20 @@ const gh = {
 	labelRace: false,
 	/** A repository route whose path holds the key is answered with this status instead of its own. */
 	failing: new Map<string, number>(),
+	/** Commits `main` has that a head lacks, by head SHA (`compare/main...<sha>`). */
+	behind: new Map<string, number>(),
+	/** The date of a head's commit, by SHA. */
+	commitDates: new Map<string, string>(),
+	/** A PR's issue events (`labeled`), by number. */
+	events: new Map<number, Json[]>(),
+	/** Every issue comment made, with its body. */
+	comments: [] as { number: number; body: string }[],
+	/** GitHub's answers to the next `update-branch` calls, in order; none left is a 202. */
+	updateAnswers: [] as { status: number; message: string }[],
+	/** Every `update-branch` asked for, with its body. */
+	updates: [] as { number: number; body: Json }[],
+	/** Whether the App may make a label: off, adding one that is missing is a 403. */
+	labelForbidden: false,
 };
 /** The sentence the fake gives a request it was told to fail. */
 const FAILURE_MESSAGE = 'upstream failure';
@@ -285,6 +301,10 @@ const git = {
 	beforeRef: null as ((body: Json) => void) | null,
 	/** Runs once, just before the next PR is opened: another request opened it first. */
 	beforePull: null as (() => void) | null,
+	/** Every `PATCH git/refs/heads/<branch>` asked for, with its body, moved or refused. */
+	patches: [] as { name: string; body: Json }[],
+	/** Runs once, just before the next ref update: a push to the branch landing first. */
+	beforePatch: null as (() => void) | null,
 };
 let commitSeq = 0;
 /** The number the next PR GitHub opens gets; a scenario that opens one by hand takes one too. */
@@ -627,6 +647,43 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	if (rest[0] === 'pulls' && rest.length === 1 && url.searchParams.has('head')) {
 		return pullsOfBranch(url);
 	}
+	if (rest[0] === 'compare' && method === 'GET') {
+		const head = decodeURIComponent(rest[1]).split('...')[1];
+		return jsonResponse(200, { behind_by: gh.behind.get(head) ?? 0, ahead_by: 1 });
+	}
+	if (rest[0] === 'commits' && rest.length === 2 && method === 'GET') {
+		const date = gh.commitDates.get(rest[1]);
+		return date
+			? jsonResponse(200, { sha: rest[1], commit: { committer: { date } } })
+			: jsonResponse(404, { message: 'Not Found' });
+	}
+	if (rest[0] === 'issues' && rest[2] === 'events' && method === 'GET') {
+		return jsonResponse(200, gh.events.get(Number(rest[1])) ?? []);
+	}
+	if (rest[0] === 'issues' && rest[2] === 'comments' && method === 'POST') {
+		gh.comments.push({
+			number: Number(rest[1]),
+			body: (JSON.parse(String(init?.body)) as { body: string }).body,
+		});
+		return jsonResponse(201, { id: gh.comments.length });
+	}
+	if (rest[0] === 'issues' && rest[2] === 'labels' && rest.length === 4 && method === 'DELETE') {
+		const labelled = gh.pulls.get(Number(rest[1]));
+		const at = labelled?.labels.findIndex((l) => l.name === decodeURIComponent(rest[3])) ?? -1;
+		if (!labelled || at < 0) return jsonResponse(404, { message: 'Label does not exist' });
+		labelled.labels.splice(at, 1);
+		return jsonResponse(200, labelled.labels);
+	}
+	if (rest[0] === 'issues' && rest[2] === 'labels' && method === 'POST' && gh.labelForbidden) {
+		return jsonResponse(403, { message: 'Resource not accessible by integration' });
+	}
+	if (rest[0] === 'pulls' && rest[2] === 'update-branch' && method === 'PUT') {
+		gh.updates.push({ number: Number(rest[1]), body: JSON.parse(String(init?.body)) as Json });
+		const answer = gh.updateAnswers.shift();
+		return answer
+			? jsonResponse(answer.status, { message: answer.message })
+			: jsonResponse(202, { message: 'Updating pull request branch.' });
+	}
 	const agentAnswer = agentRoutes(method, rest, url, init);
 	if (agentAnswer) return agentAnswer;
 	if (rest[0] === 'pulls' && rest.length === 1) {
@@ -652,6 +709,9 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		const perPage = Number(url.searchParams.get('per_page') ?? 30);
 		const page = Number(url.searchParams.get('page') ?? 1);
 		return jsonResponse(200, pull.files.slice((page - 1) * perPage, page * perPage));
+	}
+	if (rest[0] === 'check-runs' && rest[2] === 'annotations') {
+		return jsonResponse(200, gh.annotations.get(Number(rest[1])) ?? []);
 	}
 	if (rest[0] === 'commits' && rest[2] === 'check-runs') {
 		const head = gh.heads.get(rest[1]);
@@ -858,6 +918,27 @@ function gitRoutes(
 			],
 			truncated: t.truncated,
 		});
+	}
+	if (method === 'PATCH' && rest[0] === 'refs') {
+		const name = rest.slice(1).map(decodeURIComponent).join('/');
+		const body = JSON.parse(String(init?.body)) as { sha: string; force?: boolean };
+		git.patches.push({ name, body });
+		const hook = git.beforePatch;
+		git.beforePatch = null;
+		hook?.();
+		const current = git.refs.get(name);
+		if (!current) return notFound();
+		if (!git.commits.has(body.sha)) return invalid('the sha is not a commit');
+		let fastForward = false;
+		for (let at: string | undefined = body.sha; at; at = git.commits.get(at)?.parents[0]) {
+			if (at === current) fastForward = true;
+		}
+		if (!fastForward && body.force !== true) {
+			return jsonResponse(422, { message: 'Update is not a fast forward' });
+		}
+		git.refs.set(name, body.sha);
+		git.writes.push({ kind: 'ref' });
+		return jsonResponse(200, { ref: `refs/${name}`, object: { type: 'commit', sha: body.sha } });
 	}
 	if (method !== 'POST' || rest.length !== 1) {
 		return jsonResponse(404, { message: `fixture: no git route for ${method} ${rest.join('/')}` });
@@ -8018,6 +8099,1146 @@ check(
 			shared.parseFixRunBranch('bug-12'),
 		],
 		[{ bug: 12, id: '0123456789' }, null, null, null, null, null],
+	);
+}
+
+// ── A failed job says what to do (annotations) ────────────────────────────────
+{
+	const annotations = await import(src('lib/server/pipelineAnnotations.ts'));
+	const note = (annotation_level: string, message: string | null) => ({
+		annotation_level,
+		message,
+	});
+	const GENERIC = 'Process completed with exit code 1.';
+	check(
+		'instructionOf: the first failure annotation that is not the generic exit-code line',
+		[
+			annotations.instructionOf([note('failure', GENERIC), note('failure', 'Re-record it.')]),
+			annotations.instructionOf([note('warning', 'Careful.'), note('failure', 'Re-record it.')]),
+			annotations.instructionOf([note('failure', GENERIC), note('notice', 'FYI')]),
+			annotations.instructionOf([note('failure', 'Process completed with exit code 137')]),
+			annotations.instructionOf([
+				note('failure', ''),
+				note('failure', null),
+				note('failure', '  '),
+			]),
+			annotations.instructionOf([]),
+		],
+		['Re-record it.', 'Re-record it.', null, null, null, null],
+	);
+	const long = annotations.instructionOf([note('failure', 'x'.repeat(900))]) as string;
+	check(
+		'instructionOf: capped at about 500 characters',
+		[long.length, long.endsWith('…')],
+		[500, true],
+	);
+	check(
+		'instructionOf: text stays text (markup is kept as written for the page to escape) and control characters go',
+		annotations.instructionOf([note('failure', '\u0007<b onclick=x>run</b>\u001b[31m\nthen\tgo')]),
+		'<b onclick=x>run</b>[31m\nthen\tgo',
+	);
+
+	const RB = 'check:runtime-bytes: a runtime is not the bytes it was. Re-record it.';
+	const H90 = hash('head 90 annotations');
+	const h90 = head(H90, [
+		['Lint', [{ name: 'lint', conclusion: 'failure' }]],
+		['Checks', [{ name: 'checks (1/3)' }, { name: 'checks (2/3)', conclusion: 'failure' }]],
+		['Secrets', [{ name: 'scan', conclusion: 'failure' }]],
+	]);
+	pull(90, 'launcher: annotated', { sha: H90 });
+	const idOf = (name: string): number => h90.checkRuns.find((c) => c.name === name)?.id as number;
+	gh.annotations.set(idOf('lint'), [note('failure', GENERIC), note('failure', RB)]);
+	gh.annotations.set(idOf('checks (2/3)'), [note('failure', GENERIC)]);
+	gh.failing.set(`/check-runs/${idOf('scan')}/annotations`, 500);
+	annotations.forgetInstructions();
+	changes.forgetChanges();
+	const asked = () => gh.requests.filter((r) => r.includes('/annotations')).length;
+	const before = asked();
+	const first = await detail(ADMIN, '90');
+	const jobs = (first.body.checks as { jobs: Json[] }[]).flatMap((g) => g.jobs);
+	const job = (name: string) => jobs.find((j) => j.name === name) as Json;
+	check(
+		'the detail: a failed job carries its own instruction; one with only the generic line has none; GitHub failing is a state, not an error',
+		[
+			first.status,
+			job('lint').instruction,
+			job('lint').instructionUnread,
+			job('checks (2/3)').instruction,
+			job('checks (2/3)').instructionUnread,
+			job('scan').instruction,
+			job('scan').instructionUnread,
+			job('checks (1/3)').instruction,
+		],
+		[200, RB, false, null, false, null, true, null],
+	);
+	check(
+		'…annotations are read for failed jobs only (three), one GET each',
+		[
+			asked() - before,
+			gh.requests.filter((r) => r.includes(`/check-runs/${idOf('checks (1/3)')}/`)).length,
+		],
+		[3, 0],
+	);
+	await detail(ADMIN, '90');
+	check(
+		'…a second read reuses what was read; the one GitHub would not give is asked again',
+		asked() - before,
+		4,
+	);
+	gh.failing.delete(`/check-runs/${idOf('scan')}/annotations`);
+}
+
+// ── Re-record runtime bytes ───────────────────────────────────────────────────
+{
+	const { RUNTIMES } = await import('constants-shared/runtimes');
+	type Row = (typeof RUNTIMES)[number];
+	const sum256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+	const rb = await import(src('lib/server/pipelineRuntimeBytes.ts'));
+	const rerecord = await import(
+		src('routes/api/pipeline/changes/[number]/runtime-bytes/+server.ts')
+	);
+	const post = (locals: Locals, number: string, body: unknown) =>
+		call(rerecord.POST, locals, { number }, body);
+
+	const manifestOf = (row: Row, salt: string, tweak: (m: Json) => void = () => {}): Json => {
+		const m: Json = {
+			runtime: row.id,
+			PUBLIC_IE_FAMILIES: row.families,
+			...('view' in row && row.view === '3d' ? { PUBLIC_IE_3D: '1' } : {}),
+			files: {
+				'index.html': { sha256: sum256(`${row.id}:index:${salt}`), gzip: 100 },
+				'_app/immutable/entry/app.js': { sha256: sum256(`${row.id}:app:${salt}`), gzip: 2000 },
+			},
+			other: { 'art/a.png': { sha256: sum256(`${row.id}:art`) } },
+			total: { files: 2, gzip: 2100 },
+		};
+		tweak(m);
+		return m;
+	};
+	const textOf = (m: Json): string => `${JSON.stringify(m, null, '\t')}\n`;
+	const manifestsFor = (salt: string): Record<string, string> =>
+		Object.fromEntries(RUNTIMES.map((r) => [`${r.id}.json`, textOf(manifestOf(r, salt))]));
+
+	const refuses = (zip: Buffer | Record<string, string>): [number, unknown] => {
+		try {
+			rb.validateArtifact(Buffer.isBuffer(zip) ? zip : zipOf(zip));
+		} catch (err) {
+			if (isHttpError(err)) return [err.status, (err.body as { code?: string }).code];
+			throw err;
+		}
+		return [200, null];
+	};
+	const good = manifestsFor('new');
+	check(
+		'validateArtifact: every runtime’s manifest, as the gate writes it, is read back byte for byte, in the list’s order',
+		rb
+			.validateArtifact(zipOf(good, ['lines.json']))
+			.map(([id, text]: [string, string]) => [id, text === good[`${id}.json`]]),
+		RUNTIMES.map((r) => [r.id, true]),
+	);
+	check(
+		'validateArtifact: a partial artifact is fine; an empty one is not',
+		[rb.validateArtifact(zipOf({ 'card.json': good['card.json'] })).length, refuses({})],
+		[1, [409, 'invalid_artifact']],
+	);
+	const bad = (name: string, zip: Buffer | Record<string, string>) =>
+		check(`validateArtifact refuses ${name}`, refuses(zip), [409, 'invalid_artifact']);
+	bad('a file that is not a runtime’s', { ...good, 'notes.json': '{}' });
+	bad('a runtime id that is not in the list', { 'unknown.json': good['lines.json'] });
+	bad('a folder', { 'built/lines.json': good['lines.json'] });
+	bad('a path above the root', { '../lines.json': good['lines.json'] });
+	bad('another extension', { 'lines.json.exe': good['lines.json'] });
+	bad('not a zip', Buffer.from('PK nothing'));
+	bad('a file over the per-file cap', { 'lines.json': 'x'.repeat(rb.MAX_MANIFEST_BYTES + 1) });
+	bad(
+		'an artifact over the whole cap',
+		zipOf(
+			Object.fromEntries(
+				RUNTIMES.map((r) => [`${r.id}.json`, 'x'.repeat(rb.MAX_MANIFEST_BYTES - 1)]),
+			),
+		),
+	);
+	bad('a manifest that is not JSON', { 'lines.json': 'not json' });
+	bad('a manifest that is an array', { 'lines.json': '[]' });
+	const lines = RUNTIMES[0];
+	const threeD = RUNTIMES.find((r) => 'view' in r) as Row;
+	const manifestBad = (name: string, tweak: (m: Json) => void, row: Row = lines) =>
+		bad(`a manifest ${name}`, { [`${row.id}.json`]: textOf(manifestOf(row, 'x', tweak)) });
+	const filesOf = (m: Json) => m.files as Json;
+	const otherOf = (m: Json) => m.other as Json;
+	manifestBad('that names another runtime', (m) => (m.runtime = 'card'));
+	manifestBad('with other families', (m) => (m.PUBLIC_IE_FAMILIES = 'arcade'));
+	manifestBad('with a key the gate does not write', (m) => (m.extra = 1));
+	manifestBad('missing its total', (m) => delete m.total);
+	manifestBad('whose total does not add up', (m) => (m.total = { files: 2, gzip: 1 }));
+	manifestBad('with a hash that is not sha256', (m) => {
+		filesOf(m)['index.html'] = { sha256: 'abc', gzip: 100 };
+	});
+	manifestBad('with a negative size', (m) => {
+		filesOf(m)['index.html'] = { sha256: sum256('x'), gzip: -1 };
+	});
+	manifestBad('with a field of a file the gate does not write', (m) => {
+		otherOf(m)['art/a.png'] = { sha256: sum256('x'), path: '/etc/passwd' };
+	});
+	manifestBad('with code outside the build’s code paths', (m) => {
+		filesOf(m)['static/x.js'] = { sha256: sum256('x'), gzip: 0 };
+	});
+	manifestBad('with an absolute path', (m) => {
+		otherOf(m)['/etc/passwd'] = { sha256: sum256('x') };
+	});
+	manifestBad('with a way out of the build', (m) => {
+		otherOf(m)['art/../../x'] = { sha256: sum256('x') };
+	});
+	manifestBad('with other files under the code paths', (m) => {
+		otherOf(m)['index.html'] = { sha256: sum256('x') };
+	});
+	manifestBad('of the 3D runtime without its switch', (m) => delete m.PUBLIC_IE_3D, threeD);
+
+	// A change whose branch holds the OLD manifests of three runtimes; the others already match CI's.
+	interface Scenario {
+		number: number;
+		headSha: string;
+		branch: string;
+		artifactId: number;
+	}
+	let seq = 100;
+	const scenario = (
+		opts: {
+			workflow?: [string, JobSpec[]][];
+			runExtra?: Json;
+			artifact?: Partial<Artifact> | null;
+			zip?: Buffer;
+			onBranch?: Record<string, string>;
+		} = {},
+	): Scenario => {
+		const number = ++seq;
+		const branch = `feat/rb-${number}`;
+		const onBranch = opts.onBranch ?? {
+			...manifestsFor('old'),
+			'card.json': good['card.json'],
+			'match3.json': good['match3.json'],
+		};
+		const files: Record<string, GitFile> = { ...filesAt(mainTip()) };
+		for (const [name, text] of Object.entries(onBranch)) {
+			files[`scripts/runtime-bytes/${name}`] = file(text);
+		}
+		const headSha = putCommit(tree(files), [mainTip()], `launcher: rb ${number}`);
+		git.refs.set(`heads/${branch}`, headSha);
+		const h = head(
+			headSha,
+			opts.workflow ?? [['runtime-bytes', [{ name: 'runtime-bytes', conclusion: 'failure' }]]],
+		);
+		const run = h.workflowRuns.find((r) => r.path === '.github/workflows/runtime-bytes.yml');
+		if (run && opts.runExtra) Object.assign(run, opts.runExtra);
+		pull(number, `launcher: runtime change ${number}`, {
+			sha: headSha,
+			head: { sha: headSha, ref: branch, repo: { full_name: REPO } },
+		});
+		const artifactId = 9000 + number;
+		if (opts.artifact !== null && run) {
+			gh.artifacts.set(run.id as number, [
+				{
+					id: artifactId,
+					name: 'runtime-bytes',
+					expired: false,
+					expires_at: null,
+					size_in_bytes: 1000,
+					...opts.artifact,
+				},
+			]);
+			gh.zips.set(artifactId, opts.zip ?? zipOf(good, Object.keys(good)));
+		}
+		changes.forgetChanges();
+		return { number, headSha, branch, artifactId };
+	};
+	const written = () => git.gitWrites.length;
+
+	userOverrides.delete('u-tester');
+	const ok = scenario();
+	check(
+		're-record: no session is a 401',
+		(await post(ANON, String(ok.number), { headSha: ok.headSha })).status,
+		401,
+	);
+	const before = written();
+	const tester = await post(TESTER, String(ok.number), { headSha: ok.headSha });
+	check(
+		're-record: without pipelineMerge → 403, and nothing is read or written',
+		[
+			tester.status,
+			tester.body.error,
+			written() - before,
+			gh.requests.some((r) => r.includes(`/artifacts/${ok.artifactId}`)),
+		],
+		[403, 'Re-recording runtime bytes needs the "Merge pipeline changes" capability.', 0, false],
+	);
+	check(
+		're-record: a body without the head → 400; a bad number → 400',
+		[
+			(await post(ADMIN, String(ok.number), {})).status,
+			(await post(ADMIN, 'x', { headSha: ok.headSha })).status,
+		],
+		[400, 400],
+	);
+	const stale = await post(ADMIN, String(ok.number), { headSha: sha(7) });
+	check(
+		're-record: a head that is not the change’s → 409 head_moved, nothing written',
+		[stale.status, stale.body.code, written() - before],
+		[409, 'head_moved', 0],
+	);
+
+	const mainBefore = mainTip();
+	const done = await post(ADMIN, String(ok.number), { headSha: ok.headSha });
+	const moved = git.refs.get(`heads/${ok.branch}`) as string;
+	const commit = git.commits.get(moved) as { tree: string; parents: string[]; message: string };
+	check(
+		're-record: the artifact’s manifests that differ are committed onto the change’s branch, on the head the run built, naming who clicked and not their address',
+		[
+			done.status,
+			done.body.runtimes,
+			done.body.commit === moved,
+			commit.parents,
+			commit.message.split('\n')[0],
+			commit.message.includes('Gualtiero'),
+			commit.message.includes('owner@example.com'),
+		],
+		[
+			200,
+			['lines', 'arcade', 'arcade3d'],
+			true,
+			[ok.headSha],
+			`ci: re-record runtime bytes from CI's Linux build (#${ok.number})`,
+			true,
+			false,
+		],
+	);
+	check(
+		'…the commit changes those files and no others',
+		changedPaths(treeOf(ok.headSha), treeOf(moved)),
+		['arcade', 'arcade3d', 'lines'].map((id) => `scripts/runtime-bytes/${id}.json`),
+	);
+	check(
+		'…and their content is what the gate writes, byte for byte',
+		['lines', 'arcade', 'arcade3d'].map(
+			(id) =>
+				git.blobs.get(treeOf(moved).get(`scripts/runtime-bytes/${id}.json`) as string) ===
+				good[`${id}.json`],
+		),
+		[true, true, true],
+	);
+	const patch = git.patches.at(-1) as { name: string; body: Json };
+	check(
+		'…as git data (blobs, tree, commit) then one ref update that is not forced; main is never touched',
+		[
+			git.gitWrites.slice(before).map((w) => w.path),
+			patch.name,
+			patch.body,
+			mainTip() === mainBefore,
+			git.patches.every((p) => p.name !== 'heads/main'),
+		],
+		[
+			['blobs', 'blobs', 'blobs', 'trees', 'commits'],
+			`heads/${ok.branch}`,
+			{ sha: moved, force: false },
+			true,
+			true,
+		],
+	);
+	check(
+		'…the artifact was downloaded once, from the run’s own',
+		gh.requests.filter((r) => r.includes(`/actions/artifacts/${ok.artifactId}/zip`)).length,
+		1,
+	);
+
+	// Each refusal is a 409 with { error, code } and writes nothing.
+	const refusal = async (
+		name: string,
+		s: Scenario,
+		code: string,
+		sentence: RegExp,
+	): Promise<void> => {
+		const w = written();
+		const patches = git.patches.length;
+		const answer = await post(ADMIN, String(s.number), { headSha: s.headSha });
+		check(
+			`re-record refuses ${name}: 409 ${code}, nothing written`,
+			[
+				answer.status,
+				answer.body.code,
+				sentence.test(String(answer.body.error)),
+				written() - w,
+				git.patches.length - patches,
+			],
+			[409, code, true, 0, 0],
+		);
+	};
+	await refusal(
+		'a head with no runtime-bytes run',
+		scenario({ workflow: [['Lint', [{ name: 'lint' }]]] }),
+		'no_run',
+		/no runtime-bytes run/,
+	);
+	await refusal(
+		'a run that is still going',
+		scenario({
+			workflow: [['runtime-bytes', [{ name: 'runtime-bytes', status: 'in_progress' }]]],
+		}),
+		'no_run',
+		/not finished/,
+	);
+	await refusal(
+		'a run of that name from another workflow file',
+		scenario({ runExtra: { path: '.github/workflows/evil.yml' } }),
+		'no_run',
+		/no runtime-bytes run/,
+	);
+	await refusal(
+		'a run from a fork',
+		scenario({ runExtra: { head_repository: { full_name: 'fork/engine' } } }),
+		'no_run',
+		/no runtime-bytes run/,
+	);
+	await refusal(
+		'a run that passed',
+		scenario({ workflow: [['runtime-bytes', [{ name: 'runtime-bytes' }]]] }),
+		'nothing_to_change',
+		/passed/,
+	);
+	await refusal(
+		'a run that left no artifact',
+		scenario({ artifact: null }),
+		'no_artifact',
+		/left no/,
+	);
+	await refusal(
+		'an artifact that expired',
+		scenario({ artifact: { expired: true } }),
+		'no_artifact',
+		/left no/,
+	);
+	await refusal(
+		'an artifact too large to be one',
+		scenario({ artifact: { size_in_bytes: 50_000_000 } }),
+		'invalid_artifact',
+		/larger/,
+	);
+	await refusal(
+		'an artifact that is not a zip',
+		scenario({ zip: Buffer.from('nope') }),
+		'invalid_artifact',
+		/not a readable zip/,
+	);
+	await refusal(
+		'an artifact with a file that is not a manifest',
+		scenario({ zip: zipOf({ ...good, 'x.json': '{}' }) }),
+		'invalid_artifact',
+		/not a runtime.s manifest/,
+	);
+	await refusal(
+		'an artifact whose manifest is not valid',
+		scenario({ zip: zipOf({ 'lines.json': '{}' }) }),
+		'invalid_artifact',
+		/lines manifest .* not valid/,
+	);
+	await refusal(
+		'manifests that already match the branch',
+		scenario({ onBranch: good }),
+		'nothing_to_change',
+		/already on this branch/,
+	);
+
+	const raced = scenario();
+	const landed = putCommit(
+		tree(filesAt(raced.headSha)),
+		[raced.headSha],
+		'a push that landed first',
+	);
+	git.beforePatch = () => git.refs.set(`heads/${raced.branch}`, landed);
+	const lost = await post(ADMIN, String(raced.number), { headSha: raced.headSha });
+	check(
+		're-record: a push that lands while the commit is made is never overwritten → 409 head_moved',
+		[lost.status, lost.body.code, git.refs.get(`heads/${raced.branch}`) === landed],
+		[409, 'head_moved', true],
+	);
+
+	const fork = scenario();
+	(gh.pulls.get(fork.number) as Pull).head.repo = { full_name: 'someone/engine' };
+	changes.forgetChanges();
+	check(
+		're-record: a change from a fork → 404, nothing written',
+		[
+			(await post(ADMIN, String(fork.number), { headSha: fork.headSha })).status,
+			git.patches.some((p) => p.name === `heads/${fork.branch}`),
+		],
+		[404, false],
+	);
+	const closed = scenario();
+	(gh.pulls.get(closed.number) as Pull).state = 'closed';
+	check(
+		're-record: a closed change → 409',
+		(await post(ADMIN, String(closed.number), { headSha: closed.headSha })).status,
+		409,
+	);
+	check(
+		're-record: no such change → 404',
+		(await post(ADMIN, '98765', { headSha: sha(1) })).status,
+		404,
+	);
+	const unlucky = scenario();
+	gh.failing.set(`/git/commits/${unlucky.headSha}`, 500);
+	const broken = await post(ADMIN, String(unlucky.number), { headSha: unlucky.headSha });
+	gh.failing.delete(`/git/commits/${unlucky.headSha}`);
+	check(
+		're-record: GitHub failing on the way → 502 with its sentence',
+		[broken.status, broken.body.error],
+		[502, `GitHub 500: ${FAILURE_MESSAGE}`],
+	);
+
+	// The page's decision.
+	const failed = (instruction: string | null, over: Json = {}) => ({
+		state: 'open',
+		merged: false,
+		headSha: sha(9),
+		checks: [
+			{
+				workflow: 'runtime-bytes',
+				jobs: [{ name: 'runtime-bytes', state: 'fail', instruction, ...over }],
+			},
+		],
+	});
+	const SENTENCE = 'check:runtime-bytes: a runtime is not the bytes it was. If the change …';
+	check(
+		'the page: Re-record is offered for a failed runtime-bytes job with the gate’s sentence, to a merger, on an open change, pinned to the head',
+		[
+			view.rerecordBar(failed(SENTENCE), true),
+			view.rerecordBar(failed(SENTENCE), false),
+			view.rerecordBar({ ...failed(SENTENCE), state: 'closed' }, true),
+			view.rerecordBar({ ...failed(SENTENCE), merged: true }, true),
+		],
+		[{ headSha: sha(9) }, null, null, null],
+	);
+	check(
+		'…and not for another failure, a job that passed, another job, or no instruction',
+		[
+			view.rerecordBar(failed('Something else broke.'), true),
+			view.rerecordBar(failed(null), true),
+			view.rerecordBar(failed(SENTENCE, { state: 'pass' }), true),
+			view.rerecordBar(failed(SENTENCE, { name: 'lint' }), true),
+			view.rerecordBar({ ...failed(SENTENCE), checks: [] }, true),
+		],
+		[null, null, null, null, null],
+	);
+	check(
+		'the page matches the very words check-runtime-bytes.mjs ends a failed comparison on',
+		readFileSync(
+			fileURLToPath(new URL('../../../scripts/check-runtime-bytes.mjs', import.meta.url)),
+			'utf8',
+		).includes(view.RUNTIME_BYTES_SENTENCE),
+		true,
+	);
+}
+
+// ── Update from main, On hold and Resume (ADR-0015 §1, §7) ────────────────────
+{
+	const update = await import(src('lib/server/pipelineUpdate.ts'));
+	const hold = await import(src('lib/server/pipelineHold.ts'));
+	const updateRoute = await import(src('routes/api/pipeline/changes/[number]/update/+server.ts'));
+	const holdRoute = await import(src('routes/api/pipeline/changes/[number]/hold/+server.ts'));
+	const resumeRoute = await import(src('routes/api/pipeline/changes/[number]/resume/+server.ts'));
+	const rerecordRoute = await import(
+		src('routes/api/pipeline/changes/[number]/runtime-bytes/+server.ts')
+	);
+	const doUpdate = (locals: Locals, number: number | string, body: unknown) =>
+		call(updateRoute.POST, locals, { number: String(number) }, body);
+	const doHold = (locals: Locals, number: number | string, body: unknown = {}) =>
+		call(holdRoute.POST, locals, { number: String(number) }, body);
+	const doResume = (locals: Locals, number: number | string) =>
+		call(resumeRoute.POST, locals, { number: String(number) }, {});
+	const headOf = (n: number): string => hash(`15a head ${n}`);
+	const make = (n: number, over: Partial<Pull> & { labels?: string[] } = {}): Pull =>
+		pull(n, `launcher: card ${n}`, { sha: headOf(n), ...over });
+	const updatesSince = (at: number) => gh.updates.slice(at);
+	const WORKFLOW_MESSAGE =
+		'refusing to allow a GitHub App to create or update workflow `.github/workflows/bug-fix.yml` without `workflows` permission';
+
+	userOverrides.delete('u-tester');
+	gh.labels.add('on-hold');
+	changes.forgetChanges();
+
+	// What GitHub's refusals mean, as pure facts.
+	const refusal = (status: number, message: string) => {
+		const r = update.refusalOfUpdate(status, message, 'https://github.com/iw/engine/pull/1');
+		return r && [r.status, r.code, r.message, r.githubMessage, r.url];
+	};
+	check(
+		'update: a 2xx is not a refusal',
+		[update.refusalOfUpdate(202, 'Updating pull request branch.', 'u')],
+		[null],
+	);
+	check(
+		'update: 422 for a moved head → head_moved, "The branch moved; reload"',
+		refusal(422, "expected head sha didn't match current head ref."),
+		[
+			409,
+			'head_moved',
+			'The branch moved; reload',
+			"expected head sha didn't match current head ref.",
+			null,
+		],
+	);
+	check(
+		'update: 422 for a merge conflict → conflict',
+		refusal(422, 'merge conflict between base and head')?.slice(0, 2),
+		[409, 'conflict'],
+	);
+	check(
+		'update: any refusal naming a workflow file or the workflows permission → workflow_refused, with the PR link and GitHub text, whatever the status',
+		[
+			refusal(403, WORKFLOW_MESSAGE),
+			refusal(422, 'Cannot update workflow .github/workflows/x.yml')?.[1],
+			refusal(500, 'needs the `workflows` permission')?.[1],
+		],
+		[
+			[
+				409,
+				'workflow_refused',
+				update.WORKFLOW_REFUSED_TEXT,
+				WORKFLOW_MESSAGE,
+				'https://github.com/iw/engine/pull/1',
+			],
+			'workflow_refused',
+			'workflow_refused',
+		],
+	);
+	check(
+		'update: the workflow sentence says the App cannot push main’s workflow change and points to GitHub’s own Update branch',
+		[
+			/App/.test(update.WORKFLOW_REFUSED_TEXT),
+			/workflow change/.test(update.WORKFLOW_REFUSED_TEXT),
+			/Update branch/.test(update.WORKFLOW_REFUSED_TEXT),
+		],
+		[true, true, true],
+	);
+	check(
+		'update: GitHub’s text is capped',
+		[
+			update.refusalOfUpdate(403, `workflow ${'x'.repeat(900)}`, 'u')?.githubMessage?.length,
+			update.capGithubMessage('short'),
+		],
+		[update.GITHUB_MESSAGE_CAP, 'short'],
+	);
+	check(
+		'update: other answers are not mapped (a 500, an unrelated 422)',
+		[refusal(500, 'boom'), refusal(422, 'Validation Failed')],
+		[null, null],
+	);
+
+	// The route.
+	make(7001, { mergeable: true });
+	gh.behind.set(headOf(7001), 3);
+	check(
+		'update: no session is a 401; without pipelineMerge a 403, and GitHub is not asked',
+		[
+			(await doUpdate(ANON, 7001, { headSha: headOf(7001) })).status,
+			(await doUpdate(TESTER, 7001, { headSha: headOf(7001) })).status,
+			gh.updates.length,
+		],
+		[401, 403, 0],
+	);
+	check(
+		'update: a body without a full head SHA → 400; a bad number → 400; no such change → 404',
+		[
+			(await doUpdate(ADMIN, 7001, {})).status,
+			(await doUpdate(ADMIN, 7001, { headSha: 'abc' })).status,
+			(await doUpdate(ADMIN, 'x', { headSha: headOf(7001) })).status,
+			(await doUpdate(ADMIN, 99999, { headSha: headOf(7001) })).status,
+		],
+		[400, 400, 400, 404],
+	);
+	const u0 = gh.updates.length;
+	const done = await doUpdate(ADMIN, 7001, { headSha: headOf(7001) });
+	check(
+		'update: a clean change that is behind → PUT update-branch with expected_head_sha, answered 200 with GitHub’s message',
+		[
+			done.status,
+			done.body.githubMessage,
+			updatesSince(u0),
+			gh.requests.filter((r) => r === `PUT /repos/${REPO}/pulls/7001/update-branch`).length,
+		],
+		[
+			200,
+			'Updating pull request branch.',
+			[{ number: 7001, body: { expected_head_sha: headOf(7001) } }],
+			1,
+		],
+	);
+
+	const refused = async (
+		n: number,
+		over: Partial<Pull> & { labels?: string[] },
+		behind: number,
+		sentHead: string,
+		github?: { status: number; message: string },
+	) => {
+		make(n, over);
+		gh.behind.set(headOf(n), behind);
+		if (github) gh.updateAnswers.push(github);
+		const at = gh.updates.length;
+		const res = await doUpdate(ADMIN, n, { headSha: sentHead });
+		return { res, asked: gh.updates.length - at };
+	};
+	const stale = await refused(7002, { mergeable: true }, 2, hash('an older head'));
+	check(
+		'update: a head that is not the page’s → 409 head_moved before GitHub is asked',
+		[stale.res.status, stale.res.body.code, stale.res.body.error, stale.asked],
+		[409, 'head_moved', 'The branch moved; reload', 0],
+	);
+	const raced = await refused(7003, { mergeable: true }, 2, headOf(7003), {
+		status: 422,
+		message: "expected head sha didn't match current head ref.",
+	});
+	check(
+		'update: GitHub’s 422 for a head that moved meanwhile → 409 head_moved, GitHub’s text kept',
+		[raced.res.status, raced.res.body.code, raced.res.body.githubMessage, raced.asked],
+		[409, 'head_moved', "expected head sha didn't match current head ref.", 1],
+	);
+	const clash = await refused(7004, { mergeable: true }, 2, headOf(7004), {
+		status: 422,
+		message: 'merge conflict between base and head',
+	});
+	check(
+		'update: GitHub’s 422 for a merge conflict → 409 conflict',
+		[clash.res.status, clash.res.body.code],
+		[409, 'conflict'],
+	);
+	const wf = await refused(7005, { mergeable: true }, 2, headOf(7005), {
+		status: 403,
+		message: WORKFLOW_MESSAGE,
+	});
+	check(
+		'update: a workflow refusal → 409 workflow_refused with the sentence, GitHub’s own text and the PR’s link',
+		[
+			wf.res.status,
+			wf.res.body.code,
+			wf.res.body.error,
+			wf.res.body.githubMessage,
+			wf.res.body.url,
+		],
+		[
+			409,
+			'workflow_refused',
+			update.WORKFLOW_REFUSED_TEXT,
+			WORKFLOW_MESSAGE,
+			`https://github.com/${REPO}/pull/7005`,
+		],
+	);
+	const dirty = await refused(
+		7006,
+		{ mergeable_state: 'dirty', mergeable: false },
+		2,
+		headOf(7006),
+	);
+	const computing = await refused(7007, { mergeable: null }, 2, headOf(7007));
+	const level = await refused(7008, { mergeable: true }, 0, headOf(7008));
+	const held = await refused(7009, { mergeable: true, labels: ['on-hold'] }, 2, headOf(7009));
+	const closed = await refused(7010, { mergeable: true, state: 'closed' }, 2, headOf(7010));
+	check(
+		'update: a conflict, a mergeability still computing, a branch not behind, a held change and a closed one are 409s and GitHub is not asked',
+		[dirty, computing, level, held, closed].map((r) => [
+			r.res.status,
+			r.res.body.code ?? null,
+			r.asked,
+		]),
+		[
+			[409, 'conflict', 0],
+			[409, 'not_clean', 0],
+			[409, 'up_to_date', 0],
+			[409, 'on_hold', 0],
+			[409, null, 0],
+		],
+	);
+	const broken = await refused(7011, { mergeable: true }, 2, headOf(7011), {
+		status: 500,
+		message: 'Server Error',
+	});
+	check(
+		'update: any other GitHub failure → 502 with its status and sentence',
+		[broken.res.status, broken.res.body.error],
+		[502, 'GitHub 500: Server Error'],
+	);
+	make(7012, {
+		mergeable: true,
+		head: { sha: headOf(7012), ref: 'fork/x', repo: { full_name: 'other/engine' } },
+	});
+	const forkAt = gh.updates.length;
+	check(
+		'update: a fork’s change is a 404, never updated',
+		[(await doUpdate(ADMIN, 7012, { headSha: headOf(7012) })).status, gh.updates.length - forkAt],
+		[404, 0],
+	);
+
+	// The detail reads behind and the head commit; the list reads neither.
+	gh.behind.set(headOf(7001), 3);
+	make(7020, { mergeable: true });
+	gh.behind.set(headOf(7020), 4);
+	make(7021, { mergeable_state: 'dirty', mergeable: false, draft: true });
+	gh.commitDates.set(headOf(7021), '2026-10-01T00:00:00Z');
+	gh.behind.set(headOf(7021), 727);
+	make(7022, { mergeable_state: 'dirty', mergeable: false, draft: false });
+	gh.commitDates.set(headOf(7022), '2026-10-01T00:00:00Z');
+	make(7023, { mergeable: true, labels: ['on-hold'] });
+	gh.behind.set(headOf(7023), 9);
+	gh.events.set(7023, [
+		{ event: 'labeled', created_at: '2026-11-01T08:00:00Z', label: { name: 'agent-definition' } },
+		{ event: 'labeled', created_at: '2026-11-20T09:30:00Z', label: { name: 'on-hold' } },
+		{ event: 'unlabeled', created_at: '2026-11-21T09:30:00Z', label: { name: 'on-hold' } },
+	]);
+	changes.forgetChanges();
+	const r0 = gh.requests.length;
+	const listed = await list(ADMIN);
+	const listReqs = gh.requests.slice(r0);
+	const row = (n: number) =>
+		(listed.body.changes as { number: number; onHold: boolean }[]).find((c) => c.number === n);
+	check(
+		'list: a change with the on-hold label says so, from the PR objects it already reads; no compare, commit or events call per row',
+		[
+			row(7023)?.onHold,
+			row(7020)?.onHold,
+			listReqs.some((r) => /\/compare\/|\/events|\/commits\/[0-9a-f]{40}$/.test(r.split('?')[0])),
+		],
+		[true, false, false],
+	);
+	const d20 = (await detail(ADMIN, '7020')).body;
+	const d21 = (await detail(ADMIN, '7021')).body;
+	const d22 = (await detail(ADMIN, '7022')).body;
+	const d23Before = gh.requests.length;
+	const d23 = (await detail(ADMIN, '7023')).body;
+	check(
+		'detail: behind main is read for a clean or conflicted open change; the head commit’s date only for a draft in conflict; a held one reads when it was held and nothing else',
+		[
+			[d20.behindBy, d20.headCommittedAt, d20.heldSince],
+			[d21.behindBy, d21.headCommittedAt],
+			[d22.behindBy, d22.headCommittedAt],
+			[d23.onHold, d23.behindBy, d23.headCommittedAt, d23.heldSince],
+			gh.requests.slice(d23Before).some((r) => r.includes('/compare/')),
+		],
+		[
+			[4, null, null],
+			[727, '2026-10-01T00:00:00Z'],
+			[0, null],
+			[true, null, null, '2026-11-20T09:30:00Z'],
+			false,
+		],
+	);
+
+	// Put on hold and Resume.
+	const h = make(7030, { mergeable: true });
+	check(
+		'hold: no session is a 401; without pipelineMerge a 403; a note over 500 characters or not text → 400; no such change → 404',
+		[
+			(await doHold(ANON, 7030)).status,
+			(await doHold(TESTER, 7030)).status,
+			(await doHold(ADMIN, 7030, { note: 'x'.repeat(501) })).status,
+			(await doHold(ADMIN, 7030, { note: 5 })).status,
+			(await doHold(ADMIN, 99998)).status,
+			gh.comments.length,
+		],
+		[401, 403, 400, 400, 404, 0],
+	);
+	const held1 = await doHold(ADMIN, 7030, { note: 'waiting for @bob\n `the` release' });
+	check(
+		'hold: adds the label on-hold and posts one App comment with the display name, never an email, and the note without @ or backticks, on one line',
+		[
+			held1.status,
+			held1.body,
+			h.labels.map((l) => l.name),
+			gh.comments,
+			gh.comments.some((c) => c.body.includes('owner@example.com')),
+		],
+		[
+			200,
+			{ number: 7030, onHold: true },
+			['on-hold'],
+			[
+				{
+					number: 7030,
+					body: 'Put on hold by Gualtiero via Pipeline Changes: waiting for bob the release',
+				},
+			],
+			false,
+		],
+	);
+	const again = await doHold(ADMIN, 7030);
+	check(
+		'hold: holding a held change → 409 already_on_hold, no second comment',
+		[again.status, again.body.code, gh.comments.length],
+		[409, 'already_on_hold', 1],
+	);
+	check(
+		'hold: a change on hold reads on-hold in the list and the detail, and Update, Re-record, Mark ready and Merge are refused',
+		await (async () => {
+			changes.forgetChanges();
+			const l = await list(ADMIN);
+			const d = (await detail(ADMIN, '7030')).body;
+			const rerecorded = await call(
+				rerecordRoute.POST,
+				ADMIN,
+				{ number: '7030' },
+				{ headSha: headOf(7030) },
+			);
+			const merged = await mergeIt(ADMIN, '7030', {
+				headSha: headOf(7030),
+				requestId: crypto.randomUUID(),
+			});
+			const readied = await call(readyRoute.POST, ADMIN, { number: '7030' }, {});
+			const updated = await doUpdate(ADMIN, 7030, { headSha: headOf(7030) });
+			return [
+				(l.body.changes as { number: number; onHold: boolean }[]).find((c) => c.number === 7030)
+					?.onHold,
+				d.onHold,
+				rerecorded.status,
+				rerecorded.body.code,
+				merged.status,
+				readied.status,
+				updated.body.code,
+			];
+		})(),
+		[true, true, 409, 'on_hold', 409, 409, 'on_hold'],
+	);
+	const resumed = await doResume(ADMIN, 7030);
+	check(
+		'resume: removes the label and comments "Resumed by …"; a second resume → 409 not_on_hold; without pipelineMerge → 403',
+		[
+			resumed.status,
+			h.labels.length,
+			gh.comments.at(-1)?.body,
+			(await doResume(ADMIN, 7030)).body.code,
+			(await doResume(TESTER, 7030)).status,
+			(await doResume(ANON, 7030)).status,
+		],
+		[200, 0, 'Resumed by Gualtiero via Pipeline Changes.', 'not_on_hold', 403, 401],
+	);
+	const noNote = make(7031);
+	await doHold(ADMIN, 7031);
+	check(
+		'hold: no note → the comment says who and where, without a colon and a gap',
+		[noNote.labels.length, gh.comments.at(-1)?.body],
+		[1, 'Put on hold by Gualtiero via Pipeline Changes.'],
+	);
+	make(7032);
+	gh.labels.delete('on-hold');
+	const missing = await doHold(ADMIN, 7032);
+	gh.labels.add('on-hold');
+	gh.labelForbidden = true;
+	gh.labels.delete('on-hold');
+	make(7033);
+	const forbidden = await doHold(ADMIN, 7033);
+	gh.labelForbidden = false;
+	gh.labels.add('on-hold');
+	const c0 = gh.comments.length;
+	check(
+		'hold: a label GitHub will not add (missing, or the App may not make it) → 409 label_missing with the plain sentence, and no comment',
+		[
+			[missing.status, missing.body.code, missing.body.error],
+			[forbidden.status, forbidden.body.code, forbidden.body.error],
+			gh.comments.length - c0,
+			gh.comments.some((c) => c.number === 7032 || c.number === 7033),
+		],
+		[
+			[409, 'label_missing', 'Create the label `on-hold` once in GitHub (owner setup).'],
+			[409, 'label_missing', 'Create the label `on-hold` once in GitHub (owner setup).'],
+			0,
+			false,
+		],
+	);
+	check(
+		'hold: the note is cleaned to one line',
+		[hold.holdNoteText('a @b `c`\n\n d'), hold.HOLD_NOTE_MAX],
+		['a b c d', 500],
+	);
+
+	// The page's decisions.
+	const NOW = Date.parse('2026-11-26T12:00:00Z');
+	const base = {
+		state: 'open',
+		merged: false,
+		draft: false,
+		mergeable: true,
+		mergeableState: 'clean',
+		behindBy: 5,
+		headSha: headOf(1),
+		headCommittedAt: null,
+		heldSince: null,
+	};
+	check(
+		'the page: Update from main is offered to a merger on an open, clean change that is behind, pinned to the head',
+		[
+			view.updateBar(base, true)?.headSha,
+			view.updateBar(base, true)?.text,
+			view.updateBar(base, false),
+			view.updateBar({ ...base, onHold: true }, true),
+			view.updateBar({ ...base, mergeable: false }, true),
+			view.updateBar({ ...base, mergeable: null }, true),
+			view.updateBar({ ...base, behindBy: 0 }, true),
+			view.updateBar({ ...base, behindBy: null }, true),
+			view.updateBar({ ...base, state: 'closed' }, true),
+			view.updateBar({ ...base, merged: true }, true),
+			view.updateBar({ ...base, draft: true, behindBy: 1 }, true)?.text,
+		],
+		[
+			headOf(1),
+			'5 commits behind main. GitHub merges main into this branch; there is nothing to choose.',
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			'1 commit behind main. GitHub merges main into this branch; there is nothing to choose.',
+		],
+	);
+	const stuck = {
+		...base,
+		draft: true,
+		mergeable: false,
+		mergeableState: 'dirty',
+		behindBy: 727,
+		headCommittedAt: '2026-11-10T12:00:00Z',
+	};
+	check(
+		'the page: the 14-day hint is a draft in conflict whose head commit is 14 days old, with Put on hold for a merger',
+		[
+			view.holdBar(stuck, true, NOW),
+			view.holdBar(stuck, false, NOW),
+			view.holdBar({ ...stuck, headCommittedAt: '2026-11-13T12:01:00Z' }, true, NOW),
+			view.holdBar({ ...stuck, draft: false }, true, NOW),
+			view.holdBar({ ...stuck, mergeableState: 'blocked' }, true, NOW),
+			view.holdBar({ ...stuck, headCommittedAt: null }, true, NOW),
+			view.holdBar({ ...stuck, behindBy: null }, true, NOW)?.text,
+			view.holdBar({ ...stuck, behindBy: 1 }, true, NOW)?.text,
+			view.holdBar({ ...stuck, state: 'closed' }, true, NOW),
+		],
+		[
+			{ action: 'hold', text: '727 commits behind main for 16 days' },
+			{ action: null, text: '727 commits behind main for 16 days' },
+			null,
+			null,
+			null,
+			null,
+			'Behind main for 16 days',
+			'1 commit behind main for 16 days',
+			null,
+		],
+	);
+	check(
+		'the page: Put on hold is offered to a merger on any open change that is not held, old and conflicted or not',
+		[
+			view.holdOffered(base, true),
+			view.holdOffered(stuck, true),
+			view.holdOffered({ ...base, draft: true }, true),
+			view.holdOffered(base, false),
+			view.holdOffered({ ...base, state: 'closed' }, true),
+			view.holdOffered({ ...base, merged: true }, true),
+			view.holdOffered({ ...base, onHold: true }, true),
+		],
+		[true, true, true, false, false, false, false],
+	);
+	const heldDetail = { ...base, onHold: true, heldSince: '2026-11-20T09:30:00Z' };
+	check(
+		'the page: a held change reads "On hold · since <date>" with Resume for a merger and none otherwise; nothing it could do is offered',
+		[
+			view.heldText('2026-11-20T09:30:00Z'),
+			view.heldText(null),
+			view.holdBar(heldDetail, true, NOW),
+			view.holdBar(heldDetail, false, NOW),
+			view.rerecordBar(
+				{
+					...heldDetail,
+					checks: [
+						{
+							workflow: 'runtime-bytes',
+							jobs: [
+								{
+									name: 'runtime-bytes',
+									state: 'fail',
+									instruction: `x ${view.RUNTIME_BYTES_SENTENCE}`,
+								},
+							],
+						},
+					],
+				},
+				true,
+			),
+			view.readyBar({ ...heldDetail, draft: true }, true),
+			view.mergeBar({ ...heldDetail, filesTruncated: false }, true, false),
+			view.blockedReason({
+				...heldDetail,
+				status: { kind: 'blocked', reason: 'Merge conflict with main' },
+				mergeableState: 'dirty',
+			}),
+		],
+		[
+			'On hold · since 2026-11-20',
+			'On hold',
+			{ action: 'resume', text: 'On hold · since 2026-11-20' },
+			{ action: null, text: 'On hold · since 2026-11-20' },
+			null,
+			null,
+			{ action: null, text: view.ON_HOLD_OFFERS_TEXT },
+			null,
+		],
+	);
+	const blockedStatus = { kind: 'blocked', reason: 'Merge conflict with main' };
+	check(
+		'the page: a held change’s pill is grey "On hold", never Blocked; held changes sort last, the order inside each kept',
+		[
+			view.changePill({ onHold: true, status: blockedStatus }),
+			view.changePill({ onHold: false, status: blockedStatus }).label,
+			view
+				.sortChanges([
+					{ n: 1, onHold: true },
+					{ n: 2, onHold: false },
+					{ n: 3, onHold: true },
+					{ n: 4, onHold: false },
+				])
+				.map((c: { n: number }) => c.n),
+		],
+		[{ tone: 'muted', label: 'On hold', dot: false }, 'Blocked', [2, 4, 1, 3]],
+	);
+	check(
+		'the page: the conflict sentence is unchanged until Resolve exists',
+		view.BLOCKED_CONFLICT_TEXT,
+		'Merge conflict with main: bring main in and resolve it.',
+	);
+	check(
+		'the page: a refused update shows the server’s sentence, and a link only for the workflow refusal, only to GitHub',
+		[
+			view.updateRefusalView(409, {
+				error: 'x',
+				code: 'workflow_refused',
+				url: 'https://github.com/iw/engine/pull/5',
+			}),
+			view.updateRefusalView(409, {
+				error: 'y',
+				code: 'workflow_refused',
+				url: 'https://evil.example/',
+			}),
+			view.updateRefusalView(409, { error: 'The branch moved; reload', code: 'head_moved' }),
+			view.updateRefusalView(500, null),
+		],
+		[
+			{ text: 'x', href: 'https://github.com/iw/engine/pull/5' },
+			{ text: 'y', href: null },
+			{ text: 'The branch moved; reload', href: null },
+			{ text: 'The request failed (500).', href: null },
+		],
+	);
+	check(
+		'the page: the success sentence',
+		view.UPDATE_DONE_TEXT,
+		'GitHub is merging main in; CI re-runs on the new head.',
 	);
 }
 
