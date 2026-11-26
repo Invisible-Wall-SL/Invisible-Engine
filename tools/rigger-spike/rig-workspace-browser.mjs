@@ -3,6 +3,7 @@
 //
 //   node tools/rigger-spike/rig-workspace-browser.mjs
 //   node tools/rigger-spike/rig-workspace-browser.mjs --mutants   # every planted bug must fail a check
+//   node tools/rigger-spike/rig-workspace-browser.mjs --mutants --only pinch   # the mutants named so
 //
 // Drives the REAL view.html in a REAL Chromium at 1366×660 CSS px and a device pixel ratio of 1.25 (a
 // 1366×768 laptop's window at Windows' 125%), against a fake launcher API on `sheet-rig.mjs`'s sheet
@@ -124,9 +125,11 @@ const MUTANTS = [
 if (process.argv.includes('--mutants')) {
 	const src = readFileSync(VIEW, 'utf8');
 	const tmp = mkdtempSync(join(tmpdir(), 'rig-workspace-mutants-'));
+	const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : '';
+	const picked = MUTANTS.filter(([what]) => what.includes(only));
 	let caught = 0;
 	console.log('rig-workspace-browser mutants (each must fail a check):');
-	for (const [what, from, to] of MUTANTS) {
+	for (const [what, from, to] of picked) {
 		const n = src.split(from).length - 1;
 		if (n !== 1) {
 			console.log(`  ✗ ${what}: its text is in view.html ${n} times — the mutant is stale`);
@@ -140,8 +143,8 @@ if (process.argv.includes('--mutants')) {
 		const why = red ? (run.stdout.match(/^ {2}✗ .*$/m) || [''])[0].trim().slice(0, 110) : '';
 		console.log(`  ${red ? '✓' : '✗'} ${what}${red ? ` (${why})` : ' — NOT caught'}`);
 	}
-	console.log(`\n${caught === MUTANTS.length ? '✅ PASS' : '✗ FAIL'} — ${caught}/${MUTANTS.length} mutants caught`);
-	process.exit(caught === MUTANTS.length ? 0 : 1);
+	console.log(`\n${caught === picked.length ? '✅ PASS' : '✗ FAIL'} — ${caught}/${picked.length} mutants caught`);
+	process.exit(caught === picked.length ? 0 : 1);
 }
 const html = readFileSync(process.env.RWS_HTML || VIEW, 'utf8');
 
@@ -384,12 +387,17 @@ async function wheelZooms(id, label) {
 		w2.ctrl && near(c2.k / c1.k, zoom(w2), 1e-9) && d2(p0, p2) < 1e-6,
 		q({ c1, c2, p2, w2 }),
 	);
-	await wheel(at, 12, { deltaX: -5 });
-	const c3 = await cam(id), w3 = await evaluate('__w.wheel'), [sx, sy] = [b.cw / b.w, b.ch / b.h];
+	// Up and down (small deltas, none sideways), then sideways.
+	const [sx, sy] = [b.cw / b.w, b.ch / b.h];
+	await wheel(at, 12);
+	const c3 = await cam(id), w3 = await evaluate('__w.wheel');
+	await wheel(at, 0, { deltaX: -5 });
+	const c4 = await cam(id), w4 = await evaluate('__w.wheel');
 	ok(
-		`${label}: a trackpad's two-finger move pans`,
-		c3.k === c2.k && w3.dx !== 0 && near(c3.x - c2.x, -w3.dx * sx, 1e-9) && near(c3.y - c2.y, -w3.dy * sy, 1e-9),
-		q({ c2, c3, w3 }),
+		`${label}: a trackpad's two-finger move pans, up and down and sideways`,
+		c3.k === c2.k && w3.dx === 0 && near(c3.x, c2.x, 1e-9) && near(c3.y - c2.y, -w3.dy * sy, 1e-9) &&
+			c4.k === c3.k && w4.dy === 0 && near(c4.x - c3.x, -w4.dx * sx, 1e-9) && near(c4.y, c3.y, 1e-9),
+		q({ c2, c3, c4, w3, w4 }),
 	);
 }
 
