@@ -25,10 +25,11 @@ export type BiomeScope = string;
 
 /** The biomes the level of `seed` plays: the original's six when the config authors none. */
 export const biomesOf = (biomes: LevelsBiomes | undefined, seed: number): SalmonsBiomes =>
-	resolveBiomes(biomes ?? {}, seed) as SalmonsBiomes;
+	resolveBiomes(biomes ?? {}, seed);
 
-/** The block a "use authored biomes" tick writes: the six built-in kinds by id, so the level and
- *  its art are as without it until something is changed. */
+/** The block a "use authored biomes" tick writes: the six built-in kinds by id, so the level is
+ *  the one without it and a room draws it the same (the `/editor` stage marks each stretch's floor)
+ *  until something is changed. */
 export const builtInBiomes = (): LevelsBiomes => ({
 	kinds: LEVELS_BIOMES_BUILT_IN.map((b) => ({ id: b.id })),
 });

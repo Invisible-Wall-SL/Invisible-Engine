@@ -32,7 +32,7 @@ export type LevelOrphan =
 			biome: string;
 			kind: string;
 			rows: [number, number];
-			reason: 'no-room' | 'capped';
+			reason: 'no-room' | 'generator-off' | 'capped';
 	  };
 
 /** An orphan as a person reads it. */
@@ -40,9 +40,10 @@ export function orphanText(o: LevelOrphan): string {
 	if (o.op !== 'biome')
 		return `${o.op} ${o.kind ?? ''} ${o.cell[0]}, ${o.cell[1]}`.replace(/\s+/g, ' ');
 	const where = `${o.biome} (columns ${o.rows[0]}–${o.rows[1]})`;
-	return o.reason === 'no-room'
-		? `${where}: no ${o.kind}s are placed there`
-		: `${where}: more ${o.kind}s than every place there, held to all`;
+	if (o.reason === 'no-room') return `${where}: no ${o.kind}s are placed there`;
+	if (o.reason === 'generator-off')
+		return `${where}: the generator's settings place no ${o.kind}s to multiply`;
+	return `${where}: more ${o.kind}s than every place there, held to all`;
 }
 
 /** The overlay scope: one seed's own (its decimal string), or `'*'` for every level. */

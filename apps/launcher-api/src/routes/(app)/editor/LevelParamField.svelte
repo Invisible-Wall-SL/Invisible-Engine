@@ -15,15 +15,30 @@
 		fallback: number;
 		limit: readonly [number, number];
 		step: number;
+		/** A count, a column or cells: what is typed or slid is rounded to a whole number. */
+		whole?: boolean;
 		disabled?: boolean;
 		/** A value, or `undefined` to go back to the default. */
 		onset: (value: number | undefined) => void;
 	};
-	const { label, help, value, fallback, limit, step, disabled = false, onset }: Props = $props();
+	const {
+		label,
+		help,
+		value,
+		fallback,
+		limit,
+		step,
+		whole = false,
+		disabled = false,
+		onset,
+	}: Props = $props();
 
 	const shown = $derived(value ?? fallback);
-	/** Held to the limits, without a slider step's float tail. */
-	const held = (v: number) => Number(Math.min(limit[1], Math.max(limit[0], v)).toFixed(4));
+	/** Held to the limits, whole where it must be, without a slider step's float tail. */
+	const held = (v: number) => {
+		const within = Math.min(limit[1], Math.max(limit[0], v));
+		return whole ? Math.round(within) : Number(within.toFixed(4));
+	};
 </script>
 
 <div class="param" class:set={value !== undefined}>

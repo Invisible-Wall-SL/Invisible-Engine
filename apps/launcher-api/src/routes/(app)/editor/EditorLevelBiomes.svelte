@@ -63,8 +63,9 @@
 	const kinds = $derived(resolved.kinds);
 	const kindById = (id: string) => kinds.find((k) => k.id === id) ?? kinds[0];
 	const current = $derived(selected ? kinds.find((k) => k.id === selected) : undefined);
-	const authoredKind = $derived(
-		(biomes?.kinds ?? []).find((k) => k.id === selected) ?? ({ id: selected ?? '' } as LevelsBiome),
+	/** The selected kind's authored fields (none: every one at its default). */
+	const authoredKind: LevelsBiome = $derived(
+		(biomes?.kinds ?? []).find((k) => k.id === selected) ?? { id: selected ?? '' },
 	);
 	const entries = $derived(dragging ?? (biomes ? sequenceOf(biomes, scope) : undefined));
 	/** What the strip shows for the scope: its own sequence, else what plays (for a seed, every
@@ -162,7 +163,8 @@
 		Authored biomes
 		<InfoTip>
 			On: start from the original's six biomes, named forest1 to forest6, and change, add or lay
-			them out. Off: the original's forests, as before.
+			them out; the level and a room's art stay the original's until you change something (the stage
+			marks each stretch's floor). Off: the original's forests.
 		</InfoTip>
 	</label>
 
@@ -306,6 +308,7 @@
 					fallback={35}
 					limit={B.cycle}
 					step={1}
+					whole
 					{disabled}
 					onset={(v) => edit({ ...biomes, cycle: v })}
 				/>
@@ -462,6 +465,7 @@
 					fallback={SALMONS_BIOME_LOOK.grass}
 					limit={B.grass}
 					step={1}
+					whole
 					{disabled}
 					onset={(v) => patch({ grass: v })}
 				/>
@@ -472,6 +476,7 @@
 					fallback={SALMONS_BIOME_LOOK.forest}
 					limit={B.forest}
 					step={1}
+					whole
 					{disabled}
 					onset={(v) => patch({ forest: v })}
 				/>

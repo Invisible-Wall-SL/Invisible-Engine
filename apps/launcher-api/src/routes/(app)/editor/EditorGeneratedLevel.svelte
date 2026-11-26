@@ -8,7 +8,7 @@
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import {
 		addPiece,
 		canGenerate,
@@ -103,6 +103,7 @@
 	}
 
 	let redraw = 0;
+	onDestroy(() => cancelAnimationFrame(redraw));
 	/** Take `next` and redraw the stage with it once a frame at most (a slider sends many). */
 	function edit(next: ArcadeOnlineLevels): void {
 		levels = next;

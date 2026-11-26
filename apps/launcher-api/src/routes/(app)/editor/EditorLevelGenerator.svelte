@@ -2,6 +2,7 @@
 	import {
 		LEVELS_GENERATOR_DEFAULTS,
 		LEVELS_GENERATOR_LIMITS,
+		LEVELS_GENERATOR_WHOLE,
 		LEVELS_RIVER_DEFAULTS,
 		LEVELS_SHAPE_LIMITS,
 		type LevelsRiver,
@@ -57,6 +58,7 @@
 			fallback={LEVELS_GENERATOR_DEFAULTS[param.key]}
 			limit={LEVELS_GENERATOR_LIMITS[param.key]}
 			step={param.step}
+			whole={LEVELS_GENERATOR_WHOLE.includes(param.key)}
 			{disabled}
 			onset={(v) => onEdit(setGenerator(levels, withParam(generator, param.key, v)))}
 		/>
@@ -137,6 +139,7 @@
 				fallback={6}
 				limit={L.waterfallCount}
 				step={1}
+				whole
 				{disabled}
 				onset={(v) => editFalls({ count: v })}
 			/>
@@ -151,6 +154,7 @@
 				fallback={1}
 				limit={L.waterfallHeight}
 				step={1}
+				whole
 				{disabled}
 				onset={(v) => editFalls({ heightMin: v })}
 			/>
@@ -161,6 +165,7 @@
 				fallback={8}
 				limit={L.waterfallHeight}
 				step={1}
+				whole
 				{disabled}
 				onset={(v) => editFalls({ heightMax: v })}
 			/>
