@@ -119,7 +119,9 @@ budgets it per device class and ranks five network findings.
 - **Network (P9).** The probe's `network` block (`apps/lines/src/game/perfNetwork.ts`, observed by
   `PerfHud.svelte` with `PerformanceObserver({ type: 'resource', buffered: true })` + the navigation
   entry; the page's whole load, never cleared by Reset): per file its path (query and hash dropped,
-  a token segment — `/api/deploy/f/<token>/`, a JWT-like or long hex/base64url segment — read `…`;
+  a token segment read `…`: by position under every token-bearing launcher route (`TOKEN_ROUTES`:
+  `/api/deploy/f/<token>`, `/api/published/f/<token>`, `/play/<token>`, `/profiler/go/<link>/<token>`),
+  whatever the token's format, else by shape (a JWT-like or long hex/base64url segment);
   the host only when not the page's), class (`document js css image ktx2 json rig audio font api
 other`), initiator, transfer / encoded / decoded bytes (`null` = a cross-origin answer without
   `Timing-Allow-Origin`, counted as `unknown`, never 0), start, ms, stage (`beforeFirstFrame` until
@@ -131,7 +133,12 @@ other`), initiator, transfer / encoded / decoded bytes (`null` = a cross-origin 
   `socket` (messages in / out, bytes, largest, a second, the states among them) from
   `arcadePerf.message`, called by `online.ts` `meterMessages` beside the per-frame `patches` count
   (one meter), which now also wraps the connection's `send` / `sendUnreliable`. The file list keeps
-  the heaviest 150 (`FILES_KEPT`); the short form sent on hide keeps the heaviest 20 only. The HUD
+  the heaviest 150 (`FILES_KEPT`); the short form sent on hide keeps the heaviest 20 only. Bounded
+  over a soak: a file is folded into running totals once the first frame and the boot are both known
+  (up to 2000 held before that), and an RGS request is summed as it arrives — `rgs.requests` counts
+  every one, `rgs.ms` the first 4000 (`ms.count`). The launcher redacts the same routes again on
+  receipt (`profilerNetwork.ts` `redactReportText`, every string of the report, before the R2 write
+  in `store.ts`; `pathOnly` in the facts), so no route token is stored even from an old probe. The HUD
   body shows a `net` line (MB, files, sizes hidden, first frame, largest) and an RGS / room line.
   The launcher sends `Timing-Allow-Origin: *` with `DEPLOY_CORS_HEADERS` (`/api/deploy*`,
   `/api/published/*`, `/api/editor/runtime`, `/api/editor/doc`), so an online game's art and runtime
@@ -436,6 +443,32 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
    script already takes a Playwright-shaped page, so the adapter is the only missing piece.
 
 ## Recent changes
+
+- 2026-11-26 — **P9 review fixes** (the #1939 merge-sweep review, which held the merge on a token
+  leak; #1939 merged before the fix, so it ships as #1949 — a runtime release):
+  - **Token leak.** The probe redacted only `/api/deploy/f/<token>` by position; a published boot's
+    `/api/published/f/<token>/…` relied on the shape guess, which misses a digit-less read token
+    (~0.8% of `mintReadToken`'s) and any `EDITOR_DOC_SECRET`. Now `TOKEN_ROUTES` (the deploy and
+    published trees, `/play/<token>`, `/profiler/go/<link>/<token>`) redacts by position in the probe
+    (doubled slashes collapsed first), and the launcher scrubs every string and key of a report
+    before it writes R2 and in the facts' paths — a route after any non-path character, with `%2F` /
+    `\/` slashes decoded and doubled ones collapsed (linear: ~0.2 s on an 8 MB worst case).
+    Gate 19 holds the two lists equal and equal to every `[token]` folder under `src/routes`, with a
+    digit-less token and a free-form secret; gate 20 sends a leaky report from an "old probe" and
+    finds no token in R2's text or the facts; a mutant dropping `/api/published/f` fails both.
+  - **Missing global.** `PerfHud.svelte` `watchNetwork` guards `typeof PerformanceObserver`, so a
+    browser without it loses the network block only, not the whole probe.
+  - **Bounded monitor.** `createNetworkMonitor` folds files into running totals (above) instead of
+    keeping and re-sorting every entry each 500 ms; the probe fixture (now run inside
+    `check:profiler`) proves a 21,800-entry soak gives the same block whether the stages settled
+    before the files or after.
+  - Nits: `socket()` clamps negative seconds and rates; `profiler.ts`'s long comment line wrapped.
+  - Known limit: `repeats` watches the first 2000 distinct paths (`CROSSED_KEPT`), so a later
+    path's second download is not seen; above 2000 files held before the first frame and boot, a
+    file is folded at the stage it reads then.
+  - Reviewed by `code-reviewer` (nothing blocking); its gaps in the launcher's scrub (keys, other
+    separators, encoded or doubled slashes) and the probe's doubled-slash miss were fixed, each with a
+    gate case.
 
 - 2026-11-26 — **P9 "Network" (#1939, merged as c6945262d; a runtime release)**: the owner asked, after
   profiling Salmons, to see whether anything is too heavy to transfer. Design:
