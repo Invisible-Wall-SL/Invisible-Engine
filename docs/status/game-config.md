@@ -790,6 +790,42 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-26 — **Zone art: a rig as a family's picture** (owner: "add rig as a zone art source";
+  agent `arcade-games`; branch `claude/wizardly-galileo-kjszii`, in review). **Drawn with** has a
+  third choice, **Rig**: one of the project's rigs and one of its animations, looped or played
+  once. How to use it: [tools/game-config](../tools/game-config.md) "Zone art"; plan and the trees
+  decision: [design/zone-art](../design/zone-art.md) §1, §3; the runtime's side:
+  [status/salmons](salmons.md).
+  - **Schema** (`game-config` `zoneArt.ts`): `{ kind: 'rig', rig, animation, loop?: false }` as a
+    source and as a variant. Both names are needed, or the picture is dropped and the save warns
+    (`validateZoneArt`, now called for any arcade config, so a pasted rig with no animation is
+    warned of even when it was the only picture). `zoneArtTakesRig`: a scenery key (`@trees`)
+    never takes a rig, so the normalizer drops one there and the save warns. `zoneArtPhaseFor`
+    picks where each zone's rig starts (FNV-1a and murmur3's finalizer). `zoneArtRigRoots`, and
+    `zoneArtArtNames` now lists the rigs after the frames. Carried as before: the normalizer every
+    runtime carries still drops the field.
+  - **The card** (`ZoneArtSection.svelte`, edits in `zoneArtDoc.ts`): **Rig** in the one
+    `picture` snippet, greyed out with a title when the project has no rigs, and always on the
+    Trees row. It reuses Invisible Characters' `RigSelect` over the page's own rig listing
+    (`listProjectAssets` `spines`, the same `listRigs` the character sheet lists), and reads each
+    rig's animations once through the page's existing `/api/editor/rig/meta` cache
+    (`readRigAnimations`, shared with the card-param rig dropdowns; the Game Config grant reads
+    it). A rig picked keeps the animation when the new rig has it (`rigPicked`), else the row asks
+    for one before storing anything. **Loop** stores `loop: false` only when off (`rigLooped`). A
+    family drawn with a rig on more than 100 zones of the level shown gets an amber note
+    (`rigCrowdWarning`; Salmons' 318 sandbanks). No preview: the character sheet's rig preview is
+    a Pixi application per sheet and reads rigs through the Characters grant.
+  - **Ships (rule 8)** as a character sheet's rig does: `editorArtExport` adds each zone-art rig to
+    `rigNames` (skeleton and atlas under `deploy/editor-art/<name>/`, pages in `deploy/_pages/`),
+    and `characterArt` names it so the boot keeps it loaded.
+  - **Gates:** `check:zone-art` 130 (was 96: the schema, phases spread, the rig stamp and its node,
+    the validator, the card's rig edits and its 100-zone note, the real exporter shipping a rig named only by zone art
+    and not one nothing names or one named for the trees, §11 scenery never a rig, §12 the rig
+    drawing over a real `engine-rig` skeleton), `check:game-config-family` 580 (was 573: the page
+    server-rendered with and without rigs: Rig greyed with its title, a rig row's picker,
+    animation and Loop, the frame and clip rows as before, the Trees row's refusal, the 318
+    sandbanks' note), `check:salmons-export` 39, `check:flipbook-characters` 254, svelte-check at
+    baseline (launcher-api 44, lines 145, engine-layout 290).
 - 2026-11-26 — **Zone art: Scenery → Trees** (agent `arcade-games`; branch
   `claude/wizardly-galileo-kjszii`, in review). A Salmons project chooses what its forest and bank
   trees are drawn with, as a zone family's art. How to use it:
