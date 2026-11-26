@@ -3,7 +3,7 @@ import { RUNTIMES } from 'constants-shared/runtimes';
 import { createKeyedMutex } from './concurrency';
 import { githubApp, type GithubApp } from './githubApp';
 import { blobSha } from './pipelineAgents';
-import { approverName, forgetChanges, readPull, repo } from './pipelineChanges';
+import { approverName, forgetChanges, isOnHold, readPull, repo } from './pipelineChanges';
 import { locateCentralDirectory, parseCentralDirectory, readZipEntry, type ZipEntry } from './zip';
 
 /**
@@ -25,7 +25,7 @@ const MAX_ENTRIES = 20_000;
 const ARTIFACT_TIMEOUT_MS = 60_000;
 
 export type RuntimeBytesCode =
-	'no_run' | 'no_artifact' | 'head_moved' | 'invalid_artifact' | 'nothing_to_change';
+	'no_run' | 'no_artifact' | 'head_moved' | 'invalid_artifact' | 'nothing_to_change' | 'on_hold';
 
 /** A refusal: 409, with the sentence for the page and a code to tell the cases apart. */
 function refuse(code: RuntimeBytesCode, message: string): never {
@@ -204,7 +204,7 @@ const runOf = (runs: GhRun[], sha: string): GhRun | undefined =>
 const encodePath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
 /** One line, no backticks: the name goes into a commit message, where a bare `@name` pages someone. */
-const clickerOf = (user: Parameters<typeof approverName>[0]): string =>
+export const clickerOf = (user: Parameters<typeof approverName>[0]): string =>
 	approverName(user)
 		.replace(/[`@\s]+/g, ' ')
 		.trim() || 'a launcher user';
@@ -238,6 +238,7 @@ export async function rerecordRuntimeBytes(
 		const r = repo();
 		const pull = await readPull(number, app);
 		if (pull.state !== 'open') throw error(409, `#${number} is not open.`);
+		if (isOnHold(pull)) refuse('on_hold', `#${number} is on hold: resume it first.`);
 		if (pull.head.sha !== headSha) {
 			refuse(
 				'head_moved',

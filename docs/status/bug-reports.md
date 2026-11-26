@@ -275,6 +275,34 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
+  conflict with main a lot, and there is no way to fix it from the pipeline."
+  - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with
+    `expected_head_sha` (`pipelineUpdate.ts`). Offered in the detail when open, not held,
+    `mergeable: true` and behind `main` (`compare/main...<head>`, detail only). 409 codes:
+    `head_moved`, `conflict`, `workflow_refused` (any refusal naming a workflow file or the
+    `workflows` permission; links to the PR), plus `on_hold`, `up_to_date`, `not_clean`. GitHub's
+    text is kept, capped at 300 characters.
+  - `POST …/hold` `{ note? }` and `…/resume` (`pipelineHold.ts`): the `on-hold` label through the
+    issues labels API, plus one App comment. A label GitHub will not add (403/404/422) is
+    `label_missing`. Held changes sort last, read grey "On hold", and merge, Mark ready,
+    Re-record and Update refuse them on the server too. Labels come from the PR objects the list
+    already reads; "since <date>" (the newest `labeled` event) and the 14-day hint (head commit
+    date) are the detail's own reads.
+  - Not done: Resolve (15C). `BLOCKED_CONFLICT_TEXT` is unchanged.
+  - **Open for the owner:** create the label `on-hold` once in GitHub.
+  - **Spike (after deploy).** Needs the real App, so it runs once this is on `main`:
+    1. Make a scratch branch from `70bdbe7` (the commit before #1928, which changed
+       `.github/workflows/bug-fix.yml`): `git switch -c scratch/15a-spike 70bdbe7`, make one
+       trivial docs commit, push it.
+    2. Open a draft PR into `main` from it. Wait until Pipeline Changes lists it and shows
+       "N commits behind main".
+    3. Click **Update from main** as a Merge pipeline changes holder.
+    4. Record here whether GitHub refused it (409 `workflow_refused`) and GitHub's own message
+       (the red callout's source is in the response's `githubMessage`), or accepted it (the new
+       head has a merge commit that brings in the workflow change).
+    5. Close the PR and delete the branch. If refused, ADR-0015's item 10 default applies: the
+       person uses GitHub's own Update branch.
 - 2026-11-26 — **A failed check says what to do, and runtime bytes re-record from the page.**
   BUG-20's fix run built the owner's option and opened #1930, which sat Blocked on
   `runtime-bytes` with nothing on the page saying why or how forward: the fix changed
