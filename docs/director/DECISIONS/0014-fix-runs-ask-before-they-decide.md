@@ -1,6 +1,6 @@
 # ADR-0014 — Fix runs ask before they decide, and say what they did
 
-- **Status:** proposed (2026-11-26), waiting on the owner
+- **Status:** approved (2026-11-26, owner; see "Owner decision" at the end)
 - **Date:** 2026-11-26
 - **Scope:** how a fix run (ADR-0013) works. Each run first diagnoses the bug and offers options.
   The owner picks one, and only then does a second run build it. A fix change says in plain words
@@ -175,6 +175,12 @@ merges it (ADR-0007).
    against: a minimum RAM, GPU tier, or a list of reference phones. Default: the owner states one
    in `docs/knowledge/targets.md`. Until then, the diagnosis offers "below floor" as an option for
    the owner to judge.
+
+## Owner decision (2026-11-26)
+
+Approved: items 1–7 of "Needs owner approval", each at its default, as written. Item 7: no floor is
+written in `targets.md` yet, so until the owner states one a diagnosis offers "below the floor" as
+an option for the owner to judge. 14A starts.
 
 ## Open questions
 
