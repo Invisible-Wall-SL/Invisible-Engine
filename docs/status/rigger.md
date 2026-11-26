@@ -200,9 +200,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   Layers refusal is tagged (`LayersFitted`, `layers: true`): the endpoint answers
   `{ message, layers: true }` and the page shows the pill from `s2r.previewLayers`, not by matching
   `/the Layers/`. `layersJudged`, `slotsAgainstDepth` and `sheetLayerOrder` are module-private now.
-  Guards: `sheet-rig-update.mjs` 306/306 (a `preview` guard: 7 edits each asserting the slots the
-  preview judges equal `frameRigUpdate`'s merged slots and its verdict and words the update's, 3 creates equal 🦴 Create rig's; the reviewer's case failed
-  on `main` — preview warned, update accepted — and passes now; 7 preview mutants red (2 change only the merge's slot handling, caught only by the slots check), the moved
+  Guards: a new gate `sheet-layers-preview.mjs` 38/38, 74 s (its `preview` guard: 7 edits each
+  asserting the slots the preview judges equal `frameRigUpdate`'s merged slots and its verdict and
+  words the update's, 3 creates equal 🦴 Create rig's; the reviewer's case failed on `main` — preview
+  warned, update accepted — and passes now; 7 mutants red, each run on the cases it targets, 2 of
+  them changing only the merge's slot handling and caught only by the slots check). Its own gate
+  because with it `sheet-rig-update.mjs` ran 440 s and timed out in CI; that file is 76/76 in 79 s
+  now, its `layers` mutants each run on the phases they target (the moved
   `layers` mutants re-anchored), `sheet-layers.mjs` 126/126, `sheet-rig.mjs` 3418/3418,
   `frame-rig-update.mjs` 125/125 (a mutant re-anchored on `newSlotPlaces`),
   `frame-rig-update-browser.mjs` 22/22, `sheet-rig-browser.mjs` 76/76 (the forearm-prop case, no
