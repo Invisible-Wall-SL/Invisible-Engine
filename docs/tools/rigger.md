@@ -356,10 +356,12 @@ a rival answer to the same question. Move the box, or bind a different bone.
 > here and in the game. The editor says so in red under the picker, and the build
 > warns as well.
 
-### The Slots list: hide slots while you work, drag to reorder
+### The Slots list: folders, hide slots while you work, drag to reorder
 
-The **Slots (draw order)** section lists every slot in draw order: the top row is drawn first, so
-it sits behind. Hover its header for the same summary.
+The **Slots (draw order)** section lists every slot with the **front at the top**, like the layers
+panel of a paint program: the top row is drawn last, over the rest, and the bottom row first,
+behind. Only the list is turned over: the rig, its `.irig` and its keys keep the 4.2 draw order.
+Hover its header for a summary.
 
 - **👁 hides a slot on the stage while you work**: meshing in Setup, posing and animating, and in
   Preview. Its art is not drawn, and its mesh, path, box, point and pivot handles are neither drawn
@@ -372,34 +374,56 @@ it sits behind. Hover its header for the same summary.
     alone. Do it again to show them all.
   - An eye on a selected row hides or shows the whole **Shift / Ctrl** selection.
   - **👁** in the section header shows every slot again. It works while the section is folded.
-  - **Groups** sit above the slots, one row each. A template rig brings its own: each draw-order
-    layer (a head with its face, a hand with its fingers), and the slots a swap hides (the fingers a
-    drawn **hand pose** replaces). Click a group's eye to hide or show the group, Alt-click or
-    right-click to show only it.
-  - **Make your own group:** select rows (**Shift**-click for a run, **Ctrl**-click to add one), then
-    **＋** in the section header and name it. Your groups have a dashed eye, **✎** renames one and
-    **🗑** deletes it (its slots stay). Saving the same name again replaces its slots. They are kept
-    with the rig (in `controls.json` beside the `.irig`), so everyone who opens the rig sees them,
-    and they follow the rig: a renamed slot is renamed in them, a deleted one leaves them, and a group
-    with no slot left goes. Making, renaming or deleting one is an undo step. The game never sees
-    them.
-  - **Each group's slider dims it on the stage while you work** (0–100 %), in every mode. A slot in
-    two dimmed groups gets both (50 % and 50 % draw it at 25 %). Like the eye, it is only your view:
-    kept per rig in this browser, never saved, and the `.irig` stays the same.
-  - **⤓ writes a group's dimming into the rig.** In **Setup** it multiplies each slot's setup alpha
-    by the slider (a slot at 50 % with the slider at 40 % ends at 20 %), so the stage looks the same;
-    clips that key the slot's colour keep their own keys. In **Animate** it keys each slot's opacity
-    at the playhead, at its opacity there times the slider (a slot the clip colours with separate
-    colour and alpha keys gets an alpha key, so its colour keys keep working). Either way the slider
-    goes back to 100 %, and it is one undo step. It is off at 100 %, in Preview and in Cinematic.
+  - On a template rig, a row of **group eyes** sits above the slots, one per group the template
+    names: each draw-order layer (a head with its face, a hand with its fingers), and the slots a
+    swap hides (the fingers a drawn **hand pose** replaces). Click one to hide or show the group,
+    Alt-click or right-click to show only it.
+- **📁 Folders** hold slots that sit together in the draw order. A folder's row shows **▸ / ▾**, its
+  name and how many slots it holds, and its slots are indented under it. There is one level of
+  folders (no folder in a folder), and a slot is in one folder at most.
+  - **Make one:** select rows (**Shift**-click for a run, **Ctrl**-click to add one), then **＋📁**
+    in the section header, or **Ctrl+G** (Cmd+G), and name it. Slots that are apart in the draw
+    order are first **gathered** into one run where the frontmost of them is (just in front of its
+    folder, when that one is in a folder that keeps other slots). That changes the draw order, so
+    it is done in **Setup** only, and every draw-order key keeps drawing what it was keyed with.
+    Making a folder is one undo step.
+  - **▸ / ▾** closes and opens it (kept per rig in this browser). A click on its row selects its
+    slots. Its **👁** hides or shows them all, **Alt-click** or **right-click** shows only them.
+    Double-click its name or **✎** to rename it, and **🗑** ungroups it: the folder goes, its slots
+    stay where they are.
+  - **Its slider dims it on the stage while you work** (0–100 %), in every mode. It shows under the
+    folder's row while the folder is selected, or while it is dimmed. Like the eye, it is only your
+    view: kept per rig in this browser, never saved, and the `.irig` stays the same.
+  - **⤓ writes a folder's dimming into the rig.** In **Setup** it multiplies each slot's setup
+    alpha by the slider (a slot at 50 % with the slider at 40 % ends at 20 %), so the stage looks
+    the same; clips that key the slot's colour keep their own keys. In **Animate** it keys each
+    slot's opacity at the playhead, at its opacity there times the slider (on the clip's alpha keys
+    when it has them). Either way the slider goes back to 100 %, and it is one undo step. It is off
+    at 100 %, in Preview and in Cinematic.
+  - Folders are kept with the rig (in `controls.json` beside the `.irig`), so everyone who opens the
+    rig sees them. The game never sees them. A renamed slot is renamed in its folder, a deleted one
+    leaves it, and a folder with no slot left goes. A copy of a folder's slot (**⧉ Duplicate slot**,
+    **✨ Auto FX slots**) joins that folder. Any slot that ends up inside a folder's run joins it,
+    and any slot moved out of the run leaves it. **＋ Add slot** puts the new slot in no folder.
+  - Slot groups made before folders became folders when their slots were together and in no other
+    group; the others were left out, without changing the draw order, and the status line names
+    them when the rig opens.
 - **Reorder in Setup by dragging the ⋮⋮ grip** of a row to its new place. A line shows where it
   will land, and the list scrolls when you hold it near its top or bottom edge. Select several rows
   first (**Shift**-click for a run, **Ctrl**-click to add or take out one) and they move together as
-  a block, in their order. Each drop is one undo step. It writes the same setup draw order as ↑ / ↓,
-  which still work, and every draw-order key keeps the order it was keyed with. The mouse, a pen and
-  a finger all drag it. **Esc** cancels a drag.
-- **Keys (Setup):** **Ctrl+]** / **Ctrl+[** move the selected slots one place forward / back, and
-  **Shift+Ctrl+]** / **Shift+Ctrl+[** take them to the front / back (Cmd on a Mac).
+  a block, in their order. Drop between a folder's slots, or on the lower half of a closed folder's
+  row, to put them in that folder; drop anywhere else to take them out. Drag a folder's ⋮⋮ to move
+  the folder and its slots as a block (dropped inside another folder, it lands just above that
+  folder). Each drop is one undo step. Every draw-order key keeps the order it was keyed with. The
+  mouse, a pen and a finger all drag it. **Esc** cancels a drag.
+- **↑ / ↓** on a row move it one place to the front (up) or the back (down), each one undo step:
+  - a slot in no folder passes the next slot, or a whole folder;
+  - a slot in a folder moves among the folder's slots; at the folder's edge, ↑ or ↓ takes it out of
+    the folder where it is, and the next one moves it on;
+  - a folder's ↑ / ↓ moves it whole past the next slot or folder.
+- **Keys (Setup):** **Ctrl+]** / **Ctrl+[** do the same as ↑ / ↓ for the selected slots, or for the
+  folder whose row you clicked, and **Shift+Ctrl+]** / **Shift+Ctrl+[** take them all the way to the
+  front / back (inside their folder, for slots of one folder). Cmd on a Mac.
 
 ### Edit the rig (Setup mode)
 
@@ -414,7 +438,7 @@ it sits behind. Hover its header for the same summary.
   reparent (cycles are prevented); **rename**; **🗑 Delete bone** (root can't be
   deleted — see **What a delete takes with it** below). Add a bone with
   **＋ Add bone** in the Bone hierarchy section.
-- **Slots:** reorder draw order with ↑/↓, or by dragging (see **The Slots list** below); place a region attachment
+- **Slots:** reorder draw order with ↑/↓, or by dragging, and group them in folders (see **The Slots list** above); place a region attachment
   (x/y/rotation/scale); pick a **shows / image** attachment; rename; delete.
   **＋ Add slot** adds one. **⧉ Duplicate slot** copies a slot — its image(s) and
   every animation timeline that drives it — onto the same bone, then you swap the
@@ -943,7 +967,13 @@ Three things to know before you use it:
     (Linear / Stepped / Ease In / Out / In-Out) shape the interpolation out of it.
 
   Colour and opacity share one `rgba` timeline under the hood (byte-valid rig
-  4.2), so editing one never clobbers the other.
+  4.2), so editing one never clobbers the other. A clip that already colours the slot with
+  separate colour and alpha keys (common in rigs from other editors) keeps them: opacity keys go on
+  its alpha keys and colour keys on its colour keys, so the game plays both. The panel shows the
+  opacity the game plays there, and the timeline lists those keys as **opacity** / **colour (rgb)**
+  rows. The easing buttons cover the `rgba` keys only. A two-tone slot with separate keys keys its
+  dark colour with its colour; over colour keys that carry no dark colour, the dark colour is not
+  keyed and the hint says why.
 - **Mesh shapes (deform keys).** Select a mesh's slot (in the tree) and its vertices
   show as handles: **drag a vertex** to key the mesh's shape at the playhead. Scrub
   elsewhere and drag again for a second shape; the mesh eases from one to the next.

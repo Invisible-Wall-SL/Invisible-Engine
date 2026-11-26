@@ -410,9 +410,15 @@ one per folder, naming its rig.
   `locked`, `layer`; then `layers`, `sets`, `limbs`, `presets`, `mirror` and `picker.items` (a
   `bone`, `set` or `limb` button `at` a place in 0…1, with a `label`) as above. Every field of this
   section is declared and checked now, so the phases that fill them need no schema step.
-  `slotGroups` (name → the slots in it, at least one) holds the Slots list's own groups (made with
-  ＋ in the Rigger's Slots header): the one entry naming slots, so slot renames follow into it and a
-  deleted slot leaves its groups, a group left empty going. A template does not carry it.
+  `slotFolders` (name → its slots, back to front, at least one) holds the Slots list's 📁 folders:
+  one level, a slot in one folder at most (`controlsDocProblems`), a folder's slots together in the
+  `.irig`'s draw order (`controlsIrigProblems` refuses one that is not). It is the one entry naming
+  slots, so slot renames follow into it and a deleted slot leaves its folder, a folder left empty
+  going. On read, `fitSlotFolders` keeps them true over the draw order: a slot in no folder inside a
+  folder's run joins it, a folder split by another's slots keeps its largest run. `slotGroups`, the
+  loose groups folders replaced, is read only: `fitControls` turns a group whose slots are together
+  and in no folder into a folder and leaves the others out (`dropped`, `slotGroups.<name> …`),
+  never changing the draw order; a save refuses it. A template carries neither.
 - **Strict on write, lenient on read.** A client that edits controls sends the whole sidecar
   (`controls`, under `controlsBaseEtag`, required unless forced); it is bound to the rig (its `rig`;
   the pair mark is the save's) and refused (`422 controls-invalid`, naming each problem) unless it
