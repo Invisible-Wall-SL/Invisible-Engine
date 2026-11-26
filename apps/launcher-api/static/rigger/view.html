@@ -12735,23 +12735,22 @@ async function s2rTrackFace(part){
 // sword_R) a prop on the part it is worn on.
 function s2rSuggest(){
   const names = s2r.sheet.regions.map((r) => r.name);
-  const got = window.RiggerMotion.suggestSheetMap(s2r.tpl.parts.map((p) => p.name), names, s2r.swap);
+  // The first guess, as RiggerMotion.suggestSheet makes it: parts by name, worn things as props, the
+  // rest offered as ＋ Custom parts (＋🦴 on their thumbnails).
+  const sug = window.RiggerMotion.suggestSheet(s2r.tpl.parts.map((p) => p.name), names, s2r.swap);
+  const got = sug.parts;
   for (const [part, region] of Object.entries(got)){
     s2r.map[part] = { region, joints: {}, placed: [] };
     s2rGuess(part);
   }
-  const mapped = new Set(Object.keys(s2r.map));
-  for (const name of names){
-    if (Object.values(s2r.map).some((m) => m.region === name)) continue;
-    const p = window.RiggerMotion.suggestProp(name, mapped, s2r.swap);
-    if (p) s2rAddProp(name, p.host, p.name);
-  }
+  for (const p of sug.props) s2rAddProp(p.region, p.host, p.name);
   for (const part of Object.keys(s2r.map)) if (s2rHead(part)) s2rTrackFace(part);
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
   s2r.dirty = false;
+  const left = sug.left.length ? "; " + sug.left.length + " match nothing: ＋🦴 on each makes it a custom part (" + sug.left.slice(0, 3).join(", ") + (sug.left.length > 3 ? ", …" : "") + ")" : "";
   s2rNote(Object.keys(got).length
-    ? Object.keys(got).length + " of " + names.length + " regions matched by name" + (s2r.props.length ? ", " + s2r.props.length + " worn as props" : "") + ": check each part's region and joints"
+    ? Object.keys(got).length + " of " + names.length + " regions matched by name" + (s2r.props.length ? ", " + s2r.props.length + " worn as props" : "") + left + ": check each part's region and joints"
     : "no region's name says a part: pick each part's region in the table");
 }
 

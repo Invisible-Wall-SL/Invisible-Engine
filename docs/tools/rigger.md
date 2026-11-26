@@ -1577,7 +1577,12 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    (`L_arm_upper`, `arm_upper_left`, `ArmL1` and `brazo_izq_1` are all `upper_arm_l`; `ArmR2` is
    `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is
    the picture's left. A region named like a worn thing (`Hat`, `Sunglasses`, `gold_chain`,
-   `watch_R`, `sword`) is suggested as a prop on the part it is worn on.
+   `watch_R`, `sword`) is suggested as a prop on the part it is worn on; a `Hood` on the torso (a
+   hoodie's, worn down: move a hood worn up to the head in Props). Photoshop **Export Layers** names
+   (`NellyAssetBreakdown1_0002s_0002s_0003_PupilL`) are read by their layer name, and a prop is named
+   after it (`prop_glasses`). `UnderEyelidL` is the lower lid, an eye named alone (`EyeL`) is its
+   white. The note above the stage counts what matched, the props, and the regions that match
+   nothing: each of those has **＋🦴** to make it a custom part.
    **⇄ Swap sides** (beside the sheet) is for a sheet whose names say the character's own left and
    right (`UpperArmL` is the arm on the picture's right of a character facing you): every part
    matched by name takes the other side's drawing — arms, hands, ears, eyes, lids, brows, cheeks —
