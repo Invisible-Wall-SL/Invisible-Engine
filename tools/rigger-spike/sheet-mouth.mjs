@@ -14,6 +14,14 @@
 //  - custom: a ＋ Custom part reads back from sheet.json marked custom, gets a bone of its own under
 //    the bone picked and a slot drawing its region, is listed in Layers, is named from its region
 //    past a Photoshop layer, and a bad name is refused;
+//  - names: the owner's own region names on S_NellyAnimTest (Photoshop Export Layers names: arms,
+//    hands, pupils, upper lids, under-lids, nose, lips, teeth, neck, torso, head, glasses, earring,
+//    chain, watch, hood) each land where a rigger would put them in the 🗺 dialog's first guess
+//    (`suggestSheet`): a template part, a jointed mouth part or a prop on the right part, named
+//    without the file's prefix; none is left over; a decoy is (offered as a ＋ Custom part);
+//  - eyes: the owner's lids and pupils drawn as parts move as the face controls move them: Blink
+//    lowers the upper lid over the eye and leaves the pupil and the white; Look left / right moves the
+//    pupils within the eye and leaves the lids and the whites;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-mouth.mjs [--only <guard>] [--no-mutants]
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -149,6 +157,69 @@ const MOUTH_DRAWN = [
 	['tongue', '0002s_0004s_0004_Tongue', 70, 40],
 ];
 /** The sheet with its mouth drawn jointed (with `shapes`, a smile shape mapped as well). */
+/**
+ * The owner's region names on S_NellyAnimTest and where a rigger puts each: [name, 'part', part] or
+ * [name, 'prop', the part it is worn on]. Those marked `seen` are read off the owner's screenshots and
+ * notes as they are; the others are named after them (Photoshop Export Layers names), as the sheet
+ * itself is not readable here (production R2).
+ */
+const OWNER_NAMES = [
+	['NellyAssetBreakdown1_0000_UpperArmL', 'part', 'upper_arm_l', 'seen'],
+	['NellyAssetBreakdown1_0000s_0000_ForeArmL', 'part', 'lower_arm_l', 'seen'],
+	['NellyAssetBreakdown1_0000s_0005_HandLPointing', 'part', 'hand_l', 'seen'],
+	['NellyAssetBreakdown1_0001_UpperArmR', 'part', 'upper_arm_r', 'seen'],
+	['NellyAssetBreakdown1_0001s_0000_ForeArmR', 'part', 'lower_arm_r', 'seen'],
+	['NellyAssetBreakdown1_0001s_0002_HandRPissoff', 'part', 'hand_r', 'seen'],
+	['NellyAssetBreakdown1_0002s_0002s_0003_PupilL', 'part', 'pupil_l', 'seen'],
+	['NellyAssetBreakdown1_0002s_0003s_0003_PupilR', 'part', 'pupil_r', 'seen'],
+	['NellyAssetBreakdown1_0002s_0002s_0001_UpperEyelidL', 'part', 'lid_upper_l', 'seen'],
+	['NellyAssetBreakdown1_0002s_0003s_0002_UpperEyelidR', 'part', 'lid_upper_r', 'seen'],
+	['NellyAssetBreakdown1_0002s_0002s_0002_UnderEyelidL', 'part', 'lid_lower_l', 'seen'],
+	['NellyAssetBreakdown1_0002s_0003s_0001_UnderEyelidR', 'part', 'lid_lower_r', 'seen'],
+	['NellyAssetBreakdown1_0002s_0001s_0000_Nose', 'part', 'nose', 'seen'],
+	['NellyAssetBreakdown1_0004_HoodFront', 'prop', 'torso', 'seen'],
+	['NellyAssetBreakdown1_0001s_0001_WatchR', 'prop', 'lower_arm_r'],
+	['NellyAssetBreakdown1_0002s_0000_Glasses', 'prop', 'head'],
+	['NellyAssetBreakdown1_0003_EarringL', 'prop', 'head'],
+	['NellyAssetBreakdown1_0005_Chain', 'prop', 'torso'],
+	['NellyAssetBreakdown1_0006_Neck', 'part', 'neck'],
+	['NellyAssetBreakdown1_0007_Torso', 'part', 'torso'],
+	['NellyAssetBreakdown1_0008_HoodBack', 'prop', 'torso'],
+	['NellyAssetBreakdown1_0009_Head', 'part', 'head'],
+	['NellyAssetBreakdown1_0002s_0004s_0000_UpperLip', 'part', 'lip_upper'],
+	['NellyAssetBreakdown1_0002s_0004s_0001_LowerLip', 'part', 'lip_lower'],
+	['NellyAssetBreakdown1_0002s_0004s_0002_Teeth', 'part', 'teeth_upper'],
+];
+/** The owner's eyes drawn as parts, each placed by a pivot at its middle. */
+const EYES_DRAWN = [
+	['pupil_l', '0002s_0002s_0003_PupilL', 38, 38],
+	['pupil_r', '0002s_0003s_0003_PupilR', 38, 38],
+	['lid_upper_l', '0002s_0002s_0001_UpperEyelidL', 102, 48],
+	['lid_upper_r', '0002s_0003s_0002_UpperEyelidR', 102, 48],
+	['lid_lower_l', '0002s_0002s_0002_UnderEyelidL', 99, 40],
+	['lid_lower_r', '0002s_0003s_0001_UnderEyelidR', 99, 40],
+	['eye_white_l', '0002s_0002s_0004_EyeL', 90, 50],
+	['eye_white_r', '0002s_0003s_0004_EyeR', 90, 50],
+];
+/** The sheet with the owner's eyes drawn as parts. */
+function eyesSheet(M) {
+	const mapping = baseMapping(M);
+	const drawn = EYES_DRAWN.map(([part, layer, w, h], i) => ({
+		part,
+		name: `NellyAssetBreakdown1_${layer}`,
+		x: (i % 4) * 120,
+		y: 420 + Math.floor(i / 4) * 60,
+		w,
+		h,
+	}));
+	for (const d of drawn)
+		mapping.parts[d.part] = { region: d.name, joints: { pivot: [d.w / 2, d.h / 2] } };
+	return {
+		regions: [...SHEET.regions, ...drawn.map(({ name, x, y, w, h }) => ({ name, x, y, w, h }))],
+		mapping,
+	};
+}
+
 function jointedSheet(M, { shapes = false } = {}) {
 	const mapping = baseMapping(M);
 	const drawn = MOUTH_DRAWN.map(([part, layer, w, h], i) => ({
@@ -480,6 +551,116 @@ const GUARDS = {
 		return good;
 	},
 
+	/** The owner's region names: each lands where a rigger would put it; none is left over. */
+	names(M, log) {
+		let good = true;
+		const parts = M.HALF_BODY.parts.map((p) => p.name);
+		const sug = M.suggestSheet(parts, [...OWNER_NAMES.map(([n]) => n), 'shadow_blob']);
+		const byRegion = new Map(Object.entries(sug.parts).map(([part, region]) => [region, part]));
+		const propOf = new Map(sug.props.map((p) => [p.region, p]));
+		const wrong = [];
+		for (const [name, kind, where] of OWNER_NAMES) {
+			const got = kind === 'part' ? byRegion.get(name) : propOf.get(name)?.host;
+			if (got !== where)
+				wrong.push(
+					`${name.replace('NellyAssetBreakdown1_', '')} → ${got ?? 'nothing'} (want ${kind} ${where})`,
+				);
+		}
+		good =
+			ok(
+				"names: every one of the owner's regions lands where a rigger would put it",
+				wrong.length === 0,
+				wrong.join('\n        '),
+			) && good;
+		good =
+			ok(
+				'names: none of them is left over; a decoy is, offered as a ＋ Custom part',
+				sug.left.length === 1 && sug.left[0] === 'shadow_blob',
+				JSON.stringify(sug.left),
+			) && good;
+		const named = sug.props.map((p) => p.name).sort();
+		good =
+			ok(
+				"names: props named without the Photoshop file's prefix",
+				JSON.stringify(named) ===
+					JSON.stringify([
+						'prop_chain',
+						'prop_earring_l',
+						'prop_glasses',
+						'prop_hood_back',
+						'prop_hood_front',
+						'prop_watch_r',
+					]),
+				named.join(' '),
+			) && good;
+		const eyes = M.suggestSheetMap(parts, ['EyeL', 'EyeR', 'UnderEyelidL']);
+		good =
+			ok(
+				'names: an eye named alone is its white; an under-eyelid the lower lid, not the half-closed lid image',
+				eyes.eye_white_l === 'EyeL' &&
+					eyes.eye_white_r === 'EyeR' &&
+					eyes.lid_lower_l === 'UnderEyelidL' &&
+					!eyes.eyelid_l_half,
+				JSON.stringify(eyes),
+			) && good;
+		log(
+			`${OWNER_NAMES.length} names: ${Object.keys(sug.parts).length} parts, ${sug.props.length} props, ${sug.left.length} left`,
+		);
+		return good;
+	},
+
+	/** Blink and gaze with the owner's lids and pupils drawn as parts. */
+	eyes(M, log) {
+		let good = true;
+		const t = M.HALF_BODY;
+		const { regions, mapping } = eyesSheet(M);
+		const rig = created(M, mapping, regions);
+		const ft = M.fitTemplate(t, rig.sr.fit);
+		const parts = EYES_DRAWN.map(([p]) => p);
+		const drawnBy = (values) => {
+			const skel = new RIG.Skeleton(rig.data);
+			skel.setToSetupPose();
+			for (const [id, v] of Object.entries(values))
+				for (const d of ft.channels.find((c) => c.id === id).drives ?? []) {
+					const b = skel.findBone(d.bone);
+					if (d.prop === 'x' || d.prop === 'y') b[d.prop] += d.per * v;
+				}
+			skel.updateWorldTransform(RIG.Physics.update);
+			return Object.fromEntries(parts.map((n) => [n, middle(drawing(skel, n, n))]));
+		};
+		const rest = drawnBy({});
+		const blink = drawnBy({ blink_l: 1 });
+		const gaze = drawnBy({ gaze_x: 1 });
+		const dy = (a, b) => a[1] - b[1];
+		const dx = (a, b) => a[0] - b[0];
+		const lidPer = Math.abs(ft.channels.find((c) => c.id === 'blink_l').drives[0].per);
+		const pupilPer = Math.abs(ft.channels.find((c) => c.id === 'gaze_x').drives[0].per);
+		good =
+			ok(
+				'eyes: Blink lowers the drawn upper lid over the eye; the pupil, the white and the lower lid stay',
+				dy(blink.lid_upper_l, rest.lid_upper_l) < -0.75 * lidPer &&
+					['pupil_l', 'eye_white_l', 'lid_lower_l', 'lid_upper_r'].every(
+						(n) => d2(blink[n], rest[n]) < 1e-6,
+					),
+				`lid ${r1(dy(blink.lid_upper_l, rest.lid_upper_l))} of ${r1(lidPer)}`,
+			) && good;
+		good =
+			ok(
+				'eyes: Look left / right moves both drawn pupils across the eye; the lids and the whites stay',
+				['pupil_l', 'pupil_r'].every(
+					(n) => Math.abs(dx(gaze[n], rest[n]) - pupilPer) < 0.25 * pupilPer,
+				) &&
+					['lid_upper_l', 'lid_lower_l', 'eye_white_l', 'eye_white_r'].every(
+						(n) => d2(gaze[n], rest[n]) < 1e-6,
+					),
+				`pupils ${r1(dx(gaze.pupil_l, rest.pupil_l))} / ${r1(dx(gaze.pupil_r, rest.pupil_r))} of ${r1(pupilPer)}`,
+			) && good;
+		log(
+			`blink ${r1(dy(blink.lid_upper_l, rest.lid_upper_l))}, gaze ${r1(dx(gaze.pupil_l, rest.pupil_l))}`,
+		);
+		return good;
+	},
+
 	/** ＋ Custom part: read back, its own bone under the bone picked, in Layers, named, bad names refused. */
 	custom(M, log) {
 		let good = true;
@@ -569,6 +750,37 @@ const FIT = 'rigSheetFit.ts';
 const TPL = 'rigTemplates.ts';
 const TFACE = 'rigTemplateFace.ts';
 const MUTANTS = [
+	['names', 'an under-eyelid not read as the lower lid', [MAP, "\tunder: ['lower'],\n", '']],
+	['names', 'an eye named alone not read as its white', [MAP, "\t\tout.add('white');\n", '']],
+	[
+		'names',
+		"a hoodie's hood worn on the head",
+		[MAP, "'medal', 'hood'], 'torso']", "'medal'], 'torso'], [['hood'], 'head']"],
+	],
+	[
+		'names',
+		"a prop named with the Photoshop file's prefix",
+		[MAP, 'nameWords(layerName(region))\n', 'nameWords(region)\n'],
+	],
+	['names', 'a region matching nothing not offered', [MAP, '\t\telse left.push(region);\n', '']],
+	[
+		'eyes',
+		'Blink not moving the upper lid',
+		[
+			TFACE,
+			"drives: [{ bone: `lid_upper_${s}`, prop: 'y', per: -30 }],",
+			"drives: [{ bone: `lid_upper_${s}`, prop: 'y', per: 0 }],",
+		],
+	],
+	[
+		'eyes',
+		'Look left / right not moving the pupils',
+		[
+			TFACE,
+			"drives: sides<RigTemplateDrive>((s) => [{ bone: `pupil_${s}`, prop: 'x', per: 14 }]),",
+			"drives: sides<RigTemplateDrive>((s) => [{ bone: `eye_${s}`, prop: 'x', per: 14 }]),",
+		],
+	],
 	[
 		'mouth',
 		'an optional slot made on every rig',
@@ -637,7 +849,7 @@ const MUTANTS = [
 	[
 		'custom',
 		"a custom part named with its Photoshop layer's file",
-		[MAP, 'const base = nameWords(layer ? layer[1] : region)', 'const base = nameWords(region)'],
+		[MAP, 'const base = nameWords(layerName(region)).join', 'const base = nameWords(region).join'],
 	],
 ];
 const SOURCES = {
