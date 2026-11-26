@@ -1520,6 +1520,19 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
    that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just
    over its part (a watch over the hand's fingers).
+   **＋🦴 Custom part** (the second button on an unmapped region's thumbnail) is for a drawing the
+   template has no part for — a hood, a tail, an extra layer. It gets a bone of its own under the
+   template bone you pick, is named from its region (`…_0008_HoodBack` → `hood_back`; rename it in
+   the **Custom parts** list), drawn on the part picked and dragged there like a prop, and has its
+   own row in Layers. The template's own bones stay as they are.
+   **A jointed mouth.** A mouth drawn as its parts maps to the Face group's `lip_upper`,
+   `lip_lower`, `teeth_upper`, `teeth_lower` and `tongue` (names such as `UpperLip`, `LowerLip`,
+   `Teeth`, `TeethTop`, `TeethBottom`, `Tongue`, `LabioSuperior` are matched; `Teeth` alone is the
+   upper row). Jaw open drops the lower lip, the lower teeth and the tongue; Smile and Stretch bend
+   both lips at their corners; Upper / Lower lip lift and press them; Talk, lip-sync and 🎥 Motion
+   move it as they do a mouth drawn on the head. Map the mouth shapes or the parts: with both, the
+   shapes win (the Mouth control swaps them) and the parts are made with their slots empty, which the
+   report says. A rig drawing none of these has none of their slots.
 5. **◧ Arranged** (above the stage; **▭ One part** goes back). Every mapped part and prop is drawn
    put together, where the rig puts it, with its bones over it: at first each drawing turned onto
    its bones at rest. Drag a part into the character as you drew it — its first joint snaps to the

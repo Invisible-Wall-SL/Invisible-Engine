@@ -44,9 +44,14 @@
 //    goes out with the create and the rig draws it; ↺ Reuse brings it back; on the made rig, Setup's
 //    ⋮⋮ drags a sheet's prop as the slot it is; 🗺 Edit mapping opens the rig's own order, Ctrl+] in
 //    the dialog never moves the rig's slots behind it, and 🔄 Update rig keeps Setup's order;
+//  - a jointed mouth: the Face group lists the lips, teeth and tongue, each matched by name (Teeth
+//    alone the upper row), its tooltip saying the shapes win; ＋🦴 makes a custom part (named from its
+//    region, its own list, in Layers, sent as custom); the launcher draws them all; the report names
+//    the custom part and the jointed parts the shapes win over;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
-//   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
+//   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way
+//   (--only-mutants <text>: those whose name has <text>).
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -264,12 +269,33 @@ const PAGE_MUTANTS = [
 		'    add(slot);\n    for (const p of s2r.tpl.parts) if (p.slot === slot) add(p.name);',
 		'    void slot;',
 	],
+	[
+		'a jointed mouth: the teeth and tongue not face parts',
+		'const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw|teeth|tongue)/;',
+		'const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw)/;',
+	],
+	['＋🦴 making a prop, not a custom part', ', ...(custom ? { custom: true } : {}) });', ' });'],
+	['a custom part sent as a prop', ', ...(custom ? { custom: true } : {}) })),', ' })),'],
+	[
+		'a custom part named as a prop',
+		'(custom ? window.RiggerMotion.customName(region) : window.RiggerMotion.propName(region))',
+		'window.RiggerMotion.propName(region)',
+	],
+	[
+		'the report silent on the jointed parts the shapes win over',
+		'(j.sheet && j.sheet.hidden && j.sheet.hidden.length ?',
+		'(false ?',
+	],
 ];
 if (process.argv.includes('--mutants')) {
 	const tmp = mkdtempSync(join(tmpdir(), 'sheet-rig-browser-'));
 	const src = readFileSync(VIEW, 'utf8');
 	let bad = 0;
-	for (const [what, from, to] of PAGE_MUTANTS) {
+	const only = process.argv.includes('--only-mutants')
+		? process.argv[process.argv.indexOf('--only-mutants') + 1]
+		: null;
+	const picked = PAGE_MUTANTS.filter(([what]) => !only || what.includes(only));
+	for (const [what, from, to] of picked) {
 		if (!src.includes(from)) {
 			console.log(`  ✗ mutant not planted: ${what}`);
 			bad++;
@@ -286,7 +312,7 @@ if (process.argv.includes('--mutants')) {
 		console.log(`  ${red ? 'red  ' : 'GREEN'} ${what}`);
 	}
 	console.log(
-		`\n${bad === 0 ? '✅ PASS' : '✗ FAIL'} — ${PAGE_MUTANTS.length - bad}/${PAGE_MUTANTS.length} page mutants caught`,
+		`\n${bad === 0 ? '✅ PASS' : '✗ FAIL'} — ${picked.length - bad}/${picked.length} page mutants caught`,
 	);
 	process.exit(bad === 0 ? 0 : 1);
 }
@@ -361,6 +387,18 @@ const REGIONS = SHEET.regions.map(({ name, w, h, origW, origH }) => ({ name, w, 
  * (the character's own), one named exactly as the template's other side; as `sheet-rig.mjs`'s.
  */
 const OWNER_MANIFEST = 'c/p/manifests/atlas_manifest_Owner.json';
+/**
+ * The sheet with its mouth drawn jointed: five more regions named as an artist names lips and teeth,
+ * drawn over pixels of the sheet (what they show does not matter here).
+ */
+const MOUTH_MANIFEST = 'c/p/manifests/atlas_manifest_Mouth.json';
+const MOUTH_REGIONS = [
+	['UpperLip', 'lip_upper'],
+	['LowerLip', 'lip_lower'],
+	['Teeth', 'teeth_upper'],
+	['TeethBottom', 'teeth_lower'],
+	['Tongue', 'tongue'],
+];
 const OWNER_NAMES = {
 	L_arm_upper: 'R_arm_upper',
 	arm_lower_left: 'arm_lower_right',
@@ -434,6 +472,20 @@ const server = createServer(async (req, res) => {
 				pageHeight: SHEET.height,
 				regions: SHEET.regions,
 			});
+		if (p === '/api/editor/regions' && url.searchParams.get('sheet') === MOUTH_MANIFEST) {
+			const glow = SHEET.regions.find((r) => r.name === 'bg_glow');
+			return json({
+				assetKey: MOUTH_MANIFEST,
+				pageKey: PAGE_KEY,
+				pageVersion: 'v1',
+				pageWidth: SHEET.width,
+				pageHeight: SHEET.height,
+				regions: [
+					...SHEET.regions,
+					...MOUTH_REGIONS.map(([name], i) => ({ ...glow, name, w: 40 + i, h: 20 })),
+				],
+			});
+		}
 		if (p === '/api/editor/regions' && url.searchParams.get('sheet') === OWNER_MANIFEST)
 			return json({
 				assetKey: OWNER_MANIFEST,
@@ -489,7 +541,11 @@ const server = createServer(async (req, res) => {
 			const parsed = S.parseSheetMapping(body.sheet);
 			if ('problem' in parsed)
 				return json({ message: `bad sheet mapping: ${parsed.problem}` }, 400);
-			const pv = S.sheetPreview(S.HALF_BODY, REGIONS, parsed.mapping);
+			const regions =
+				parsed.mapping.manifestKey === MOUTH_MANIFEST
+					? [...REGIONS, ...MOUTH_REGIONS.map(([name], i) => ({ name, w: 40 + i, h: 20 }))]
+					: REGIONS;
+			const pv = S.sheetPreview(S.HALF_BODY, regions, parsed.mapping);
 			return pv.ok ? json(pv.value) : json({ message: pv.problem }, 400);
 		}
 		if (p === '/api/rigger/new') {
@@ -1642,6 +1698,74 @@ try {
 		q(reread),
 	);
 	await evaluate('closeSheetToRig(); window.confirm = () => true; true');
+
+	// A jointed mouth and ＋ Custom part: the sheet with lips and teeth drawn as parts.
+	await evaluate(`(async () => {
+		document.getElementById("s2rModal").classList.add("open");
+		await s2rLoad(${q(MOUTH_MANIFEST)});
+		return true;
+	})()`);
+	await waitFor(`!!s2r.sheet && s2r.sheetKey === ${q(MOUTH_MANIFEST)}`, 20000);
+	const mouth = await evaluate(`(() => {
+		const face = [...document.querySelectorAll("#s2rParts details")].find((d) => /^Face/.test(d.querySelector("summary").textContent));
+		const rows = face ? [...face.querySelectorAll(".s2rRow")].map((r) => [r.dataset.part, r.querySelector("select").value]) : [];
+		return { rows, tip: face ? face.querySelector("summary").title : "" };
+	})()`);
+	const faceRow = (part) => mouth.rows.find(([p]) => p === part)?.[1];
+	ok(
+		'a jointed mouth: the Face group lists the lips, teeth and tongue, each the region its name says (Teeth alone the upper row)',
+		MOUTH_REGIONS.every(([region, part]) => faceRow(part) === region),
+		q(mouth.rows.filter(([p]) => /lip|teeth|tongue/.test(p))),
+	);
+	ok(
+		'… and the Face group’s tooltip says the shapes win over the parts when both are mapped',
+		/jointed mouth/.test(mouth.tip) && /shapes win/.test(mouth.tip),
+		mouth.tip.slice(-200),
+	);
+	const custom = await evaluate(`(() => {
+		const thumb = [...document.querySelectorAll("#s2rRegions .f2rThumb")].find((d) => d.querySelector("b").textContent === "shadow_blob");
+		thumb.querySelector(".s2rCustomAdd").click();
+		const m = s2rMapping();
+		return {
+			prop: m.props.find((p) => p.region === "shadow_blob"),
+			listed: [...document.querySelectorAll("#s2rProps .s2rRow.custom")].map((r) => r.dataset.prop),
+			layer: [...document.querySelectorAll("#s2rLayers .s2rLayer")].map((r) => r.dataset.slot),
+		};
+	})()`);
+	ok(
+		'＋🦴 on an unmapped region makes a custom part: named from its region, a row under Custom parts and in Layers, sent as custom',
+		custom.prop?.custom === true &&
+			custom.prop.name === 'shadow_blob' &&
+			q(custom.listed) === q(['shadow_blob']) &&
+			custom.layer.includes('shadow_blob'),
+		q(custom),
+	);
+	const previewed = await evaluate(`(async () => {
+		const r = await fetch("/api/rigger/from-sheet/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping() }) });
+		const j = await r.json();
+		return { ok: r.ok, art: (j.art || []).map((a) => a.name), message: j.message };
+	})()`);
+	ok(
+		'the launcher makes it: the lips, teeth, tongue and the custom part each drawn',
+		previewed.ok &&
+			[...MOUTH_REGIONS.map(([, part]) => part), 'shadow_blob'].every((n) =>
+				previewed.art.includes(n),
+			),
+		q(previewed),
+	);
+	await evaluate(`(() => {
+		reportSheetRig("Mouthy", "Mouth", s2rMapping(), { template: {}, sheet: { scale: 1, face: "", hidden: ["lip_upper", "lip_lower"] } });
+		return true;
+	})()`);
+	const reported = await evaluate('document.getElementById("alertMsg").textContent');
+	ok(
+		'the report names the custom part under its bone, and the jointed parts the mouth shapes win over',
+		/shadow_blob \(under /.test(reported) &&
+			/the shapes win/.test(reported) &&
+			/lip_upper, lip_lower/.test(reported),
+		reported.slice(0, 400),
+	);
+	await evaluate('closeAlert(); closeSheetToRig(); true');
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
 	ok('the page threw nothing', thrown.length === 0, thrown.join(' | '));

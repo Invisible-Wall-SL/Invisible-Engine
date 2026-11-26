@@ -22,6 +22,7 @@
 //  - handedit: the torso's mesh reads as edited (and only it), may be kept (it draws the region it
 //    drew), is kept when asked and replaced when not;
 //  - finite: the updated rig passes the `.irig` save check and every clip poses finite;
+//  - custom: a ＋ Custom part added (named freely, not prop_) gets its bone and slot as a prop does;
 //  - layers: a reorder in Setup's slots stays through the update while the 🗺 Layers list is unchanged
 //    (or opened from the rig's own order); a changed list orders the slots it lists, every other slot
 //    and every draw-order key's drawing kept;
@@ -635,6 +636,48 @@ const GUARDS = {
 		log(`${drawn.size} layers; the chain moved behind the torso, the key's drawing kept`);
 		return good;
 	},
+
+	/** ＋ Custom part added by 🗺 Edit mapping: 🔄 Update rig gives it its bone and slot, as a prop. */
+	custom(M, log) {
+		const base = baseMapping(M);
+		const made = create(M, base);
+		const torso = base.parts.torso;
+		const mapping = {
+			...clone(base),
+			props: [
+				...clone(base.props),
+				{
+					name: 'tail',
+					region: 'shadow_blob',
+					host: 'torso',
+					bone: 'spine',
+					at: torso.joints.hips,
+					custom: true,
+				},
+			],
+		};
+		const r = M.updateSheetRig({
+			template: M.HALF_BODY,
+			regions: REGIONS,
+			was: base,
+			mapping,
+			current: clone(made),
+		});
+		if (!r.ok) return ok('custom: the update runs', false, r.problem);
+		const { doc, report } = r.value;
+		const bone = doc.bones.find((b) => b.name === 'tail');
+		const slot = doc.slots.find((s) => s.name === 'tail');
+		const good = ok(
+			'custom: 🔄 Update rig gives a custom part its bone under the bone picked and its slot',
+			report.added.includes('tail') &&
+				bone?.parent === 'spine' &&
+				slot?.bone === 'tail' &&
+				doc.skins[0].attachments.tail?.tail?.path === 'shadow_blob',
+			JSON.stringify({ added: report.added, bone, slot }),
+		);
+		log(`added ${report.added.join(', ')}`);
+		return good;
+	},
 };
 
 const ONLY = process.argv.includes('--only')
@@ -725,6 +768,15 @@ const MUTANTS = [
 	],
 	['layers', "a draw-order key's drawing not kept", [UPD, '\t\t\tback();\n', '']],
 	[
+		'custom',
+		'a custom part (not prop_) never given its bone and slot',
+		[
+			'rigFrameUpdate.ts',
+			"const isProp = (name: string) => name.startsWith('prop_') || named.has(name);",
+			"const isProp = (name: string) => name.startsWith('prop_');",
+		],
+	],
+	[
 		'handedit',
 		'a hand-edited mesh never kept',
 		[
@@ -734,7 +786,10 @@ const MUTANTS = [
 		],
 	],
 ];
-const SOURCES = { [UPD]: join(SERVER, UPD) };
+const SOURCES = {
+	[UPD]: join(SERVER, UPD),
+	'rigFrameUpdate.ts': join(SERVER, 'rigFrameUpdate.ts'),
+};
 for (const [guard, what, mutation] of MUTANTS) {
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {

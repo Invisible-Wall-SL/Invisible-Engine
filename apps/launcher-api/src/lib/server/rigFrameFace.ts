@@ -123,8 +123,13 @@ const MOVES: Record<string, string> = {
  * mesh `face` (rig units, y up: the rig's world in the frame's pose), and the head's regions there.
  * Null for a template without the face block's eyes, or a face the points do not span.
  */
-export function frameFace(t: RigTemplate, fit: RigFit, face: readonly P[]): FrameFace | null {
-	const under = faceBones(t.bones);
+export function frameFace(
+	t: RigTemplate,
+	fit: RigFit,
+	face: readonly P[],
+	optional: ReadonlySet<string> = new Set(),
+): FrameFace | null {
+	const under = faceBones(t.bones, optional);
 	if (!under.has('eye_l') || !under.has('eye_r') || face.length < MESH) return null;
 	const W = frameWorld(fitTemplate(t, fit).bones, fit.frame);
 	const Wf = W.get('face')!;
@@ -438,8 +443,13 @@ function drawIn(sp: RigSkinSpot, inFace: (p: P) => boolean, ex: P, up: P): void 
  * nod carry the head's middle with the face (and the features drawn on its bones) while its outline
  * stays; the face's move cut to the room that leaves (`roomScales`, from its fitted length's).
  */
-export function apartFace(t: RigTemplate, fit: RigFit, outline: readonly P[]): FrameFace | null {
-	const under = faceBones(t.bones);
+export function apartFace(
+	t: RigTemplate,
+	fit: RigFit,
+	outline: readonly P[],
+	optional: ReadonlySet<string> = new Set(),
+): FrameFace | null {
+	const under = faceBones(t.bones, optional);
 	if (!under.has('face') || outline.length < 3) return null;
 	const Wf = frameWorld(fitTemplate(t, fit).bones, fit.frame).get('face')!;
 	const e: P = [Wf[0], Wf[2]];

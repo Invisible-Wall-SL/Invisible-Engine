@@ -88,7 +88,7 @@ const tmp = mkdtempSync(join(tmpdir(), 'sheet-rig-'));
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 let bundles = 0;
 const SHIPPED =
-	/[\\/](rigSheetMap|rigSlotOrder|rigSheetFit|rigFrameFit|rigFrameFace|rigTemplates|rigTemplateFit|rigCutEdits|rigIndex)\.ts$/;
+	/[\\/](rigSheetMap|rigSlotOrder|rigSheetFit|rigFrameFit|rigFrameFace|rigTemplates|rigTemplateFace|rigTemplateFit|rigCutEdits|rigIndex)\.ts$/;
 /** The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first. */
 async function load(mutate = []) {
 	const out = join(tmp, `m${bundles++}.mjs`);
@@ -1168,6 +1168,62 @@ function ownerSheet(M, { face = true } = {}) {
 		},
 	];
 	return { regions, mapping: { ...a, parts, props } };
+}
+/** A jointed mouth's parts, the template's optional mouth slots (each part named as its slot). */
+const JOINTED = ['tongue', 'teeth_lower', 'teeth_upper', 'lip_lower', 'lip_upper'];
+/** The owner's mouth drawn as its parts, Photoshop-named, each placed by a pivot at its middle. */
+const MOUTH_DRAWN = [
+	['lip_upper', '0002s_0004s_0000_UpperLip', 150, 40],
+	['lip_lower', '0002s_0004s_0001_LowerLip', 140, 44],
+	['teeth_upper', '0002s_0004s_0002_TeethTop', 110, 26],
+	['teeth_lower', '0002s_0004s_0003_TeethBottom', 100, 22],
+	['tongue', '0002s_0004s_0004_Tongue', 70, 40],
+];
+/** The owner's sheet with its mouth drawn jointed (with `shapes`, its smile shape kept as well). */
+function jointedSheet(M, { shapes = false } = {}) {
+	const { regions, mapping } = ownerSheet(M);
+	const drawn = MOUTH_DRAWN.map(([part, layer, w, h], i) => ({
+		part,
+		name: `NellyAssetBreakdown1_${layer}`,
+		x: i * 160,
+		y: 420,
+		w,
+		h,
+	}));
+	const parts = { ...mapping.parts };
+	if (!shapes) delete parts.mouth_smile;
+	for (const d of drawn) parts[d.part] = { region: d.name, joints: { pivot: [d.w / 2, d.h / 2] } };
+	return {
+		regions: [...regions, ...drawn.map(({ name, x, y, w, h }) => ({ name, x, y, w, h }))],
+		mapping: { ...mapping, parts },
+	};
+}
+/** A performer still but for the mouth: closed, then opening (jawOpen) as 🎥 Motion's face tracker reads it. */
+function mouthCaptured(rig, mutations = rig.M.PAGE_MUTATIONS) {
+	const M = rig.M;
+	const t = M.fitTemplate(M.HALF_BODY, rig.sr.fit);
+	const track = performer(FACE_FRAMES, CAPTURE_FPS, () => ({ pose: {}, opts: { face: P3.ry(0) } }));
+	track.frames.forEach((f, i) => {
+		const open = i < FACE_REST ? 0 : 0.6;
+		f.face.blend = { jawOpen: open };
+	});
+	const solved = M.solveMotion({ bones: t.bones, channels: t.channels, motion: t.motion }, track, {
+		face: true,
+		body: false,
+		hand: false,
+	});
+	const skin = rig.rigged.skeleton.skins[0].attachments;
+	const has = (slot, part) => !!skin[slot]?.[part];
+	const anim = {};
+	pageKeys(mutations).faceKeyMotion(
+		anim,
+		solved.keys,
+		0,
+		t.channels,
+		has,
+		rig.rigged.skeleton.slots.map((s) => s.name),
+	);
+	return { anim, length: solved.length };
 }
 /** The template's starred face parts that sheet leaves out: the rig is made, and they are listed. */
 const STARRED_LEFT_OUT = [
@@ -2688,7 +2744,10 @@ const GUARDS = {
 				drawnOrder(skel.drawOrder.map((s) => s.data.name)).join() === own.join(),
 			) && good;
 		const ref = JSON.stringify({ id: t.id, version: t.version, fit: layered.sr.fit });
-		const reopened = M.sidecarTemplate(t, ref).slots.map((s) => s.name);
+		const made = new Set(slots.map((s) => s.name));
+		const reopened = M.sidecarTemplate(t, ref)
+			.slots.map((s) => s.name)
+			.filter((n) => made.has(n));
 		good =
 			ok(
 				"layers: the fit kept in template.json reopens in the author's order",
@@ -2740,6 +2799,246 @@ const GUARDS = {
 				stray.ok ? 'made' : stray.problem,
 			) && good;
 		log(`${own.length} layers; yours: ${own.slice(0, 4).join(' > ')} …`);
+		return good;
+	},
+
+	/**
+	 * A jointed mouth (the owner's sheet drawing its lips and teeth, not mouth shapes): the names map
+	 * to the template's optional mouth parts; the rig has their slots and the upper teeth's bone only
+	 * when they are drawn; Jaw open drops the lower lip, the lower teeth and the tongue and not the
+	 * upper ones; Smile bends a lip at its corner; a face capture opens it as 🎥 Motion keys it; mouth
+	 * shapes beside the parts win, the parts made with their slots empty.
+	 */
+	mouth(M, log) {
+		let good = true;
+		const t = M.HALF_BODY;
+		const names = [
+			['UpperLip', 'lip_upper'],
+			['LowerLip', 'lip_lower'],
+			['Teeth', 'teeth_upper'],
+			['TeethBottom', 'teeth_lower'],
+			['Tongue', 'tongue'],
+		];
+		const got = M.suggestSheetMap(
+			TPL_PARTS(M),
+			names.map(([r]) => r),
+		);
+		for (const [region, part] of names)
+			good = ok(`mouth: ${region} is ${part}`, got[part] === region, JSON.stringify(got)) && good;
+		const spanish = M.suggestSheetMap(TPL_PARTS(M), ['LabioSuperior', 'DientesAbajo', 'TeethTop']);
+		good =
+			ok(
+				'mouth: LabioSuperior, DientesAbajo and TeethTop read as the lip and teeth they are',
+				spanish.lip_upper === 'LabioSuperior' &&
+					spanish.teeth_lower === 'DientesAbajo' &&
+					spanish.teeth_upper === 'TeethTop',
+				JSON.stringify(spanish),
+			) && good;
+		const plain = created(M, t, ownerSheet(M).mapping, ownerSheet(M).regions);
+		const plainSlots = plain.rigged.skeleton.slots.map((s) => s.name);
+		good =
+			ok(
+				'mouth: a rig drawing no jointed mouth has none of its slots nor the upper teeth’s bone',
+				!JOINTED.some((n) => plainSlots.includes(n)) &&
+					!plain.rigged.skeleton.bones.some((b) => b.name === 'teeth_upper') &&
+					t.slots.filter((s) => s.optional).length === JOINTED.length,
+				plainSlots.filter((n) => JOINTED.includes(n)).join(),
+			) && good;
+		const { regions, mapping } = jointedSheet(M);
+		const rig = created(M, t, mapping, regions);
+		const skin = rig.rigged.skeleton.skins[0].attachments;
+		const slots = rig.rigged.skeleton.slots;
+		good =
+			ok(
+				'mouth: each jointed part drawn from its own region in its own slot, the upper teeth on their bone',
+				JOINTED.every(
+					(n) =>
+						skin[n]?.[n]?.path === mapping.parts[n].region &&
+						slots.find((s) => s.name === n)?.attachment === n,
+				) && slots.find((s) => s.name === 'teeth_upper')?.bone === 'teeth_upper',
+				JSON.stringify(slots.filter((s) => JOINTED.includes(s.name))),
+			) && good;
+		good =
+			ok(
+				'mouth: the upper teeth’s bone placed with the drawn face only on a rig that draws them',
+				rig.sr.fit.features?.at?.teeth_upper !== undefined &&
+					plain.sr.fit.features !== undefined &&
+					plain.sr.fit.features.at.teeth_upper === undefined,
+				JSON.stringify({
+					jointed: rig.sr.fit.features?.at?.teeth_upper,
+					plain: plain.sr.fit.features?.at?.teeth_upper,
+				}),
+			) && good;
+		good =
+			ok(
+				'mouth: the lips bend (meshes on the corners and their own bone)',
+				skin.lip_upper.lip_upper.type === 'mesh' && skin.lip_lower.lip_lower.type === 'mesh',
+			) && good;
+		// Drive a control as the Controls section keys it: each drive's bone moved by value × per.
+		const ft = M.fitTemplate(t, rig.sr.fit);
+		const drawnBy = (values) => {
+			const skel = new RIG.Skeleton(rig.data);
+			skel.setToSetupPose();
+			for (const [id, v] of Object.entries(values))
+				for (const d of ft.channels.find((c) => c.id === id).drives ?? []) {
+					const b = skel.findBone(d.bone);
+					if (d.prop === 'x' || d.prop === 'y') b[d.prop] += d.per * v;
+				}
+			skel.updateWorldTransform(RIG.Physics.update);
+			return Object.fromEntries(JOINTED.map((n) => [n, drawing(skel, n, n)]));
+		};
+		const rest = drawnBy({});
+		const open = drawnBy({ jaw: 1 });
+		// A lip's middle (its vertices nearest its own bone's place, the middle of the image): a lip
+		// bends on corners that stay with the face, as a mouth image does.
+		const middle = (dr) => {
+			const pts = [];
+			for (let i = 0; i < dr.v.length; i += 2) pts.push([dr.v[i], dr.v[i + 1], i / 2]);
+			const own = dr.own;
+			const near = pts
+				.map(([x, y, k]) => [x, y, Math.hypot(own[k * 2] - 0.5, own[k * 2 + 1] - 0.5)])
+				.sort((a, b) => a[2] - b[2])
+				.slice(0, 3);
+			return [near.reduce((a, p) => a + p[0], 0) / 3, near.reduce((a, p) => a + p[1], 0) / 3];
+		};
+		const moved = (a, b) => d2(middle(a), middle(b));
+		const jawPer = Math.abs(ft.channels.find((c) => c.id === 'jaw').drives[0].per);
+		const lower = ['lip_lower', 'teeth_lower', 'tongue'].map((n) => moved(rest[n], open[n]));
+		const upper = ['lip_upper', 'teeth_upper'].map((n) => moved(rest[n], open[n]));
+		good =
+			ok(
+				'mouth: Jaw open drops the lower lip, the lower teeth and the tongue with the jaw, not the upper ones',
+				lower.every((v) => Math.abs(v - jawPer) < 0.25 * jawPer) && upper.every((v) => v < 1e-6),
+				`lower ${lower.map(r1)} upper ${upper.map(r1)} jaw ${r1(jawPer)}`,
+			) && good;
+		const smile = drawnBy({ smile_l: 1 });
+		const ends = (dr, k) => {
+			const xs = [];
+			for (let i = 0; i < dr.v.length; i += 2) xs.push([dr.v[i], dr.v[i + 1]]);
+			xs.sort((a, b) => a[0] - b[0]);
+			return k < 0 ? xs.slice(0, 3) : xs.slice(-3);
+		};
+		const lift = (n, k) =>
+			ends(smile[n], k).reduce((s, p) => s + p[1], 0) / 3 -
+			ends(rest[n], k).reduce((s, p) => s + p[1], 0) / 3;
+		good =
+			ok(
+				'mouth: Smile left lifts both lips at the picture’s left corner, not at the right',
+				lift('lip_upper', -1) > 2 &&
+					lift('lip_lower', -1) > 2 &&
+					Math.abs(lift('lip_upper', 1)) < 0.5,
+				`upper ${r1(lift('lip_upper', -1))} / ${r1(lift('lip_upper', 1))}, lower ${r1(lift('lip_lower', -1))}`,
+			) && good;
+		const keyed = mouthCaptured(rig);
+		const at = (time) => {
+			const skel = posed(rig, keyed.anim, time);
+			return {
+				low: middle(drawing(skel, 'lip_lower', 'lip_lower')),
+				up: middle(drawing(skel, 'lip_upper', 'lip_upper')),
+			};
+		};
+		const [still, talking] = [at(0), at(keyed.length * 0.75)];
+		good =
+			ok(
+				'mouth: a face capture opening the mouth (jawOpen) drops the jointed lower lip, as 🎥 Motion keys it',
+				talking.low[1] < still.low[1] - 0.25 * jawPer &&
+					Math.abs(talking.up[1] - still.up[1]) < 0.1 * jawPer &&
+					!!keyed.anim.bones?.jaw,
+				JSON.stringify({ still, talking, bones: Object.keys(keyed.anim.bones ?? {}) }),
+			) && good;
+		const both = jointedSheet(M, { shapes: true });
+		const bothRig = created(M, t, both.mapping, both.regions);
+		const bs = bothRig.rigged.skeleton.slots;
+		good =
+			ok(
+				'mouth: shapes and parts both mapped — the shapes win: the parts made, their slots empty',
+				JOINTED.every(
+					(n) => bs.find((s) => s.name === n) && !bs.find((s) => s.name === n).attachment,
+				) &&
+					JOINTED.every((n) => bothRig.rigged.skeleton.skins[0].attachments[n]?.[n]) &&
+					bothRig.sr.hidden.length === JOINTED.length &&
+					rig.sr.hidden.length === 0,
+				JSON.stringify(bothRig.sr.hidden),
+			) && good;
+		const list = M.sheetLayerList(
+			t.slots.map((s) => s.name),
+			(p) => slotOf(M, p),
+			mapping,
+		);
+		good =
+			ok(
+				'mouth: the Layers list draws the lips over the teeth over the tongue',
+				list.indexOf('lip_upper') < list.indexOf('teeth_upper') &&
+					list.indexOf('teeth_lower') < list.indexOf('tongue') &&
+					list.indexOf('tongue') < list.indexOf('head'),
+				list.join(' '),
+			) && good;
+		log(
+			`jaw ${r1(jawPer)}: lower parts ${lower.map(r1).join('/')}, upper ${upper.map(r1).join('/')}`,
+		);
+		return good;
+	},
+
+	/**
+	 * ＋ Custom part: a region the template has no part for, mapped to a new bone of its own under a
+	 * bone the author picks, named freely; read back; refused with a prop's name or a template's.
+	 */
+	custom(M, log) {
+		let good = true;
+		const t = M.HALF_BODY;
+		const { regions, mapping } = ownerSheet(M);
+		const hood = mapping.props.find((p) => p.name === 'prop_hood_back');
+		const own = {
+			...mapping,
+			props: [
+				...mapping.props.filter((p) => p !== hood),
+				{ ...hood, name: 'hood_back', bone: 'neck', custom: true },
+			],
+		};
+		const back = M.parseSheetMapping(JSON.parse(JSON.stringify(own)));
+		good =
+			ok(
+				'custom: read back from sheet.json, marked custom',
+				!('problem' in back) &&
+					back.mapping.props.find((p) => p.name === 'hood_back')?.custom === true,
+				JSON.stringify(back.problem ?? ''),
+			) && good;
+		const rig = created(M, t, own, regions);
+		const bone = rig.rigged.skeleton.bones.find((b) => b.name === 'hood_back');
+		const slot = rig.rigged.skeleton.slots.find((s) => s.name === 'hood_back');
+		good =
+			ok(
+				'custom: a bone of its own under the bone picked, its slot drawing its region',
+				bone?.parent === 'neck' &&
+					slot?.bone === 'hood_back' &&
+					rig.rigged.skeleton.skins[0].attachments.hood_back?.hood_back?.path === hood.region,
+				JSON.stringify({ bone, slot }),
+			) && good;
+		const list = M.sheetLayerList(
+			t.slots.map((s) => s.name),
+			(p) => slotOf(M, p),
+			own,
+		);
+		good = ok('custom: listed in Layers', list.includes('hood_back'), list.join(' ')) && good;
+		good =
+			ok(
+				'custom: its name read from its region past the Photoshop layer',
+				M.customName('NellyAssetBreakdown1_0008_HoodBack') === 'hood_back' &&
+					M.customName('2nd_Tail') === 'part_2_nd_tail',
+				`${M.customName('NellyAssetBreakdown1_0008_HoodBack')} ${M.customName('2nd_Tail')}`,
+			) && good;
+		for (const [what, name] of [
+			['named like a template part', 'torso'],
+			['named like a bone', 'chest'],
+			['named with a capital', 'HoodBack'],
+		]) {
+			const bad = M.sheetRig(t, regions, {
+				...own,
+				props: own.props.map((p) => (p.custom ? { ...p, name } : p)),
+			});
+			good = ok(`custom: ${what} refused`, !bad.ok, bad.ok ? 'made' : '') && good;
+		}
+		log(`hood_back under ${bone?.parent}, ${list.length} layers`);
 		return good;
 	},
 
@@ -2898,7 +3197,78 @@ const TPL = 'rigTemplates.ts';
 const FACE = 'rigFrameFace.ts';
 const TFIT = 'rigTemplateFit.ts';
 const ORDER = 'rigSlotOrder.ts';
+const TFACE = 'rigTemplateFace.ts';
 const MUTANTS = [
+	[
+		'mouth',
+		'an optional slot made on every rig',
+		[
+			TPL,
+			'const slots = t.slots.filter((s) => !s.optional || drawnIn.has(s.name));',
+			'const slots = t.slots;',
+		],
+	],
+	[
+		'mouth',
+		'an optional bone made on every rig',
+		[
+			TPL,
+			'return { ...t, bones: t.bones.filter((b) => used.has(b.name)), slots };',
+			'return { ...t, slots };',
+		],
+	],
+	[
+		'mouth',
+		'teeth named alone not read as the upper row',
+		[MAP, "if (out.has('teeth') && !out.has('upper') && !out.has('lower')) out.add('upper');", ''],
+	],
+	['mouth', 'a lip not a kind of part', [MAP, "\t'mouth',\n\t'lip',\n", "\t'mouth',\n"]],
+	['mouth', "a Spanish lip's name not read", [MAP, "\tlabio: ['lip'],\n", '']],
+	[
+		'mouth',
+		'a lip drawn rigid, not bent on the corners',
+		[
+			TFACE,
+			"part('lip_upper', 'lip_upper', [100, 28], false, lipBend('lip_upper')),",
+			"part('lip_upper', 'lip_upper', [100, 28]),",
+		],
+	],
+	[
+		'mouth',
+		'the tongue on the skull, not the jaw',
+		[TFACE, "{ name: 'tongue', bone: 'jaw',", "{ name: 'tongue', bone: 'face',"],
+	],
+	[
+		'mouth',
+		'the upper teeth on the jaw',
+		[TFACE, "{ name: 'teeth_upper', bone: 'teeth_upper',", "{ name: 'teeth_upper', bone: 'jaw',"],
+	],
+	[
+		'mouth',
+		"the upper teeth's bone left at the template's place, not the drawn face's",
+		[FIT, 'frameFace(t, lengthened, faceWorld, optional)', 'frameFace(t, lengthened, faceWorld)'],
+	],
+	[
+		'mouth',
+		'shapes and parts both shown',
+		[FIT, '\tfor (const part of hidden) art[part].hidden = true;\n', ''],
+	],
+	['mouth', 'a hidden part shown at setup', [TPL, ' && !hidden(s)\n', '\n']],
+	[
+		'custom',
+		"a custom part's name not checked",
+		[FIT, 'if (p.custom && !CUSTOM_NAME.test(p.name))', 'if (false && p.custom)'],
+	],
+	[
+		'custom',
+		'a custom part not kept as one in sheet.json',
+		[FIT, '\t\t\t...(p.custom === true ? { custom: true as const } : {}),\n', ''],
+	],
+	[
+		'custom',
+		"a custom part named with its Photoshop layer's file",
+		[MAP, 'const base = nameWords(layer ? layer[1] : region)', 'const base = nameWords(region)'],
+	],
 	[
 		'layers',
 		"the page's list ignoring the author's order",
@@ -3329,6 +3699,7 @@ const SOURCES = {
 	[FACE]: join(SERVER, FACE),
 	[TFIT]: join(SERVER, TFIT),
 	[ORDER]: join(LIB, ORDER),
+	[TFACE]: join(SERVER, TFACE),
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {

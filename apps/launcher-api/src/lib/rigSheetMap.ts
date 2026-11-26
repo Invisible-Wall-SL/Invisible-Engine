@@ -32,6 +32,8 @@ export interface SheetPartMap {
 /**
  * A region worn as a prop: on `host`'s drawing with its middle at `at` (host pixels), on `bone`;
  * `turn`, degrees clockwise on the page against its host's drawing (none: turned as its host).
+ * `custom`: a part the template does not have (＋ Custom part), named freely (`CUSTOM_NAME`): a new
+ * bone of its own under `bone`, placed and drawn as a prop is.
  */
 export interface SheetProp {
 	name: string;
@@ -40,6 +42,22 @@ export interface SheetProp {
 	bone: string;
 	at: P;
 	turn?: number;
+	custom?: true;
+}
+
+/** A custom part's name: a lowercase letter, then up to 40 lowercase letters, digits or _. */
+export const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,40}$/;
+
+/**
+ * A custom part's name from its region's, past a Photoshop layer's file and index
+ * (`Nelly_0008_HoodBack` → `hood_back`).
+ */
+export function customName(region: string): string {
+	const layer = /(?:^|_)(?:\d{4}s_)*\d{4}_(.+)$/.exec(region);
+	const base = nameWords(layer ? layer[1] : region)
+		.join('_')
+		.slice(0, 41);
+	return /^[a-z]/.test(base) ? base : `part_${base}`.slice(0, 41);
 }
 
 /**
@@ -244,6 +262,15 @@ const SYNONYMS: Record<string, string[]> = {
 	lids: ['lid'],
 	lips: ['mouth'],
 	boca: ['mouth'],
+	labio: ['lip'],
+	tooth: ['teeth'],
+	diente: ['teeth'],
+	dientes: ['teeth'],
+	lengua: ['tongue'],
+	superior: ['upper'],
+	inferior: ['lower'],
+	arriba: ['upper'],
+	abajo: ['lower'],
 	nariz: ['nose'],
 	fringe: ['hair', 'front'],
 	bangs: ['hair', 'front'],
@@ -295,6 +322,9 @@ const MEANINGFUL = new Set([
 	'cheek',
 	'shoulder',
 	'eyelid',
+	'lip',
+	'teeth',
+	'tongue',
 	'fist',
 	'point',
 	'open',
@@ -328,6 +358,9 @@ const KINDS = [
 	'brow',
 	'lid',
 	'mouth',
+	'lip',
+	'teeth',
+	'tongue',
 	'nose',
 	'cheek',
 	'shoulder',
@@ -378,6 +411,8 @@ export function canonicalWords(name: string, swap = false): Set<string> {
 	const digit = words.find((w) => w === '1' || w === '2');
 	if (limb.length === 1 && digit && !out.has('upper') && !out.has('lower'))
 		out.add(SEGMENTED[limb[0]][Number(digit) - 1]);
+	// Teeth named alone are the upper ones, the row a closed mouth shows.
+	if (out.has('teeth') && !out.has('upper') && !out.has('lower')) out.add('upper');
 	// `3 q` (from `3q`) is one word in the template's names.
 	if (words.some((w, i) => w === '3' && words[i + 1] === 'q')) out.add('3q');
 	return out;

@@ -1672,6 +1672,29 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
 
+### 13.1f A jointed mouth and ＋ Custom part (2026-11-26)
+
+The owner: "In our sheet we have specific facial bones that don't exist in our template: the teeth,
+the lower lip and the upper lip, instead of different mouth shapes."
+
+- **The template's optional mouth parts** (rig-templates §3.2 "A jointed mouth"): `lip_upper`,
+  `lip_lower`, `teeth_upper`, `teeth_lower`, `tongue` in the face block, each a one-pivot part here
+  (`sheetKind` → `pivot`), the lips bent on the corners and their own bones. `templateMade` drops the
+  optional slots and the `teeth_upper` bone a rig does not draw, before any mesh is weighted (weighted
+  vertices name bones by index), and `sheetPreview` reports the same bones. The face's features
+  (`frameFace` / `apartFace`) place an optional bone only when a mapped part rides it
+  (`faceBones(…, optional)`), so a frame-made rig's fit — and the request it sends atlas-tool — is as
+  it was.
+- **Names** (`rigSheetMap.ts`): `lip`, `teeth` and `tongue` are kinds of part and meaningful words;
+  `labio`, `tooth` / `diente(s)`, `lengua`, `superior` / `inferior`, `arriba` / `abajo` read as
+  theirs; `teeth` with no row is the upper row. `lips` stays the whole mouth (a mouth shape).
+- **Shapes win**: a mapping drawing both a part in the `mouth` slot and a jointed part makes the
+  jointed parts with empty slots (`TemplateArt.hidden`, `SheetRig.hidden`, the create's report).
+- **＋ Custom part** is a prop by another name (`SheetProp.custom`, `CUSTOM_NAME`, `customName`): a
+  new bone of its own under the template bone the author picks, placed on a part's drawing as a prop
+  is, in Layers. 🔄 Update rig treats a custom part as the prop it is (`frameRigUpdate` takes the
+  props the input names, not only `prop_…`).
+
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
 The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
@@ -1730,6 +1753,17 @@ Ctrl+Shift+] / [; ◧ Arranged in the new order before the launcher answers; the
 under the list; sent with the create and the rig drawn so; ↺ Reuse brings it back; Setup's ⋮⋮ drags a
 sheet's prop slot; 🗺 Edit mapping opens the rig's own order; Ctrl+] in the dialog never moves the
 rig's slots; 🔄 Update rig keeps Setup's order; 12 page mutants).
+
+Jointed mouth and custom parts (§13.1f): `sheet-rig.mjs` `mouth` (the names; no jointed slot or
+`teeth_upper` bone on a rig without them; each part on its region and slot; the lips meshes; Jaw open
+drops the lower lip's middle, the lower teeth and the tongue by the jaw's move and the upper ones not
+at all; Smile left lifts both lips at that corner only; a face capture's jawOpen opens it as 🎥
+Motion keys it; shapes and parts both mapped, the parts' slots empty; Layers order; 10 mutants) and
+`custom` (read back, its own bone under the bone picked, in Layers, its name, bad names refused; 3
+mutants); `sheet-rig-update.mjs` `custom` (🔄 Update rig gives a custom part its bone and slot; 1
+mutant); `check:rig-templates` keys each control over the made rig's own slots;
+`sheet-rig-browser.mjs` (the Face group's jointed rows and tooltip, ＋🦴, the launcher drawing them,
+the report; 5 page mutants, `--only-mutants` to run a subset).
 
 ### 13.4 Owed
 

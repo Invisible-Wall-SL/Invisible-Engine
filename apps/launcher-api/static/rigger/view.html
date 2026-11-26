@@ -247,6 +247,7 @@
   #s2rRegions .f2rThumb i { font-style:normal; font-size:9px; color:var(--accent2); max-width:64px; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; }
   #s2rRegions .f2rThumb button { position:absolute; top:2px; right:2px; padding:0 3px; font-size:10px; line-height:1.2; }
+  #s2rRegions .f2rThumb button.s2rCustomAdd { top:auto; bottom:22px; }
   #s2rArrange { cursor:grab; }
   #s2rJoints { display:flex; flex-wrap:wrap; gap:2px 8px; font-size:11px; color:var(--dim); min-height:14px; }
   #s2rJoints span { cursor:help; }
@@ -11899,7 +11900,7 @@ function wireFrameToRig(){
 // every body part skinned, and keeps the mapping in the rig's `sheet.json`, which opens here again
 // while that rig is open (GET /api/rigger/from-sheet).
 const S2R_JOINT_COLOURS = ["#ffe600", "#00e5ff", "#ff3df5", "#3dff8b"];
-const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw)/;
+const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw|teeth|tongue)/;
 const S2R_FINGER = /^(thumb|index|middle|ring|pinky)_\d_[lr]$/;
 // map: part → { region, joints, placed (joints dragged by hand), face? }; sel: { part } | { prop } |
 // { region }; faces: part → "busy" | "found" | "none"; from: the rig whose mapping this is.
@@ -12334,16 +12335,16 @@ function s2rKeep(kept){
   s2rNote(what + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
 }
 
-function s2rAddProp(region, host, name){
+function s2rAddProp(region, host, name, custom){
   const hosts = Object.keys(s2r.map);
   const on = s2r.map[host] ? host : hosts.includes("torso") ? "torso" : hosts[0];
   if (!on){ s2rNote("map a part first: a prop is worn on one"); return; }
   const taken = new Set([...s2r.tpl.parts.map((p) => p.name), ...s2r.tpl.bones.map((b) => b.name), ...s2r.props.map((p) => p.name)]);
-  const base = (name || window.RiggerMotion.propName(region)).slice(0, 42);
+  const base = (name || (custom ? window.RiggerMotion.customName(region) : window.RiggerMotion.propName(region))).slice(0, custom ? 37 : 42);
   let n = base;
-  for (let k = 2; taken.has(n); k++) n = base.slice(0, 42) + "_" + k;
+  for (let k = 2; taken.has(n); k++) n = base + "_" + k;
   const hc = s2rCanvas(s2r.map[on].region);
-  s2r.props.push({ name: n, region, host: on, bone: s2rPart(on).bone, at: [hc.width / 2, hc.height / 2] });
+  s2r.props.push({ name: n, region, host: on, bone: s2rPart(on).bone, at: [hc.width / 2, hc.height / 2], ...(custom ? { custom: true } : {}) });
   s2r.sel = { prop: s2r.props.length - 1 };
   s2r.dirty = true;
 }
@@ -12368,7 +12369,7 @@ function s2rMapping(){
   for (const [part, m] of Object.entries(s2r.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
     sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
-    props: s2r.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
+    props: s2r.props.map(({ name, region, host, bone, at, turn: t, custom }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}), ...(custom ? { custom: true } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
     ...(s2r.swap ? { swapSides: true } : {}),
     ...s2rLayersOut(),
@@ -12464,7 +12465,7 @@ function s2rRender(){
     const prop = s2r.props.find((p) => p.region === r.name);
     const d = document.createElement("div");
     d.className = "f2rThumb" + (s2rSelRegion() === r.name ? " sel" : "");
-    d.title = r.name + (parts.length ? " → " + parts.join(", ") : prop ? " → " + prop.name + " (a prop on " + prop.host + ")" : ": not mapped");
+    d.title = r.name + (parts.length ? " → " + parts.join(", ") : prop ? " → " + prop.name + (prop.custom ? " (a custom part on " : " (a prop on ") + prop.host + ")" : ": not mapped");
     const cv = document.createElement("canvas");
     cv.width = 56; cv.height = 56;
     s2rThumb(cv, r.name);
@@ -12478,7 +12479,13 @@ function s2rRender(){
       add.textContent = "＋"; add.title = "Wear it as a prop on the part picked";
       add.setAttribute("aria-label", "Wear " + r.name + " as a prop");
       add.onclick = (e) => { e.stopPropagation(); s2rAddProp(r.name, s2rSelHost()); s2rRender(); s2rDraw(); };
+      const own = document.createElement("button");
+      own.textContent = "＋🦴"; own.className = "s2rCustomAdd";
+      own.title = "＋ Custom part: a drawing the template has no part for (a hood, a tail, an extra layer). It gets a bone of its own under the bone you pick, drawn on the part picked, and a row in Layers";
+      own.setAttribute("aria-label", "Map " + r.name + " as a custom part");
+      own.onclick = (e) => { e.stopPropagation(); s2rAddProp(r.name, s2rSelHost(), null, true); s2rRender(); s2rDraw(); };
       d.appendChild(add);
+      d.appendChild(own);
     }
     d.onclick = () => {
       s2r.sel = parts.length ? { part: parts[0] } : prop ? { prop: s2r.props.indexOf(prop) } : { region: r.name };
@@ -12498,7 +12505,7 @@ function s2rRender(){
   ];
   const tips = {
     "Body": "The template's body parts, each on its bones. * the template's controls and clips use it: the rig is still made without it, and its report lists it.",
-    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone; a brow or a mouth bends on its bones from where it is drawn. A face drawn on the head moves without them when the tracker finds it. * as above: used by the controls and clips, listed when left out.",
+    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone; a brow or a mouth bends on its bones from where it is drawn. A face drawn on the head moves without them when the tracker finds it. * as above: used by the controls and clips, listed when left out. A mouth drawn as its parts (lip_upper, lip_lower, teeth_upper, teeth_lower, tongue) is a jointed mouth: Jaw open drops the lower lip, lower teeth and tongue, Smile and Stretch bend both lips at their corners, Upper / Lower lip lift and press them, and Talk, lip-sync and 🎥 Motion move it as they do a mouth drawn on the head. Map the mouth shapes or the parts: with both, the shapes win (the Mouth control swaps them) and the parts are made with their slots empty, for you to show.",
     "More drawings (hand poses, angles)": "Drawings that take a part's place: a hand pose, the head or the torso by angle. Each sits in its main part's slot and bends as it does.",
     "Fingers": "Finger segments drawn apart, each on its own bone. A whole hand drawn as one is the hand above.",
   };
@@ -12557,12 +12564,20 @@ function s2rRenderProps(){
   const box = $("#s2rProps");
   box.innerHTML = "";
   if (!s2r.sheet || !s2r.tpl) return;
+  s2rRenderPropList(box, false);
+  s2rRenderPropList(box, true);
+}
+// Props (`custom` false) or custom parts: a custom part is a prop by another name, named freely, on a
+// bone of its own under the bone picked.
+function s2rRenderPropList(box, custom){
   const head = document.createElement("div");
   head.className = "f2rRow";
-  head.title = "Regions worn on a part: each hangs from a bone of its own where it sits on that part's drawing, drawn just over it. ＋ on a region's thumbnail adds one; click one, then drag it on its part.";
-  head.innerHTML = "<b>Props</b>";
+  head.title = custom
+    ? "Drawings the template has no part for, each a new bone of its own under the bone you pick (the template's own bones stay as they are), drawn on the part you pick and placed by dragging it there, ordered in Layers. ＋🦴 on an unmapped region's thumbnail adds one."
+    : "Regions worn on a part: each hangs from a bone of its own where it sits on that part's drawing, drawn just over it. ＋ on a region's thumbnail adds one; click one, then drag it on its part.";
+  head.innerHTML = custom ? "<b>Custom parts</b>" : "<b>Props</b>";
   const c = document.createElement("span");
-  c.className = "pill"; c.textContent = String(s2r.props.length);
+  c.className = "pill"; c.textContent = String(s2r.props.filter((p) => !!p.custom === custom).length);
   head.appendChild(c);
   box.appendChild(head);
   const regions = s2r.sheet.regions.map((r) => r.name);
@@ -12579,19 +12594,22 @@ function s2rRenderProps(){
     return s;
   };
   s2r.props.forEach((p, i) => {
+    if (!!p.custom !== custom) return;
     const d = document.createElement("div");
-    d.className = "f2rRow part s2rRow prop" + (s2r.sel && s2r.sel.prop === i ? " pick" : "");
+    d.className = "f2rRow part s2rRow prop" + (custom ? " custom" : "") + (s2r.sel && s2r.sel.prop === i ? " pick" : "");
+    d.dataset.prop = p.name;
     const name = document.createElement("input");
-    name.type = "text"; name.value = p.name; name.title = "Its name: prop_ and up to 40 lowercase letters, digits or _";
-    name.setAttribute("aria-label", "Prop name");
+    name.type = "text"; name.value = p.name;
+    name.title = custom ? "Its name, its bone's and its slot's: a lowercase letter, then up to 40 lowercase letters, digits or _" : "Its name: prop_ and up to 40 lowercase letters, digits or _";
+    name.setAttribute("aria-label", custom ? "Custom part name" : "Prop name");
     name.onclick = (e) => e.stopPropagation();
     name.onchange = () => {
       const v = name.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
-      p.name = /^prop_/.test(v) ? v.slice(0, 45) : ("prop_" + v).slice(0, 45);
+      p.name = custom ? (/^[a-z]/.test(v) ? v : "part_" + v).slice(0, 41) : /^prop_/.test(v) ? v.slice(0, 45) : ("prop_" + v).slice(0, 45);
       s2r.dirty = true; s2rRender();
     };
     const del = document.createElement("button");
-    del.className = "f2rIcon"; del.textContent = "🗑"; del.title = "Remove the prop (its region stays on the sheet)";
+    del.className = "f2rIcon"; del.textContent = "🗑"; del.title = custom ? "Remove the custom part (its region stays on the sheet)" : "Remove the prop (its region stays on the sheet)";
     del.setAttribute("aria-label", "Remove " + p.name);
     del.onclick = (e) => { e.stopPropagation(); s2r.props.splice(i, 1); s2r.sel = null; s2r.dirty = true; s2rRender(); s2rDraw(); };
     d.append(
@@ -12602,7 +12620,7 @@ function s2rRenderProps(){
         const hc = s2rCanvas(s2r.map[v].region);
         p.at = [hc.width / 2, hc.height / 2];
       }),
-      select("The bone it hangs from", bones, p.bone, (v) => { p.bone = v; }),
+      select(custom ? "The template bone its own bone hangs from" : "The bone it hangs from", bones, p.bone, (v) => { p.bone = v; }),
       del,
     );
     d.onclick = () => { s2r.sel = { prop: i }; s2rRender(); s2rDraw(); };
@@ -13211,10 +13229,12 @@ function reportSheetRig(name, label, mapping, j){
   const scale = j.sheet && j.sheet.scale ? j.sheet.scale.toFixed(3) : "?";
   showAlert(
     "“" + name + "” is " + s2r.tpl.label + " over the sheet " + label + ": " + parts + " parts on their bones (" + scale + " rig units a sheet pixel)" +
-    (mapping.props.length ? ", " + mapping.props.length + " props on bones of their own" : "") +
+    (mapping.props.some((p) => !p.custom) ? ", " + mapping.props.filter((p) => !p.custom).length + " props on bones of their own" : "") +
+    (mapping.props.some((p) => p.custom) ? ", custom parts on bones of their own: " + mapping.props.filter((p) => p.custom).map((p) => p.name + " (under " + p.bone + ")").join(", ") : "") +
     ". Each drawing keeps its drawn proportions on its own bone (the torso bends at its waist and shoulders, a drawn face with the face's bones), so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
     (mapping.arrange ? "Bound as the parts were arranged (◧ Arranged): that pose is its clip “frame”.\n\n" : "") +
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
+    (j.sheet && j.sheet.hidden && j.sheet.hidden.length ? "The mouth is mapped both as shapes and as its parts: the shapes win (the Mouth control swaps them); " + j.sheet.hidden.join(", ") + " are made with their slots empty, for you to show.\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not mapped (left out): " + rest.length + ".\n\n" : "") +
     "The mapping is kept with the rig: 🗺 Edit mapping in its panel changes it, and while it is open ＋ New rig → 🗺 From my sheet offers it (↺ Reuse) for another rig.",
