@@ -87,6 +87,7 @@
 		"check:component-state-machine": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine.ts",
 		"check:component-repeat-segments-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-repeat-segments-editor.ts",
 		"check:component-state-machine-editor": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine-editor.ts",
+		"check:component-prop-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-prop-editor.ts",
 		"check:component-repeat-segments": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-repeat-segments.ts",
 		"check:shader-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-shader-editor.ts",
 		"check:shader-pipeline": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shader-pipeline.ts",

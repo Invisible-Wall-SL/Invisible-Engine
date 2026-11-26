@@ -32,6 +32,27 @@ export const CLEAR: Readonly<{ sand: number; hook: number; steer: number }>;
 export const SAND_REACH: number;
 /** How far a bridge's slopes run onto the banks, cells. */
 export const BRIDGE_SLOPE: number;
+/** A bridge zone with its rule's numbers (today's where the rule names none). */
+export type BridgeDeck = {
+	id: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	height?: number;
+	characters?: string[];
+	ramp: { near: number; far: number };
+	snap: number;
+	sideExit: boolean;
+};
+/** The bridges of a game, each with its rule's ramps, snap and side exit. */
+export function bridgeDecks(game: RulesGame): BridgeDeck[];
+/** The deck a body at `at` stands on, and how high (cells), as the `bridges` rule lifts it. */
+export function bridgeDeckAt(
+	decks: readonly BridgeDeck[],
+	at: { x: number; y: number },
+	carries: (deck: BridgeDeck) => boolean,
+): { deck: BridgeDeck; lift: number } | undefined;
 /** Per bridge zone id, how many of the characters it carries stand on it (a prop's `occupied`). */
 export function bridgeOccupancy(
 	game: RulesGame,

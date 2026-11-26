@@ -448,8 +448,9 @@ has no family control at all. Three more families exist
       more than 100 zones of the level shown (Salmons' 318 sandbanks) shows an amber warning: as
       many rigs on screen cost a phone several milliseconds a frame.
     - **Component** (a zone family only, never a variant or scenery) lists the project's prop
-      components of the family's kind: a `bridge#` row offers the bridge props, made with **Save a
-      copy** of the seed bridge in the Components side of `/editor`. It is greyed out, with the
+      components of the family's kind: a `bridge#` row offers the bridge props, made with **⧉
+      Duplicate** of the seed **Bridge (prop)** in the Components side of `/editor` (its collider
+      is edited there: [component-editor.md § Props](component-editor.md#props-scenery-with-a-collider)). It is greyed out, with the
       reason, when the project has none. Picking one pins it at its latest version, shown as
       **v2** beside it. **Open** goes to it in `/editor`. When the component has a newer version,
       the row says so in amber and offers **Use v3**: the game plays the pinned version until you

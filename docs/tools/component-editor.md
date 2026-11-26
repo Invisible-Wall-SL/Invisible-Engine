@@ -491,6 +491,93 @@ point in every placement. The ops are `==` `!=` `<` `>` `<=` `>=`. Two or more i
 component with a `lightAt` param show **🔥 Light order: bottom → top** (in the editor bar, and in
 Properties on a container holding them), which sets each one's `lightAt` from its height. Worked example: [build a pot from pieces](../guides/pot-from-pieces.md).
 
+## Props (scenery with a collider)
+
+A **prop** is scenery that the game places on every zone of one family, such as Salmons' bridges.
+It carries its own collision: a deck, two ramps, a snap band, a hole in the water and optional
+solids. The rules play that collision and the game draws the art. You place a prop with
+[Game Config → Zone art → Component](game-config.md). Design:
+[arcade-prop-components](../design/arcade-prop-components.md).
+
+To start one, use **⧉ Duplicate** on the built-in **Bridge (prop)** in the Components list. The
+copy is your project's, and Zone art offers it. Or open any component and use **Make a prop** (the
+**＋** on the **Prop** card).
+
+### The Prop card
+
+The **Prop** card is in Properties, under **Component variables**. Hover its ⓘ for what it is.
+On a component that is not a prop, the card says "Not a prop" and its **＋** makes it one. That
+adds a bridge with today's collider, the zone params (`length`, `height`, `zone`), the scope by
+zone, and the three engine inputs. The bin stops the component being a prop; its params and
+inputs stay.
+
+| Field | What it sets |
+|---|---|
+| **Zone kind** | The kind of zone it stands on (today: `bridge`). |
+| **Preview length** / **Preview height** | The zone the stage previews it on, in whole cells. Editor only; never shipped. |
+| **Snap** | Cells either side of the deck's row within which a character is put on the deck (at most 1). |
+| **Near ramp** / **Far ramp** | Cells each slope runs onto its bank. **param** makes it a param of the component (`nearRamp` / `farRamp`, made at the value shown). Unticked, it is a number again and the param goes. |
+| **Height** | The deck's height in cells. **param** (on by default) follows the zone's height from the level; the value here is the preview's. |
+| **Hole** | Where the water opens under it: the deck and its ramps, the deck only, or none. |
+| **Side exit** | The owner's switch, off by default. On, a character walking across the deck's row steps off its side, unless a solid stops it. |
+| **Solid N** | A solid's box in the deck's cells (x, y, w, h). It stops a character from every side, or from one side only. The bin removes it. |
+
+The card lists every problem with the collider in an amber box, live: a ramp of 0, a deck that
+does not span its zone, a bad solid. A collider with a problem cannot be played; Zone art then
+warns and the family plays today's bridge.
+
+### The prop view
+
+On a prop, the editor bar shows **Prop view**, **Collider** and **Show a character**.
+- **Prop view** (on by default) draws the prop on its preview zone, piece by piece as the game
+  draws it, on Salmons' mirrored isometric ground. Turn it off to see the component's nodes and
+  arrange them.
+- **Collider** draws the collision on the ground under the prop:
+  - the deck (green);
+  - the ramps (amber, dashed);
+  - the snap band (blue, dotted);
+  - the hole (pale blue);
+  - the solids (red).
+
+  Drag a ramp's white handle along the row to set its length in whole cells. Drag the middle
+  handle across the row to set the snap. **＋ Solid**, then a drag on the ground, draws a solid.
+  Click a solid to select it, drag it to move it, or drag a corner to resize it.
+- **Show a character** drops a stand-in fisherman. Drag him under, onto and over the prop. The
+  bridge rule lifts him onto the deck and its ramps, the same rule the room plays. The corner reads
+  **occupied N** and how many cells up he stands.
+
+The prop view also shows in **Animate** beside the **State machine** tab. There the stand-in
+drives the open component's own `occupied` input and fires `stepOn` / `stepOff` as he steps on and
+off, so the preview steps its states. The seed bridge's machines are on its pieces (the water's
+sway, the deck's dip), not on the prop itself. Open a piece to preview its machine with
+**Preview inputs**.
+
+### Depth, and the pieces
+
+A prop's root children are its **pieces**:
+- a count-mode repeater gives one piece per cell of the zone, with the cell's `index`;
+- a component instance gives one piece at its **Cell**.
+
+Select a node to set its **Depth** card:
+- **Band**: *On the water*, *Behind characters*, *Sorted with characters* or *Over characters*.
+  Empty takes the parent's band.
+- **Z offset**: for *Behind* and *Sorted*. Empty is 1100 sorted (the deck's) or 0 behind.
+- **Cell**: for a component instance at the root. A number (`-2`), or a param plus cells
+  (`length+1`).
+
+The Outline shows each node's band as a chip. The chip is dim when the band is inherited.
+
+### Inputs
+
+On a prop, `occupied`, `stepOn` and `stepOff` show in **Inputs** with an **engine** badge and no
+✎ or ×. The game sets them from the room, so their id and kind are locked.
+
+### What the editor draws
+
+A piece's art is **PropGraphic** nodes: polygons, rectangles and lines with a fill and a stroke.
+They are drawn on the node canvas and in the prop view as the game draws them. They are edited as
+data for now: there is no shape tool.
+
 ## Win Overlay — per-tier presentation
 
 The built-in **Win Overlay** (`win`) component owns the big-win **presentation**,
@@ -708,6 +795,12 @@ where the instance is placed, not on the board.
   so it waits until the art has loaded. A cover node (a full-bleed background) never fills.
 
 ## Known limitations / TODOs
+
+- **A prop's art does not follow its collider.** The seed's slopes are drawn `run` ±2 cells (a
+  param on each slope piece). Make a ramp 3 cells long and its slope still draws 2. Change the
+  slope piece's `run` too. The collider overlay is drawn on the ground, under the raised deck.
+- **The prop view previews Salmons only:** its mirrored projection, its 48 px cell and a fisherman
+  stand-in. A prop of another zone kind would need its own.
 
 These reflect the registered editor design (`docs/design/invisible-editor.md`
 §8.5–§8.10) and the current build:

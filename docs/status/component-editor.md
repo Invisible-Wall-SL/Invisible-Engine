@@ -110,6 +110,40 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-26 — **Prop components P7: the editor** ([arcade-prop-components](../design/arcade-prop-components.md)
+  §7 P7 As built, branch `claude/bold-cannon-3a8unw`, in review). On a prop:
+  - **The Prop card** (Properties): zone kind, preview length and height, snap, near and far ramp
+    and height (each with a param toggle), hole, **Side exit** and the solids, with the
+    collider's problems listed live. **＋ Make a prop** on any component; a bin to stop.
+  - **The Depth card** per node (band, z offset, and a cell for a root component instance), and a
+    band chip in the Outline.
+  - **The editor bar's Prop view / Collider / Show a character:**
+    - the prop drawn as the game draws it;
+    - the collider over it, with ramp and snap handles and **＋ Solid** (move and resize by its
+      corners);
+    - a stand-in fisherman the bridge rule lifts. His `occupied` / `stepOn` / `stepOff` drive
+      the State machine preview.
+  - `occupied` / `stepOn` / `stepOff` are locked in Inputs with an **engine** badge.
+  - `PropGraphic` art now draws on the node canvas.
+  - **Shared changes:**
+    - `IconButton` gains a `plus` icon.
+    - `salmonsRules.js` exports `bridgeDecks` / `bridgeDeckAt` (the rule's own lift).
+    - `engine-layout` gains `resolvePropGraphic`, `settledPropStates` and a `prop-placement`
+      subpath.
+  - **Gates:**
+    - new `check:component-prop-editor` (50);
+    - `check:prop-shape` 43, `check:prop-depth` 26, `check:zone-art` 147,
+      `check:component-state-machine-editor` 91, `check:component-repeat-segments-editor` 42,
+      `check:save-keeps-unknown-blocks` 170;
+    - `check:online-rules` 40, `check:salmons-art` 50, `check:salmons-levels` 28,
+      `check:room-sim` 43;
+    - the launcher build, and `check:svelte` at baseline.
+  - **Runtime bytes** (`--out` builds, before and after): lines, match3 and card are identical.
+    arcade is +100 B gzip and arcade3d +73 B: the game's `drawPropGraphic` now draws through
+    `resolvePropGraphic`, and the rule's lift is an exported `bridgeDeckAt`.
+  - **Browser:** the card, the view, a ramp drag and the stand-in on the deck were driven in
+    headless Chrome through a stand-alone harness. The real `/editor` needs the DB and R2.
+    ⏳ The owner's browser check is still to do.
 - 2026-11-26 — **Prop components P6 (arcade side): the ship chain** (agent `arcade-games`;
   detail: [status/salmons](salmons.md)).
   - A project prop def is drawn when the config's zone art names it. It ships in the bundle's

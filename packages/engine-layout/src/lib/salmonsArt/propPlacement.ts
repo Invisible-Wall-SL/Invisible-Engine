@@ -3,6 +3,9 @@ import { ISO_DEPTH_SPREAD, isoDepth } from '../projection';
 import { propPieces, type PropPiece, type PropZone } from '../propPieces';
 import type { ComponentDef } from '../types';
 import { aloftDepth, deckLift } from './bridge';
+
+/** A character drawn `lift` screen px up, as the game sorts it (`bridge.ts`; the editor's stand-in). */
+export { aloftDepth };
 import { CELL } from './scale';
 
 /**

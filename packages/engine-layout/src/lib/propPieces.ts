@@ -1,5 +1,5 @@
 import type { SpawnProp } from './arcadeProps.svelte';
-import type { ComponentDef, LayoutNode, PropDepth, PropLength } from './types';
+import type { ComponentDef, LayoutNode, PropDepth, PropLength, SmLayer, SmState } from './types';
 
 /**
  * A PROP CUT INTO ITS PIECES for one zone (`docs/design/arcade-prop-components.md` §5, P5): what the
@@ -89,4 +89,25 @@ function variantOf(node: Extract<LayoutNode, { kind: 'repeater' }>, i: number, n
 function defaultOf(def: ComponentDef, key: string | undefined): number | undefined {
 	const value = key ? def.params?.find((p) => p.key === key)?.default : undefined;
 	return finite(value) ? value : undefined;
+}
+
+/**
+ * The state each machine layer of a piece settles in from its entry, on its held `inputs` (a
+ * condition's `param` read from `params`): the first transition out of the entry whose `==`
+ * conditions all hold, as the seed's pillar cells. What a surface that runs no machine (the river's
+ * own layers, the Component Editor's prop view) shows of a piece.
+ */
+export function settledPropStates(
+	layers: readonly SmLayer[],
+	inputs: Record<string, unknown>,
+	params: Record<string, unknown>,
+): (SmState | undefined)[] {
+	const holds = (c: { op: string; input: string; value?: unknown; param?: string }) =>
+		c.op === '==' && inputs[c.input] === (c.param !== undefined ? params[c.param] : c.value);
+	return layers.map((layer) => {
+		const to = layer.transitions.find(
+			(t) => t.from === layer.entry && !!t.conditions?.length && t.conditions.every(holds),
+		)?.to;
+		return layer.states.find((s) => s.id === (to ?? layer.entry));
+	});
 }

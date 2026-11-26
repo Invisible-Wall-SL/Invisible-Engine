@@ -491,6 +491,17 @@
 	 * while this panel is shown, the listening nodes under it hear `enter` / `leave` / `down` / `up`
 	 * / `click`, deepest first, through the game's dispatcher. Hidden, it hears nothing.
 	 */
+	/**
+	 * The prop view's stand-in moved (`EditorPropStage`): the open prop's `occupied` input takes its
+	 * count and each trigger it fired (`stepOn` / `stepOff`) fires, as the arcade runtime sets them
+	 * from a room. Only inputs the def declares; hidden, it does nothing.
+	 */
+	export function previewProp(occupied: number, fired: readonly string[]): void {
+		if (!active || !def?.prop) return;
+		const declared = new Set(componentInputs(def).map((i) => i.id));
+		if (declared.has('occupied')) setPreviewInput('occupied', occupied);
+		for (const id of fired) if (declared.has(id)) fire(id);
+	}
 	export function stagePointer(
 		kind: 'move' | 'down' | 'up' | 'leave',
 		nodeId: string | null,

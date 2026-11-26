@@ -1154,7 +1154,7 @@ const goldenSalmon = {
 
 /** The bridges of a game ({@link zonesOfKind}), each with its rule's ramps and snap: today's
  *  where the rule names none. */
-const deckRules = (game) => {
+export const bridgeDecks = (game) => {
 	const ids = new Set(game.zones.map((zone) => zone.id));
 	const rules = (game.online.rules.zones ?? []).filter(
 		(rule) => rule.kind === 'bridge' && ids.has(rule.zone),
@@ -1180,7 +1180,7 @@ const deckRules = (game) => {
  */
 export function bridgeOccupancy(game, players) {
 	const counts = new Map();
-	const decks = deckRules(game);
+	const decks = bridgeDecks(game);
 	for (const d of decks) counts.set(d.id, 0);
 	for (const p of players) {
 		if (!(p.z > 0)) continue;
@@ -1212,6 +1212,27 @@ export function occupancySteps(before, after) {
 }
 
 /**
+ * The deck of {@link bridgeDecks} a body at `at` stands on, and how high, cells: with its centre
+ * within the deck's `snap` of its row, over the deck or a ramp, the deck's height ramped down each
+ * ramp over its own length. `carries(deck)` says whether the deck carries the body. `undefined`
+ * off every deck. The `bridges` rule's lift; the Component Editor's stand-in reads it too.
+ */
+export function bridgeDeckAt(decks, at, carries) {
+	const { x, y } = at;
+	for (const d of decks) {
+		if (!carries(d) || Math.abs(y - (d.y + CELL / 2)) > d.snap * CELL) continue;
+		const from = d.x + CELL / 2;
+		const to = d.x + d.w - CELL / 2;
+		const near = from - x;
+		const far = x - to;
+		const off = Math.max(0, near, far) / CELL;
+		const ramp = near > far ? d.ramp.near : d.ramp.far;
+		if (off <= ramp) return { deck: d, lift: (d.height ?? 0) * (1 - off / ramp) };
+	}
+	return undefined;
+}
+
+/**
  * A fisherman on a bridge (a zone of `kind: 'bridge'`: a row of cells across the water, as high
  * as its `height`, cells), as the original's `update`: with its centre within half a cell of the
  * deck's row, over the deck or a slope {@link BRIDGE_SLOPE} cells onto either bank, it is put on the
@@ -1231,22 +1252,9 @@ export function occupancySteps(before, after) {
  */
 const bridges = {
 	create(game, api) {
-		const decks = deckRules(game);
+		const decks = bridgeDecks(game);
 		if (!decks.length) return {};
-		const deckOf = (p) => {
-			const { x, y } = p.body;
-			for (const d of decks) {
-				if (!appliesTo(d, p) || Math.abs(y - (d.y + CELL / 2)) > d.snap * CELL) continue;
-				const from = d.x + CELL / 2;
-				const to = d.x + d.w - CELL / 2;
-				const near = from - x;
-				const far = x - to;
-				const off = Math.max(0, near, far) / CELL;
-				const ramp = near > far ? d.ramp.near : d.ramp.far;
-				if (off <= ramp) return { deck: d, lift: (d.height ?? 0) * (1 - off / ramp) };
-			}
-			return undefined;
-		};
+		const deckOf = (p) => bridgeDeckAt(decks, p.body, (d) => appliesTo(d, p));
 		const exits = decks.filter((d) => d.sideExit);
 		/** A body's last input, across the row or not, where a deck it walks lets it off the side. */
 		const across = (player, input) => {

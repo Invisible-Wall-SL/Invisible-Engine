@@ -54,6 +54,40 @@ const point = (p: PropPoint, scope: PropGraphicScope): Point2D => {
 	return { x: at.x, y: at.y + (p.length > 2 ? propScalar(p[2] as PropScalar, scope) : 0) };
 };
 
+/** One op resolved to screen px: what any surface draws (the game's `Graphics`, the editor's 2D
+ *  canvas). */
+export type PropGraphicShape = (
+	| { kind: 'poly'; points: number[] }
+	| { kind: 'rect'; rect: [number, number, number, number] }
+	| { kind: 'line'; points: [number, number, number, number] }
+) & { fill?: PropPaint; stroke?: PropStroke };
+
+/** `ops` resolved against `scope`, in order. */
+export function resolvePropGraphic(
+	ops: readonly PropGraphicOp[],
+	scope: PropGraphicScope,
+): PropGraphicShape[] {
+	return ops.map((op): PropGraphicShape => {
+		if ('line' in op) {
+			const [a, b] = op.line.map((p) => point(p, scope));
+			return { kind: 'line', points: [a.x, a.y, b.x, b.y], stroke: op.stroke };
+		}
+		const paint = {
+			...(op.fill ? { fill: op.fill } : {}),
+			...(op.stroke ? { stroke: op.stroke } : {}),
+		};
+		if ('rect' in op) {
+			const [x, y, w, h] = op.rect.map((s) => propScalar(s, scope));
+			return { kind: 'rect', rect: [x, y, w, h], ...paint };
+		}
+		return {
+			kind: 'poly',
+			points: op.poly.flatMap((p) => Object.values(point(p, scope))),
+			...paint,
+		};
+	});
+}
+
 /** Draw `ops` into `g` (cleared first). */
 export function drawPropGraphic(
 	g: Graphics,
@@ -61,18 +95,14 @@ export function drawPropGraphic(
 	scope: PropGraphicScope,
 ): Graphics {
 	g.clear();
-	for (const op of ops) {
-		if ('line' in op) {
-			const [a, b] = op.line.map((p) => point(p, scope));
-			g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke(op.stroke);
-			continue;
-		}
-		if ('rect' in op) {
-			const [x, y, w, h] = op.rect.map((s) => propScalar(s, scope));
-			g.rect(x, y, w, h);
-		} else g.poly(op.poly.flatMap((p) => Object.values(point(p, scope))));
-		if (op.fill) g.fill(op.fill.alpha === undefined ? op.fill.color : op.fill);
-		if (op.stroke) g.stroke(op.stroke);
+	for (const shape of resolvePropGraphic(ops, scope)) {
+		if (shape.kind === 'line') {
+			const [ax, ay, bx, by] = shape.points;
+			g.moveTo(ax, ay).lineTo(bx, by);
+		} else if (shape.kind === 'rect') g.rect(...shape.rect);
+		else g.poly(shape.points);
+		if (shape.fill) g.fill(shape.fill.alpha === undefined ? shape.fill.color : shape.fill);
+		if (shape.stroke) g.stroke(shape.stroke);
 	}
 	return g;
 }

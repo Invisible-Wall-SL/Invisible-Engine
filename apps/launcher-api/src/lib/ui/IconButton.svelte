@@ -6,7 +6,7 @@
 	 * `history`: a doc's saved versions (`DocHistoryModal`). `undelete`: deleted docs, back from
 	 * their saved versions (`DeletedDocsModal`). `play` / `pause`: a preview's clock. `reverse`: turn
 	 * about. `reroll`: a new random pick (a generated level's seed). `up` / `down`: move an entry
-	 * of a list one place.
+	 * of a list one place. `plus`: add (a block a section is empty without: Make a prop).
 	 */
 	interface Props {
 		icon:
@@ -20,7 +20,8 @@
 			| 'reverse'
 			| 'reroll'
 			| 'up'
-			| 'down';
+			| 'down'
+			| 'plus';
 		label: string;
 		onclick: () => void;
 		/** For a chevron: points down when expanded, right when folded. */
@@ -64,6 +65,8 @@
 		<svg viewBox="0 0 16 16" aria-hidden="true"
 			><path d="M3 5.5h10M10.5 3l2.5 2.5-2.5 2.5M13 10.5H3M5.5 8L3 10.5 5.5 13" /></svg
 		>
+	{:else if icon === 'plus'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>
 	{:else if icon === 'up'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10l4-4 4 4" /></svg>
 	{:else if icon === 'down'}

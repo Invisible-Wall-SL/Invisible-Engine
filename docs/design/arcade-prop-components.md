@@ -3,8 +3,8 @@
 **Status: P1 (model and compile) and P2 (the rules read the shape) built 2026-11-26; P3 (one
 river on both sides) built 2026-11-26; P4 (the seed def) built 2026-11-26; P5's mount and the
 seed's code look built 2026-11-26; P5 built 2026-11-26 (the river draws the seed, the inputs
-are fed, the code-drawn bridge is deleted); P6 (the ship chain) built 2026-11-26, in review;
-P7–P8 planned; other obstacles (§9) planned after P8.** Owner ask of
+are fed, the code-drawn bridge is deleted); P6 (the ship chain) built 2026-11-26; P7 (the
+editor) built 2026-11-26, in review; P8 planned; other obstacles (§9) planned after P8.** Owner ask of
 2026-11-26, open questions answered the same day (§8). Agents:
 `invisible-components` (the def, the editor, the ship chain) and `arcade-games` (the rules, the
 generator, the room, the Salmons runtime). State, once building starts, goes in
@@ -543,6 +543,43 @@ the 2-cell near slope) has merged.
    `check:component-repeat-segments-editor`, `pnpm --filter launcher-api build`. Docs ship in
    the same change (rule 9): `docs/tools/component-editor.md` (Prop section),
    `docs/tools/game-config.md` (Zone art → Component), `docs/tools/README.md` rows.
+   **Built 2026-11-26, in review.** As built, on `/editor?view=components`:
+   - **Edits** are pure, on the draft in place (`apps/launcher-api` `$lib/editor/propEdit.ts`):
+     - Make a prop / unmake it, and the locked inputs (`isLockedPropInput`).
+     - The card's numbers, with a param toggle for the ramps (an author param, `nearRamp` /
+       `farRamp`) and the height (the zone's `fromZone.height`). The snap has no param toggle:
+       its type is a number.
+     - The side exit, the handles (whole-cell ramps, the snap from the row), the solids and the
+       depth fold (`propBandOf`).
+   - **The card** (`EditorPropCard.svelte`) sits in Properties under Component variables, with the
+     compile's own `propShapeErrors` read live. **Depth** (`EditorPropNode.svelte`) shows on a
+     selected node of a prop, with a `propCell` field on a root component instance. The Outline
+     shows a band chip.
+   - **The prop view** (`EditorPropStage.svelte`, `$lib/editor/propStage.ts`) replaces the node
+     canvas in Design, and beside the State machine tab, while **Prop view** is on.
+     - It cuts the def into pieces and places them with `placeSalmonsProp`, reached through a new
+       `engine-layout/prop-placement` subpath (no runtime imports it).
+     - It poses each piece with the canvas's own segment settle (`segmentPoseNodes`) and draws it
+       in the game's order.
+     - The collider overlay is SVG on the ground. Its handles unproject the pointer.
+   - **The stand-in** is lifted by the `bridges` rule itself. `salmonsRules.js` now exports
+     `bridgeDecks` and `bridgeDeckAt`, which the rule's `deckOf` calls. The preview game is the
+     zone and rule `salmonsGeometry` writes for the compiled shape. Its count goes to
+     `EditorStateMachinePanel.previewProp`, which sets `occupied` and fires `stepOn` / `stepOff`.
+     The seed's machines are on its pieces, so the seed root has none to step.
+   - **Drawing.** `PropGraphic` nodes draw on the editor canvas (`$lib/editor/propCanvas.ts`).
+     `engine-layout` `resolvePropGraphic` resolves ops to shapes for both surfaces;
+     `drawPropGraphic` draws them, and `check:prop-depth` still passes. `settledPropStates` moved
+     to `propPieces.ts`, shared with `propDraw.ts`.
+   - **Reuse.** I checked BoundsBox (inventory §15) and did not use it for solids: it is
+     screen-axis aligned, and a solid is a box on the projected ground.
+   - **Not done.**
+     - The art does not follow the collider: the seed's slopes keep `run` ±2.
+     - The prop view previews Salmons only (mirrored, 48 px cells, a fisherman).
+     - There is no shape tool for `PropGraphic` ops.
+     - The editor itself is not browser-verified (it needs the launcher's DB and R2). The card,
+       the prop view, the collider handles and the stand-in were driven in headless Chrome in a
+       stand-alone harness.
 8. **P8 — live.** Publish Salmons with a project bridge. The owner changes a ramp and the art in the
    component window. The room plays the new ramp, and the device draws it.
    *Proof:* `salmons-play.mjs` against `rooms.invisiblewall.org`, then the owner's look.

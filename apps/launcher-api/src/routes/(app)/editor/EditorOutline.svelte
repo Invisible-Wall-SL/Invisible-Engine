@@ -7,6 +7,8 @@
 </script>
 
 <script lang="ts">
+	import type { PropDepth } from 'engine-layout';
+	import { PROP_DEPTH_CHIPS, PROP_DEPTH_LABELS } from './propDepthLabels';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { componentUpdateAvailable } from '$lib/timeline/sharedTimelines';
 	import type { GameTemplate, LayoutNode, Scene } from 'engine-layout';
@@ -61,6 +63,9 @@
 		/** Resolved component defs by id: a placed component pinned below its latest version shows an
 		 *  "update available" badge on its row (Rive plan Phase 9d). */
 		componentMap?: ReadonlyMap<string, { version?: number }>;
+		/** A prop's band per node (its own or inherited, `propEdit.ts` `propBandOf`): a chip on the
+		 *  row. Absent off a prop. */
+		bandOf?: (id: string) => PropDepth | undefined;
 	}
 	let {
 		scene,
@@ -85,6 +90,7 @@
 		onCreateComponent,
 		onShowInFlow,
 		componentMap,
+		bandOf,
 	}: Props = $props();
 
 	/** The newer version a placed component could update to, or null. */
@@ -378,6 +384,17 @@
 							)}). This placement draws the version it pins, here and in the game: select it and use Update to latest in Properties."
 							>↑ v{updateOf(node)}</span
 						>
+					{/if}
+					{#if bandOf}
+						{@const band = bandOf(node.id)}
+						{#if band}
+							<span
+								class="band band-{band}"
+								class:own={node.propDepth !== undefined}
+								title="{PROP_DEPTH_LABELS[band]}{node.propDepth ? '' : ' (from its parent)'}"
+								>{PROP_DEPTH_CHIPS[band]}</span
+							>
+						{/if}
 					{/if}
 					<span class="kind">{node.kind}</span>
 				</button>
@@ -876,5 +893,27 @@
 		font-size: 9px;
 		color: #0c0f14;
 		background: #ffd24a;
+	}
+	.band {
+		font-size: 9px;
+		padding: 0 4px;
+		border-radius: 6px;
+		opacity: 0.55;
+		border: 1px solid currentColor;
+	}
+	.band.own {
+		opacity: 1;
+	}
+	.band-water {
+		color: #6fb6e8;
+	}
+	.band-behind {
+		color: #b08a60;
+	}
+	.band-sorted {
+		color: #9fd27a;
+	}
+	.band-over {
+		color: #e8b04a;
 	}
 </style>

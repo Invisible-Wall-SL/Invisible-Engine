@@ -4,7 +4,8 @@ import { Graphics } from 'pixi.js';
 import type { SpawnProp } from '../arcadeProps.svelte';
 import { PROP_COMPONENTS, PROP_TIMELINES } from '../propComponents';
 import { drawPropGraphic, propScalar, type PropGraphicProps } from '../propGraphic';
-import type { CinematicDoc, ComponentDef, LayoutNode, SmLayer } from '../types';
+import { settledPropStates } from '../propPieces';
+import type { CinematicDoc, ComponentDef, LayoutNode } from '../types';
 
 /**
  * A PROP'S WATER AND BEHIND PIECES DRAWN IN THE RIVER (`docs/design/arcade-prop-components.md` §5,
@@ -41,23 +42,6 @@ const timelines = (): Map<string, CinematicDoc> => new Map(PROP_TIMELINES.map((t
 let byId: Map<string, ComponentDef> | undefined;
 let docs: Map<string, CinematicDoc> | undefined;
 
-/** The state each layer settles in from its entry, on `inputs` (a condition's `param` read from
- *  `params`). */
-function settled(
-	layers: readonly SmLayer[],
-	inputs: Record<string, unknown>,
-	params: Record<string, unknown>,
-) {
-	const holds = (c: { op: string; input: string; value?: unknown; param?: string }) =>
-		c.op === '==' && inputs[c.input] === (c.param !== undefined ? params[c.param] : c.value);
-	return layers.map((layer) => {
-		const to = layer.transitions.find(
-			(t) => t.from === layer.entry && !!t.conditions?.length && t.conditions.every(holds),
-		)?.to;
-		return layer.states.find((s) => s.id === (to ?? layer.entry));
-	});
-}
-
 /** Draw `piece` (projected by `project`, raised by its `lift`) as its def's `PropGraphic` nodes. */
 export function drawPropPiece(
 	piece: SpawnProp,
@@ -73,7 +57,7 @@ export function drawPropPiece(
 		(def.inputs ?? []).map((i) => [i.id, i.default]),
 	);
 	Object.assign(inputs, piece.inputValues);
-	const states = settled(def.stateMachine?.layers ?? [], inputs, params);
+	const states = settledPropStates(def.stateMachine?.layers ?? [], inputs, params);
 	const shown = new Map<string, boolean>();
 	const loops: { doc: CinematicDoc; offset: number }[] = [];
 	for (const state of states) {
