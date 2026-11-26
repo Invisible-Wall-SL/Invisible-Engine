@@ -9,11 +9,16 @@ import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
+/** The most slots an open rig is read with. */
+const MAX_RIG_SLOTS = 4096;
+
 /**
  * What 🗺 From my sheet's ◧ Arranged view draws (docs/design/frame-to-rig.md §13): the rig a sheet
  * mapping makes, placed by the same `sheetRig` the create runs, so the page fits nothing itself.
- * POST `{ sheet }` → `SheetPreview` (each drawing's place in the rig's world, the bones, the scale
- * and the canvas's origin). Writes nothing. Gated by `rigger`; the sheet must be this project's art.
+ * POST `{ sheet, rig? }` → `SheetPreview` (each drawing's place in the rig's world, the bones, the
+ * scale and the canvas's origin). `rig` (🗺 Edit mapping): `{ slots, layers? }`, the open rig's
+ * slots back to front and its kept mapping's layers, so the layers are judged as 🔄 Update rig
+ * judges them. Writes nothing. Gated by `rigger`; the sheet must be this project's art.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, prefixes } = await gate(locals, cookies, {
@@ -29,10 +34,24 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!t) throw error(404, `no rig template "${sheet.template.id}"`);
 	const rs = await loadRegionSet(sheet.manifestKey);
 	if (!rs.regions.length) throw error(400, 'that atlas has no regions');
+	const rig = previewRig(body?.rig);
+	if (rig === false) throw error(400, '`rig` is { slots, layers? }: lists of slot names');
 	const made = refuseOnThrow(`The sheet could not be placed on the "${t.label}" template`, () =>
-		sheetPreview(t, rs.regions, sheet),
+		sheetPreview(t, rs.regions, sheet, rig ? { rig } : {}),
 	);
 	if (!made.ok)
 		throw error(400, `The sheet does not fit the "${t.label}" template: ${made.problem}.`);
 	return json(made.value);
 };
+
+const names = (v: unknown): v is string[] =>
+	Array.isArray(v) && v.length <= MAX_RIG_SLOTS && v.every((n) => typeof n === 'string');
+
+/** The open rig the page previews an edit of: none, or false when it is not one. */
+function previewRig(raw: unknown): { slots: string[]; layers?: string[] } | null | false {
+	if (raw === undefined || raw === null) return null;
+	if (typeof raw !== 'object' || Array.isArray(raw)) return false;
+	const { slots, layers } = raw as Record<string, unknown>;
+	if (!names(slots) || (layers != null && !names(layers))) return false;
+	return { slots, ...(layers != null ? { layers } : {}) };
+}
