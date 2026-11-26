@@ -677,6 +677,67 @@ const GUARDS = {
 					/depth/i.test(armRefused.problem),
 				armRefused.ok ? 'updated' : armRefused.problem,
 			) && good;
+		// The same rig with a prop worn anew, which the list then draws behind the torso: it moves no slot
+		// the rig had, so the update is not held to the controls, and the badge goes where it says.
+		const worn = clone(base);
+		worn.props.push({
+			name: 'prop_badge',
+			region: 'shadow_blob',
+			host: 'torso',
+			bone: boneOfSlot(M, 'torso'),
+			at: [worn.parts.torso.joints.hips[0], worn.parts.torso.joints.hips[1] * 0.6],
+		});
+		const wornList = M.sheetLayerList(
+			t.slots.map((s) => s.name),
+			(p) => slotOf(M, p),
+			{ ...worn, layers: armList },
+		);
+		wornList.splice(wornList.indexOf('prop_badge'), 1);
+		wornList.splice(wornList.indexOf('torso') + 1, 0, 'prop_badge');
+		const wornKept = M.updateSheetRig({
+			template: t,
+			regions: REGIONS,
+			was: base,
+			mapping: { ...worn, layers: wornList },
+			current: armBack,
+		});
+		const had = new Set(setup(armBack));
+		good =
+			ok(
+				"layers: a prop worn anew on that rig and drawn behind the torso updates it, the slots it had in Setup's order",
+				wornKept.ok &&
+					setup(wornKept.value.doc)
+						.filter((n) => had.has(n))
+						.join() === setup(armBack).join() &&
+					setup(wornKept.value.doc).indexOf('prop_badge') + 1 ===
+						setup(wornKept.value.doc).indexOf('torso'),
+				wornKept.ok ? setup(wornKept.value.doc).join(' ') : wornKept.problem,
+			) && good;
+		// A slot the list does not name (a finger) drawn behind the head in Setup: a changed list is
+		// judged on the order the update applies, so the finger the control steps meets it too.
+		const finger = clone(before);
+		const pinky = finger.slots.splice(
+			finger.slots.findIndex((s) => s.name === 'pinky_1_l'),
+			1,
+		)[0];
+		finger.slots.splice(
+			finger.slots.findIndex((s) => s.name === 'head'),
+			0,
+			pinky,
+		);
+		const fingerRefused = M.updateSheetRig({
+			template: t,
+			regions: REGIONS,
+			was: base,
+			mapping: { ...clone(base), layers: own },
+			current: finger,
+		});
+		good =
+			ok(
+				'layers: a changed list judged on the order the update applies (a finger Setup drew behind the head)',
+				!fingerRefused.ok && /"pinky_1_l" behind "head"/.test(fingerRefused.problem),
+				fingerRefused.ok ? 'updated' : fingerRefused.problem,
+			) && good;
 		log(`${drawn.size} layers; the chain moved behind the torso, the key's drawing kept`);
 		return good;
 	},
@@ -781,7 +842,21 @@ const MUTANTS = [
 	[
 		'layers',
 		'a changed list never held to the depth controls',
-		[UPD, '\t\t\tif (!checked.ok) return checked;\n', ''],
+		[UPD, '\t\t\tif (against) return { ok: false, problem: against };\n', ''],
+	],
+	[
+		'layers',
+		'a list held to the controls though it moves no slot the rig had',
+		[UPD, '\t\t\t\tinDrawOrder(had, want).some((n, i) => n !== had[i]) &&\n', ''],
+	],
+	[
+		'layers',
+		"a list judged on the template's order, not the one the update applies",
+		[
+			UPD,
+			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, now);',
+			'slotsAgainstDepth(fitTemplate(o.template, fit).channels, want);',
+		],
 	],
 	[
 		'handedit',

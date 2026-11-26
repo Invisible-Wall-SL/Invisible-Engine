@@ -25,7 +25,7 @@ import {
 	type FrameUpdateReport,
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
-import { sheetMappingProblem, sheetRig } from './rigSheetFit';
+import { sheetMappingProblem, sheetRig, slotsAgainstDepth } from './rigSheetFit';
 import { fitTemplate, frameWorld } from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
@@ -97,7 +97,7 @@ export function sameKeys(a: unknown, b: unknown): boolean {
 
 /**
  * The rig a mapping builds, as 🦴 Create rig builds it but in the template's order: the layers are
- * applied to the merged rig, and held to the depth controls only when they move one of its slots.
+ * applied to the merged rig, and held to the depth controls only when they move a slot it had.
  */
 function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMapping) {
 	const bad = sheetMappingProblem(t, regions, m);
@@ -115,8 +115,8 @@ function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMappi
 export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	const now = build(o.template, o.regions, o.mapping);
 	if (!now.ok) return now;
-	const fresh = now.value.skeleton;
-	const freshBind = frameWorld(fitTemplate(o.template, now.value.fit).bones, now.value.fit.frame);
+	const { skeleton: fresh, fit } = now.value;
+	const freshBind = frameWorld(fitTemplate(o.template, fit).bones, fit.frame);
 	// As made: the kept mapping built today; a kept mapping that no longer builds takes the rig's own
 	// attachments as made, so nothing reads as edited by hand.
 	const was = build(o.template, o.regions, o.was);
@@ -168,7 +168,8 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	}
 	// The layers: the edited list's order when the author changed it and it moves a slot, every
 	// draw-order key still drawing what it drew; else the rig's own order stays (a Setup reorder
-	// included, even one a depth control would refuse from the list).
+	// included, even one a depth control would refuse from the list). The order applied is held to
+	// the depth controls when the list moves a slot the open rig had (as the page's preview judges).
 	const layered: string[] = [];
 	if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {
 		const slotOf = (part: string) => o.template.parts.find((p) => p.name === part)?.slot ?? part;
@@ -182,8 +183,11 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		const was = slots.map((s) => s.name);
 		const now = inDrawOrder(was, want);
 		if (now.some((n, i) => n !== was[i])) {
-			const checked = sheetRig(o.template, o.regions, o.mapping);
-			if (!checked.ok) return checked;
+			const had = ((o.current.slots ?? []) as { name: string }[]).map((s) => s.name);
+			const against =
+				inDrawOrder(had, want).some((n, i) => n !== had[i]) &&
+				slotsAgainstDepth(fitTemplate(o.template, fit).channels, now);
+			if (against) return { ok: false, problem: against };
 			const back = keepDrawOrders(doc as Parameters<typeof keepDrawOrders>[0]);
 			doc.slots = now.map((n) => byName.get(n)!);
 			back();

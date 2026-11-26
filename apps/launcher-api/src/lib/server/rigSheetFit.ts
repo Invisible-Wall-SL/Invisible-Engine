@@ -44,6 +44,7 @@ import {
 import {
 	templateFitProblem,
 	type RigTemplate,
+	type RigTemplateChannel,
 	type TemplateArt,
 	type TemplateRegion,
 } from './rigTemplates';
@@ -59,6 +60,7 @@ import {
 	type SheetPlace,
 	type SheetProp,
 } from '../rigSheetMap';
+import { inDrawOrder } from '../rigSlotOrder';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
@@ -644,12 +646,28 @@ export function sheetRig(
 function layersAgainstDepth(t: RigTemplate, fit: RigFit): string | null {
 	if (!fit.order) return null;
 	const ft = fitTemplate(t, fit);
-	const at = new Map(ft.slots.map((s, i) => [s.name, i]));
-	for (const c of ft.channels) {
+	return slotsAgainstDepth(
+		ft.channels,
+		ft.slots.map((s) => s.name),
+	);
+}
+
+/**
+ * Why a draw order (`slots`, back to front: a fitted template's, or a rig's) cannot stand with the
+ * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged.
+ */
+export function slotsAgainstDepth(
+	channels: readonly RigTemplateChannel[],
+	slots: readonly string[],
+): string | null {
+	const at = new Map(slots.map((n, i) => [n, i]));
+	for (const c of channels) {
 		if (!c.order) continue;
-		const back = c.order.slots.reduce((a, b) => (at.get(b)! < at.get(a)! ? b : a));
+		const own = c.order.slots.filter((n) => at.has(n));
+		if (!own.length) continue;
+		const back = own.reduce((a, b) => (at.get(b)! < at.get(a)! ? b : a));
 		for (const st of c.order.steps)
-			if (!(at.get(st.behind)! < at.get(back)!))
+			if (at.has(st.behind) && !(at.get(st.behind)! < at.get(back)!))
 				return `the Layers draw "${back}" behind "${st.behind}", but the control "${c.label}" moves it from in front of "${st.behind}" to behind it: keep ${back} in front of ${st.behind}`;
 	}
 	return null;
@@ -676,12 +694,21 @@ export function sheetPreview(
 	t: RigTemplate,
 	regions: readonly TemplateRegion[],
 	m: SheetMapping,
+	{ checkLayers = true }: { checkLayers?: boolean } = {},
 ): Fitted<SheetPreview> {
-	const made = sheetRig(t, regions, m);
+	// Unchecked (🗺 Edit mapping, the list as 🔄 Update rig would not judge it): fitted in the
+	// template's order, drawn in the list's.
+	const bad = sheetMappingProblem(t, regions, m);
+	if (bad) return { ok: false, problem: bad };
+	const made = sheetRig(t, regions, checkLayers ? m : { ...m, layers: undefined });
 	if (!made.ok) return made;
 	const { fit, art, scale, origin } = made.value;
 	const ft = fitTemplate(t, fit);
-	const slotAt = new Map(ft.slots.map((s, i) => [s.name, i]));
+	const order = inDrawOrder(
+		ft.slots.map((s) => s.name),
+		[...(m.layers ?? [])].reverse(),
+	);
+	const slotAt = new Map(order.map((n, i) => [n, i]));
 	const slotOf = (name: string) => ft.parts.find((p) => p.name === name)?.slot ?? name;
 	const W = frameWorld(ft.bones, fit.frame);
 	return {

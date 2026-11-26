@@ -12,8 +12,9 @@ import type { RequestHandler } from './$types';
 /**
  * What 🗺 From my sheet's ◧ Arranged view draws (docs/design/frame-to-rig.md §13): the rig a sheet
  * mapping makes, placed by the same `sheetRig` the create runs, so the page fits nothing itself.
- * POST `{ sheet }` → `SheetPreview` (each drawing's place in the rig's world, the bones, the scale
- * and the canvas's origin). Writes nothing. Gated by `rigger`; the sheet must be this project's art.
+ * POST `{ sheet, checkLayers? }` → `SheetPreview` (each drawing's place in the rig's world, the
+ * bones, the scale and the canvas's origin); `checkLayers: false` (🗺 Edit mapping, a list 🔄 Update
+ * rig would not hold to the depth controls) draws the layers without judging them. Writes nothing. Gated by `rigger`; the sheet must be this project's art.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, prefixes } = await gate(locals, cookies, {
@@ -30,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const rs = await loadRegionSet(sheet.manifestKey);
 	if (!rs.regions.length) throw error(400, 'that atlas has no regions');
 	const made = refuseOnThrow(`The sheet could not be placed on the "${t.label}" template`, () =>
-		sheetPreview(t, rs.regions, sheet),
+		sheetPreview(t, rs.regions, sheet, { checkLayers: body?.checkLayers !== false }),
 	);
 	if (!made.ok)
 		throw error(400, `The sheet does not fit the "${t.label}" template: ${made.problem}.`);

@@ -188,19 +188,24 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   the Layers list opens from the rig's slots, goes out as `layers`, and the edited mapping's build
   held it to the Arm depth control. `updateSheetRig` now builds both mappings in the template's order
   (`build`, after `sheetMappingProblem`), applies the list to the merged rig only when it changed
-  since the kept mapping AND moves a slot, and only then fits the mapping with its layers
-  (`sheetRig`'s depth check) — so the server keeps the rig's order for any client, and a changed list
-  still meets the control. The dialog's preview goes without the list while it is the one opened
-  from the rig (`s2rLayersAsRig`), so no false warning. Also: one `MAX_LAYERS` (256,
+  since the kept mapping AND moves a slot, and holds the order it applies to the depth controls
+  (`slotsAgainstDepth`, on the merged order, so a finger Setup drew behind the head counts) only
+  when the list moves a slot the open rig had (a prop worn anew moves none) — so the server keeps
+  the rig's order for any client, and a changed list still meets the control. The dialog's preview
+  judges the list by the same test (`s2rLayersChecked`); otherwise it draws the list unjudged
+  (`/api/rigger/from-sheet/preview` `checkLayers: false`, `sheetPreview` fitting in the template's
+  order and drawing in the list's), so ◧ Arranged draws what the rig draws and warns of nothing the
+  update would not refuse. Also: one `MAX_LAYERS` (256,
   `rigTemplateFit.ts`) for `parseRigFit` and `parseSheetMapping`; ↺ Start over's confirm names the
   Layers; ✕ mid-drag ends the Layers drag (`s2rLayerDragEnd`); the Layers tooltip and the guide say a
   clip's draw-order keys still draw what they drew, so a new order shows at setup and in clips that
   key none. `sheet-rig-browser.mjs` gave Setup's ⋮⋮ drag room: the rig panel left the slot list's
   scroller 9 px tall, so the grip sat in the drag's auto-scroll edge and the drop landed rows off
   (65/67 every run); it now drags in a 2000 px-tall viewport and checks both points clear the edge
-  first. Guards: `sheet-rig-update.mjs` 93/93 (2 checks, 2 mutants new; the first failed before the
-  fix), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 69/69, 53/53 page mutants (2 new; 2 Layers mutants
-  re-anchored on `s2rMapping(st)`'s text, where #1941 had left them unplanted). ⏳ Not live-verified.
+  first. Guards: `sheet-rig-update.mjs` 119/119 (4 checks, 4 mutants new; each check failed on the
+  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 69/69, 55/55 page mutants (4
+  new; 2 Layers mutants re-anchored on `s2rMapping(st)`'s text, where #1941 had left them
+  unplanted). ⏳ Not live-verified.
 
 - 2026-11-26 — **🗺 From my sheet: a Layers list (#1942).** The owner could not set which added
   shape sits in front of which at setup. The dialog's side panel lists every slot the mapping draws

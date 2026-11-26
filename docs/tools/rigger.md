@@ -1618,6 +1618,8 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   head in Setup, which the list itself would refuse. Change the list and the slots it lists take its
   order, held to the arm-depth controls as a new rig's is; each draw-order key you made still draws
   what it drew, so the new order shows at setup and in the clips that key no draw order.
+  Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
+  refused, with why under the list, until you fix that order too (in the list, or in Setup).
 - **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
   taken off goes with the keys on its bone, and you are shown those keys before anything changes.
 - **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone

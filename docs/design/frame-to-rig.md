@@ -1677,13 +1677,14 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
   behind them, so an order drawing the arm behind either at setup is refused, naming the control
   (`layersAgainstDepth`); the page shows the launcher's word under the list.
 - **🔄 Update rig** applies the list only when it changed since the kept mapping and moves a slot
-  of the open rig (`updateSheetRig`, report `layered`), through `frameRigUpdate`'s `keepDrawOrders`,
-  so every draw-order key keeps drawing what it drew; only then is it held to the depth controls.
-  The edited mapping is built in the template's order and the list applied to the merged rig, so a
-  rig whose Setup drew an arm behind the head (which the list could not ask for) still updates.
-  🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
-  survives an update that does not touch the list; its preview goes without that list until it is
-  changed there.
+  of the merged rig (`updateSheetRig`, report `layered`), through `frameRigUpdate`'s
+  `keepDrawOrders`, so every draw-order key keeps drawing what it drew. The edited mapping is built
+  in the template's order and the list applied to the merged rig, so a rig whose Setup drew an arm
+  behind the head (which the list could not ask for) still updates. The order applied is held to the
+  depth controls (`slotsAgainstDepth`) only when the list moves a slot the open rig had; a prop worn
+  anew moves none. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in
+  Setup's slots survives an update that does not touch the list; its preview judges the list by the
+  same test (`s2rLayersChecked`) and otherwise draws it unjudged (`checkLayers: false`).
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
 
