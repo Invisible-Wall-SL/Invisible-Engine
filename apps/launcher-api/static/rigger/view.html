@@ -3554,8 +3554,70 @@ function rig3dControl(){
       historyStep(() => { if (Number.isFinite(v) && v > 0) rig3d.doc.tolerance = v; else delete rig3d.doc.tolerance; markDirty(); });
     };
     wrap.appendChild(tol);
+    wrap.append(...rig3dOrderControls());
   }
   return wrap;
+}
+// The draw order of the 3D clips (rig-2p5d §4.5): by depth (nearer drawn over farther, a body read at
+// its back face, past the hysteresis, the 🔒 locks kept), or as keyed by hand (the bake keys none).
+function rig3dOrderControls(){
+  const css = "background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:2px 4px;font-size:11px;";
+  const ord = document.createElement("select");
+  ord.id = "rig3dOrder"; ord.style.cssText = css;
+  for (const [v, t] of [["depth", "↕ by depth"], ["keyed", "↕ as keyed"]]){ const o = document.createElement("option"); o.value = v; o.textContent = t; ord.appendChild(o); }
+  ord.value = rig3d.doc.depthOrder === false ? "keyed" : "depth";
+  ord.title = "Draw order in the 3D clips. By depth: the bake draws the nearer part over the farther one (a hand behind the back goes under the torso; an arm at the body's side stays over it, the body read at its back face), past the hysteresis beside, and keeping your 🔒 locks. As keyed: the bake keys none, and each clip keeps the draw order you key — drag a slot in Animate to key it at the playhead. Changing it bakes the clips again.";
+  ord.onchange = () => { historyStep(() => { if (ord.value === "keyed") rig3d.doc.depthOrder = false; else delete rig3d.doc.depthOrder; markDirty(); }); renderAnimSection(); };
+  const hy = document.createElement("input");
+  hy.id = "rig3dHyst"; hy.type = "number"; hy.step = "1"; hy.min = "0"; hy.placeholder = "6";
+  hy.value = rig3d.doc.hysteresis ?? "";
+  hy.style.cssText = "width:52px;" + css;
+  hy.title = "Hysteresis, rig units: how much nearer a part must come than another before it is drawn over it, so a tracker's jitter never flickers it (a capture import sets about 4 cm of the performer). Changing it bakes the clips again.";
+  hy.onchange = () => {
+    const v = parseFloat(hy.value);
+    historyStep(() => { if (Number.isFinite(v) && v >= 0) rig3d.doc.hysteresis = v; else delete rig3d.doc.hysteresis; markDirty(); });
+  };
+  const lk = document.createElement("button");
+  lk.id = "rig3dLocks"; lk.className = "ctlIcon"; lk.style.cssText = css;
+  lk.textContent = "🔒 " + ((rig3d.doc.locks || []).length || "");
+  lk.title = "Locks: pairs the depth order keeps whatever the depths say (the watch always over the forearm, a hand always over the body). Click to add or remove one.";
+  lk.setAttribute("aria-label", "Draw-order locks");
+  lk.onclick = openOrderLocks;
+  return [ord, hy, lk];
+}
+// 🔒 The draw-order locks: each pair [front, back] the bake keeps, whatever the depths say.
+function openOrderLocks(){
+  if (!rawDoc || !rig3d.doc) return;
+  closeCurveMenu();
+  const m = document.createElement("div"); m.id = "curveMenu";
+  m.style.cssText = "position:fixed;right:18px;top:80px;z-index:90;width:280px;max-height:60vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.5);";
+  const hd = document.createElement("div"); hd.textContent = "🔒 Draw-order locks"; hd.title = "The 3D clips' depth order keeps each pair: the first drawn over the second at every time."; hd.style.cssText = "padding:8px 10px;font-weight:600;font-size:12px;border-bottom:1px solid var(--line);"; m.appendChild(hd);
+  const list = document.createElement("div"); list.id = "orderLocks"; list.style.cssText = "flex:1;overflow:auto;padding:4px;"; m.appendChild(list);
+  const names = rawDoc.slots.map((x) => x.name);
+  const set = (locks) => { historyStep(() => { if (locks.length) rig3d.doc.locks = locks; else delete rig3d.doc.locks; markDirty(); }); draw(); renderAnimSection(); };
+  const draw = () => {
+    list.innerHTML = "";
+    (rig3d.doc.locks || []).forEach(([front, back], i) => {
+      const row = document.createElement("div"); row.className = "orderLock"; row.style.cssText = "display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;";
+      const t = document.createElement("span"); t.style.flex = "1"; t.textContent = front + " over " + back;
+      const del = document.createElement("button"); del.className = "ctlIcon"; del.textContent = "✕"; del.title = "Remove the lock"; del.setAttribute("aria-label", "Remove the lock " + front + " over " + back);
+      del.onclick = () => set(rig3d.doc.locks.filter((_, k) => k !== i));
+      row.append(t, del); list.appendChild(row);
+    });
+  };
+  draw();
+  const foot = document.createElement("div"); foot.style.cssText = "display:flex;gap:4px;padding:8px;border-top:1px solid var(--line);align-items:center;";
+  const pick = (id, label) => { const sel = document.createElement("select"); sel.id = id; sel.title = label; sel.setAttribute("aria-label", label); sel.style.cssText = "flex:1;min-width:0;"; for (const n of names){ const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); } return sel; };
+  const front = pick("orderLockFront", "Drawn over"), back = pick("orderLockBack", "…this one");
+  const add = document.createElement("button"); add.id = "orderLockAdd"; add.textContent = "＋"; add.title = "Lock the first over the second";
+  add.onclick = () => {
+    const f = front.value, k = back.value, locks = (rig3d.doc.locks || []).filter(([a, c]) => !(a === k && c === f));
+    if (f === k || locks.some(([a, c]) => a === f && c === k)) return;
+    set([...locks, [f, k]]);
+  };
+  const close = document.createElement("button"); close.textContent = "✕"; close.onclick = closeCurveMenu;
+  foot.append(front, document.createTextNode("over"), back, add, close); m.appendChild(foot);
+  document.body.appendChild(m);
 }
 async function make3dRig(turnaround){
   if (!rawDoc || rig3d.doc || !selected) return;
@@ -15665,6 +15727,7 @@ function slotGrip(title, down){
 // A slot row's grip and eye, before its name.
 function decorateSlotRow(row, name){
   if (editMode) row.appendChild(slotGrip("Drag to another place in the draw order (with the Shift / Ctrl selection, as a block)", (e) => startSlotDrag(e, name)));
+  else if (animMode && curAnim) row.appendChild(slotGrip("Drag to key the draw order at the playhead: the slot (or the selection) drawn in front of the row you drop it above", (e) => startSlotDrag(e, name)));
   const eye = ctlIcon("👁", "", (e) => toggleSlotEye(name, e.altKey));
   eye.classList.add("slotEye");
   eye.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotEye(name, true); };
@@ -15751,7 +15814,7 @@ function clickSlotRow(name, e){
 let slotDrag = null; // { id, names, x, y, moved, ins, sc, raf, at } while a grip is held
 const SLOT_DRAG_EDGE = 28;
 function startSlotDrag(e, name, folder){
-  if (e.button !== 0 || !e.isPrimary || !rawDoc || !editMode || slotDrag) return;
+  if (e.button !== 0 || !e.isPrimary || !rawDoc || !(editMode || (animMode && curAnim)) || slotDrag) return;
   e.preventDefault(); e.stopPropagation();
   const sel = folder ? slotFolders()[folder] : selectedSlotNames();
   let sc = $("#slotList");
@@ -15823,9 +15886,24 @@ function slotDragUp(e){
   if (!slotDrag || e.pointerId !== slotDrag.id) return;
   const d = endSlotDrag();
   if (d.moved && d.ins != null){
+    if (!editMode) return keySlotDrop(d);
     const names = setupSlotNames(), folders = slotFolders();
     applySlotFolderPlan(slotFolderDrop(names, folders, slotListRows(names, folders, slotFoldersShut()), d.names, d.folder, d.ins));
   }
+}
+// Animate: the dragged slots drawn just in front of the slot row they were dropped above (at the back
+// below the last), from the draw order at the playhead, keyed there (one undo step).
+function keySlotDrop(d){
+  const rows = [...document.querySelectorAll("#slotList .trow[data-slot], #slotList .trow[data-folder]")];
+  const under = rows.slice(d.ins).find((r) => r.dataset.slot && !d.names.includes(r.dataset.slot));
+  const names = skeletonData.slots.map((x) => x.name);
+  const now = resolveDrawOrder(animTime).map((i) => names[i]);
+  const rest = now.filter((n) => !d.names.includes(n)), moving = now.filter((n) => d.names.includes(n));
+  const at = under ? rest.indexOf(under.dataset.slot) + 1 : 0;
+  const order = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+  if (order.join() === now.join()) return;
+  historyStep(() => { keyDrawOrder(animTime, order.map((n) => names.indexOf(n))); });
+  renderTimeline();
 }
 function slotDragCancel(e){ if (slotDrag && e.pointerId === slotDrag.id) endSlotDrag(); }
 function slotDragKey(e){ if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); endSlotDrag(); } }
@@ -20987,7 +21065,7 @@ function resolveDrawOrder(t){
 // Write a draw-order key: order[drawPos] = setup slot index → minimal rig offsets.
 function keyDrawOrder(time, order){
   if (!rawDoc || !curAnim) return;
-  if (clip3d(curAnim)){ $("#hint").textContent = "🧊 a 3D clip's draw order comes from its bones' depths — its bake keys it"; return; }
+  if (clip3d(curAnim) && rig3d.doc.depthOrder !== false){ $("#hint").textContent = "🧊 this 3D clip's draw order comes from depth (its bake keys it): 🔒 lock a pair, or set ↕ as keyed in 🧊 3D to key it yourself"; return; }
   const n = order.length, drawPosOf = new Array(n);
   for (let pos = 0; pos < n; pos++) drawPosOf[order[pos]] = pos;
   const offsets = [];

@@ -1791,3 +1791,6 @@ the report; 5 page mutants, `--only-mutants` to run a subset).
   import's 40° turn leaves the head's skin); a ¾ or profile head is still its drawing by angle.
 - Not reproduced on the owner's real `S_NellyAnimTest` (production reads refused in auto mode): on
   their shape only.
+- A capture's clipping (2026-11-26) was the 2.5D bake's draw order, not the sheet's meshes: fixed in
+  [rig-2p5d §4.5 "As built for captures"](rig-2p5d.md) (the body's depth, the hysteresis at the
+  rig's scale, locks, ↕ as keyed). A joint's overlap is the artist's drawing: nothing tears there.
