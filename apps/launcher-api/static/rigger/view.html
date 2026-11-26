@@ -10119,6 +10119,7 @@ const f2r = {
   fresh: true, kept: [], cutHere: new Set(), undo: null,
 };
 function f2rDirty(){ return f2r.brushDirty || f2r.propsDirty || f2r.sourcesDirty; }
+function f2rByHand(){ return !!f2r.plan && Object.values(f2r.plan).some((p) => p.byHand); }
 
 function f2rNote(t){ $("#f2rNote").textContent = t || ""; }
 function f2rColour(i){
@@ -10148,7 +10149,15 @@ function openFrameToRig(){
   f2rFillClips();
   if (projectClips === null) loadProjectClips().then(f2rFillClips);
   // A new rig starts as the first time, on the clip still picked: its kept cuts listed again, offered.
-  if (f2r.clip){ f2rFresh(); f2rLoadSaved(f2r.clip, f2r.gen); }
+  // What was open is one step ↶ takes back, as after ↺ Start over (whose own ↶ stays); not mid-cut.
+  if (f2r.clip && !f2r.busy){
+    const work = f2rDirty() || f2r.moved || f2rByHand() || !!f2r.cut;
+    const undo = work ? f2rSnapshot() : f2r.undo;
+    f2rFresh(); f2r.undo = undo;
+    if (work) f2rNote("started over on the best frame: ↶ brings back what was open");
+    f2rRenderStrip(); f2rRenderCut();
+    f2rLoadSaved(f2r.clip, f2r.gen);
+  }
   f2rDraw();
 }
 
@@ -10195,13 +10204,16 @@ async function f2rReuse(){
 
 // ↺ Start over: back to the first guess as one step, which ↶ takes back; the cut that was open stays
 // kept, for ↺ Reuse.
-function f2rStartOver(){
-  if (f2r.busy || !f2r.clip) return;
-  const byHand = !!f2r.plan && Object.values(f2r.plan).some((p) => p.byHand);
-  if ((f2rDirty() || f2r.moved || byHand) && !confirm("↺ Start over drops what you did not 💾 keep here — touch-ups, dragged joints, the frames you picked for parts — and goes back to the clip's best frame, as it was tracked.\n\n↶ brings it back.")) return;
+// What ↶ brings back: the cut open, its touch-ups, joints and parts' frames, and the cuts made here.
+function f2rSnapshot(){
   const keep = ["sel", "frame", "plan", "labels", "overlay", "frameImg", "moved", "fresh", ...Object.keys(F2R_CLEAN)];
   const undo = Object.fromEntries(keep.map((k) => [k, f2r[k]]));
-  Object.assign(undo, { cut: f2r.cut && JSON.parse(JSON.stringify(f2r.cut)), cutHere: new Set(f2r.cutHere), why: $("#f2rWhy").textContent });
+  return Object.assign(undo, { cut: f2r.cut && JSON.parse(JSON.stringify(f2r.cut)), cutHere: new Set(f2r.cutHere), here: f2r.saved.filter((c) => f2r.cutHere.has(c.job)), why: $("#f2rWhy").textContent });
+}
+function f2rStartOver(){
+  if (f2r.busy || !f2r.clip) return;
+  if ((f2rDirty() || f2r.moved || f2rByHand()) && !confirm("↺ Start over drops what you did not 💾 keep here — touch-ups, dragged joints, the frames you picked for parts — and goes back to the clip's best frame, as it was tracked.\n\n↶ brings it back.")) return;
+  const undo = f2rSnapshot();
   f2rFresh();
   f2r.undo = undo;
   f2rNote(f2r.sel >= 0 ? "started over on frame " + f2r.sel + ", the best: ✂ Cut makes a fresh cut" : "started over: pick a frame, then ✂ Cut");
@@ -10211,8 +10223,10 @@ function f2rUndoStartOver(){
   const u = f2r.undo;
   if (!u || f2r.busy) return;
   if ((f2rDirty() || f2r.moved) && !confirm("↶ brings back the cut from before ↺ Start over, dropping what you did since. Go on?")) return;
-  const { why, ...state } = u;
+  const { why, here, ...state } = u;
   Object.assign(f2r, state, { undo: null, composite: null });
+  // The clip's kept cuts, read again since, may leave out cuts made here.
+  for (const c of here) if (!f2r.saved.some((x) => x.job === c.job)) f2r.saved.push(c);
   const cut = f2r.cut;
   if (cut){
     f2r.saved = f2r.saved.some((x) => x.job === cut.job) ? f2r.saved.map((x) => (x.job === cut.job ? cut : x)) : [cut, ...f2r.saved];
@@ -11702,7 +11716,10 @@ async function openSheetToRig(edit){
 
 // A new rig's mapping changed by hand and closed without 🦴 Create rig is left for ↺ Reuse.
 function closeSheetToRig(){
+  const u = s2r.undo;
   if (!s2r.edit && s2r.sheet && s2r.dirty && Object.keys(s2r.map).length) s2r.left = { mapping: s2rMapping(), at: Date.now() };
+  // Closed on ↺ Start over's first guess: the mapping it replaced is the one left.
+  else if (!s2r.edit && s2r.sheet && !s2r.dirty && u && u.dirty && Object.keys(u.map).length) s2r.left = { mapping: s2rMapping(u), at: Date.now() };
   $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null;
 }
 
@@ -11748,6 +11765,8 @@ function s2rStartOver(){
   if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props and the arrangement go back to the first guess.\n\n↶ brings them back.")) return;
   s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
   Object.assign(s2r, { map: {}, props: [], arrange: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
+  ++s2r.gen;
   s2rSuggest();
   s2rRender(); s2rDraw();
 }
@@ -11756,6 +11775,9 @@ function s2rUndoStartOver(){
   if (!u) return;
   if (s2r.dirty && !confirm("↶ brings back the mapping from before ↺ Start over, dropping what you changed since. Go on?")) return;
   Object.assign(s2r, u, { undo: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  ++s2r.gen;
+  // A face being found when ↺ Start over came is looked for again.
+  for (const [part, f] of Object.entries(s2r.faces)) if (f === "busy") s2rTrackFace(part);
   s2rSwapUi();
   s2rNote("↶ the mapping as it was before ↺ Start over");
   s2rRender(); s2rDraw();
@@ -12088,19 +12110,20 @@ function s2rSelRegion(){
   return sel.region;
 }
 
-// What the page sends and the rig keeps (`sheet.json`, rigSheetMap.ts SheetMapping).
-function s2rMapping(){
+// What the page sends and the rig keeps (`sheet.json`, rigSheetMap.ts SheetMapping); of `st` (map,
+// props, arrange, swap: ↺ Start over's undo) when given.
+function s2rMapping(st = s2r){
   const turn = (t) => Math.round(((((t % 360) + 540) % 360) - 180) * 1000) / 1000;
   const arrange = {};
-  for (const [part, a] of Object.entries(s2r.arrange || {}))
-    if (s2r.map[part] && s2rMain(s2rPart(part))) arrange[part] = { at: [Math.round(a.at[0] * 100) / 100, Math.round(a.at[1] * 100) / 100], turn: turn(a.turn) };
+  for (const [part, a] of Object.entries(st.arrange || {}))
+    if (st.map[part] && s2rMain(s2rPart(part))) arrange[part] = { at: [Math.round(a.at[0] * 100) / 100, Math.round(a.at[1] * 100) / 100], turn: turn(a.turn) };
   const parts = {};
-  for (const [part, m] of Object.entries(s2r.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
+  for (const [part, m] of Object.entries(st.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
     sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
-    props: s2r.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
+    props: st.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
-    ...(s2r.swap ? { swapSides: true } : {}),
+    ...(st.swap ? { swapSides: true } : {}),
   };
 }
 
