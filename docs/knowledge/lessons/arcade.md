@@ -6,6 +6,15 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### On an iPhone the game slid up and the profiler's Send went off screen
+
+- **Symptom:** owner, 2026-11-26, BrowserStack iPhone: title cut, black strip at the bottom, no Send.
+- **Cause:** `<body>` only had `overflow: hidden`, which iOS Safari still scrolls; the lobby line was
+  sized in the playtest's fallback font, narrower than the pixel font a phone loads.
+- **Fix:** `app.html` pins `body`; `PerfHud` follows `visualViewport`; lobby lines `fitTo` the canvas.
+- **Guard:** none automatic (Chromium does not scroll like Safari): check layout on a real iPhone.
+- **PR:** branch `claude/wonderful-wozniak-d6hr0p` (2026-11-26)
+
 ### A new level was drawn, and the players collided against another
 
 - **Symptom:** owner, 2026-11-25: "changing the seed generates a new level, but does not update
@@ -104,21 +113,12 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 
 ### A bear that would not wade was the published project, not the code
 
-- **Symptom:** owner, 2026-11-20, from the live game: "the bear have a bug, and by design, they
-  should be able to go into the water"; and a circle on every swipe and cast.
-- **Cause:** none in the code. The live game server and arcade runtime (`c98c63c`, read off
-  `/healthz` and `x-runtime-release`) let a person's and a bot's bear wade on the original's levels
-  and draw no circle. A live room swaps only the river's geometry into the PUBLISHED config
-  (`generatedOnlineGame`), so its generator decides: one naming `salmonsRiver` (the band river)
-  keeps bears on the banks. The re-export and re-publish after WS-A (Owner steps) was still
-  listed as pending, and the old flow-v2.json spawned the `salmonsSwipe` / `salmonsCast` circles on
-  `ability`. Not confirmed: reading the published snapshot needs its link's token.
-- **Fix:** the owner step (re-export, upload `config.json`, `flow-v2.json`, `scenes.json`, publish);
-  no code changed for either.
-- **Guard:** `check:room-bots` "as exported, a bear walks into the water, a person's and a bot's"
-  (fails if the export stops naming `salmonsMap` or the water is solid to bears);
-  `check:salmons-art` "a press draws no circle". For a report from the live game, first compare
-  `/healthz` and the runtime release with `main`, and the published documents with the export.
+- **Symptom:** owner, 2026-11-20, live game: bears kept off the water; a circle on every swipe/cast.
+- **Cause:** none in the code. A live room swaps only the river into the PUBLISHED config, and the
+  published one still named `salmonsRiver` and the old flow's circles; the re-export was pending.
+- **Fix:** the owner step (re-export, upload, publish); no code changed.
+- **Guard:** `check:room-bots` (an exported bear wades), `check:salmons-art` (no circle). For a live
+  report, first compare `/healthz` and the runtime release with `main`, and published docs with the export.
 - **PR:** branch `claude/salmons-playable-bots` (2026-11-20)
 
 ### A playtest exited and left its test server running

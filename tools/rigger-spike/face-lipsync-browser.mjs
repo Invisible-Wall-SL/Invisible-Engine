@@ -272,7 +272,12 @@ try {
 		input.dispatchEvent(new Event("change", { bubbles: true }));
 		return true;
 	})()`);
-	await waitFor('faceVoice === "take_2-deadbeef.mp3"', 10000);
+	// The upload sets `faceVoice`, then reloads the project's lines and only then redraws the panel:
+	// wait for the line in the list, not just the variable, before reading what is selected.
+	await waitFor(
+		'faceVoice === "take_2-deadbeef.mp3" && !!document.querySelector(\'#faceList .faceLip select option[value="take_2-deadbeef.mp3"]\')',
+		10000,
+	);
 	ok(
 		'the upload asks for a URL with the name and size',
 		q(seen.voicePosts[0]) === q({ name: 'take 2.mp3', bytes: 3000 }),

@@ -60,6 +60,7 @@
 	import PagedRows from './PagedRows.svelte';
 	import SnapshotRows from './SnapshotRows.svelte';
 	import ZoneArtSection from './ZoneArtSection.svelte';
+	import { NO_RIGS, type ZoneArtRigs } from './zoneArtDoc';
 	import ZoneMap from './ZoneMap.svelte';
 	import { MAX_SEED } from '$lib/editor/generatedLevelCore';
 	import {
@@ -89,6 +90,7 @@
 		projectKey,
 		pickSheets = [],
 		clips = [],
+		rigs = NO_RIGS,
 	}: {
 		doc: GameConfigDoc;
 		/** The symbols the strips deal — what a collect goal can name. */
@@ -101,6 +103,8 @@
 		pickSheets?: { key: string; name: string }[];
 		/** The project's Flipbook clips a zone family may be drawn with. */
 		clips?: { id: string; name: string; assetKey: string; firstFrame: string }[];
+		/** The project's rigs a zone family may be drawn with, and their animations. */
+		rigs?: ZoneArtRigs;
 	} = $props();
 
 	const FAMILY_LABELS: Record<ConfigFamily, string> = {
@@ -710,6 +714,7 @@
 			{readOnly}
 			{pickSheets}
 			{clips}
+			{rigs}
 			{issuesFor}
 		/>
 	{/if}

@@ -5,23 +5,31 @@
 
 	import {
 		ZONE_ART_LIMITS,
+		zoneArtTakesRig,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type ZoneArt,
 		type ZoneArtSource,
 	} from 'game-config';
+	import RigSelect from '$lib/characters/RigSelect.svelte';
 	import CardArt from '../cards/CardArt.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		addZoneArtVariant,
 		clipThumbRef,
 		removeZoneArt,
+		rigCrowdWarning,
+		rigLooped,
+		rigPicked,
+		rigSourceOf,
 		setZoneArtScale,
 		setZoneArtSource,
 		shownZoneArtRows,
 		zoneArtDefault,
+		zoneArtRigNames,
 		zoneArtRows,
 		zoneArtSceneryRows,
+		type ZoneArtRigs,
 	} from './zoneArtDoc';
 	import type { SalmonsCodeDrawn } from './zoneArtBuiltIn';
 
@@ -29,8 +37,10 @@
 	 * THE ZONE ART CARD of `/config` (`arcade.zoneArt`, `docs/design/zone-art.md`): per zone family
 	 * of the zones the game plays, what each of its zones is drawn with, and under **Scenery** what
 	 * each piece its art places on no zone is drawn with (Salmons' trees). The picture is a frame of
-	 * a project sheet (the Scene Editor's region picker) or a Flipbook clip; more pictures are
-	 * variants, one per zone (or piece) by the room's seed. Every edit goes through `./zoneArtDoc`.
+	 * a project sheet (the Scene Editor's region picker), a Flipbook clip, or (a zone family only)
+	 * one of the project's rigs and one of its animations (a character sheet's rig picker); more
+	 * pictures are variants, one per zone (or piece) by the room's seed. Every edit goes through
+	 * `./zoneArtDoc`.
 	 */
 	type Clip = { id: string; name: string; assetKey: string; firstFrame: string };
 	let {
@@ -40,6 +50,7 @@
 		readOnly,
 		pickSheets,
 		clips,
+		rigs,
 		issuesFor,
 	}: {
 		doc: GameConfigDoc;
@@ -49,6 +60,7 @@
 		readOnly: boolean;
 		pickSheets: { key: string; name: string }[];
 		clips: Clip[];
+		rigs: ZoneArtRigs;
 		issuesFor: (prefix: string) => GameConfigIssue[];
 	} = $props();
 
@@ -63,7 +75,17 @@
 		['', 'Default'],
 		['sprite', 'Sheet frame'],
 		['flipbook', 'Flipbook clip'],
+		['rig', 'Rig'],
 	] as const;
+
+	/** Why a row's "Drawn with" cannot be `kind`, or `''` when it can. */
+	function refusal(kind: string, family: string): string {
+		if (kind === 'flipbook' && !clips.length) return 'This project has no Flipbook clips yet';
+		if (kind !== 'rig') return '';
+		if (!zoneArtTakesRig(family))
+			return 'Trees cannot be a rig: about 430 rigs cost a phone several milliseconds a frame. Use a frame or a clip.';
+		return rigs.list.length ? '' : 'This project has no rigs yet';
+	}
 
 	/** A new picture of `kind`, kept from `was` where it is the same kind; none to pick yet ⇒ none. */
 	function sourceOfKind(kind: string, was: ZoneArtSource | undefined): ZoneArtSource | undefined {
@@ -71,25 +93,61 @@
 		if (kind === 'flipbook' && clips[0]) return { kind: 'flipbook', clip: clips[0].id };
 		return undefined;
 	}
-	/** The kind a row's select shows: a sprite still to pick is shown picked, until it is. */
-	let pending = $state<Record<string, 'sprite'>>({});
+	/** A picture still to be completed, shown in its row until it is: a sprite with no frame yet,
+	 *  or a rig with no animation of it picked yet. */
+	type Pending = { kind: 'sprite' } | { kind: 'rig'; rig: string };
+	let pending = $state<Record<string, Pending>>({});
 	const keyOf = (family: string, index: number) => `${family}\u0000${index}`;
+	function clearPending(family: string, index: number) {
+		const { [keyOf(family, index)]: _, ...rest } = pending;
+		pending = rest;
+	}
 
 	function pickKind(family: string, index: number, was: ZoneArtSource | undefined, kind: string) {
 		const key = keyOf(family, index);
 		if (kind === 'sprite' && was?.kind !== 'sprite') {
-			pending = { ...pending, [key]: 'sprite' };
+			pending = { ...pending, [key]: { kind: 'sprite' } };
 			return;
 		}
-		const { [key]: _, ...rest } = pending;
-		pending = rest;
+		if (kind === 'rig' && was?.kind !== 'rig' && rigs.list[0]) {
+			pending = { ...pending, [key]: { kind: 'rig', rig: rigs.list[0].name } };
+			return;
+		}
+		clearPending(family, index);
 		setZoneArtSource(doc, family, index, sourceOfKind(kind, was));
 	}
 	function pickRegion(family: string, index: number, region: string) {
-		const { [keyOf(family, index)]: _, ...rest } = pending;
-		pending = rest;
+		clearPending(family, index);
 		setZoneArtSource(doc, family, index, region ? { kind: 'sprite', region } : undefined);
 	}
+	/** Another rig: its animation of the same name, else one of its own to be picked first. */
+	function pickRig(family: string, index: number, was: ZoneArtSource | undefined, rig: string) {
+		if (!rig) return;
+		const kept = rigPicked(was, rig, rigs.animationsOf(rig));
+		if (kept) {
+			clearPending(family, index);
+			setZoneArtSource(doc, family, index, kept);
+		} else pending = { ...pending, [keyOf(family, index)]: { kind: 'rig', rig } };
+	}
+	function pickAnimation(
+		family: string,
+		index: number,
+		was: ZoneArtSource | undefined,
+		rig: string,
+		animation: string,
+	) {
+		if (!animation) return;
+		clearPending(family, index);
+		setZoneArtSource(doc, family, index, rigSourceOf(was, rig, animation));
+	}
+	// The animations of every rig the card shows are read, once each.
+	$effect(() => {
+		const shown = [
+			...zoneArtRigNames(doc),
+			...Object.values(pending).flatMap((p) => (p.kind === 'rig' ? [p.rig] : [])),
+		];
+		for (const rig of shown) rigs.read(rig);
+	});
 	function setFps(family: string, index: number, source: ZoneArtSource, value: string) {
 		if (source.kind !== 'flipbook') return;
 		const n = Number(value);
@@ -124,7 +182,8 @@
 	source: ZoneArtSource | undefined,
 	ruleOnly = false,
 )}
-	{@const kind = pending[keyOf(family, index)] ?? source?.kind ?? ''}
+	{@const waiting = pending[keyOf(family, index)]}
+	{@const kind = waiting?.kind ?? source?.kind ?? ''}
 	<div class="picture">
 		<select
 			value={kind}
@@ -132,12 +191,9 @@
 			onchange={(e) => pickKind(family, index, source, e.currentTarget.value)}
 		>
 			{#each KINDS as [value, label] (value)}
-				<option
-					{value}
-					disabled={value === 'flipbook' && !clips.length}
-					title={value === 'flipbook' && !clips.length
-						? 'This project has no Flipbook clips yet'
-						: ''}>{index && !value ? 'Remove variant' : label}</option
+				{@const refused = value === source?.kind ? '' : refusal(value, family)}
+				<option {value} disabled={!!refused} title={refused}
+					>{index && !value ? 'Remove variant' : label}</option
 				>
 			{/each}
 		</select>
@@ -188,6 +244,47 @@
 				/></label
 			>
 			{#if thumb}<span class="thumb"><CardArt value={thumb} size={40} /></span>{/if}
+		{:else if kind === 'rig'}
+			{@const stored = source?.kind === 'rig' ? source : undefined}
+			{@const rig = waiting?.kind === 'rig' ? waiting.rig : (stored?.rig ?? '')}
+			{@const animations = rigs.animationsOf(rig)}
+			{@const animation = waiting ? '' : (stored?.animation ?? '')}
+			<RigSelect
+				rigs={rigs.list}
+				value={rig}
+				label="Rig"
+				onPick={(picked) => pickRig(family, index, source, picked)}
+			/>
+			<select
+				value={animation}
+				aria-label="Animation"
+				onchange={(e) => pickAnimation(family, index, source, rig, e.currentTarget.value)}
+			>
+				{#if !animation}
+					<option value="" disabled
+						>{animations ? 'Pick an animation…' : 'Reading its animations…'}</option
+					>
+				{:else if !animations?.includes(animation)}
+					<option value={animation}>{animation}{animations ? ' (not in this rig)' : ''}</option>
+				{/if}
+				{#each animations ?? [] as name (name)}
+					<option value={name}>{name}</option>
+				{/each}
+			</select>
+			{#if stored && !waiting}
+				<label class="inline"
+					><input
+						type="checkbox"
+						checked={stored.loop !== false}
+						onchange={(e) =>
+							setZoneArtSource(doc, family, index, rigLooped(stored, e.currentTarget.checked))}
+					/>Loop
+					<InfoTip
+						>Off, it plays once from its start and holds its last pose. On, each zone starts it at a
+						point the room's seed picks, so neighbours do not move in step.</InfoTip
+					></label
+				>
+			{/if}
 		{/if}
 	</div>
 {/snippet}
@@ -226,12 +323,13 @@
 <SectionCard scope="config" id="zoneArt" title="Zone art">
 	{#snippet info()}
 		<p>
-			What each zone family is drawn with: a frame of one of the project's sheets or a Flipbook
-			clip, stamped on every zone of the family, fitted inside it and centred, times its scale.
-			Variants are more pictures: each zone draws one of them, chosen by the room's seed, the same
-			on every device. A family with nothing chosen draws as it does today. Under Scenery, what the
-			river places on no zone (Salmons' trees), chosen the same way. The art is for the eye only: it
-			changes no rule and no level, and ships with the game like any art it names.
+			What each zone family is drawn with: a frame of one of the project's sheets, a Flipbook clip
+			or one of the project's rigs playing one of its animations, stamped on every zone of the
+			family, fitted inside it and centred, times its scale. Variants are more pictures: each zone
+			draws one of them, chosen by the room's seed, the same on every device. A family with nothing
+			chosen draws as it does today. Under Scenery, what the river places on no zone (Salmons'
+			trees), chosen the same way. The art is for the eye only: it changes no rule and no level, and
+			ships with the game like any art it names.
 		</p>
 	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
@@ -260,6 +358,7 @@
 				{#if shown.length}
 					<tbody>
 						{#each shown as row (row.family)}
+							{@const crowd = rigCrowdWarning(row.count, row.art)}
 							<tr class:stale={!row.count}>
 								<td
 									><span
@@ -268,7 +367,7 @@
 											? 'Zone ids that differ only in their numbers'
 											: 'No zone of this family in the level shown'}
 										>{row.family} × {row.count}</span
-									></td
+									>{#if crowd}<p class="inline-issue warning crowd">{crowd}</p>{/if}</td
 								>
 								{@render artCells(row.family, row.family, row.art, row.ruleOnly)}
 							</tr>
@@ -443,6 +542,9 @@
 	}
 	.inline-issue.warning {
 		color: #d3b483;
+	}
+	.inline-issue.crowd {
+		max-width: 220px;
 	}
 	.inline-issue.error {
 		color: #e09090;

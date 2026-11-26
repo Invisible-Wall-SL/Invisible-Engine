@@ -646,7 +646,8 @@ const roomClock = async (me) => {
 };
 /** Whether a lobby has no form: none in the canvas, no field on the page, no start menu. */
 const noForm = (lobby) => lobby.menu === undefined && lobby.fields === 0 && !lobby.startMenu;
-const inRiver = (people) => new RegExp(`^${people} players in .+ River$`);
+const inRiver = (people) =>
+	new RegExp(`^${people} ${people === 1 ? 'player' : 'players'} in .+ River$`);
 /** The lobby once `test` holds of it (a pick's answer takes the room a moment), or as it is. */
 const lobbyWhen = async (game, test) => {
 	let lobby = await lobbyOf(game);
