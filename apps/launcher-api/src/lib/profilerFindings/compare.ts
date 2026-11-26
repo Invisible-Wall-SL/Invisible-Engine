@@ -2,7 +2,8 @@
  * Compare: two readings side by side — per phase fps / p95 / >33 ms hitches / frames (every phase
  * either reading's set has), then the per-frame counts each phase holds (draws, passes, uploads, GL
  * calls, JS ms; an arcade phase also its sim steps, sim ms, bodies, room ms, patches and patch
- * bytes) and texture MB, with `B − A`. `better` says which way is good, so the page colours a
+ * bytes), texture MB and, for `perf: 9` readings, what each downloaded (transfer, the largest file, before
+ * the first frame, RGS latency, room traffic), with `B − A`. `better` says which way is good, so the page colours a
  * delta, never judges it: a delta between a phone and a lab run is still only a difference.
  */
 
@@ -15,6 +16,7 @@ import {
 	LAB_PHASES,
 	type ArcadeCountKey,
 } from '../profilerLab';
+import { knownTransferMb, type NetworkSummary } from '../profilerNetwork';
 
 export interface CompareRow {
 	group: string;
@@ -95,5 +97,23 @@ export function compareReadings(a: PerfReportListItem, b: PerfReportListItem): C
 		}
 	}
 	row('memory', 'texture MB', a.textureMb, b.textureMb, 'lower');
+	const na = a.network;
+	const nb = b.network;
+	if (na || nb) {
+		const net = (
+			label: string,
+			read: (n: NetworkSummary) => number | null,
+			better: CompareRow['better'],
+		) => row('network', label, na ? read(na) : null, nb ? read(nb) : null, better);
+		net('transfer MB', (n) => knownTransferMb(n), 'lower');
+		net('from the cache MB', (n) => n.cachedMb, 'none');
+		net('files', (n) => n.files, 'lower');
+		net('size hidden (files)', (n) => n.unknownFiles, 'lower');
+		net('largest file MB', (n) => n.largest?.mb ?? null, 'lower');
+		net('before the first frame MB', (n) => n.beforeFirstFrameMb, 'lower');
+		net('first frame s', (n) => (n.firstFrameMs === null ? null : n.firstFrameMs / 1000), 'lower');
+		net('RGS p95 ms', (n) => n.rgsP95Ms, 'lower');
+		net('room in KB/s', (n) => n.socketInKbps, 'lower');
+	}
 	return rows;
 }

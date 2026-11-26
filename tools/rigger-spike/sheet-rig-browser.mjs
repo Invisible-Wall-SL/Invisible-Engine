@@ -1464,8 +1464,22 @@ try {
 	await evaluate(
 		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); if (!editMode) setEditMode(true); document.getElementById("secBones").open = false; document.getElementById("secSlots").open = true; renderSlotList(); true',
 	);
-	const slotSpot = await evaluate(layerSpot('#slotList .trow[data-slot]', CHAIN, 'neck'));
-	await pointerDrag(slotSpot.from, slotSpot.to);
+	// The grip's pointer events, sent in one go: the list's edge scroll (a frame timer) never runs, so
+	// no layout puts the drop under a row the list scrolled in. Real input drags it in the Layers above
+	// and in slot-eye-dnd-browser.mjs.
+	const slotSpot = await evaluate(`(() => {
+		const rows = [...document.querySelectorAll("#slotList .trow[data-slot]")];
+		const row = (n) => rows.find((r) => r.dataset.slot === n);
+		row(${q(CHAIN)}).scrollIntoView({ block: "center" });
+		const g = row(${q(CHAIN)}).querySelector(".slotGrip"), gr = g.getBoundingClientRect();
+		const t = rows[rows.indexOf(row("neck")) + 1].getBoundingClientRect();
+		const x = gr.left + gr.width / 2, from = gr.top + gr.height / 2, to = t.top + 2;
+		const at = (type, y, on) => on.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, isPrimary: true, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: x, clientY: y }));
+		at("pointerdown", from, g);
+		for (let k = 1; k <= 6; k++) at("pointermove", from + ((to - from) * k) / 6, window);
+		at("pointerup", to, window);
+		return { from, to };
+	})()`);
 	const setupOrder = await evaluate('rawDoc.slots.map((s) => s.name)');
 	ok(
 		'Setup’s slots: the chain, a prop of the sheet, is a slot its ⋮⋮ drags over the torso, just behind the neck',

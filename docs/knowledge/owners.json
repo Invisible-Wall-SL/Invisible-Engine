@@ -41,6 +41,12 @@
 		"arcade": ["arcade-games", "games-3d"],
 		"card": ["card-games"]
 	},
+	"areas": {
+		"assets": ["atlas-python-tools"],
+		"delivery": ["infra-railway", "launcher-studio"],
+		"rgs": ["engine-pixi-svelte"],
+		"gameServer": ["arcade-games"]
+	},
 	"gaps": {
 		"tool:winText": "No agent: a tool shared by every slot kind, not a game type, so 9B left it open.",
 		"tool:sound": "No agent: a tool shared by every kind, not a game type, so 9B left it open."
