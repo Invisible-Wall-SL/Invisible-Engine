@@ -20,6 +20,7 @@
 		useArcadePaths,
 		useWorldCamera,
 	} from '../game/arcade';
+	import { arcadePerf } from '../game/arcadePerf';
 	import { getContext } from '../game/context';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
@@ -73,7 +74,13 @@
 	$effect(() => {
 		const ticker = app.stateApp.pixiApplication?.ticker;
 		if (!ticker) return;
-		const tick = online ? () => tickOnline(ticker.deltaMS) : () => tickArcade(ticker.deltaMS);
+		const frame = online ? tickOnline : tickArcade;
+		const tick = () => {
+			// Pixi caps `deltaMS` at its `minFPS` frame: what it cut, the sim never ran.
+			if (arcadePerf.on)
+				arcadePerf.counts.simDroppedMs += Math.max(0, ticker.elapsedMS - ticker.deltaMS);
+			frame(ticker.deltaMS);
+		};
 		ticker.add(tick);
 		return () => {
 			ticker.remove(tick);

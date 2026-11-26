@@ -5,9 +5,14 @@
 	import {
 		PERF_INLINE_MAX_BYTES,
 		PERF_RETENTION_DAYS,
+		PHASE_LABELS,
+		phaseSetOf,
+		phasesOf,
 		PROFILER_READINGS,
+		type PerfPhase,
 		type PerfPhaseSummary,
 		type PerfReportListItem,
+		type PhaseSet,
 	} from '$lib/profiler';
 	import {
 		buildDiff,
@@ -301,6 +306,11 @@
 		Object.entries(flags)
 			.map(([k, v]) => `${k}=${v}`)
 			.join(' ');
+	/** The Readings table's phase groups: every phase the listed readings' sets have. */
+	const readingPhases = $derived(phasesOf(data.readings));
+	const CAP_TITLE =
+		'The browser held this reading to 30 fps (iOS Low Power Mode or a battery saver) while its ' +
+		'frames had room for 60: its fps and p95 are not judged against the budgets.';
 	const daysLeft = (iso: string | null) =>
 		iso ? Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)) : null;
 
@@ -327,6 +337,28 @@
 	);
 	const selectedReadings = $derived(
 		selectedBuild ? data.readings.filter((r) => readingOnBuild(r, selectedBuild)) : [],
+	);
+	/** The build detail's reading columns per phase set: each phase's fps, the busy phase's p95. */
+	const BUILD_READING_COLUMNS: Record<
+		PhaseSet,
+		{ phase: PerfPhase; metric: 'fps' | 'p95'; label: string }[]
+	> = {
+		slot: [
+			{ phase: 'idle', metric: 'fps', label: 'Idle fps' },
+			{ phase: 'spinning', metric: 'fps', label: 'Spin fps' },
+			{ phase: 'spinning', metric: 'p95', label: 'Spin p95' },
+			{ phase: 'round', metric: 'fps', label: 'Round fps' },
+		],
+		arcade: [
+			{ phase: 'menu', metric: 'fps', label: 'Menu fps' },
+			{ phase: 'play', metric: 'fps', label: 'Play fps' },
+			{ phase: 'play', metric: 'p95', label: 'Play p95' },
+		],
+	};
+	const buildReadingColumns = $derived(
+		(['slot', 'arcade'] as const)
+			.filter((set) => selectedReadings.some((r) => r.phaseSet === set))
+			.flatMap((set) => BUILD_READING_COLUMNS[set]),
 	);
 	const verdicts = $derived(
 		new Map(data.builds.map((b) => [b.id, evaluateBuild(b, data.readings, data.budgets)])),
@@ -623,8 +655,9 @@
 						<p>
 							Every reading of this project, newest first: frames per second, the 95th-percentile
 							frame time and frames over 33 ms, for the game idling, the reels spinning and a
-							round's presentation. A reading is deleted {PERF_RETENTION_DAYS} days after capture unless
-							Keep is ticked.
+							round's presentation — or, for an arcade game, its menus and play. A reading marked
+							<em>30 cap</em> ran at a browser's 30 fps cap and is not judged. A reading is deleted
+							{PERF_RETENTION_DAYS} days after capture unless Keep is ticked.
 						</p>
 					{/snippet}
 					{#if keepError}<p class="error">{keepError}</p>{/if}
@@ -639,18 +672,18 @@
 										<th rowspan="2">Device</th>
 										<th rowspan="2">GPU</th>
 										<th rowspan="2">Build</th>
-										<th colspan="3">Idle</th>
-										<th colspan="3">Spinning</th>
-										<th colspan="3">Round</th>
+										{#each readingPhases as phase (phase)}
+											<th colspan="3">{PHASE_LABELS[phase]}</th>
+										{/each}
 										<th rowspan="2">Draws</th>
 										<th rowspan="2">Tex MB</th>
 										<th rowspan="2">Keep</th>
 										<th rowspan="2"></th>
 									</tr>
 									<tr>
-										<th>fps</th><th>p95</th><th>&gt;33</th>
-										<th>fps</th><th>p95</th><th>&gt;33</th>
-										<th>fps</th><th>p95</th><th>&gt;33</th>
+										{#each readingPhases as phase (phase)}
+											<th>fps</th><th>p95</th><th>&gt;33</th>
+										{/each}
 									</tr>
 								</thead>
 								<tbody>
@@ -664,6 +697,7 @@
 														? 'A headless lab run: its fps is not comparable, compare its counts in Lab runs'
 														: undefined}>{r.source === 'capture' ? 'sent' : r.source}</span
 												>
+												{#if r.capped30}<span class="tag warn" title={CAP_TITLE}>30 cap</span>{/if}
 											</td>
 											<td>
 												<strong>{r.deviceClass ?? '?'}</strong>
@@ -679,15 +713,11 @@
 											</td>
 											<td class="gpu" title={r.gpu ?? ''}>{r.gpu ?? '–'}</td>
 											<td class="nowrap">{r.buildVersion ?? '–'}</td>
-											<td class="num">{fps(r.idle)}</td>
-											<td class="num">{p95(r.idle)}</td>
-											<td class="num">{hitches(r.idle)}</td>
-											<td class="num">{fps(r.spinning)}</td>
-											<td class="num">{p95(r.spinning)}</td>
-											<td class="num">{hitches(r.spinning)}</td>
-											<td class="num">{fps(r.round)}</td>
-											<td class="num">{p95(r.round)}</td>
-											<td class="num">{hitches(r.round)}</td>
+											{#each readingPhases as phase (phase)}
+												<td class="num">{fps(r[phase])}</td>
+												<td class="num">{p95(r[phase])}</td>
+												<td class="num">{hitches(r[phase])}</td>
+											{/each}
 											<td class="num">{r.drawsMean ?? '–'}</td>
 											<td class="num">{r.textureMb ?? '–'}</td>
 											<td class="nowrap">
@@ -742,7 +772,11 @@
 			</div>
 		{:else if tab === 'budgets'}
 			<div id="panel-budgets" role="tabpanel" aria-labelledby="tab-budgets">
-				<BudgetsTab projectKey={data.projectKey} budgets={data.budgets} />
+				<BudgetsTab
+					projectKey={data.projectKey}
+					budgets={data.budgets}
+					phaseSet={phaseSetOf(data.gameKind)}
+				/>
 			</div>
 		{:else}
 			<div id="panel-builds" role="tabpanel" aria-labelledby="tab-builds">
@@ -986,10 +1020,9 @@
 											<th>Captured</th>
 											<th>Device</th>
 											<th>GPU</th>
-											<th class="num">Idle fps</th>
-											<th class="num">Spin fps</th>
-											<th class="num">Spin p95</th>
-											<th class="num">Round fps</th>
+											{#each buildReadingColumns as c (c.label)}
+												<th class="num">{c.label}</th>
+											{/each}
 											<th class="num">Tex MB</th>
 											<th></th>
 										</tr>
@@ -1005,10 +1038,11 @@
 													{/if}
 												</td>
 												<td class="gpu" title={r.gpu ?? ''}>{r.gpu ?? '–'}</td>
-												<td class="num">{fps(r.idle)}</td>
-												<td class="num">{fps(r.spinning)}</td>
-												<td class="num">{p95(r.spinning)}</td>
-												<td class="num">{fps(r.round)}</td>
+												{#each buildReadingColumns as c (c.label)}
+													<td class="num">
+														{c.metric === 'fps' ? fps(r[c.phase]) : p95(r[c.phase])}
+													</td>
+												{/each}
 												<td class="num">{r.textureMb ?? '–'}</td>
 												<td>
 													<a href={resolve('/api/profiler/reports/[id]', { id: r.id })}>JSON</a>

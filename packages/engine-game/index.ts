@@ -77,6 +77,7 @@ export {
 	type ArcadeLiveSet,
 	type ArcadeLoop,
 	type ArcadeLoopOptions,
+	type ArcadeLoopPerf,
 	type ArcadeRules,
 } from './src/game/arcadeLoop';
 export {

@@ -17,7 +17,8 @@
  *     seed shaking differently.
  *  3. NO CAMERA, NO CHANGE: a loop given none answers no camera value, backs the camera actions as
  *     no-ops, raises no view signal and moves its bodies exactly as before; the P10.8 scene set
- *     declares no world screen.
+ *     declares no world screen. A profiler's counts sink (`perf`) changes nothing and counts the
+ *     frames' steps, dropped time, bodies, spawns, despawns, pairs and camera move.
  *  4. THE RIVER SAMPLE, played headless on the real interpreter (`ARCADE_RIVER_SEED_DOC` on
  *     `arcadeRiverReferenceLayout()` and `engine-mechanics/fixtures/arcade-river.rules.json`): the camera lands on the salmon
  *     at the river's mouth; swimming up scrolls the view with the salmon inside its dead zone;
@@ -67,6 +68,7 @@ import {
 	ARCADE_SIGNALS,
 	ARCADE_VALUES,
 	createArcadeLoop,
+	type ArcadeLoopPerf,
 	type ArcadeRules,
 } from 'engine-game/src/game/arcadeLoop';
 import {
@@ -273,7 +275,12 @@ const RULES: ArcadeRules = {
 };
 const loopWith = (
 	seed: string | number,
-	opts: { camera?: boolean; margin?: number; spec?: Parameters<typeof createCamera>[0] } = {},
+	opts: {
+		camera?: boolean;
+		margin?: number;
+		spec?: Parameters<typeof createCamera>[0];
+		perf?: ArcadeLoopPerf;
+	} = {},
 ) => {
 	const store = createSpawnStore();
 	store.declare({
@@ -296,6 +303,7 @@ const loopWith = (
 		...(opts.camera === false
 			? {}
 			: { camera: { spec: opts.spec ?? { follow: 'player' }, world, view: () => VIEW } }),
+		...(opts.perf ? { perf: () => opts.perf } : {}),
 	});
 	return { store, loop, signals };
 };
@@ -475,6 +483,58 @@ const named = (signals: { name: string; payload: Record<string, unknown> }[], na
 	check(
 		'3. the P10.8 scene set declares no world or camera screen',
 		worldCameraScene(arcadeReferenceLayout().scenes) === undefined,
+	);
+}
+{
+	const run = (counts?: ArcadeLoopPerf) => {
+		const t = loopWith('perf', { margin: 100, ...(counts ? { perf: counts } : {}) });
+		// A sink is read with each frame: what spawns after the first is counted.
+		t.loop.frame(0);
+		const pl = t.store.spawn('f', 'p', { x: 300, y: 500 });
+		const rk = t.store.spawn('f', 'r', { x: VIEW.w + 80, y: 500 });
+		if (!pl.ok || !rk.ok) throw new Error('spawn refused');
+		t.loop.effects.setVelocity({ instance: pl.instance, vx: 600 });
+		for (let i = 0; i < 90; i++) t.loop.frame(FRAME);
+		t.loop.effects.cameraMoveTo({ x: 3000 + 711, y: 500, snap: true });
+		t.loop.frame(1010);
+		return t;
+	};
+	const counts: ArcadeLoopPerf = {
+		simSteps: 0,
+		simDroppedMs: 0,
+		simMs: 0,
+		bodies: 0,
+		pairs: 0,
+		spawns: 0,
+		despawns: 0,
+		looks: 0,
+		cameraPx: 0,
+	};
+	const plain = run();
+	const counted = run(counts);
+	const trace = (t: typeof plain) =>
+		JSON.stringify([t.loop.bodies(), t.loop.camera(), t.signals.map((s) => s.name), t.loop.steps]);
+	check(
+		"3. a profiler's counts sink (`perf`) changes no body, camera, signal or step",
+		trace(plain) === trace(counted),
+	);
+	const left = counted.store.live('f').length + counted.store.live('g').length;
+	check(
+		'3. …and counts the steps, the bodies left, the spawns and the despawns (outside the view)',
+		counts.simSteps === counted.loop.steps &&
+			counts.spawns === 2 &&
+			counts.despawns > 0 &&
+			counts.bodies === left &&
+			counts.spawns - counts.despawns === left,
+		JSON.stringify({ ...counts, left }),
+	);
+	check(
+		'3. …the whole steps a long frame dropped past the cap, the pairs tested, the camera moved',
+		near(counts.simDroppedMs, 55 * FRAME, 1e-9) &&
+			counts.pairs > 0 &&
+			counts.cameraPx > 0 &&
+			counts.simMs >= 0,
+		JSON.stringify(counts),
 	);
 }
 

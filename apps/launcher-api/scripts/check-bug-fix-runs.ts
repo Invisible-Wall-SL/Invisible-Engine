@@ -2221,17 +2221,17 @@ const planted: Planted[] = [
 		{ files: [file('pnpm-workspace.yaml')] },
 		"it changes pnpm-workspace.yaml: dependencies are a person's call",
 	],
-	['not UTF-8', { files: [file('docs/a.md', 'a\uD800b')] }, 'a file is not UTF-8 text'],
-	['a NUL', { files: [file('docs/a.md', 'a\u0000b')] }, 'a file is not UTF-8 text'],
+	['not UTF-8', { files: [file('docs/a.md', 'a\uD800b')] }, 'a file is not UTF-8 text (docs/a.md)'],
+	['a NUL', { files: [file('docs/b.bin', 'a\u0000b')] }, 'a file holds a NUL byte (docs/b.bin)'],
 	[
 		'a tag character',
 		{ files: [file('docs/a.md', 'a\u{E0041}b')] },
-		'a file holds Unicode tag or bidi control characters',
+		'a file holds Unicode tag or bidi control characters (docs/a.md)',
 	],
 	[
 		'a bidi control',
 		{ files: [file('docs/a.md', 'if (ok \u202E) {}')] },
-		'a file holds Unicode tag or bidi control characters',
+		'a file holds Unicode tag or bidi control characters (docs/a.md)',
 	],
 	[
 		'over 400 KB',

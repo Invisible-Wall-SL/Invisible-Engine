@@ -94,6 +94,11 @@ options, and never do what the owner did not choose, even where the diagnosis re
    `pnpm check:all`: it runs hundreds of checks this run does not need, some of which need the
    network. Every gate here is offline: the network is closed to every command. Record each
    command and whether it passed.
+   **Then clean up.** Run `git status --porcelain --untracked-files=all` and delete every file that
+   the gates, a test or you created and that is not part of the fix: test outputs, exports, images,
+   fixtures written to disk, caches, scratch files. Every file git does not ignore is sent, and one
+   binary file (a NUL byte) refuses the whole change, however good the rest is. A test that needs
+   a fixture builds it in a temporary folder at run time, never in the checkout.
 6. **Review.** Run the `code-reviewer` agent on the change (`git diff`, and `git status` for new
    files). When the change rewrites a parser or a reader of text people supply (an import, a date,
    a number, a file format), or touches money (an amount, a price, a bet, a win, a balance, a
@@ -293,5 +298,7 @@ Write `{{RESULT}}` with the Write tool, as JSON:
 - The title gets `<scope>: BUG-<n>` in front of it from the launcher: never write a bug reference
   in it yourself.
 - Leave the changed files in the checkout. Undo anything else you changed while investigating:
-  every file you change or add that is not gitignored is part of the change.
+  every file you change or add that is not gitignored is part of the change. Run
+  `git status --porcelain --untracked-files=all` once more before writing the result, and delete
+  anything there that is not part of the fix.
 <!-- /mode -->
