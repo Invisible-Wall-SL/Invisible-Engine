@@ -17,6 +17,7 @@ import {
 	type RigModuleChoice,
 } from './rigTemplateModules';
 import {
+	RIG_TEMPLATE_SIDECAR,
 	parseTemplateRef,
 	rigTemplateById,
 	rigTemplateProblem,
@@ -153,6 +154,13 @@ export function sidecarOnRig(
 	const rest = { ...raw };
 	delete rest.fit;
 	return JSON.stringify(next ? { ...rest, fit: next } : rest);
+}
+
+/** The module set a rig's bundle records in its `template.json` (none: the definition's). */
+export async function bundleModules(bundlePrefix: string): Promise<RigModuleChoice> {
+	return (
+		parseTemplateRef(await getObjectText(`${bundlePrefix}/${RIG_TEMPLATE_SIDECAR}`))?.modules ?? {}
+	);
 }
 
 /** Template `t` with module set `modules` (a rig's `template.json`'s); one it does not have, as it is. */

@@ -718,7 +718,7 @@
         <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from its remembered source atlas (e.g. after recolouring it, or adding a sprite to it). Keeps your bones + animations." style="flex:1;font-size:11px;" disabled>⟳ Re-sync atlas</button>
         <button id="repickAtlasBtn" title="Re-sync from a DIFFERENT atlas — pick the source again. Use this when the rig is pinned to an older atlas (e.g. it was created before you added a sprite to the sheet), so a plain re-sync keeps missing the new image. Keeps your bones + animations." style="font-size:11px;white-space:nowrap;" disabled>source…</button>
         <button id="editCutBtn" aria-label="Edit cut" style="font-size:11px;display:none;" title="">✂</button>
-        <button id="modulesBtn" aria-label="Modules" style="font-size:11px;display:none;" title="🧩 Modules: change the pieces this rig's template is made of (Hands: with fingers, simple, none), in place. What a choice leaves out goes with its keys; what it adds is made over the rig's art. A rig made from a sheet changes them in 🗺 Edit mapping.">🧩</button>
+        <button id="modulesBtn" aria-label="Modules" style="font-size:11px;display:none;" title="🧩 Modules: change the pieces this rig's template is made of (Hands: with fingers, simple, none), in place. What a choice leaves out goes with its keys; what it adds is made over the rig's art. A rig made from a sheet changes them in 🗺 Edit mapping, one cut from a frame in ✂ Edit cut.">🧩</button>
         <button id="editMapBtn" aria-label="Edit mapping" style="font-size:11px;display:none;" title="🗺 Edit mapping: open the sheet mapping this rig was made from (re-map a part, arrange it again, add or take off props), then 🔄 Update rig rebuilds the parts in this rig, keeping its bones, clips, keys, constraints and controls.">🗺</button>
       </div>
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
@@ -1018,6 +1018,7 @@
         <button id="f2rReuse" style="display:none;flex:0 0 auto;"></button>
         <button id="f2rStartOver" class="f2rIcon" title="↺ Start over: the clip's best frame again, its joints as tracked and each part's frame as planned, with no cut open (✂ Cut makes a fresh one; the cut that was open stays kept, for ↺ Reuse). Asks first when you touched it up and did not 💾 keep it, dragged a joint or picked a part's frame; ↶ brings it back." aria-label="Start over">↺</button>
         <button id="f2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The cut as it was before ↺ Start over, touch-ups and all." aria-label="Undo start over">↶</button>
+        <span id="f2rModules" style="display:none;"></span>
         <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
       </div>
       <div id="f2rPickBar" role="status"><span id="f2rPickText" style="flex:1;min-width:0;"></span><button id="f2rPickCancel" class="f2rIcon" style="padding:0 5px;" title="Stop picking (Esc)" aria-label="Stop picking">✕</button></div>
@@ -10914,10 +10915,8 @@ function openFrameToRig(){
     $("#newRigNote").textContent = "pick Half body (or a template with its parts) above, then cut a frame";
     return;
   }
-  if (Object.keys(newRigModuleChoice()).length){
-    $("#newRigNote").textContent = "🎞 Frame to rig cuts the template's every part for now: set its Modules back to their default (or make the rig with ＋ Create or 🗺 From my sheet)";
-    return;
-  }
+  // The modules picked under the template (rig-modules): the parts made and the rig follow them.
+  f2r.modules = newRigModuleChoice();
   // A cut opened by ✂ Edit cut belongs to its rig: a new rig starts from a clip of its own.
   if (f2r.edit){ f2r.edit = null; f2rPickClip(""); }
   const same = !!f2r.tpl && f2r.tpl.id === tpl.id;
@@ -11048,6 +11047,43 @@ function f2rModeUi(){
   $("#f2rCreate").title = e
     ? "Make the cut's parts again and swap them into “" + e.stem + "”: its bones (yours too), clips, keys, constraints, controls, 3D data and your own slots stay; a part or prop the cut no longer makes is removed, asking first when something names it. One ↶ undo, then saved."
     : "Make the cut into a sheet and a rig, keeping the touch-ups first, and open it.";
+  f2rModulesUi();
+}
+
+// ✂ Edit cut's Modules (docs/design/rig-modules.md §5): the rig's own set, changed here — 🔄 Update rig
+// makes the parts for the new set (a part it leaves out drawn into the one above it: a hand into its
+// forearm), takes out of the rig what it lacks (keys and all) and puts in what it adds. A new rig's set
+// is the ＋ New rig panel's.
+function f2rModulesUi(){
+  const box = $("#f2rModules"); if (!box) return;
+  const whole = f2r.edit && f2r.modules && f2r.tpl && newRigTemplates.find((t) => t.id === f2r.tpl.id);
+  box.innerHTML = "";
+  box.style.display = whole && whole.modules && whole.modules.length ? "contents" : "none";
+  if (!box.style.display.startsWith("c")) return;
+  for (const m of whole.modules){
+    const sel = document.createElement("select");
+    sel.className = "f2rModule"; sel.dataset.module = m.id;
+    sel.title = m.label + " — " + m.tip + " Changing it here, then 🔄 Update rig, makes the parts for the new choice (a part it leaves out is drawn into the one above it: a hand into its forearm), takes out of the rig what it leaves out (its bones, slots and keys) and puts in what it adds.";
+    sel.setAttribute("aria-label", m.label);
+    for (const o of m.options){
+      const op = document.createElement("option");
+      op.value = o.id; op.textContent = m.label + ": " + o.label;
+      sel.appendChild(op);
+    }
+    sel.value = (f2r.modules && f2r.modules[m.id]) || m.default;
+    sel.onchange = () => { f2r.modules = f2rModulesPicked(whole); };
+    box.appendChild(sel);
+  }
+}
+
+// The Modules row's set, off each module's default.
+function f2rModulesPicked(whole){
+  const out = {};
+  for (const sel of document.querySelectorAll("#f2rModules .f2rModule")){
+    const m = whole.modules.find((x) => x.id === sel.dataset.module);
+    if (m && sel.value !== m.default) out[m.id] = sel.value;
+  }
+  return out;
 }
 
 function closeFrameToRig(){
@@ -12101,14 +12137,14 @@ async function f2rCreate(){
   try {
     const r = await fetch("/api/rigger/from-frame/sheet", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ job: cut.job, etag: cut.etag, name }),
+      body: JSON.stringify({ job: cut.job, etag: cut.etag, name, modules: f2r.modules || {} }),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const sheet = await r.json();
     showLoading("Creating rig…");
     const r2 = await fetch("/api/rigger/new", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, fit: sheet.fit, frame: { job: cut.job } }),
+      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, modules: sheet.modules || {}, fit: sheet.fit, frame: { job: cut.job } }),
     });
     if (!r2.ok) throw new Error(await respErr(r2));
     const j = await r2.json();
@@ -12134,10 +12170,12 @@ function reportFrameRig(name, clip, cut, sheet, template){
   const taken = Object.entries(sheet.frames || {}).map(([p, f]) => p + " from frame " + (f === null ? "?" : f));
   const need = (template && template.missingRequired) || [];
   const rest = ((template && template.missing) || []).filter((n) => !need.includes(n));
+  const into = rows.filter(([, p]) => p.drawn_in && p.drawn_in.length).map(([n, p]) => p.drawn_in.join(", ") + " into " + n);
   showAlert(
     "“" + name + "” is made from frame " + cut.frame + (clip ? " of " + clip.name : "") + ": " + (rows.length - props) + " parts and " + props + " props (each on a bone of its own) on the sheet " + name + "_parts, posed as the frame by its clip “frame”." +
     (cut.names.includes("neck") ? "" : " This cut has no neck part (cut before the neck was separated): ✂ Re-cut gives the neck its own bone.") + "\n\n" +
     (taken.length ? "Cut from other frames (their own length; the clip “frame” still poses this one): " + taken.join(", ") + ".\n\n" : "") +
+    (into.length ? "Drawn into the part above them, their module left out: " + into.join("; ") + ".\n\n" : "") +
     (filled.length ? "What the parts hide was filled on the CPU inside each part's own outline, Telea's smear inside past the seams until the GPU fill:\n  " + filled.join(", ") + "\n\n" : "") +
     (off.length ? "Cut off by the frame's edge, so little or none of it is drawn: " + off.join(", ") + ". A frame that shows it makes it whole.\n\n" : "") +
     (short.length ? "Drawn short in this frame (toward the camera), kept that short, never stretched to its length: " + short.join(", ") + ". A frame that shows it side-on makes it whole.\n\n" : "") +
@@ -12213,6 +12251,10 @@ async function openEditCut(){
   }
   f2r.edit = { dir: selected.dir_b64 || "", stem: irigStem(selected), job: d.job, sources: d.sources || {} };
   f2r.tpl = tpl;
+  // The rig's own module set (rig-modules §5), which the dialog's Modules row may change; with its
+  // template not read, none is sent and the rig keeps the set it records.
+  f2r.modules = rigTemplate ? Object.assign({}, rigTemplate.choice || {}) : null;
+  f2r.modulesWas = f2r.modules && Object.assign({}, f2r.modules);
   $("#f2rTpl").textContent = tpl.label + " · ✂ " + f2r.edit.stem;
   f2rModeUi();
   $("#f2rModal").classList.add("open");
@@ -12260,7 +12302,7 @@ async function f2rUpdate(){
   try {
     const r = await fetch("/api/rigger/from-frame/sheet", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ job: cut.job, etag: cut.etag, rig: { dir: e.dir, stem: e.stem } }),
+      body: JSON.stringify(Object.assign({ job: cut.job, etag: cut.etag, rig: { dir: e.dir, stem: e.stem } }, f2r.modules ? { modules: f2r.modules } : {})),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const sheet = await r.json();
@@ -12278,7 +12320,12 @@ async function f2rUpdate(){
     f2rNote("");
     hideLoading();
     await saveToR2();
-    reportFrameUpdate(e.stem, plan.report);
+    const moved = !!f2r.modulesWas && JSON.stringify(plan.modules || {}) !== JSON.stringify(f2r.modulesWas);
+    if (moved && !dirty){
+      await putModules({ dir: e.dir, stem: e.stem, projectKey: rigProjectKey || curProjectKey }, plan.modules || {});
+      f2r.modulesWas = Object.assign({}, plan.modules || {});
+    }
+    reportFrameUpdate(e.stem, plan.report, moved && dirty);
   } catch (err){
     f2rNote("");
     showAlert("Couldn't update the rig:\n\n" + (err && err.message ? err.message : err), "Update failed");
@@ -12292,7 +12339,7 @@ async function f2rUpdatePlan(sheet, cut, keep){
     body: JSON.stringify({
       dir: e.dir, stem: e.stem, projectKey: rigProjectKey || curProjectKey, job: cut.job,
       manifestKey: sheet.manifestKey, templateId: sheet.templateId, fit: sheet.fit,
-      skeleton: rawDoc, source: frameSrc.doc, keep,
+      skeleton: rawDoc, source: frameSrc.doc, keep, ...(f2r.modules ? { modules: f2r.modules } : {}),
     }),
   });
   if (!r.ok) throw new Error(await respErr(r));
@@ -12325,6 +12372,7 @@ async function f2rApplyUpdate(plan){
     rawDoc = plan.skeleton;
     normalizeKeys(rawDoc);
     frameSrc.doc = plan.source;
+    if (plan.report.modules) modulesOnSidecars(plan.report.modules, plan.controls);
     artKey = artIdOf(plan.source);
     rebuildFromRawDoc(sel);
     markDirty();
@@ -12349,13 +12397,15 @@ function linkedNote(rep){
   return "The neck bends now: " + rep.linked.map((l) => l.bone + " (above " + l.below + ")").join(", ") + " put in, its drawing skinned across both. Its clips pose as they did; Head nod shares a nod along the neck from now on, and a capture imported again bends the neck toward the face instead of sliding it.\n\n";
 }
 
-function reportFrameUpdate(stem, rep){
+function reportFrameUpdate(stem, rep, unrecorded){
   const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
   const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
   showAlert(
     "“" + stem + "” is updated from its cut" + (dirty ? " but NOT saved yet: 💾 Save keeps it, its new art with it." : " and saved.") + " ↶ undoes it.\n\n" +
     "Rebuilt from the cut: " + rep.replaced.join(", ") + ".\n\n" +
     linkedNote(rep) +
+    modulesNote(rep) +
+    (unrecorded ? "The new module set is recorded once the rig is saved: 💾 Save, then ✂ Edit cut and 🔄 Update rig with the same choice.\n\n" : "") +
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
     (removed.length ? "Removed (the cut no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
@@ -12671,12 +12721,12 @@ function renderModulesBtn(){
   b.style.display = rawDoc && rigTemplate && rigTemplate.modules && rigTemplate.modules.length ? "" : "none";
 }
 
-// A sheet rig's modules change with its mapping (🗺 Edit mapping, whose top row has them); a frame
-// rig keeps every module for now; any other template rig gets the dialog.
+// A sheet rig's modules change with its mapping (🗺 Edit mapping, whose top row has them), a frame
+// rig's with its cut (✂ Edit cut, likewise); any other template rig gets the dialog.
 function openModules(){
   if (!rawDoc || !rigTemplate || !rigTemplate.modules) return;
   if (sheetSrc.doc){ openSheetToRig(true); return; }
-  if (frameSrc.doc){ showAlert("A rig cut from a frame keeps its template's every module for now.", "🧩 Modules"); return; }
+  if (frameSrc.doc){ openEditCut(); return; }
   const rows = $("#modulesRows");
   rows.innerHTML = "";
   for (const m of rigTemplate.modules){
@@ -12693,6 +12743,12 @@ function openModules(){
   }
   $("#modulesNote").textContent = "";
   $("#modulesModal").classList.add("open");
+}
+
+// The module set recorded in the rig's template.json, once the change is saved.
+async function putModules(where, modules){
+  const w = await fetch("/api/rigger/modules", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ modules }, where)) });
+  if (!w.ok) throw new Error(await respErr(w));
 }
 
 // The module set picked in the dialog, off each module's default.
@@ -12728,10 +12784,7 @@ async function applyModules(){
     renderAnimSection(); renderTimeline();
     $("#modulesModal").classList.remove("open");
     await saveToR2();
-    if (!dirty){
-      const w = await fetch("/api/rigger/modules", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ modules }, where)) });
-      if (!w.ok) throw new Error(await respErr(w));
-    }
+    if (!dirty) await putModules(where, modules);
     loadRigTemplate();
     showAlert(modulesNote({ modules: rep }) + (dirty ? "NOT saved yet: 💾 Save keeps it, then 🧩 Apply the same choice again to record it." : "Saved; ↶ undoes it."), "🧩 Modules");
   } catch (err){

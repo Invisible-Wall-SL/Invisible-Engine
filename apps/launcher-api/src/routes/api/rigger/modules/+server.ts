@@ -40,8 +40,8 @@ async function templateOf(target: IrigTarget) {
 
 /**
  * 🧩 Modules (docs/design/rig-modules.md §4) for a rig made with ＋ New rig: its template's module set
- * changed in place. A rig made from a sheet changes its modules in 🗺 Edit mapping (its parts are
- * mapped there); one cut from a frame keeps its template's every module for now.
+ * changed in place. A rig made from a sheet changes its modules in 🗺 Edit mapping, one cut from a
+ * frame in ✂ Edit cut (their parts are made there); both record the set with PUT once saved.
  *
  * POST `{ dir, stem, projectKey, modules, skeleton }` → `{ skeleton, report, controls, modules }`:
  * the open rig with what the new set lacks taken out and what it adds made over the rig's art and
@@ -71,7 +71,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			'This rig was made from a sheet: change its modules in 🗺 Edit mapping, then 🔄 Update rig.',
 		);
 	if (frame !== null)
-		throw error(422, "A rig cut from a frame keeps its template's every module for now.");
+		throw error(
+			422,
+			'This rig was cut from a frame: change its modules in ✂ Edit cut, then 🔄 Update rig.',
+		);
 	const { text, ref, whole } = await templateOf(target);
 	const modules = requestModules(body.modules) ?? {};
 	const sent = body.skeleton;

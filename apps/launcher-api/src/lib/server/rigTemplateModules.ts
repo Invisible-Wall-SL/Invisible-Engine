@@ -106,6 +106,37 @@ export function takenBy(
 	};
 }
 
+/**
+ * Where each part of `whole` that `t` (`whole` with a module set) draws no image for is drawn
+ * instead, when the art is cut from one picture (🎞 Frame to rig, docs/design/rig-modules.md §5):
+ * into the part on the nearest bone at or above its own that `t` still draws on (a hand into its
+ * forearm). A part drawn on an `<bone>_image` bone counts as drawn on `<bone>`.
+ */
+export function drawnInto(whole: RigTemplate, t: RigTemplate): Record<string, string> {
+	const kept = new Set(t.parts.map((p) => p.name));
+	const boneOf = new Map(whole.slots.map((s) => [s.name, s.bone]));
+	const parentOf = new Map(whole.bones.map((b) => [b.name, b.parent]));
+	const on = new Map<string, string>();
+	for (const p of t.parts) {
+		const bone = boneOf.get(p.slot);
+		if (!bone) continue;
+		const host = bone.endsWith('_image') ? parentOf.get(bone) : undefined;
+		for (const b of host ? [bone, host] : [bone]) if (!on.has(b)) on.set(b, p.name);
+	}
+	const out: Record<string, string> = {};
+	for (const p of whole.parts) {
+		if (kept.has(p.name)) continue;
+		for (let b = boneOf.get(p.slot); b; b = parentOf.get(b)) {
+			const into = on.get(b);
+			if (into) {
+				out[p.name] = into;
+				break;
+			}
+		}
+	}
+	return out;
+}
+
 const MOVES = new Set(['x', 'y']);
 
 /**

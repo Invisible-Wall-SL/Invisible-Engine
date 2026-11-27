@@ -98,8 +98,19 @@ A rig's modules can change in place, with no rebuild (`changeModules`, `rigFrame
   `template.json`); a 🗺 rig opens 🗺 Edit mapping, whose top row has the pickers — 🔄 Update rig runs
   `changeModules` between the kept mapping's set and the edited one before the parts merge, and
   sends back the new set's controls; the page drops what went from `controls.json` and the 3D data
-  and takes the new set's control entries for what came (`modulesOnSidecars`). A 🎞 rig keeps every
-  module for now.
+  and takes the new set's control entries for what came (`modulesOnSidecars`). A 🎞 rig opens ✂ Edit
+  cut, whose top row has the pickers likewise: its 🔄 Update rig makes the parts for the new set
+  (below) and runs `changeModules` from the rig's recorded set before the parts merge
+  (`updateFrameRig`'s `from`); the page records the set (`PUT`) once the rig is saved.
+
+**A rig cut from a frame.** The cut is a property of the frame: it is always cut into the
+template's every part (a saved cut serves every module set), and the module set decides what the
+parts become. A part the set leaves out is drawn into the part on the nearest bone above its own
+that the set still draws (`drawnInto`; a part on `<bone>_image` counts as on `<bone>`): with no
+hands, each hand's pixels join its forearm's image (the parts request's `merge`, which atlas-tool's
+parts job applies before making the parts whole), so the arm still ends in the drawn hand, rigid on
+the forearm. A prop the cut draws over a finger is drawn over that part. With the default set the
+request is unchanged.
 
 ## 5. Stack
 
@@ -108,8 +119,9 @@ A rig's modules can change in place, with no rebuild (`changeModules`, `rigFrame
    reader in §2 follows; gate `rig-modules.mjs`.
 2. **Change a rig's modules in place** (§4): remove with renumbered weights, add over the rig's
    art; 🧩 and 🗺 Edit mapping; gate `rig-modules-change.mjs`.
-3. **🎞 Frame to rig with modules**: the cut asks for the module set's parts, the frame rig records
-   it, its 🔄 Update rig changes it.
+3. **🎞 Frame to rig with modules** (§4, "A rig cut from a frame"): a part the set leaves out is
+   drawn into the one above it (`merge`), the frame rig records the set, ✂ Edit cut's 🔄 Update
+   rig changes it; gate `rig-modules-frame.mjs`, atlas-tool's `test_rig_frame_parts.py` (`merged`).
 4. **Presets of modules**: Bust with face, Half body and Full body written as a base and the same
    module builders (neck, head and face, arms, hands, legs), so a module is defined once; gated to
    produce today's templates exactly (a snapshot of each), so no rig sees a difference.

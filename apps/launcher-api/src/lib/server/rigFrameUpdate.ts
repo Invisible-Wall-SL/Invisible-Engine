@@ -1192,12 +1192,16 @@ export interface UpdateInput {
 	keep?: ReadonlySet<string>;
 	/** The parts' images on the old sheet and the new one, to tell whether a hand-edited mesh may stay. */
 	outlines?: { before: Map<string, AlphaImage>; after: Map<string, AlphaImage> };
+	/** The template as the rig was made, when the update changes its module set (`changeModules` first). */
+	from?: RigTemplate;
 }
 
 export interface UpdateResult {
 	doc: Json;
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean; iou: number | null }[];
+		/** The module set changed with the update: what went and what came (`changeModules`). */
+		modules?: ModuleChangeReport;
 	};
 	/** The sidecar's record of the parts as made now (a kept mesh keeps the hash it was made with). */
 	parts: Record<string, { slot: string; hash: string }>;
@@ -1206,10 +1210,18 @@ export interface UpdateResult {
 /**
  * 🔄 Update rig, whole: the parts built from the new sheet with the new fit as 🦴 Create rig builds
  * them, merged into the open rig (`frameRigUpdate`), a hand-edited mesh kept only where the author
- * asked and its part's drawing barely changed (`KEEP_IOU`, `KEEP_PX`).
+ * asked and its part's drawing barely changed (`KEEP_IOU`, `KEEP_PX`). With `from`, the rig's module
+ * set changes to the template's first (`changeModules`; thrown when the author's work stops it).
  */
 export function updateFrameRig(o: UpdateInput): UpdateResult {
 	const fresh = templateRig(o.template, o.regions, o.fit).skeleton;
+	let current = o.current;
+	let modules: ModuleChangeReport | undefined;
+	if (o.from) {
+		const changed = changeModules(o.current, o.from, o.template, fresh);
+		if (!changed.ok) throw new Error(changed.problem);
+		({ doc: current, report: modules } = changed);
+	}
 	const freshBind = frameWorld(fitTemplate(o.template, o.fit).bones, o.fit.frame);
 	const props = o.props
 		.filter((p) => p.take !== false)
@@ -1219,7 +1231,7 @@ export function updateFrameRig(o: UpdateInput): UpdateResult {
 			...(p.boneSet ? { bone: p.bone } : {}),
 		}));
 	const links = o.template.bones.filter((b) => b.link).map((b) => b.name);
-	const base = { current: o.current, fresh, freshBind, made: o.made, props, links };
+	const base = { current, fresh, freshBind, made: o.made, props, links };
 	const looked = frameRigUpdate(base).report.handEdited;
 	const verdict = new Map(
 		looked.map(({ part }) => {
@@ -1237,11 +1249,15 @@ export function updateFrameRig(o: UpdateInput): UpdateResult {
 		madeAttachments(fresh).map((m) => m.name),
 	);
 	for (const p of keep) if (o.made.parts[p]) parts[p] = o.made.parts[p];
+	// A part whose slot the module change took out went with it, not because the cut no longer makes it.
+	const tookSlots = new Set(modules?.slots ?? []);
 	return {
 		doc,
 		report: {
 			...report,
+			removed: report.removed.filter((r) => !tookSlots.has(r.slot)),
 			handEdited: report.handEdited.map((h) => ({ ...h, ...verdict.get(h.part)! })),
+			...(modules ? { modules } : {}),
 		},
 		parts,
 	};
