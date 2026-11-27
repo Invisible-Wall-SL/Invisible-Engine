@@ -2679,13 +2679,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     depth reorders.
   - **Proof of pixels.** `scripts/salmons/river-pixels.mjs --base <main worktree>` (new): the river
     of this checkout and of main drawn by WebGL with the built-in art, the camera walked along it a
-    frame at a time, compared at 9 stops × 5 cases (seeds 1, 7, 42, 123; original, levels,
+    frame at a time, compared at 9 stops × 6 cases (seeds 1, 7, 42, 123; original, levels,
     waterfalls 5–10, authored biomes; mirrored and plain; MSAA on and off; resolution 1 and 2;
-    zoom 0.75–1.25): 0 pixels differ in 45 shots. The art fingerprint (`salmons/art-fingerprint.mjs`)
+    zoom 0.75–2; one with the camera on whole pixels): 0 pixels differ in 54 shots. The art fingerprint (`salmons/art-fingerprint.mjs`)
     now hashes what is drawn and in which order (pieces that overlap keep theirs), not the
     containers; its four hashes are recorded of main 665b407's river and are this one's.
   - **Gates:** `check:salmons-art` 49 → 50 (the depth order played against a zIndex set every
-    frame: the same order every frame, a sort on 625 frames of 3,000 instead of 2,948),
+    frame: the same order every frame, every zIndex its depth whenever a draw list is built, a
+    sort on 625 frames of 3,000 instead of 2,948),
     `check:zone-art` 130, `check:salmons-levels` 27, `check:room-levels` 16,
     `check:agents-knowledge`, svelte-check `engine-layout` at baseline (290).
   - **Played** on the branch's arcade build, alone on the machine: `salmons-play.mjs` 103/103 (main
@@ -2696,6 +2697,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `match3` +314 B, `card` +283 B gzip (`SpawnLayer` ships in every runtime; its projected branch
     runs only on an iso world screen), `arcade` +2,056 B and `arcade3d` +2,077 B (the same plus
     the lazy Salmons art chunk).
+  - **Reviewed** (`code-reviewer`): fixed a stale zIndex the underwater layer (`blood.ts` `sunk`)
+    could sort by when the players' layer was already due a sort, and a one-pixel rounding of the
+    ripple's edge with the camera on whole pixels (now measured exactly as before).
 
 - 2026-11-27 — **Salmons lab run (performance T2; in review; branch `claude/salmons-perf-t2-lab`;
   scripts and docs only, no game code)**: `scripts/playtest/salmons-lab.mjs` plays Salmons' room on
