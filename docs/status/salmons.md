@@ -32,8 +32,8 @@ upload.
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
     T6 net client — started · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
     objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
-    #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; two owner questions:
-    sharper swimming salmon at resolution > 1 and on MSAA edges; Recent changes 2026-11-27).
+    #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; owner accepted the sharper,
+    MSAA-smoothed swimming salmon; Recent changes 2026-11-27).
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2670,8 +2670,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     game draws, each differing pixel put to the body that drew it). A salmon out of the water: 0.
     At resolution 1 without MSAA ≈ 0.07 % of pixels differ, 97 % of them by one level (8-bit
     rounding in a different order), the rest ≤ 3 on the waterline's edge, one glint cluster ≤ 11.
-    Bears: ≤ 5. Two differences are the passes' own side effects, and are the **owner
-    questions** of this change:
+    Bears: ≤ 5. Two differences are the passes' own side effects; **the owner accepted both
+    (2026-11-27: "Sharper is fine", "Smoother is fine")**. Side by side (before, after, the
+    differences): `docs/playtest/salmons-t5/res1-swimming-salmon.png`, `res2-swimming-salmon.png`.
     1. `ColorMatrixFilter` runs at Pixi's default filter resolution, 1 (`Filter.defaultOptions`;
        the wading pass is `'inherit'`): on a resolution-2 phone every swimming salmon was drawn at
        half resolution and scaled up. Drawn by its own program it is as sharp as it is out of the
@@ -2684,12 +2685,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     each body's uniforms). The bodies harness: 8.05 → 0 filter passes a frame, root rebuilds
     0.07 → 0.05. Root rebuilds in the lab's play (a renderer hook, 2 runs each): 0.57 → 0.58.
   - **`[BindGroup] textureSource destroyed while still bound`** (seen by T3 when the ladder
-    changes resolution): not reproduced. A forced resolution walk (1.5 → 1 → 0.75 → 1) in T4's
-    arcade build in the lab, and in the bodies harness with the river under the bodies (its bed
-    filter a full-screen pass), logged no such warning. Pixi prunes its pool's idle
-    screen-sized textures when the screen's resolution changes (`TexturePool._pruneScreenTextures`),
-    and a bind group still holding one warns; T5 leaves only the bed's filter, so fewer of those.
-    Needs T3's repro (device, seed, stack) to go further.
+    changes quality): not T5's. Fixed in #1973 (T3): `pixi-svelte` `renderQuality.ts`
+    `backBufferMsaa().set` destroyed the back buffer's texture while Pixi's present shader still
+    held it; it now destroys it a tick later.
   - **Gates:** `check:salmons-art` 50 → 53 (a look drawing its own water never takes the pass,
     and a refused one is drawn through it; the salmon's step carries `ColorMatrixFilter`'s
     fragment lines and the glint's alpha is packed as Pixi packs it; the bear's quad is where a

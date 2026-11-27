@@ -1023,11 +1023,11 @@ check(
 				return drawsIt;
 			},
 		});
-		let into = kit.publish(
+		kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 0)));
+		const into = kit.publish(
 			'b',
-			kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 0)),
+			kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 16)),
 		);
-		into = kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 16)));
 		assert.equal(into.filters, undefined, 'no filter on its container, ever');
 		assert.equal(kit.made.length, 0, 'no pass is made for it');
 		const last = told.at(-1);
