@@ -255,6 +255,8 @@
 		void player.play().catch(() => {});
 	}
 
+	/** Everything `draw()` and the loop read besides the clock and dpr: a change redraws a settled
+	 *  preview. */
 	$effect(() => {
 		void [line, board, rows, sample, lineColor, plan, W, H, fit, canvas, artEl];
 		dirty = true;
@@ -272,7 +274,10 @@
 				playSound(cue === 'draw' ? line.drawSound : line.endSound);
 			}
 			lastT = t;
-			if (!moving && !dirty) return;
+			const stale =
+				!!canvas &&
+				canvasNeedsResize(canvas, canvasBacking(W, H, (window.devicePixelRatio || 1) * fit));
+			if (!moving && !dirty && !stale) return;
 			dirty = false;
 			const pose = winLineHeadAt(sample.points, f.progress);
 			head.x = pose.x;

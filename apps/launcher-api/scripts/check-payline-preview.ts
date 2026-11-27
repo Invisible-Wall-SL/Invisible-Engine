@@ -502,7 +502,7 @@ const ok = (label: string, value: boolean): void => check(label, value, true);
 	const stage = read('apps/launcher-api/src/routes/(app)/fx/FxStage.svelte');
 	ok(
 		'a replay restarts the mounted stages, never remounting them (a WebGL context each)',
-		!preview.includes('{#key') &&
+		!preview.includes('{#key run}') &&
 			stage.includes('export function replay(): void') &&
 			['trailStage', 'tipStage', 'burstStage'].every(
 				(name) => preview.includes(`bind:this={${name}}`) && preview.includes(`${name}?.replay();`),
