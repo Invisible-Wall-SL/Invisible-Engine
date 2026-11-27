@@ -1,6 +1,15 @@
-import { Container, Graphics, Text, type Application, type Texture, type Ticker } from 'pixi.js';
+import {
+	Container,
+	Graphics,
+	Sprite,
+	Text,
+	type Application,
+	type Texture,
+	type Ticker,
+} from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
+import { BACKDROP_ART } from '../backdropArt';
 import {
 	LOADING_PHRASES,
 	LOADING_PHRASE_MS,
@@ -23,7 +32,8 @@ import {
  * (`GuiltyForever/Salmon-` `client/src/components/*.svelte`, `client/style.css`), each in place of
  * its node on a screen the Flow shows (`referenceLayouts/salmonsScreens.ts`): the win animation,
  * the death screen (with what to respawn as, owner decision 4), the lobby's note (with what to
- * play as, owner 2026-11-25), the lobby's clock and the loading phrases. The runtime says what each shows (`show`),
+ * play as, owner 2026-11-25), the lobby's clock, the loading phrases and the backdrop behind them
+ * all (published under `BACKDROP_ART`, not a node). The runtime says what each shows (`show`),
  * and does what their buttons ask through its {@link SalmonsScreenHost}: nothing here talks to the
  * room. The start menu is not one of them: it comes before the join, over the page
  * (`startMenu.ts`).
@@ -577,6 +587,88 @@ function createLoadingPhrases() {
 	};
 }
 
+/** The backdrop: deep water, darker downwards, the original's pink salmon swimming slowly in place
+ *  over it and a few bubbles rising. Sized for a phone held either way: the fish never reaches the
+ *  loading phrase (at 72 % of the height) or the press prompt under it. */
+const BACKDROP = {
+	top: 0x0c4a6e,
+	bottom: 0x06263d,
+	bands: 32,
+	fishY: 0.4,
+	fishAlpha: 0.9,
+	bobPx: 6,
+	bobMs: 2600,
+	bubbles: 14,
+	bubbleColor: 0xbae6fd,
+	bubbleAlpha: 0.22,
+	bubblePxPerSecond: 28,
+} as const;
+
+/** Channel-wise mix of two colours. */
+const mix = (a: number, b: number, k: number): number => {
+	const ch = (shift: number) =>
+		Math.round(((a >> shift) & 0xff) * (1 - k) + ((b >> shift) & 0xff) * k) << shift;
+	return ch(16) | ch(8) | ch(0);
+};
+
+/** Where bubble `i` of {@link BACKDROP} rises, 0–1 across and its phase: spread by the golden
+ *  ratio, so the backdrop draws the same on every device and in every determinism run. */
+const bubbleAt = (i: number) => ({ x: (i * 0.618034 + 0.11) % 1, phase: (i * 0.381966) % 1 });
+
+function createBackdrop(fish: Texture) {
+	const root = new Container();
+	const water = new Graphics();
+	// Each bubble its own Graphics, drawn once and only moved: no geometry is rebuilt per frame.
+	const bubbles = Array.from({ length: BACKDROP.bubbles }, (_, i) =>
+		new Graphics()
+			.circle(0, 0, 2 + (i % 3))
+			.fill({ color: BACKDROP.bubbleColor, alpha: BACKDROP.bubbleAlpha }),
+	);
+	const big = new Sprite(fish);
+	big.anchor.set(0.5);
+	big.alpha = BACKDROP.fishAlpha;
+	root.addChild(water, ...bubbles, big);
+	let clock = 0;
+	let size = { w: 0, h: 0 };
+	const part = screenPart(root, (dtMs, w, h) => {
+		clock += dtMs;
+		// Hidden (the field is played): every place below follows from `clock`, so nothing is moved.
+		if (!onScreen(root)) return;
+		if (w !== size.w || h !== size.h) {
+			size = { w, h };
+			water.clear();
+			const band = h / BACKDROP.bands;
+			for (let i = 0; i < BACKDROP.bands; i++) {
+				const color = mix(BACKDROP.top, BACKDROP.bottom, i / (BACKDROP.bands - 1));
+				water.rect(0, Math.floor(i * band), w, Math.ceil(band) + 1).fill(color);
+			}
+			const width = h > w ? w * 0.7 : Math.min(w * 0.36, h * 0.9);
+			big.scale.set(width / fish.width);
+			big.x = w / 2;
+		}
+		const turn = (clock / BACKDROP.bobMs) * Math.PI * 2;
+		big.y = h * BACKDROP.fishY + Math.sin(turn) * BACKDROP.bobPx;
+		big.rotation = Math.sin(turn + Math.PI / 2) * 0.02;
+		const rise = (clock / 1000) * BACKDROP.bubblePxPerSecond;
+		bubbles.forEach((bubble, i) => {
+			const { x, phase } = bubbleAt(i);
+			bubble.position.set(x * w, h - ((phase * h + rise * (1 + (i % 3) * 0.35)) % (h + 20)));
+		});
+	});
+	return {
+		mount: part.mount,
+		// Drawn only once mounted under a visible parent, and sized only once it has ticked there.
+		drawn: () => ({
+			shown: root.parent !== null && onScreen(root),
+			fish: size.w > 0 ? Math.round(big.width) : 0,
+		}),
+		destroy: () => {
+			part.stop();
+			root.destroy({ children: true });
+		},
+	};
+}
+
 /** Salmons' code-drawn screens, the win animation's big fish in `fish`. */
 export function createSalmonsScreens(
 	fish: { golden: Texture; pink: Texture },
@@ -587,8 +679,10 @@ export function createSalmonsScreens(
 	const lobby = createLobbyNote(host.rivers, host.pick);
 	const clock = createLobbyClock();
 	const phrases = createLoadingPhrases();
+	const backdrop = createBackdrop(fish.pink);
 	return {
 		mounts: new Map([
+			[BACKDROP_ART, backdrop.mount],
 			[SALMONS_SCREEN_ART.won, won.mount],
 			[SALMONS_SCREEN_ART.caught, caught.mount],
 			[SALMONS_SCREEN_ART.lobby, lobby.mount],
@@ -607,6 +701,7 @@ export function createSalmonsScreens(
 			lobby: lobby.drawn(),
 			clock: clock.drawn(),
 			phrases: phrases.drawn(),
+			backdrop: backdrop.drawn(),
 		}),
 		destroy: () => {
 			won.destroy();
@@ -614,6 +709,7 @@ export function createSalmonsScreens(
 			lobby.destroy();
 			clock.destroy();
 			phrases.destroy();
+			backdrop.destroy();
 		},
 	};
 }

@@ -92,9 +92,11 @@ export { clearSpawnProps, setSpawnProps, spawnPropsOf, type SpawnProp } from './
 export { setWorldProjector, setWorldZoom, worldDrawing } from './worldDrawing.svelte';
 export { liftOf, liftsOn, setLifts } from './arcadeLifts.svelte';
 export { clearClips, clipOf, clipsOn, setClips, type InstanceClip } from './arcadeClips.svelte';
+export { BACKDROP_ART } from './backdropArt';
 export {
 	clearArt,
 	depthOf,
+	fieldArtOf,
 	setCodeLooks,
 	setDepths,
 	setFieldArt,

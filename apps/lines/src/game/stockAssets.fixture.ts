@@ -21,7 +21,9 @@
  * 12. A BOARDLESS GAME (a play field, a card table) keeps what its own scenes and data name and the
  *     coded background: Salmons, the arcade sample and the card sample load no slot art; a flow's
  *     transition cue, a free-spin switch, a text in `gold`, a placed `Win`, a named symbol rig each
- *     bring back exactly their keys; doubt still keeps all; a board's walk is unchanged.
+ *     bring back exactly their keys; doubt still keeps all; a board's walk is unchanged. A play
+ *     field that draws its own backdrop (Salmons) keeps no coded background, but a bone-placed
+ *     effect still keeps the rig that hosts it.
  *
  * The tables against the sources, the asset files and `Game.svelte`'s bound parts are held by
  * `scripts/check-stock-asset-coverage.mjs`.
@@ -1017,6 +1019,27 @@ console.log('\n12. a boardless game');
 	const salmons = field(salmonsDoc, salmonsGame, SALMONS_SEED_DOC);
 	check('Salmons keeps its coded background, the press, the loading bar and the audio', kept(salmons), BACKGROUND); // prettier-ignore
 	check('…and keeps all on no question', analyseStockAssets(salmons).keptAllBecause, undefined);
+	const OWN = BACKGROUND.filter((key) => key !== 'foregroundAnimation');
+	check('Salmons drawing its own backdrop keeps no coded background', kept({ ...salmons, ownBackdrop: true }), OWN); // prettier-ignore
+	check(
+		'…but a bone-placed effect still keeps the rig that hosts it',
+		kept({
+			...field(salmonsDoc, salmonsGame, SALMONS_SEED_DOC, { effects: [{ id: 'fx', layers: [{ placement: { space: 'bone', bone: 'b' } }] }] }), // prettier-ignore
+			ownBackdrop: true,
+		}),
+		BACKGROUND,
+	);
+	check(
+		'…and a free-spin switch brings back no feature background',
+		kept({
+			...field(salmonsDoc, salmonsGame, {
+				...SALMONS_SEED_DOC,
+				graph: { ...SALMONS_SEED_DOC.graph, nodes: [...SALMONS_SEED_DOC.graph.nodes, { id: 'c', kind: 'fireCue', ref: 'freeSpinCounterShow' }] }, // prettier-ignore
+			}),
+			ownBackdrop: true,
+		}).filter((key) => key.startsWith('foreground')),
+		[],
+	);
 	check(
 		'on a board the same data keeps the slot art it kept before',
 		kept({ ...salmons, boardless: undefined }),

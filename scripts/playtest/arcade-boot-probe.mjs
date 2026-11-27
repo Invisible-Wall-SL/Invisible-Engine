@@ -1,17 +1,17 @@
 // Measures what SALMONS loads at boot, on a phone-class page (390 × 844, a phone's user agent
-// and touch, device scale factor 3, or `--dpr`), in the headless shell on the real clock against a
-// real game server on localhost: the profiler's own report (`?perf=1`, `window.__IE_PERF__`) after
-// the page has joined its room and played a while — transfer bytes by class, the boot and
-// first-frame times, the GPU textures and which stock files they are, and the quality ladder —
-// plus the `[stock-assets]` / `[sound]` console lines, the console's warnings, and a frame every
-// 250 ms from the navigation, so a person can see what is on screen while the river builds
-// (docs/design/salmons-performance.md T3). It prints numbers only, no verdict; run it on two
-// builds to compare them.
+// and touch, device scale factor 3, or `--size` / `--dpr`), in the headless shell on the real
+// clock against a real game server on localhost: the profiler's own report (`?perf=1`,
+// `window.__IE_PERF__`) after the page has joined its room and played a while — transfer bytes by
+// class, the boot and first-frame times, the GPU textures and which stock files they are, and the
+// quality ladder — plus the `[stock-assets]` / `[sound]` console lines, the console's warnings,
+// and a frame every 250 ms from the navigation, so a person can see what is on screen while the
+// river builds (docs/design/salmons-performance.md T3). It prints numbers only, no verdict; run it
+// on two builds to compare them.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/arcade-boot-probe.mjs --runtime apps/lines/build --out <dir> \
-//     [--runs 2] [--frames 40] [--play 15] [--dpr 3] [--throttle <n>] [--round <s>] \
-//     [--chrome <exe>]
+//     [--runs 2] [--frames 40] [--play 15] [--dpr 3] [--size 390x844] [--throttle <n>] \
+//     [--round <s>] [--chrome <exe>]
 //
 // `--dpr 1 --round 20 --play 120` plays several rounds: the quality ladder
 // measures each round and switches in the 5 s between them.
@@ -64,9 +64,15 @@ const { values: opt } = parseArgs({
 		throttle: { type: 'string' },
 		round: { type: 'string' },
 		dpr: { type: 'string', default: '3' },
+		size: { type: 'string', default: '390x844' },
 	},
 });
 const out = resolve(opt.out);
+if (!/^\d+x\d+$/.test(opt.size)) {
+	console.error(`--size is WIDTHxHEIGHT in CSS px (e.g. 390x844), not "${opt.size}"`);
+	process.exit(2);
+}
+const [WIDTH, HEIGHT] = opt.size.split('x').map(Number);
 mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -146,8 +152,8 @@ async function run(index) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, `profile-${index}`));
 	await page.page('Page.addScriptToEvaluateOnNewDocument', { source: CONSOLE });
 	await page.page('Emulation.setDeviceMetricsOverride', {
-		width: 390,
-		height: 844,
+		width: WIDTH,
+		height: HEIGHT,
 		deviceScaleFactor: Number(opt.dpr),
 		mobile: true,
 	});
@@ -180,7 +186,7 @@ async function run(index) {
 		if (i % 8 === 7)
 			await page.page('Input.dispatchTouchEvent', {
 				type: 'touchStart',
-				touchPoints: [{ x: 195, y: 600 }],
+				touchPoints: [{ x: WIDTH / 2, y: HEIGHT * 0.7 }],
 			});
 		if (i % 8 === 7)
 			await page.page('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
