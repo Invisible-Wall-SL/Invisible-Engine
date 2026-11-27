@@ -199,6 +199,16 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-27 — **An authored win frame fits its Rigger Bounds to the cell.** Owner: the fire-ring
+  frame only fit the symbol in game when its Bounds were drawn much smaller than the art, and off
+  centre. `SymbolWinFrame.svelte` drew every frame by the coded payframe's rule — `width =
+  SYMBOL_SIZE × 0.19` on the skeleton origin, at the symbol bundles' load scale 2. An authored
+  Highlight now mounts `anchor={0.5}`, contain-fitted to the live cell (`boardGeometry()`), with
+  `loadScaleBase={1}`: the Bounds frame's centre on the cell centre, the frame exactly one cell. The
+  coded `anticipation`/`payframe` fallback is unchanged. A frame already shrunk to compensate draws
+  smaller now: redraw its Bounds around the symbol. Guard: `check:symbol-layers` (5 checks, red on
+  the old mount).
+
 - 2026-11-27 — **Payline style laid out like Flights** (owner: "follow the layout we have in the
   Flights section as a standard"). The Flights arrangement is now the shared
   `$lib/ui/EditorPreviewLayout.svelte` (`list?` / `editor` / `preview` / `about?` snippets — a
