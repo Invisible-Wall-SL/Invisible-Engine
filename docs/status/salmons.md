@@ -29,7 +29,7 @@ upload.
   T1–T6 (probe accuracy, Salmons lab run, arcade boot diet + ladder, river chunks, filters into
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
-  - T1 probe accuracy — started · T2 lab run — started · T3 boot diet + ladder — started ·
+  - T1 probe accuracy — draft PR #1964 · T2 lab run — started · T3 boot diet + ladder — started ·
     T6 net client — started · T4 river chunks — started · T5 filters → shaders — after T4.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
