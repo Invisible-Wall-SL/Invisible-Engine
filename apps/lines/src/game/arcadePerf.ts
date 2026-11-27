@@ -26,7 +26,7 @@
  * by kind of message and counts the fixed steps run, for sends per step.
  */
 
-import { tallyCode, type SocketTally } from './perfNetwork';
+import type { CodeTally, SocketTally } from './perfNetwork';
 
 /** The phases an arcade frame counts in (`perf: 10`; `perf: 8` and `9` readings had `menu` and `play`). */
 export type ArcadePhase = 'loading' | 'lobby' | 'play' | 'spectate';
@@ -36,6 +36,9 @@ export type ArcadeTickPhase = Exclude<ArcadePhase, 'loading'>;
 
 /** How long after a level's first ticked frame it still counts as loading, ms. */
 export const LOADING_TAIL_MS = 1000;
+
+/** A level that never ticks (left before it began) stops counting as loading after this long, ms. */
+export const LOADING_MAX_MS = 30_000;
 
 /** What an arcade frame did, as `perfStats.ts` buckets it beside the renderer's own counts. */
 export interface ArcadeFrameWork {
@@ -92,6 +95,54 @@ export interface ArcadeInfo {
 
 /** Per frame, at most this many patch timings are kept (a burst after a stall). */
 const LATES_KEPT = 16;
+
+/*
+ * Kinds of room message (`perfNetwork.ts` re-exports these for the readout and its fixtures). They
+ * live here, not there, because the arcade runtime's `online.ts` runs them while the probe reads and
+ * `perfNetwork.ts` is the readout's own module: a value import of it would put it in every player's
+ * bundle.
+ */
+/** Kinds of message told apart in each direction; the rest are one `other`. */
+export const CODES_KEPT = 12;
+export const OTHER_CODE = 'other';
+
+/**
+ * What kind of room message a frame is, from its first bytes (the SDK's wire: a protocol code, and
+ * for a room message the message's type, a msgpack string or number): `state` / `patch` for the
+ * room's states, the type's name for a message of ours (`input`), else `code <n>`.
+ */
+export function messageLabel(bytes: Uint8Array): string {
+	const code = bytes[0] & 31;
+	if (code === 14) return 'state';
+	if (code === 15) return 'patch';
+	if (code !== 13) return `code ${code}`;
+	const head = bytes[1];
+	if (head === undefined) return 'message';
+	if (head >= 0xa0 && head <= 0xbf) {
+		const length = head & 0x1f;
+		let name = '';
+		for (let i = 0; i < length && 2 + i < bytes.length; i++)
+			name += String.fromCharCode(bytes[2 + i]);
+		return name || 'message';
+	}
+	return head < 0x80 ? `message ${head}` : 'message';
+}
+
+/** Add one message to a direction's per-kind tallies; a kind beyond the cap is `other`. */
+export function tallyCode(into: Record<string, CodeTally>, label: string, bytes: number): void {
+	// A label that names something on `Object.prototype` (`constructor`, `__proto__`…) is never a key.
+	const key =
+		Object.hasOwn(into, label) ||
+		(Object.keys(into).length < CODES_KEPT && !(label in Object.prototype))
+			? label
+			: OTHER_CODE;
+	const t = Object.hasOwn(into, key)
+		? into[key]
+		: (into[key] = { messages: 0, bytes: 0, largest: 0 });
+	t.messages += 1;
+	t.bytes += bytes;
+	t.largest = Math.max(t.largest, bytes);
+}
 
 const zero = (): ArcadeFrameWork => ({
 	simSteps: 0,
@@ -207,7 +258,12 @@ function phaseOf(now: number): ArcadePhase {
 	const ticked = arcadePerf.phase;
 	if (arcadePerf.mountedAt !== undefined) {
 		if (arcadePerf.tickedAt === undefined && ticked !== undefined) arcadePerf.tickedAt = now;
-		if (arcadePerf.tickedAt === undefined || now - arcadePerf.tickedAt < LOADING_TAIL_MS)
+		const waiting =
+			arcadePerf.tickedAt === undefined && now - arcadePerf.mountedAt < LOADING_MAX_MS;
+		if (
+			waiting ||
+			(arcadePerf.tickedAt !== undefined && now - arcadePerf.tickedAt < LOADING_TAIL_MS)
+		)
 			return 'loading';
 		arcadePerf.mountedAt = undefined;
 		arcadePerf.tickedAt = undefined;

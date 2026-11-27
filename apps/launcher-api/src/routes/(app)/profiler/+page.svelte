@@ -385,7 +385,7 @@
 			{ phase: 'round', metric: 'fps', label: 'Round fps' },
 		],
 		arcade: [
-			{ phase: 'lobby', metric: 'fps', label: 'Lobby fps' },
+			{ phase: 'lobby', metric: 'fps', label: 'Lobby / menu fps' },
 			{ phase: 'play', metric: 'fps', label: 'Play fps' },
 			{ phase: 'play', metric: 'p95', label: 'Play p95' },
 			{ phase: 'play', metric: 'busy', label: 'Play busy' },
@@ -1276,7 +1276,7 @@
 												{#each buildReadingColumns as c (c.label)}
 													<td class="num">
 														{c.metric === 'fps'
-															? fps(r[c.phase])
+															? fps(c.phase === 'lobby' ? (r.lobby ?? r.menu) : r[c.phase])
 															: c.metric === 'busy'
 																? busyCell(r, c.phase)
 																: p95(r[c.phase])}

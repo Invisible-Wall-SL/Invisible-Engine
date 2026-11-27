@@ -7,6 +7,10 @@
  * included). Layers that are not render groups draw inside the stage's own instructions: their
  * share is the frame's counts less the render-group layers', reported as `rest`.
  *
+ * The walk is outside the frame's busy time but not free: it holds the main thread after the tick,
+ * so the frame that follows can come late. On a 50,000-node tree that is a hitch every
+ * {@link SCENE_EVERY} frames in the reading's frame intervals; `walkMs` says how long it was.
+ *
  * Plain functions over a tree, so a fixture can drive them with stand-in nodes
  * (`sceneProbe.fixture.ts`).
  */

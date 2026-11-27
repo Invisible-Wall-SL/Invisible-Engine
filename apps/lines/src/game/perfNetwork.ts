@@ -138,40 +138,7 @@ export interface CodeTally {
 	largest: number;
 }
 
-/** Kinds of message told apart in each direction; the rest are one `other`. */
-export const CODES_KEPT = 12;
-export const OTHER_CODE = 'other';
-
-/**
- * What kind of room message a frame is, from its first bytes (the SDK's wire: a protocol code, and
- * for a room message the message's type, a msgpack string or number): `state` / `patch` for the
- * room's states, the type's name for a message of ours (`input`), else `code <n>`.
- */
-export function messageLabel(bytes: Uint8Array): string {
-	const code = bytes[0] & 31;
-	if (code === 14) return 'state';
-	if (code === 15) return 'patch';
-	if (code !== 13) return `code ${code}`;
-	const head = bytes[1];
-	if (head === undefined) return 'message';
-	if (head >= 0xa0 && head <= 0xbf) {
-		const length = head & 0x1f;
-		let name = '';
-		for (let i = 0; i < length && 2 + i < bytes.length; i++)
-			name += String.fromCharCode(bytes[2 + i]);
-		return name || 'message';
-	}
-	return head < 0x80 ? `message ${head}` : 'message';
-}
-
-/** Add one message to a direction's per-kind tallies; a kind beyond the cap is `other`. */
-export function tallyCode(into: Record<string, CodeTally>, label: string, bytes: number): void {
-	const key = label in into || Object.keys(into).length < CODES_KEPT ? label : OTHER_CODE;
-	const t = (into[key] ??= { messages: 0, bytes: 0, largest: 0 });
-	t.messages += 1;
-	t.bytes += bytes;
-	t.largest = Math.max(t.largest, bytes);
-}
+export { CODES_KEPT, OTHER_CODE, messageLabel, tallyCode } from './arcadePerf';
 
 export interface SocketStats {
 	seconds: number;

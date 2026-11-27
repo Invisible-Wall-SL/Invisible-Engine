@@ -9,7 +9,7 @@
  * bytes by kind and the steps run.
  */
 
-import { LOADING_TAIL_MS, arcadePerf, takeArcadeFrame } from './arcadePerf.ts';
+import { LOADING_MAX_MS, LOADING_TAIL_MS, arcadePerf, takeArcadeFrame } from './arcadePerf.ts';
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = ''): void => {
@@ -54,6 +54,16 @@ check('…and stays there', takeArcadeFrame(5000).phase === 'lobby');
 arcadePerf.mount();
 arcadePerf.phase = 'play';
 check('a second mount opens loading again', takeArcadeFrame(6000).phase === 'loading');
+
+console.log('a level that never ticks');
+arcadePerf.mount();
+const mountedAt = arcadePerf.mountedAt ?? 0;
+check('is loading while it waits', takeArcadeFrame(mountedAt + 1000).phase === 'loading');
+check(
+	'and stops being after LOADING_MAX_MS, not stuck for the page',
+	takeArcadeFrame(mountedAt + LOADING_MAX_MS + 1).phase === 'lobby' &&
+		arcadePerf.mountedAt === undefined,
+);
 
 console.log('counts and the socket tally');
 arcadePerf.counts.simSteps = 3;

@@ -930,6 +930,41 @@ test('15. GPU- or CPU-bound: the Salmons reading is CPU-bound against a 60 Hz fr
 	);
 });
 
+test('15. GPU- or CPU-bound: an arcade reading with busy time is judged on that, not on fps', () => {
+	const busy = arcadeItem('busy', {
+		gpu: 'Adreno 750',
+		menu: null,
+		play: phase(1800, 30),
+		counts: busyCounts(19),
+	});
+	const plain = arcadeItem('plain', { gpu: 'Adreno 610', play: phase(1800, 30) });
+	const ctx = ctxOf({
+		gameKind: 'arcade',
+		readings: [busy, plain],
+		readingFacts: new Map([
+			['busy', facts({ timing: { play: timing(1800, 19, 6, 15) } })],
+			['plain', facts({ timing: { play: timing(1800, 19, 6, 15) } })],
+		]),
+	});
+	const check = (rule: Rule) => {
+		const fs = rule(ctx);
+		assert.deepEqual(
+			fs.map((f) => (f.id.includes('Adreno 610') ? 'plain' : 'busy')),
+			['plain'],
+			'only the reading with no busy time is judged on its 30 fps; busy time is fpsBelowBudget’s',
+		);
+	};
+	const ignoresBusy: Rule = (c) =>
+		RULES.gpuCpuBound({
+			...c,
+			readings: c.readings.map((r) => ({
+				...r,
+				counts: r.counts && { ...r.counts, timing: undefined },
+			})),
+		});
+	holds('gpuCpuBound', check, RULES.gpuCpuBound, ignoresBusy);
+});
+
 test('15. fps below budget: an arcade game’s play line, owned by its kind’s agent', () => {
 	const fs = RULES.fpsBelowBudget(
 		ctxOf({ gameKind: 'arcade', readings: [arcadeItem('s', { play: phase(1800, 40) })] }),

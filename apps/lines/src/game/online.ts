@@ -156,8 +156,7 @@ import {
 	refuseOnlineBoot,
 	setRoomDocChange,
 } from '../editor-scenes';
-import { arcadePerf } from './arcadePerf';
-import { messageLabel } from './perfNetwork';
+import { arcadePerf, messageLabel } from './arcadePerf';
 import { typingInto } from './flowKeys';
 import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';

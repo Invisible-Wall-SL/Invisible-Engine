@@ -406,6 +406,7 @@ class WorkBucket {
 	frames = 0;
 	private readonly sum: Partial<Record<WorkKey, number>> = {};
 	private readonly max: Partial<Record<WorkKey, number>> = {};
+	private readonly min: Partial<Record<WorkKey, number>> = {};
 	private readonly spread: Partial<Record<WorkKey, Histogram>> = {};
 	add(work: PerfFrameWork): void {
 		this.frames++;
@@ -414,6 +415,7 @@ class WorkBucket {
 			if (typeof value !== 'number' || !Number.isFinite(value)) continue;
 			this.sum[key] = (this.sum[key] ?? 0) + value;
 			this.max[key] = Math.max(this.max[key] ?? 0, value);
+			this.min[key] = Math.min(this.min[key] ?? value, value);
 			(this.spread[key] ??= new Histogram()).add(value);
 		}
 	}
@@ -425,8 +427,10 @@ class WorkBucket {
 			const max = this.max[key] ?? 0;
 			perFrame[key] = {
 				mean: round1(sum / this.frames),
-				// A bucket's middle can sit above the largest value it holds.
-				p95: round1(Math.min(max, this.spread[key]?.quantile(0.95) ?? 0)),
+				// A bucket's middle can sit outside the values it holds: keep it between the extremes.
+				p95: round1(
+					Math.max(this.min[key] ?? 0, Math.min(max, this.spread[key]?.quantile(0.95) ?? 0)),
+				),
 				max: round1(max),
 			};
 		}
@@ -438,16 +442,21 @@ class WorkBucket {
 class BusyBucket {
 	private readonly spread = new Histogram();
 	private max = 0;
+	private min = Infinity;
 	add(ms: number): void {
 		if (!Number.isFinite(ms) || ms < 0) return;
 		this.spread.add(ms);
 		this.max = Math.max(this.max, ms);
+		this.min = Math.min(this.min, ms);
+	}
+	private within(value: number): number {
+		return Math.max(Number.isFinite(this.min) ? this.min : 0, Math.min(this.max, value));
 	}
 	snapshot(): BusySnapshot {
 		return {
 			frames: this.spread.n,
-			p50: round1(Math.min(this.max, this.spread.quantile(0.5))),
-			p95: round1(Math.min(this.max, this.spread.quantile(0.95))),
+			p50: round1(this.within(this.spread.quantile(0.5))),
+			p95: round1(this.within(this.spread.quantile(0.95))),
 			max: round1(this.max),
 		};
 	}

@@ -523,6 +523,27 @@ console.log('busy time, not fps');
 	);
 }
 
+{
+	// A counter that never moves reads the same p95 as its mean: a bucket's middle never shows.
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 200; i++) {
+		t += 16.67;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork({ draws: 100, lateMs: 0, tickMs: 7, afterMs: 0 }));
+	}
+	const s = stats.snapshot();
+	const draws = s.work.play.perFrame.draws;
+	check(
+		'a constant counter and a constant busy time have p95 = mean = max',
+		draws?.mean === 100 && draws.p95 === 100 && draws.max === 100 && s.busy.play.p95 === 7,
+		JSON.stringify([draws, s.busy.play]),
+	);
+}
+
 console.log('display rate, hidden and throttled frames');
 {
 	// A game that runs at 30 on a 60 Hz display: the achieved rate is 30, the side loop reads 60.

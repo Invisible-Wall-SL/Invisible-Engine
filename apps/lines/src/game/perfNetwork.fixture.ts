@@ -372,6 +372,19 @@ check(
 	[Object.keys(into).length, into[OTHER_CODE].messages, into.kind0],
 	[CODES_KEPT + 1, 40 - CODES_KEPT, { messages: 2, bytes: 100, largest: 90 }],
 );
+const hostile: Record<string, CodeTally> = {};
+for (const label of ['constructor', '__proto__', 'toString', 'hasOwnProperty'])
+	tallyCode(hostile, label, 5);
+check(
+	'a label that names an Object.prototype member is `other`, and nothing global is written',
+	[
+		Object.keys(hostile),
+		hostile[OTHER_CODE]?.messages,
+		(Object as unknown as { messages?: number }).messages,
+		({} as { messages?: number }).messages,
+	],
+	[[OTHER_CODE], 4, undefined, undefined],
+);
 const inByCode: Record<string, CodeTally> = {};
 const outByCode: Record<string, CodeTally> = {};
 tallyCode(inByCode, 'patch', 600);
