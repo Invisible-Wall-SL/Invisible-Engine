@@ -161,7 +161,7 @@ type Side = 'l' | 'r';
 /** An entry of a template's body motion map. */
 export type BodyMotionEntryOf = NonNullable<RigMotionMap['body']>['entries'][number];
 
-export const SIDE = { l: 'left', r: 'right' } as const;
+const SIDE = { l: 'left', r: 'right' } as const;
 /** The side as a label's first word. */
 const SIDE_FIRST = { l: 'Left', r: 'Right' } as const;
 
@@ -196,7 +196,7 @@ const FORESHORTEN_FLOOR = 0.3;
  * A limb shortening toward or away from the camera: `bone` scales along the limb (its image, or a
  * hand with its fingers) and the next joint, `next`, comes in with it.
  */
-export function shortening(
+function shortening(
 	t: { bones: RigTemplateBone[] },
 	id: string,
 	label: string,
@@ -796,5 +796,115 @@ export function fingerHands(size: { hand: [number, number]; poses: [number, numb
 			'The drawn hand poses: the fingers are keyed instead.',
 			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
 		],
+	};
+}
+
+/** A template's legs: their proportions. */
+export interface LegDims {
+	/** Where the thigh hangs on the hip (x out from the middle). */
+	hip: [number, number];
+	/** The thigh's and the shin's lengths. */
+	thigh: number;
+	shin: number;
+	/** The thigh's, the shin's and the foot's placeholder sizes. */
+	sizes: [[number, number], [number, number], [number, number]];
+}
+
+/**
+ * The legs, per side (`k` the side's sign; x mirrors): the thigh, the shin and the foot from the
+ * hip. Step leg and Bend knee turn them, read from the pose's hip, knee and ankle. The depth stage
+ * (§5.4) adds the thigh and the shin shortening on image bones of their own, and the leg in 3D,
+ * placed by its hip and reaching for the tracked ankle.
+ */
+export function legs(d: LegDims) {
+	return {
+		bones: (s: Side, k: number): RigTemplateBone[] => [
+			{ name: `thigh_${s}`, parent: 'hip', x: d.hip[0] * k, y: d.hip[1] },
+			{ name: `shin_${s}`, parent: `thigh_${s}`, x: 0, y: -d.thigh },
+			{ name: `foot_${s}`, parent: `shin_${s}`, x: 0, y: -d.shin },
+		],
+		slots: (s: Side): RigTemplateSlot[] => [
+			{ name: `thigh_${s}`, bone: `thigh_${s}`, setup: `thigh_${s}` },
+			{ name: `shin_${s}`, bone: `shin_${s}`, setup: `shin_${s}` },
+			{ name: `foot_${s}`, bone: `foot_${s}`, setup: `foot_${s}` },
+		],
+		parts: (s: Side): RigTemplatePart[] => [
+			part(`thigh_${s}`, `thigh_${s}`, d.sizes[0], true),
+			part(`shin_${s}`, `shin_${s}`, d.sizes[1], true),
+			part(`foot_${s}`, `foot_${s}`, d.sizes[2], true),
+		],
+		channels: (s: Side): RigTemplateChannel[] => [
+			{
+				id: `step_${s}`,
+				label: `Step ${SIDE[s]} leg`,
+				tip: 'Swing the leg at the hip: forward (+) or back (−) for a character facing right.',
+				min: -1,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `thigh_${s}`, prop: 'rotate', per: 25 }],
+			},
+			{
+				id: `knee_${s}`,
+				label: `Bend ${SIDE[s]} knee`,
+				tip: 'Fold the lower leg back (facing right).',
+				min: 0,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `shin_${s}`, prop: 'rotate', per: -60 }],
+			},
+		],
+		motion: (s: Side): BodyMotionEntryOf[] => {
+			const p = POSE_SIDE[s];
+			return [
+				{ kind: 'bone', channel: `step_${s}`, bone: `thigh_${s}`, from: p.hip, to: p.knee },
+				{ kind: 'bone', channel: `knee_${s}`, bone: `shin_${s}`, from: p.knee, to: p.ankle },
+			];
+		},
+		/** The images that shorten on a bone of their own. */
+		images: (s: Side) => [`thigh_${s}`, `shin_${s}`],
+		shorten: (t: { bones: RigTemplateBone[] }, s: Side): RigTemplateChannel[] => [
+			shortening(t, `fore_thigh_${s}`, `Shorten ${SIDE[s]} thigh`, `thigh_${s}_image`, `shin_${s}`),
+			shortening(t, `fore_shin_${s}`, `Shorten ${SIDE[s]} shin`, `shin_${s}_image`, `foot_${s}`),
+		],
+		foreshorten: (s: Side): BodyMotionEntryOf[] => {
+			const p = POSE_SIDE[s];
+			return [
+				{
+					kind: 'foreshorten',
+					channel: `fore_thigh_${s}`,
+					bone: `thigh_${s}_image`,
+					from: p.hip,
+					to: p.knee,
+				},
+				{
+					kind: 'foreshorten',
+					channel: `fore_shin_${s}`,
+					bone: `shin_${s}_image`,
+					from: p.knee,
+					to: p.ankle,
+				},
+			];
+		},
+		/**
+		 * The leg in 3D: the thigh and the shin rolled about their length to face the viewer; the foot
+		 * lies flat on the shin.
+		 */
+		bones3d: (s: Side): Bone3dMotion[] => {
+			const p = POSE_SIDE[s];
+			return [
+				{ kind: 'bone3d', bone: `thigh_${s}`, pose: { from: p.hip, to: p.knee }, roll: 'viewer' },
+				{ kind: 'bone3d', bone: `shin_${s}`, pose: { from: p.knee, to: p.ankle }, roll: 'viewer' },
+			];
+		},
+		/** The body placed by the tracked hip. */
+		anchor: (s: Side): FollowMark => ({ point: { pose: POSE_SIDE[s].hip }, bone: `thigh_${s}` }),
+		/** The leg reaching the tracked ankle. */
+		follow: (s: Side): FollowLimb => ({
+			upper: `thigh_${s}`,
+			lower: `shin_${s}`,
+			end: `foot_${s}`,
+			points: [POSE_SIDE[s].hip, POSE_SIDE[s].knee, POSE_SIDE[s].ankle],
+			pole: `knee_pole_${s}`,
+		}),
 	};
 }

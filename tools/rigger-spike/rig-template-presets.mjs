@@ -96,11 +96,11 @@ const MUTANTS = [
 		"the Full body's leg bones in another order",
 		[
 			[
-				'rigTemplates.ts',
-				`			{ name: \`thigh_\${s}\`, parent: 'hip', x: 35 * k, y: -10 },
-			{ name: \`shin_\${s}\`, parent: \`thigh_\${s}\`, x: 0, y: -130 },`,
-				`			{ name: \`shin_\${s}\`, parent: \`thigh_\${s}\`, x: 0, y: -130 },
-			{ name: \`thigh_\${s}\`, parent: 'hip', x: 35 * k, y: -10 },`,
+				'rigTemplateBody.ts',
+				`			{ name: \`thigh_\${s}\`, parent: 'hip', x: d.hip[0] * k, y: d.hip[1] },
+			{ name: \`shin_\${s}\`, parent: \`thigh_\${s}\`, x: 0, y: -d.thigh },`,
+				`			{ name: \`shin_\${s}\`, parent: \`thigh_\${s}\`, x: 0, y: -d.thigh },
+			{ name: \`thigh_\${s}\`, parent: 'hip', x: d.hip[0] * k, y: d.hip[1] },`,
 			],
 		],
 	],

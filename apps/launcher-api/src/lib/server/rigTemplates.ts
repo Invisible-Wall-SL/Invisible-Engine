@@ -45,15 +45,14 @@ import {
 	NECK_BONES,
 	POSE_SIDE,
 	SHOULDERS,
-	SIDE,
 	angleParts,
 	arms,
 	digitBones,
 	fingerHands,
 	fingerRoots,
+	legs,
 	neck,
 	posedHands,
-	shortening,
 	type BodyMotionEntryOf,
 } from './rigTemplateBody';
 import { LIPSYNC_SHAPES, part, sides } from './rigTemplateFace';
@@ -673,6 +672,16 @@ const FULL_ARMS = arms({
 	},
 });
 const FULL_HANDS = posedHands([55, 60]);
+const FULL_LEGS = legs({
+	hip: [35, -10],
+	thigh: 130,
+	shin: 130,
+	sizes: [
+		[70, 150],
+		[60, 150],
+		[90, 40],
+	],
+});
 
 /**
  * A whole standing character, drawn facing the viewer or facing right (the game flips it). Every
@@ -691,18 +700,10 @@ const FLAT_FULL_BODY: RigTemplate = {
 		{ name: 'chest', parent: 'spine', x: 0, y: 90 },
 		...FULL_NECK.bones,
 		...sides(FULL_ARMS.bones),
-		...sides((s, k) => [
-			{ name: `thigh_${s}`, parent: 'hip', x: 35 * k, y: -10 },
-			{ name: `shin_${s}`, parent: `thigh_${s}`, x: 0, y: -130 },
-			{ name: `foot_${s}`, parent: `shin_${s}`, x: 0, y: -130 },
-		]),
+		...sides(FULL_LEGS.bones),
 	],
 	slots: [
-		...sides((s) => [
-			{ name: `thigh_${s}`, bone: `thigh_${s}`, setup: `thigh_${s}` },
-			{ name: `shin_${s}`, bone: `shin_${s}`, setup: `shin_${s}` },
-			{ name: `foot_${s}`, bone: `foot_${s}`, setup: `foot_${s}` },
-		]),
+		...sides(FULL_LEGS.slots),
 		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
 		FULL_NECK.slot,
@@ -710,11 +711,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		...sides((s) => [...FULL_ARMS.slots(s), ...FULL_HANDS.slots(s)]),
 	],
 	parts: [
-		...sides((s) => [
-			part(`thigh_${s}`, `thigh_${s}`, [70, 150], true),
-			part(`shin_${s}`, `shin_${s}`, [60, 150], true),
-			part(`foot_${s}`, `foot_${s}`, [90, 40], true),
-		]),
+		...sides(FULL_LEGS.parts),
 		part('pelvis', 'pelvis', [150, 80]),
 		part('torso', 'torso', [200, 240], true),
 		FULL_NECK.part,
@@ -753,26 +750,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 			drives: [{ bone: 'root', prop: 'x', per: 100 }],
 		},
 		...sides((s, k) => [...FULL_ARMS.channels(s, k), ...FULL_HANDS.channels(s)]),
-		...sides<RigTemplateChannel>((s) => [
-			{
-				id: `step_${s}`,
-				label: `Step ${SIDE[s]} leg`,
-				tip: 'Swing the leg at the hip: forward (+) or back (−) for a character facing right.',
-				min: -1,
-				max: 1,
-				rest: 0,
-				drives: [{ bone: `thigh_${s}`, prop: 'rotate', per: 25 }],
-			},
-			{
-				id: `knee_${s}`,
-				label: `Bend ${SIDE[s]} knee`,
-				tip: 'Fold the lower leg back (facing right).',
-				min: 0,
-				max: 1,
-				rest: 0,
-				drives: [{ bone: `shin_${s}`, prop: 'rotate', per: -60 }],
-			},
-		]),
+		...sides(FULL_LEGS.channels),
 		{
 			id: 'head_tilt',
 			label: 'Head tilt',
@@ -803,14 +781,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 					rest: [1, 0],
 					minSpan: 0.12,
 				},
-				...sides<BodyMotionEntryOf>((s) => {
-					const p = POSE_SIDE[s];
-					return [
-						...FULL_ARMS.motion(s),
-						{ kind: 'bone', channel: `step_${s}`, bone: `thigh_${s}`, from: p.hip, to: p.knee },
-						{ kind: 'bone', channel: `knee_${s}`, bone: `shin_${s}`, from: p.knee, to: p.ankle },
-					];
-				}),
+				...sides((s) => [...FULL_ARMS.motion(s), ...FULL_LEGS.motion(s)]),
 				{ kind: 'root', channel: 'hop', point: [23, 24], axis: 'y' },
 				{ kind: 'root', channel: 'move', point: [23, 24], axis: 'x' },
 			],
@@ -1286,8 +1257,6 @@ const replaceChannels = (
 	by: Record<string, RigTemplateChannel[]>,
 ): RigTemplateChannel[] => list.flatMap((c) => by[c.id] ?? [c]);
 
-const SIDE_WORD = (s: 'l' | 'r') => (s === 'l' ? 'left' : 'right');
-
 /** The body's turn toward the picture's right (+) or left, as a ¾ or side torso image. */
 const TURN: RigTemplateChannel = {
 	id: 'turn',
@@ -1444,15 +1413,6 @@ const body3d = (image: string, line: [number, number]): Bone3dMotion => ({
 	acrossRest: [1, 0],
 });
 
-/** A leg in 3D: the thigh and the shin rolled about their length to face the viewer; the foot lies flat on the shin. */
-const leg3d = (s: 'l' | 'r'): Bone3dMotion[] => {
-	const p = POSE_SIDE[s];
-	return [
-		{ kind: 'bone3d', bone: `thigh_${s}`, pose: { from: p.hip, to: p.knee }, roll: 'viewer' },
-		{ kind: 'bone3d', bone: `shin_${s}`, pose: { from: p.knee, to: p.ankle }, roll: 'viewer' },
-	];
-};
-
 /**
  * How far the neck may bend onto the tracked face, degrees in all (a person's neck bends about 45°
  * to the side): on NellyAnimTest the head sat up to 73 rig units to one side of the shoulders'
@@ -1471,7 +1431,7 @@ const FULL_BODY_IMAGES = withImageBones(FLAT_FULL_BODY, [
 	'pelvis',
 	'torso',
 	'head',
-	...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `thigh_${s}`, `shin_${s}`]),
+	...sides((s) => [...FULL_ARMS.images(s), ...FULL_LEGS.images(s)]),
 ]);
 
 /**
@@ -1493,22 +1453,9 @@ export const FULL_BODY: RigTemplate = {
 	],
 	channels: [
 		...FLAT_FULL_BODY.channels,
-		...sides<RigTemplateChannel>((s) => [
+		...sides((s) => [
 			...FULL_ARMS.shorten(FLAT_FULL_BODY, s),
-			shortening(
-				FLAT_FULL_BODY,
-				`fore_thigh_${s}`,
-				`Shorten ${SIDE_WORD(s)} thigh`,
-				`thigh_${s}_image`,
-				`shin_${s}`,
-			),
-			shortening(
-				FLAT_FULL_BODY,
-				`fore_shin_${s}`,
-				`Shorten ${SIDE_WORD(s)} shin`,
-				`shin_${s}_image`,
-				`foot_${s}`,
-			),
+			...FULL_LEGS.shorten(FLAT_FULL_BODY, s),
 		]),
 		TURN,
 		sideOn(
@@ -1535,26 +1482,7 @@ FULL_BODY.motion = {
 		...FLAT_FULL_BODY.motion!.body!,
 		entries: [
 			...FLAT_FULL_BODY.motion!.body!.entries,
-			...sides<BodyMotionEntryOf>((s) => {
-				const p = POSE_SIDE[s];
-				return [
-					...FULL_ARMS.foreshorten(s),
-					{
-						kind: 'foreshorten',
-						channel: `fore_thigh_${s}`,
-						bone: `thigh_${s}_image`,
-						from: p.hip,
-						to: p.knee,
-					},
-					{
-						kind: 'foreshorten',
-						channel: `fore_shin_${s}`,
-						bone: `shin_${s}_image`,
-						from: p.knee,
-						to: p.ankle,
-					},
-				];
-			}),
+			...sides((s) => [...FULL_ARMS.foreshorten(s), ...FULL_LEGS.foreshorten(s)]),
 			...BODY_DEPTH,
 		],
 	},
@@ -1578,26 +1506,14 @@ FULL_BODY.motion = {
 				acrossRest: [1, 0],
 			},
 			{ kind: 'bone3d', bone: 'head_image', viewer: 'square' },
-			...sides((s) => [...FULL_ARMS.bones3d(s), ...leg3d(s)]),
+			...sides((s) => [...FULL_ARMS.bones3d(s), ...FULL_LEGS.bones3d(s)]),
 		],
 		positions: {
 			root: {
 				bone: 'root',
-				anchors: sides((s) => [
-					FULL_ARMS.anchor(s),
-					{ point: { pose: POSE_SIDE[s].hip }, bone: `thigh_${s}` },
-				]),
+				anchors: sides((s) => [FULL_ARMS.anchor(s), FULL_LEGS.anchor(s)]),
 			},
-			limbs: sides((s) => [
-				FULL_ARMS.follow(s),
-				{
-					upper: `thigh_${s}`,
-					lower: `shin_${s}`,
-					end: `foot_${s}`,
-					points: [POSE_SIDE[s].hip, POSE_SIDE[s].knee, POSE_SIDE[s].ankle],
-					pole: `knee_pole_${s}`,
-				},
-			]),
+			limbs: sides((s) => [FULL_ARMS.follow(s), FULL_LEGS.follow(s)]),
 		},
 		replaces: [
 			'lean',
@@ -1636,10 +1552,7 @@ FULL_BODY.motion = {
  * sets all three), each arm passes behind the head or the body in the draw order, the body turns
  * and comes nearer, and the face block turns and nods the head with parallax (§5.4).
  */
-const HALF_BODY_IMAGES = withImageBones(FLAT_HALF_BODY, [
-	'torso',
-	...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`]),
-]);
+const HALF_BODY_IMAGES = withImageBones(FLAT_HALF_BODY, ['torso', ...sides(HALF_ARMS.images)]);
 
 export const HALF_BODY: RigTemplate = {
 	...FLAT_HALF_BODY,
