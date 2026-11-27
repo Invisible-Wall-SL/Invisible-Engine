@@ -11,6 +11,16 @@ under its game key ([ways](../families/ways.md)), Hold and Win role symbols
 ([hold-and-win](../families/hold-and-win.md)). A type error that ships green (the launcher build is
 not a type-check): [launcher.md](launcher.md#a-type-error-ships-green).
 
+### ＋ Variant on a zone art row did nothing
+- **Symptom:** in Zone art, ＋ Variant (and Scale, and the bin) on a family that already had a
+  picture did nothing, with no error shown.
+- **Cause:** `zoneArtDoc.ts` copied `doc.arcade.zoneArt` with `structuredClone`; the page's doc is a
+  `$state` proxy, and `structuredClone` of a proxy throws a DataCloneError.
+- **Fix:** copy with a JSON round trip in the pure module (it cannot call `$state.snapshot`).
+- **Guard:** `check:zone-art` §10b runs the card's edits on a real `$state` doc
+  (`scripts/lib/liveState.ts`).
+- **PR:** see git log (2026-11-27) · source: owner report
+
 ### The first zone, rule or goal added to an empty list vanished
 - **Symptom:** the first zone (drawn or added), zone rule, ability, match-3 goal, game mode or
   character never reached the save; the second one did.
