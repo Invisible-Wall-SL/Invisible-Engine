@@ -30,10 +30,12 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder —
-    in review, branch `claude/salmons-perf-t3-boot` (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16
-    MB; the ladder measures arcade; the coded slot background stays, an owner decision) ·
-    T6 net client — started · T4 river chunks — draft PR #1972 (pixel-identical; lab: mount 39.7k → 6.4k
-    objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — after T4.
+    in review, PR #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures
+    arcade; the coded slot background stays here, replaced in T3b) ·
+    T6 net client — started · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
+    objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
+    #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; owner accepted the sharper,
+    MSAA-smoothed swimming salmon; Recent changes 2026-11-27).
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2709,6 +2711,68 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
     (2 / 2 runs; failed on `each_key_duplicate` before the loader fix, passes on main).
 
+- 2026-11-27 — **Performance T5: the water a body is drawn under, in its own shaders**
+  ([design/salmons-performance](../design/salmons-performance.md) §3 cause 2, §4 T5; branch
+  `claude/salmons-perf-t5-shaders`, PR #1989; in review). No config, layout or flow change.
+  - **What changed.** `salmonsArt/bodyShaders.ts` (new): each body's own program, Pixi's mesh (or
+    graphics) program with a step doing what its pass did to its pixel — rounded to 8 bits as the
+    pass's target kept it, then `ColorMatrixFilter`'s fragment line for line (the salmon) or the
+    wading pass's waterline about the look's place (the bear). `looks.ts`: the salmon's rope is
+    drawn by it; the glint is no longer an additive mesh but found per pixel from its own 7-point
+    rope strip and added before the matrix, as it was inside the pass (so no blend change splits
+    the batch). Going under or out of the water sets a uniform; nothing sets `filters`. The bear's
+    picture is a quad mesh in place of its `Sprite` (Pixi's own quad bounds) and its claw a
+    `Graphics` with `customShader`, both told the line by `wade.ts` (`OwnWater`): a code look
+    takes no pass. A rig or a turned clip still wades through `wadeFilter.ts`, and so does a code
+    look whose GPU refuses the programs (asked of the driver at mount; a salmon is then drawn
+    crisp). `SpawnLayer.svelte`: the gold filter is no longer set on the container a clip or a
+    code look hides (Salmons' golden salmon is its own texture: no gold pass in Salmons).
+    The probe's `wading` reads `drawnUnder` and `pass` in place of `filtered`.
+  - **Not done, and why.** The bed's full-screen displacement stays (one pass; resolution / MSAA
+    are owner decisions, §5). The gold filter on a marked *clip* stays (other games' clips; none in
+    Salmons). Root draw-list rebuilds are not lowered measurably: a body under or out of the water
+    was a small share of them; the rest are the sources T4 listed (`MountedArt` re-mounts, the
+    blood trail's puffs, depth reorders).
+  - **Pixels** (`scripts/salmons/bodies-pixels.mjs --base <T4 worktree>`, new: ten salmon and four
+    bears — under both tints, surfacing, leaping, in the sea, on a bank, red, gold, wading in and
+    half under — over a seeded noise backdrop, 14 stops × 5 cases, through the back buffer as the
+    game draws, each differing pixel put to the body that drew it). A salmon out of the water: 0.
+    At resolution 1 without MSAA ≈ 0.07 % of pixels differ, 97 % of them by one level (8-bit
+    rounding in a different order), the rest ≤ 3 on the waterline's edge, one glint cluster ≤ 11.
+    Bears: ≤ 5. Two differences are the passes' own side effects; **the owner accepted both
+    (2026-11-27: "Sharper is fine", "Smoother is fine")**. Side by side (before, after, the
+    differences): `docs/playtest/salmons-t5/res1-swimming-salmon.png`, `res2-swimming-salmon.png`.
+    1. `ColorMatrixFilter` runs at Pixi's default filter resolution, 1 (`Filter.defaultOptions`;
+       the wading pass is `'inherit'`): on a resolution-2 phone every swimming salmon was drawn at
+       half resolution and scaled up. Drawn by its own program it is as sharp as it is out of the
+       water (≈ 2.3k px per salmon differ at resolution 2, by up to ~140).
+    2. It also runs with `antialias: 'off'`: a swimming salmon's outline was not smoothed by MSAA.
+       Now it is, as out of the water (10–60 px on each salmon's outline, by up to ~100).
+  - **Measured** (T2's lab, `salmons-lab.mjs --runs 3`, seed 31337, 20 bots; T4's build vs this
+    one; headless desktop, ~4 bodies in view): filter passes 1.8 → **1.0** (the bed's), passes
+    5.7 → 4.0, target switches 7.8 → 6.0, draws 18.0 → 14.7, GL calls 126 → 133 (spread 15 %:
+    each body's uniforms). The bodies harness: 8.05 → 0 filter passes a frame, root rebuilds
+    0.07 → 0.05. Root rebuilds in the lab's play (a renderer hook, 2 runs each): 0.57 → 0.58.
+  - **`[BindGroup] textureSource destroyed while still bound`** (seen by T3 when the ladder
+    changes quality): not T5's. Fixed in #1973 (T3): `pixi-svelte` `renderQuality.ts`
+    `backBufferMsaa().set` destroyed the back buffer's texture while Pixi's present shader still
+    held it; it now destroys it a tick later.
+  - **Gates:** `check:salmons-art` 50 → 53 (a look drawing its own water never takes the pass,
+    and a refused one is drawn through it; the salmon's step carries `ColorMatrixFilter`'s
+    fragment lines and the glint's alpha is packed as Pixi packs it; the bear's quad is where a
+    `Sprite` puts it, trimmed or not), `check:zone-art` 132, `check:salmons-levels` 27,
+    `check:room-levels` 16, svelte-check `engine-layout` at baseline (290).
+  - **Played** on the branch's arcade build, alone on the machine: `salmons-play.mjs` 103/103 (the
+    code-look bear wades with no pass, the rig through it), `--trees`, `salmons-river-tour.mjs`
+    seeds 1 and 4, `salmons-levels-play.mjs`: all pass.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux): all five move — `SpawnLayer` ships
+    in every runtime, the Salmons art chunk in arcade and arcade3d. Against main f4f8484 (T4 merged), in gzip: `lines` 0 B (its hashes move), `match3` +8 B,
+    `card` +12 B (the gold line), `arcade` +3,244 B and `arcade3d` +3,260 B, almost all in the
+    lazy Salmons art chunk (the programs' GLSL).
+  - **Reviewed** (`code-reviewer`): fixed a trimmed bear texture's UVs (`quadOf`: Pixi's
+    `textureMatrix` takes UVs over the untrimmed rect), the bear's quad geometry never destroyed,
+    the glint's alpha without its ancestors', two glint point counts, the three programs linked
+    together; the playtest doc reads the probe's `drawnUnder` / `pass`.
 - 2026-11-27 — **Performance T4: the river in chunks** ([design/salmons-performance](../design/salmons-performance.md)
   §4 T4; branch `claude/salmons-perf-t4-river`; in review). Pixel-identical; no config, layout or
   flow change.

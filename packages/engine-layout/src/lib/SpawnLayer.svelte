@@ -253,7 +253,9 @@
 				<MountedArt mount={code} />
 			{/key}
 		{/if}
-		<Container filters={mark ? goldFilters() : []} visible={!clip && !code}>
+		<!-- Hidden behind a clip or a code look, it takes no gold: a filter set on it would be a
+		     draw-list rebuild for nothing. -->
+		<Container filters={mark && !clip && !code ? goldFilters() : []} visible={!clip && !code}>
 			<ComponentInstance node={instanceNode(instance)} {space} />
 		</Container>
 	{:else}
