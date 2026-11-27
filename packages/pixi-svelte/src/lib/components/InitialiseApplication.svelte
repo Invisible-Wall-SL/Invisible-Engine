@@ -34,6 +34,8 @@
 	import { renderSettings } from '../renderTier';
 	import { canvasResolution, deviceScreenPixelRatio } from '../deviceClass';
 	import { installRenderQuality } from '../renderQuality';
+	import { capParticleBudget } from '../particleBudget';
+	import { setStagePostFxSuppressed } from '../screenFx/stageFilters';
 	import { trimBackBufferPasses } from '../backBufferPasses';
 	import {
 		AUTO_OPAQUE,
@@ -144,9 +146,15 @@
 		context.stateApp.pixiApplication.ticker.add(frameClockTick);
 		releaseFrameClock = bindFrameClock();
 		// Only a game configures it: a tool's renderer stays at the level it was created at.
-		releaseRenderQuality = installRenderQuality(context.stateApp.pixiApplication, {
+		// The last level's effects are wired here, so `renderQuality.ts` stays free of Pixi values.
+		const app = context.stateApp.pixiApplication;
+		releaseRenderQuality = installRenderQuality(app, {
 			tier: render.tier,
 			msaa: options.antialias,
+			effects: {
+				suppressPostFx: (suppressed) => setStagePostFxSuppressed(app, suppressed),
+				capParticles: capParticleBudget,
+			},
 		});
 
 		// to prevent that you can't scroll the page with touch on the canvas. https://github.com/pixijs/pixijs/issues/4824

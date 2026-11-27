@@ -11,8 +11,10 @@ export {
 export {
 	setStageFilters,
 	setStageFxAntialias,
+	setStagePostFxSuppressed,
 	stageFilters,
 	stagePostFxSlot,
+	stagePostFxSuppressed,
 	type StageApp,
 	type StageFilterSlot,
 	type StagePostFxSlot,
