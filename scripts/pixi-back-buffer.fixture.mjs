@@ -23,7 +23,10 @@
  *      GL texture system deletes its texture and the MSAA renderbuffer it owns (pixi ≥ 8.23) — and
  *      the render target system releases a source's framebuffers and depth/stencil renderbuffer on
  *      its `destroy`;
- *   7. setting `renderer.resolution` resizes the canvas at its CSS size and tells the event system.
+ *   7. setting `renderer.resolution` resizes the canvas at its CSS size and tells the event system;
+ *   8. the present binds the back buffer's texture as its shader's `uTexture` and leaves it bound,
+ *      so the MSAA switch destroys a retired texture only once that no longer samples it
+ *      (`renderQuality.ts` `backBufferMsaaOf`).
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -147,6 +150,13 @@ check(
 		method(read('events/EventSystem.mjs'), 'resolutionChange').includes(
 			'this.resolution = resolution',
 		),
+);
+
+check(
+	"the present binds the back buffer's texture as the present shader's uTexture",
+	method(backBuffer, '_presentBackBuffer').includes(
+		'this._bigTriangleShader.resources.uTexture = this._backBufferTexture.source',
+	),
 );
 
 if (failures) throw new Error(`pixi-back-buffer fixture: ${failures} check(s) FAILED`);
