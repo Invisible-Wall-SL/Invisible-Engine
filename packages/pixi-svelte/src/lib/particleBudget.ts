@@ -40,6 +40,8 @@ let quality = 1;
 let ceiling = 1;
 /** The tier's cap: {@link capParticleBudget} never lifts the cap above it. */
 let tierCeiling = 1;
+/** The render-quality ladder's cap, kept through a later {@link configureParticleBudget}. */
+let ladderCap = 1;
 let configured = false;
 let pinned = false;
 let adaptive = false;
@@ -71,7 +73,7 @@ export function configureParticleBudget({
 	adaptive: follow = true,
 }: { tier?: RenderTier; adaptive?: boolean } = {}): void {
 	tierCeiling = tier === 'reduced' ? REDUCED_TIER_QUALITY : 1;
-	ceiling = tierCeiling;
+	ceiling = Math.min(tierCeiling, ladderCap);
 	configured = true;
 	const pin = pinnedParticles();
 	pinned = pin !== undefined;
@@ -88,12 +90,14 @@ export function configureParticleBudget({
  * Cap the budget at `cap` (clamped to the floor..1, never above the tier's cap), or lift the cap
  * back with 1. Lowering it lowers the quality at once; lifting it lets an adaptive budget climb back
  * at its own pace. A pinned `?particles=` and a budget no game configured are left alone: before
- * {@link configureParticleBudget} it does nothing (the cap is not kept for later), and a later
- * configure starts again from the tier's cap, dropping any cap set before it.
+ * {@link configureParticleBudget} it does nothing (the cap is not kept for later). A later
+ * configure keeps the cap the configured budget last took, so a game that configures again while
+ * the ladder is at its last level stays capped until the ladder lifts it.
  */
 export function capParticleBudget(cap: number): void {
 	if (!configured || pinned) return;
 	const clamped = Number.isFinite(cap) ? Math.min(1, Math.max(PARTICLE_BUDGET_FLOOR, cap)) : 1;
+	ladderCap = clamped;
 	ceiling = Math.min(tierCeiling, clamped);
 	quality = adaptive ? Math.min(quality, ceiling) : ceiling;
 	fastWindows = 0;
