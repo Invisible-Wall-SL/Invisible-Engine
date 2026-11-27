@@ -405,7 +405,7 @@
 			onpointerup={onPointerUp}
 		></canvas>
 	</div>
-	<p class="legend">
+	<p class="legend" style="max-width:{W}px">
 		Drag <strong>A</strong> (the coin's cell) and <strong>B</strong> (the target). Click a cell to
 		mark or unmark it as showing a win. Route:
 		<strong>{route.kind}</strong>{#if route.strength}&nbsp;({route.strength.toFixed(

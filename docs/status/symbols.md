@@ -213,10 +213,10 @@ or the effect is pruned as an orphan.
   `.wl-heading` now, and the note lost the uppercase/bold it had been inheriting.
   - **Seen:** a throwaway Vite harness mounting the real `+page.svelte` with load data built by
     `symbolsPageConfig` over the lines and Hold and Win templates (deleted after).
-  - **Note:** Flights itself still stacks its preview under the editor even at 1400 px — its
-    caption line ("Drag A … head: built-in glow") is wider than the room beside the panel, so the
-    column's natural width forces the wrap. Left as is (the brief was zero visual change); capping
-    the caption's width would put the Flights preview beside its panel too.
+  - **Flights side by side (owner's call):** its caption ("Drag A … head: built-in glow") is now
+    capped to the canvas width (640 px), so the preview sits beside the panel at 1400 px instead of
+    under it; it still stacks at 800 px. Seen in a harness of `EditorPreviewLayout` with the real
+    `FlightPreview` (no sideways scroll at either width).
 
 - 2026-11-27 — **Payline style preview.** The Payline style card opens on a live preview: a
   board of the project's grid (Game Config reels and rows; 5 × 3 without one) with a win on one of
