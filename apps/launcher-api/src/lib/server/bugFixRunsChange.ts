@@ -68,7 +68,7 @@ const MAX_CHANGE_BYTES = 400 * 1024;
 const MAX_PATH = 300;
 const MODES = ['100644', '100755'];
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
+export const isRecord = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
 // ── The run's words ───────────────────────────────────────────────────────────
@@ -102,7 +102,8 @@ function stable(text: string, strip: (t: string) => string): string {
 }
 
 /** `text` with no CI-skip directive left. Newlines are kept. */
-const withoutDirectives = (text: string): string => stable(text, (t) => t.replace(CI_SKIPS, ''));
+export const withoutDirectives = (text: string): string =>
+	stable(text, (t) => t.replace(CI_SKIPS, ''));
 
 /** A tag as text, never markup: a placeholder such as `<Month>` keeps its word, as `‹Month›`. */
 const showTag = (tag: string): string => `‹${tag.slice(1, -1)}›`;
@@ -123,7 +124,7 @@ const plain = (text: string): string => stable(text, (t) => scrub(t, showTag, '�
 
 /** `plain` with every tag taken out instead: a key split by an empty tag (`sk-<b></b>ant-…`)
  *  reads whole here, which is how the secret scan and the privacy rule still find it. */
-const unmarked = (text: string): string => stable(text, (t) => scrub(t, () => '', ''));
+export const unmarked = (text: string): string => stable(text, (t) => scrub(t, () => '', ''));
 
 /**
  * `@name` pages someone, and `#12` / `GH-12` link an issue, in a public pull request: a word
@@ -351,6 +352,7 @@ const PROTECTED_PATHS = [
 	'scripts/check-secrets.mjs',
 	'scripts/check-secrets.d.mts',
 	'scripts/bug-fix',
+	'scripts/merge-main',
 	'scripts/current-games',
 	'services/director-worker/agents',
 	'services/director-worker/families',
@@ -367,6 +369,7 @@ const PROTECTED_PATHS = [
 	'scripts/check-agents-knowledge.mjs',
 	'apps/launcher-api/src/lib/bugfixruns.ts',
 	'apps/launcher-api/src/lib/bugreports.ts',
+	'apps/launcher-api/src/lib/mergemainruns.ts',
 	'apps/launcher-api/src/lib/server/concurrency.ts',
 	'apps/launcher-api/src/lib/server/db/migrate.ts',
 	'apps/launcher-api/src/lib/server/githubapp.ts',
@@ -375,6 +378,7 @@ const PROTECTED_PATHS = [
 	'apps/launcher-api/src/routes/api/bugs/[number]/fix-runs',
 	'apps/launcher-api/scripts/check-bug-fix-runs.ts',
 	'apps/launcher-api/scripts/check-bug-reports.ts',
+	'apps/launcher-api/scripts/check-merge-main-runs.ts',
 	'apps/launcher-api/scripts/check-pipeline-changes.ts',
 	'apps/launcher-api/scripts/check-pipeline-games.ts',
 	'apps/launcher-api/vite.config.js',
@@ -421,12 +425,14 @@ const PROTECTED_PATH_RULES: [RegExp, string][] = [
 const SIBLING_SOURCE = /\.(?:js|mjs|cjs|mts|cts|jsx|tsx)$/i;
 /** A new dependency is a person's call: no lockfile, no workspace file, anywhere. */
 const LOCK_NAMES = ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'pnpm-workspace.yaml'];
+export const isLockfile = (path: string): boolean => LOCK_NAMES.includes(baseName(path));
 /** Unicode tag characters and bidi controls: text that reads one way and runs another. */
-const HIDDEN = /[\u{E0000}-\u{E007F}\u202A-\u202E\u2066-\u2069]/u;
+export const HIDDEN = /[\u{E0000}-\u{E007F}\u202A-\u202E\u2066-\u2069]/u;
 /** Printable ASCII: every path in the repository is, and a path that is not can hide what it is. */
 const PATH_CHARS = /^[\x20-\x7e]+$/;
 
-const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1).toLowerCase();
+export const baseName = (path: string): string =>
+	path.slice(path.lastIndexOf('/') + 1).toLowerCase();
 
 /** The protected entry `path` is or is under — named by the rule, never by the path — or null. A
  *  source file, or one with no extension, beside a protected `.ts` counts as that file. */
@@ -448,7 +454,7 @@ function entryOf(path: string): string | null {
 	return null;
 }
 
-function pathProblem(path: string): string | null {
+export function pathProblem(path: string): string | null {
 	if (!path || path.length > MAX_PATH) return 'a path is empty or longer than 300 characters';
 	if (!PATH_CHARS.test(path)) return 'a path holds a character outside printable ASCII';
 	if (path.startsWith('/') || path.includes('\\')) return 'a path is not a relative POSIX path';
@@ -466,7 +472,7 @@ function pathProblem(path: string): string | null {
 
 /** `check-secrets.mjs`'s patterns on every line — not its skip list, nor its allowlist pragma or
  *  placeholder pass, which a run could write — and any `sk-ant-` at all. Names the pattern. */
-function secretIn(text: string): string | null {
+export function secretIn(text: string): string | null {
 	if (/sk-ant-/i.test(text)) return 'an sk-ant- string';
 	for (const line of text.split('\n')) {
 		for (const [label, re] of PATTERNS) if (re.test(line)) return label;
@@ -617,6 +623,7 @@ const isHookScript = (name: string): boolean =>
 	LIFECYCLE_SCRIPTS.includes(name) || /^(?:pre|post|pnpm:)/.test(name);
 /** The ratchets: they may only shrink. */
 const RATCHET_NAMES = ['svelte-check-baseline.json', 'eslint-suppressions.json'];
+export const isRatchet = (path: string): boolean => RATCHET_NAMES.includes(baseName(path));
 /** Comments that switch a check off, in lower case: a new one is a person's call. */
 const SUPPRESSIONS = [
 	'eslint-disable',
@@ -679,7 +686,7 @@ function counts(
  * installs or how, not a script it already has (CI runs them: `pnpm lint`, each fixture through its
  * own script), and not a new script a package manager runs by itself.
  */
-function packageProblem(before: string | null, after: string | null): string | null {
+export function packageProblem(before: string | null, after: string | null): string | null {
 	const was = before === null ? {} : jsonObject(before);
 	const now = after === null ? {} : jsonObject(after);
 	if (!was || !now) return 'a package.json is not a JSON object';
@@ -697,7 +704,11 @@ function packageProblem(before: string | null, after: string | null): string | n
 	return null;
 }
 
-function ratchetProblem(name: string, before: string | null, after: string | null): string | null {
+export function ratchetProblem(
+	name: string,
+	before: string | null,
+	after: string | null,
+): string | null {
 	if (after === null) return `${name} is deleted`;
 	if (before === null) return `${name} is new`;
 	const was = jsonObject(before);
@@ -711,7 +722,7 @@ function ratchetProblem(name: string, before: string | null, after: string | nul
 
 /** The lines of `after` that `before` does not have, counted: a line the base holds once and the
  *  change twice is added once. */
-function addedLines(before: string | null, after: string): string[] {
+export function addedLines(before: string | null, after: string): string[] {
 	const left = new Map<string, number>();
 	for (const line of before?.split('\n') ?? []) left.set(line, (left.get(line) ?? 0) + 1);
 	return after.split('\n').filter((line) => {
@@ -722,7 +733,7 @@ function addedLines(before: string | null, after: string): string[] {
 }
 
 /** A comment the line adds that switches a check off or configures ESLint, or null. */
-function switchedOff(line: string): string | null {
+export function switchedOff(line: string): string | null {
 	const lower = line.toLowerCase();
 	const off = SUPPRESSIONS.find((s) => lower.includes(s));
 	if (off) return `it adds a suppression comment (${off})`;

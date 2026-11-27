@@ -1,0 +1,377 @@
+import {
+	MERGE_CAPS,
+	MERGE_CHOICES,
+	MERGE_MODES,
+	MERGE_RUN_ID,
+	MERGE_RULES,
+	MERGE_TAKES,
+	SHA_40,
+	isMergeRunOutcome,
+	type MergeChoice,
+	type MergeRule,
+	type MergeRunExplanation,
+	type MergeRunFile,
+	type MergeRunHunk,
+	type MergeRunOutcome,
+} from '$lib/mergeMainRuns';
+
+import {
+	HIDDEN,
+	TEXT_SLACK,
+	cleanLine,
+	cleanText,
+	isLockfile,
+	isRecord,
+	pathProblem,
+	protectedEntry,
+	secretIn,
+	unmarked,
+	withoutDirectives,
+} from './bugFixRunsChange';
+
+/**
+ * Reading what a merge run's job posts (ADR-0015 §10) and judging the part of it that needs no
+ * GitHub. The result is untrusted — a model wrote some of it, steered by text people wrote — so it is
+ * parsed strictly (a field the contract does not name is refused), every text is cleaned and
+ * scanned, and every file it asks to write is held to the rules of §5 that need only the file list.
+ * The rules that need the trees (which paths both sides changed, a secret in a line neither side had)
+ * are Accept's (`pipelineMergeRunsBuild.ts`). A refusal names the rule, never a path or a value the
+ * result chose.
+ */
+
+/** A body the launcher cannot read: a 400, the launcher's words, never a value the result chose. */
+export class ResultProblem extends Error {
+	constructor(what: string) {
+		super(`The result's ${what}.`);
+		this.name = 'ResultProblem';
+	}
+}
+
+function bad(what: string): never {
+	throw new ResultProblem(what);
+}
+
+export interface ParsedMergeResult {
+	mergeRun: string;
+	headSha: string | null;
+	mainSha: string | null;
+	baseSha: string | null;
+	outcome: MergeRunOutcome | null;
+	failure: string | null;
+	reason: string;
+	files: MergeRunFile[];
+	explanation: MergeRunExplanation | null;
+	/** `usage`, unread: `parseUsage` judges it. */
+	usage: unknown;
+}
+
+const TOP_KEYS = [
+	'mergeRun',
+	'headSha',
+	'mainSha',
+	'baseSha',
+	'outcome',
+	'failure',
+	'reason',
+	'files',
+	'explanation',
+	'usage',
+];
+const FILE_KEYS = ['path', 'choice', 'rule', 'content', 'mode'];
+const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks'];
+const HUNK_KEYS = ['path', 'index', 'main', 'change', 'takes', 'why', 'nowDoes', 'otherwise'];
+const MAX_LIST = 100;
+const TITLE_CAP = 300;
+const COMMAND_CAP = 300;
+
+function only(v: Record<string, unknown>, keys: string[], where: string): void {
+	if (Object.keys(v).some((k) => !keys.includes(k)))
+		bad(`${where} has a field the launcher does not know`);
+}
+
+/** A string within {@link TEXT_SLACK} times its cap, else a refusal: the cleaning is not handed megabytes. */
+function text(v: unknown, field: string, cap: number = MERGE_CAPS.text): string {
+	if (typeof v !== 'string') return bad(`${field} is not text`);
+	if (v.length > cap * TEXT_SLACK) bad(`${field} is far longer than the launcher keeps`);
+	return v;
+}
+
+function optionalText(v: unknown, field: string): string | null {
+	return v === null || v === undefined ? null : text(v, field);
+}
+
+function list(v: unknown, field: string, max = MAX_LIST): unknown[] {
+	if (!Array.isArray(v)) return bad(`${field} is not a list`);
+	if (v.length > max) bad(`${field} has more than ${max} entries`);
+	return v;
+}
+
+function record(v: unknown, field: string): Record<string, unknown> {
+	return isRecord(v) ? v : bad(`${field} has an entry that is not an object`);
+}
+
+const isChoice = (v: unknown): v is MergeChoice =>
+	typeof v === 'string' && (MERGE_CHOICES as readonly string[]).includes(v);
+const isRule = (v: unknown): v is MergeRule =>
+	typeof v === 'string' && (MERGE_RULES as readonly string[]).includes(v);
+
+function parseFiles(v: unknown): MergeRunFile[] {
+	return list(v, 'files', MERGE_CAPS.files).map((raw): MergeRunFile => {
+		const f = record(raw, 'files');
+		only(f, FILE_KEYS, 'files');
+		if (typeof f.path !== 'string') return bad('files has an entry with no path');
+		if (!isChoice(f.choice)) return bad('files has a choice the launcher does not know');
+		if (f.rule !== null && !isRule(f.rule))
+			return bad('files has a rule the launcher does not know');
+		if (f.content !== null && typeof f.content !== 'string') {
+			return bad('files has an entry whose content is neither text nor null');
+		}
+		if (typeof f.mode !== 'string' || !(MERGE_MODES as readonly string[]).includes(f.mode)) {
+			return bad('files has a mode other than 100644 or 100755');
+		}
+		return {
+			path: f.path,
+			choice: f.choice,
+			rule: f.rule,
+			content: f.content,
+			mode: f.mode as MergeRunFile['mode'],
+		};
+	});
+}
+
+function parseExplanation(v: unknown): MergeRunExplanation {
+	const e = record(v, 'explanation');
+	only(e, EXPLANATION_KEYS, 'explanation');
+	const conflicted = list(e.conflicted, 'conflicted').map((raw) => {
+		const c = record(raw, 'conflicted');
+		only(c, ['path', 'met'], 'conflicted');
+		return {
+			path: text(c.path, 'a path', MERGE_CAPS.path),
+			met: list(c.met, 'met').map((m) => {
+				const entry = record(m, 'met');
+				only(entry, ['pr', 'title'], 'met');
+				const pr = entry.pr;
+				if (pr !== null && !(typeof pr === 'number' && Number.isSafeInteger(pr) && pr > 0)) {
+					return bad('met has a pull request that is not a number');
+				}
+				return { pr, title: text(entry.title, 'a title', TITLE_CAP) };
+			}),
+		};
+	});
+	const hunks = list(e.hunks, 'hunks', MERGE_CAPS.hunks).map((raw): MergeRunHunk => {
+		const h = record(raw, 'hunks');
+		only(h, HUNK_KEYS, 'hunks');
+		const index = h.index;
+		if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > 100_000) {
+			return bad('hunks has an index that is not a whole number');
+		}
+		if (typeof h.takes !== 'string' || !(MERGE_TAKES as readonly string[]).includes(h.takes)) {
+			return bad('hunks has a choice the launcher does not know');
+		}
+		return {
+			path: text(h.path, 'a path', MERGE_CAPS.path),
+			index,
+			main: text(h.main, 'a hunk'),
+			change: text(h.change, 'a hunk'),
+			takes: h.takes as MergeRunHunk['takes'],
+			why: text(h.why, 'a hunk'),
+			nowDoes: optionalText(h.nowDoes, 'a hunk'),
+			otherwise: optionalText(h.otherwise, 'a hunk'),
+		};
+	});
+	const outside = list(e.outside, 'outside').map((raw) => {
+		const o = record(raw, 'outside');
+		only(o, ['path', 'what'], 'outside');
+		return { path: text(o.path, 'a path', MERGE_CAPS.path), what: text(o.what, 'outside') };
+	});
+	const checks = list(e.checks, 'checks').map((raw) => {
+		const c = record(raw, 'checks');
+		only(c, ['command', 'ok'], 'checks');
+		if (typeof c.ok !== 'boolean') return bad('checks has an entry whose ok is not true or false');
+		return { command: text(c.command, 'a check', COMMAND_CAP), ok: c.ok };
+	});
+	return { conflicted, hunks, outside, checks, risks: text(e.risks, 'risks') };
+}
+
+/** The result as the job posted it, or a {@link ResultProblem}: the contract's shape and nothing else. */
+export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResult {
+	only(body, TOP_KEYS, 'body');
+	if (typeof body.mergeRun !== 'string' || !MERGE_RUN_ID.test(body.mergeRun)) {
+		bad('mergeRun is not a merge run id');
+	}
+	const failure =
+		body.failure === undefined || body.failure === null
+			? null
+			: text(body.failure, 'failure', MERGE_CAPS.text).trim() || null;
+	let outcome: MergeRunOutcome | null = null;
+	if (body.outcome !== undefined && body.outcome !== null) {
+		if (!isMergeRunOutcome(body.outcome)) bad('outcome is not one the launcher knows');
+		outcome = body.outcome as MergeRunOutcome;
+	}
+	if (!outcome && !failure) bad('outcome is missing');
+	const sha = (key: 'headSha' | 'mainSha' | 'baseSha'): string | null => {
+		const v = body[key];
+		if (v === undefined || v === null) return outcome ? bad(`${key} is missing`) : null;
+		return typeof v === 'string' && SHA_40.test(v) ? v : bad(`${key} is not a 40-character SHA`);
+	};
+	const reason =
+		body.reason === undefined || body.reason === null ? '' : text(body.reason, 'reason');
+	return {
+		mergeRun: body.mergeRun as string,
+		headSha: sha('headSha'),
+		mainSha: sha('mainSha'),
+		baseSha: sha('baseSha'),
+		outcome,
+		failure,
+		reason,
+		files: body.files === undefined || body.files === null ? [] : parseFiles(body.files),
+		explanation:
+			body.explanation === undefined || body.explanation === null
+				? null
+				: parseExplanation(body.explanation),
+		usage: body.usage,
+	};
+}
+
+// ── Cleaning ──────────────────────────────────────────────────────────────────
+
+const FORMAT = /\p{Cf}/gu;
+
+/**
+ * A code excerpt as the card shows it: no format characters (bidi, zero-width), no CI-skip
+ * directive, capped. Its tags and brackets stay, since the card renders it as text, never HTML.
+ */
+function cleanExcerpt(excerpt: string, max: number): string {
+	const kept = withoutDirectives(excerpt.replace(/\r\n?/g, '\n').replace(FORMAT, '')).trim();
+	const points = Array.from(kept);
+	return points.length > max ? `${points.slice(0, max - 1).join('')}…` : kept;
+}
+
+const optionalClean = (v: string | null, max: number): string | null =>
+	v === null ? null : cleanText(v, max) || null;
+
+/** Every text of the explanation cleaned as a fix run's are: plain, capped, unlinked and quiet. */
+export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
+	return {
+		conflicted: e.conflicted.map((c) => ({
+			path: c.path,
+			met: c.met.map((m) => ({ pr: m.pr, title: cleanLine(m.title, TITLE_CAP) })),
+		})),
+		hunks: e.hunks.map((h) => ({
+			path: h.path,
+			index: h.index,
+			main: cleanExcerpt(h.main, MERGE_CAPS.text),
+			change: cleanExcerpt(h.change, MERGE_CAPS.text),
+			takes: h.takes,
+			why: cleanText(h.why, MERGE_CAPS.text),
+			nowDoes: optionalClean(h.nowDoes, MERGE_CAPS.text),
+			otherwise: optionalClean(h.otherwise, MERGE_CAPS.text),
+		})),
+		outside: e.outside.map((o) => ({ path: o.path, what: cleanText(o.what, MERGE_CAPS.text) })),
+		checks: e.checks.map((c) => ({
+			command: cleanLine(c.command, COMMAND_CAP).replace(/`/g, "'"),
+			ok: c.ok,
+		})),
+		risks: cleanText(e.risks, MERGE_CAPS.text),
+	};
+}
+
+/** Every text of an explanation, for the scan and the size cap. */
+export function explanationTexts(e: MergeRunExplanation): string[] {
+	return [
+		...e.conflicted.flatMap((c) => [c.path, ...c.met.map((m) => m.title)]),
+		...e.hunks.flatMap((h) => [
+			h.path,
+			h.main,
+			h.change,
+			h.why,
+			h.nowDoes ?? '',
+			h.otherwise ?? '',
+		]),
+		...e.outside.flatMap((o) => [o.path, o.what]),
+		...e.checks.map((c) => c.command),
+		e.risks,
+	];
+}
+
+/** The characters an explanation holds in all, in code points. */
+export const explanationSize = (e: MergeRunExplanation): number =>
+	explanationTexts(e).reduce((n, t) => n + Array.from(t).length, 0);
+
+/** A proposal must say something under every heading that always has content (§10). */
+export function isExplainedMerge(e: MergeRunExplanation | null): e is MergeRunExplanation {
+	return (
+		e !== null &&
+		e.risks.length > 0 &&
+		e.conflicted.length > 0 &&
+		e.hunks.every((h) => h.why.length > 0)
+	);
+}
+
+// ── What a file may be, without GitHub ────────────────────────────────────────
+
+/** The regenerated files of §3's rules, by where each lives. */
+const RULE_PATHS: Record<Exclude<MergeRule, 'docs-append'>, RegExp> = {
+	'runtime-bytes': /^scripts\/runtime-bytes\/[^/]+\.json$/,
+	'vendored-bundle': /^apps\/launcher-api\/static\/(?:rigger|rig-viewer)\/vendor\/[^/]+\.js$/,
+	ratchet: /^(?:svelte-check-baseline|eslint-suppressions)\.json$/,
+};
+const DOCS_PATH = /^docs\/.+\.md$/;
+
+/** Whether `file` is a regenerated file of a rule that regenerates (§3), by rule and path. */
+export const isRegenerated = (file: Pick<MergeRunFile, 'path' | 'choice' | 'rule'>): boolean =>
+	file.choice === 'regenerated' &&
+	file.rule !== null &&
+	file.rule !== 'docs-append' &&
+	RULE_PATHS[file.rule].test(file.path);
+
+/**
+ * The first rule the files break that needs no GitHub: their count in the model's hands, their size,
+ * their paths and modes, that a file's rule and choice agree and its path is where the rule's files
+ * live, a protected path (but the docs-append rule's, which may add to one), a lockfile, hidden
+ * Unicode, and a secret in a path.
+ */
+export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<string>): string | null {
+	const seen = new Set<string>();
+	let total = 0;
+	let model = 0;
+	for (const f of files) {
+		const problem = pathProblem(f.path);
+		if (problem) return problem;
+		const key = f.path.toLowerCase();
+		if (seen.has(key)) return 'it lists one path twice';
+		seen.add(key);
+		if (f.rule === 'docs-append') {
+			if (f.choice !== 'both' || !DOCS_PATH.test(f.path)) {
+				return 'a docs-append file is not a markdown file under docs/ taken as both';
+			}
+		} else if (f.rule !== null || f.choice === 'regenerated') {
+			if (!isRegenerated(f)) return 'a regenerated file is not one a rule regenerates';
+		}
+		const guarded = protectedEntry(f.path);
+		if (guarded && f.rule !== 'docs-append') return `it touches a protected path (${guarded})`;
+		if (isLockfile(f.path)) return 'it changes a lockfile: dependencies are for a person to decide';
+		if (f.rule === null && hunkPaths.has(f.path)) model++;
+		if (secretIn(f.path)) return 'secret scan: a secret in a path';
+		if (f.content === null) continue;
+		if (!f.content.isWellFormed()) return 'a file is not UTF-8 text';
+		if (f.content.includes('\u0000')) return 'a file holds a NUL byte';
+		if (HIDDEN.test(f.content)) return 'a file holds Unicode tag or bidi control characters';
+		const bytes = Buffer.byteLength(f.content, 'utf8');
+		if (bytes > MERGE_CAPS.file) return 'a file is larger than 2 MB';
+		total += bytes;
+	}
+	if (total > MERGE_CAPS.total) return 'the files are larger than 4 MB in all';
+	if (model > MERGE_CAPS.modelFiles)
+		return `it resolves more than ${MERGE_CAPS.modelFiles} files by hand`;
+	return null;
+}
+
+/** A secret in what the result said, as written, cleaned, or with its tags taken out. */
+export function textsProblem(raw: string[], clean: string[]): string | null {
+	for (const t of [...raw, ...clean, ...raw.map(unmarked)]) {
+		const found = secretIn(t);
+		if (found) return `secret scan: ${found} in the explanation`;
+	}
+	return null;
+}

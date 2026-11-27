@@ -201,6 +201,9 @@ const hooks = {
 const spendWindows: Date[] = [];
 const MAX_SPEND_MODELS = 10;
 
+// Resolve conflict runs have their own fixture (`check:merge-main-runs`); here none exist, and the
+// sync's merge-run backstop finds nothing working.
+fake('lib/server/pipelineMergeRunsStore.ts', { workingMergeRuns: async () => [] });
 fake('lib/server/bugFixRunsStore.ts', {
 	MAX_SPEND_MODELS,
 	getFixRun: async (id: string) => copy(runs.find((r) => r.id === id)),
@@ -1190,10 +1193,10 @@ const spent = (usd: number, agent = 'bug-fix') => ({
 	requestId: `old:${ledger.length}`,
 	at: new Date(clock),
 });
-ledger.push(spent(120), spent(30), spent(500, 'game-doctor'));
+ledger.push(spent(120), spent(30, 'merge-main'), spent(500, 'game-doctor'));
 const broke = await start(FIXER, 1);
 check(
-	"start: this month's fix spend at the ceiling → fix_budget_spent (other agents' spend does not count), from the month's first instant in UTC",
+	"start: this month's fix and Resolve conflict (merge-main) spend at the ceiling → fix_budget_spent (other agents' spend does not count), from the month's first instant in UTC",
 	[broke.status, broke.body.code, broke.body.error, spendWindows.at(-1)?.toISOString().slice(8)],
 	[
 		409,

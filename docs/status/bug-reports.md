@@ -275,6 +275,29 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Resolve conflict, the launcher side (ADR-0015 card 15C).** Hidden until
+  `merge-main.yml` is on `main` (15B2); the job's side is `scripts/merge-main/` (15B1).
+  - Migration `0052_merge_main_runs.sql` (the table of §8 with its partial unique index, so one
+    pull request has one live run, a proposal waiting counting as live). Setting
+    `PIPELINE_MERGE_MAIN_BUDGET_USD` (default $6, Admin › Settings); the spend is a
+    `director_spend` row per model (`run_id` `merge:<id>`, agent `merge-main`) and
+    `fixGlobals` adds it to the month's total against `PIPELINE_FIX_MONTHLY_USD`.
+  - `POST /api/pipeline/changes/<n>/resolve` `{ requestId }` (409 codes `workflow_not_live`,
+    `not_open`, `not_conflicted`, `on_hold`, `merge_run_live`, `request_id_reused`; a spent
+    month still dispatches), `POST /api/pipeline/merge-runs/<id>/result` (OIDC audience
+    `invisible-launcher-merge-main`; §10 parsed strictly, texts cleaned and scanned, stored as a
+    proposal), `…/merge-runs/<id>/accept` `{ headSha }` and `…/discard`, `GET …/merge-runs`.
+    Modules `pipelineMergeRuns*.ts`; the OIDC claims are `bugFixRuns.ts`'s `verifiedJobClaims`
+    now shared by both jobs.
+  - Accept builds the merge from three trees (`pipelineMergeRunsBuild.ts`, as `revertCommit`
+    does): a path neither side changed is untouchable, one only one side changed takes that side,
+    only both-changed and a §3 rule's regenerated paths take the run's content; stale when the
+    head moved or `main` changed a conflicted file. The backstop rides `bugReports.ts`' sync.
+  - Fix runs may not change `scripts/merge-main/`, the new vocabulary or the new fixture
+    (`bugFixRunsChange.ts`, `scripts/bug-fix/settings.json` and `coordinator.md`).
+  - Fixtures: `check:merge-main-runs` (new, 189 checks), `check:pipeline-changes` (the conflict
+    sentence), `check:bug-fix-runs`, `check:bug-fix-workflow`.
+
 - 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline."
   - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with

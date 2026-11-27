@@ -56,6 +56,7 @@
 			"Edit(/{{WORKSPACE}}/scripts/check-secrets.mjs)",
 			"Edit(/{{WORKSPACE}}/scripts/check-secrets.d.mts)",
 			"Edit(/{{WORKSPACE}}/scripts/bug-fix/**)",
+			"Edit(/{{WORKSPACE}}/scripts/merge-main/**)",
 			"Edit(/{{WORKSPACE}}/scripts/current-games/**)",
 			"Edit(/{{WORKSPACE}}/services/director-worker/agents/**)",
 			"Edit(/{{WORKSPACE}}/services/director-worker/families/**)",
@@ -86,6 +87,7 @@
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/drizzle/**)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/bugFixRuns.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/bugReports.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/mergeMainRuns.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/bugFix*.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/pipeline*.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/concurrency.ts)",
@@ -99,7 +101,8 @@
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-pipeline-changes.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-pipeline-games.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-fix-runs.ts)",
-			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-reports.ts)"
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-reports.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-merge-main-runs.ts)"
 		]
 	},
 	"sandbox": {

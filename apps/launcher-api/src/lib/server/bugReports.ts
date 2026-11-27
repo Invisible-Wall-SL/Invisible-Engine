@@ -44,9 +44,11 @@ import {
 	type FixRunView,
 	type StartFacts,
 } from '$lib/bugFixRuns';
+import { MERGE_RUN_AGENT } from '$lib/mergeMainRuns';
 import { PIPELINE_BUG_FIX_CAPABILITY, TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
 import { getPipelineFixMaxLive, getPipelineFixMonthlyCap } from './appSettings';
 import { backstopFixRuns } from './bugFixRunsActions';
+import { backstopMergeRuns } from './pipelineMergeRunsActions';
 import { fixWorkflowReady } from './bugFixWorkflow';
 import { fixRunsOfBug, fixSpendSince, liveFixRunCount, type BugFixRun } from './bugFixRunsStore';
 import {
@@ -489,13 +491,22 @@ export async function fixStartFacts(
 
 type FixGlobals = Pick<StartFacts, 'liveTotal' | 'maxLive' | 'monthSpendUsd' | 'monthlyCapUsd'>;
 
+/** What fix runs and Resolve conflict runs spent since `since`: both count toward the monthly ceiling. */
+async function monthSpend(since: Date): Promise<number> {
+	const [fix, merge] = await Promise.all([
+		fixSpendSince(since, FIX_RUN_AGENT),
+		fixSpendSince(since, MERGE_RUN_AGENT),
+	]);
+	return fix + merge;
+}
+
 /** The facts that are the same for every bug: the caps, every live run, the month's spend. */
 async function fixGlobals(nowMs: number): Promise<FixGlobals> {
 	const [maxLive, monthlyCapUsd, liveTotal, monthSpendUsd] = await Promise.all([
 		getPipelineFixMaxLive(),
 		getPipelineFixMonthlyCap(),
 		liveFixRunCount(),
-		fixSpendSince(monthStartUtc(nowMs), FIX_RUN_AGENT),
+		monthSpend(monthStartUtc(nowMs)),
 	]);
 	return { liveTotal, maxLive, monthSpendUsd, monthlyCapUsd };
 }
@@ -1423,6 +1434,14 @@ export function syncBugLinks(app: GithubApp = githubApp): Promise<LinkSync> {
 		} catch (err) {
 			console.warn(
 				'[bugs] the fix-run backstop did not finish:',
+				err instanceof Error ? err.message : err,
+			);
+		}
+		try {
+			await backstopMergeRuns(app);
+		} catch (err) {
+			console.warn(
+				'[bugs] the merge-run backstop did not finish:',
 				err instanceof Error ? err.message : err,
 			);
 		}

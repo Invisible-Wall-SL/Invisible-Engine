@@ -122,6 +122,8 @@ import {
 	MIN_DEPLOY_TOKEN,
 	PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD,
 	PIPELINE_DIAGNOSE_BUDGET_KEY,
+	PIPELINE_MERGE_MAIN_BUDGET_DEFAULT_USD,
+	PIPELINE_MERGE_MAIN_BUDGET_KEY,
 	PIPELINE_FIX_BUDGET_DEFAULT_USD,
 	PIPELINE_FIX_BUDGET_KEY,
 	PIPELINE_FIX_MAX_LIVE_DEFAULT,
@@ -142,6 +144,7 @@ import {
 	getDirectorRepairBudget,
 	getDirectorRunBudget,
 	getPipelineDiagnoseBudget,
+	getPipelineMergeMainBudget,
 	getPipelineFixBudget,
 	getPipelineFixMaxLive,
 	getPipelineFixMonthlyCap,
@@ -264,6 +267,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		directorPendingMockupDays,
 		fixBudgetUsd,
 		diagnoseBudgetUsd,
+		mergeMainBudgetUsd,
 		fixMonthlyUsd,
 		fixMaxLive,
 	] = await Promise.all([
@@ -273,6 +277,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getDirectorPendingMockupDays(),
 		getPipelineFixBudget(),
 		getPipelineDiagnoseBudget(),
+		getPipelineMergeMainBudget(),
 		getPipelineFixMonthlyCap(),
 		getPipelineFixMaxLive(),
 	]);
@@ -386,6 +391,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			budgetDefaultUsd: PIPELINE_FIX_BUDGET_DEFAULT_USD,
 			diagnoseBudgetUsd,
 			diagnoseBudgetDefaultUsd: PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD,
+			mergeMainBudgetUsd,
+			mergeMainBudgetDefaultUsd: PIPELINE_MERGE_MAIN_BUDGET_DEFAULT_USD,
 			monthlyUsd: fixMonthlyUsd,
 			monthlyDefaultUsd: PIPELINE_FIX_MONTHLY_DEFAULT_USD,
 			monthlyMinUsd: PIPELINE_FIX_MONTHLY_MIN_USD,
@@ -1439,6 +1446,32 @@ export const actions = withAdminGuards({
 		return {
 			action: 'setPipelineDiagnoseBudget',
 			ok: `Diagnose run budget set to $${budget.toFixed(2)}.`,
+		};
+	},
+
+	/** Save the cap of one Resolve conflict run (ADR-0015 §4), bounded like the run cap. */
+	setPipelineMergeMainBudget: async ({ request, locals }) => {
+		const admin = await requireAdminPanel(locals, 'page');
+		const data = await request.formData();
+		const raw = String(data.get('budgetUsd') ?? '').trim();
+		const value = Number(raw);
+		if (!raw || !Number.isFinite(value)) {
+			return fail(400, {
+				action: 'setPipelineMergeMainBudget',
+				error: 'Enter the budget as a number.',
+			});
+		}
+		if (value < DIRECTOR_RUN_BUDGET_MIN_USD || value > DIRECTOR_RUN_BUDGET_MAX_USD) {
+			return fail(400, {
+				action: 'setPipelineMergeMainBudget',
+				error: `The budget must be between $${DIRECTOR_RUN_BUDGET_MIN_USD} and $${DIRECTOR_RUN_BUDGET_MAX_USD}.`,
+			});
+		}
+		const budget = Math.round(value * 100) / 100;
+		await setAppSetting(PIPELINE_MERGE_MAIN_BUDGET_KEY, String(budget), admin.id);
+		return {
+			action: 'setPipelineMergeMainBudget',
+			ok: `Resolve conflict budget set to $${budget.toFixed(2)}.`,
 		};
 	},
 

@@ -114,6 +114,32 @@ its record of each merge made from here (who merged, the approvals that counted,
      GitHub will not let the App push a merge that brings in `main`'s workflow change, so the
      sentence links to the pull request, where GitHub's own **Update branch** acts as you.
      Behind-ness is read for the open change only, never per row of the list.
+   - **Resolve conflict** (ADR-0015) — on an open change that GitHub says conflicts with `main`
+     (the red sentence reads "Merge conflict with main."), **Resolve conflict** sits beside it for
+     people with Merge pipeline changes. It is **hidden until `merge-main.yml` is on `main`** (card
+     15B2): until GitHub has that workflow active the page shows no button and the server refuses a
+     start (`workflow_not_live`). It asks first, then a run merges `main` into the change in
+     GitHub Actions, clears the mechanical conflicts by rule (re-recorded runtime bytes, rebuilt
+     vendored bundles, docs lines both sides added, a lowered ratchet) and, for the rest, has
+     Claude Code propose a resolution. **Nothing is pushed until a person accepts.** While it works
+     a blue line says so; a run that ends asking for a person (`harness_conflict`,
+     `protected_conflict`, `too_large`, a lockfile, a spent monthly budget, a refused push) shows an
+     amber line with the reason and **Copy merge brief**, which gives a session the branch, the
+     SHAs, the files and the choices. Refused at the start with one sentence each: not in conflict
+     (use Update from main), on hold, a merge run already live, a closed change, a fork.
+   - **The proposal** — a card, "Proposed resolution of the conflict", under "What you're
+     approving" on a fix-run change. It says "Resolved against main at `<sha>`, N commits behind
+     now" and the cost; the §4 sections as plain text (what conflicted, what the resolution takes
+     and why, what the merged code now does, what else was possible, also changed outside the
+     conflict, checks run, risks); and each hunk as main | this change | result. A warning shows
+     when the branch was pushed in the last hour. **Accept** pushes a merge commit (parents: the
+     branch's head and `main` at the run's SHA, a fast-forward, never a force-push); **Discard**
+     (the bin) drops it, and stops a run still working. Accept is refused as stale when the branch
+     moved or `main` changed a conflicted file since: resolve again. If GitHub refuses the push
+     over a workflow file the run ends needing a person, with GitHub's own **Update branch** or
+     Copy merge brief as the way out. After Accept a **Main merged in** card lists each file's
+     choice. CI runs again on the new head and approvals start over; the fix decision of a fix-run
+     change is not touched.
    - **On hold and Resume** — **Put on hold** (people with Merge pipeline changes) takes an
      optional note of up to 500 characters, adds the `on-hold` label to the pull request and posts
      one comment: "Put on hold by <name> via Pipeline Changes: <note>" (name only, `@` and

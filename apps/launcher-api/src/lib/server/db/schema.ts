@@ -26,6 +26,7 @@ import type {
 	FixRunStatus,
 } from '$lib/bugFixRuns';
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
+import type { MergeRunExplanation, MergeRunFile, MergeRunStatus } from '$lib/mergeMainRuns';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
 import type { ArcadePhaseSummaries } from '$lib/profiler';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
@@ -1233,6 +1234,57 @@ export const bugFixRuns = pgTable(
 	],
 );
 
+/**
+ * A Resolve conflict run on a pipeline change (ADR-0015): `merge-main.yml` merges `main` into the
+ * change's head and proposes how to settle what conflicts; nothing reaches the branch until a person
+ * accepts. One live run per pull request (`merge_main_runs_live_idx`; a proposal waiting counts as
+ * live); one Actions run binds one merge run (`gh_run_id` unique). `files` and `explanation` are the
+ * job's own words (untrusted, capped, cleaned); `reason` is the launcher's sentence for how it ended.
+ * `result_at` is set once, when the job's result is accepted. `started_by` and `accepted_by` are
+ * snapshots, like a reporter.
+ */
+export const mergeMainRuns = pgTable(
+	'merge_main_runs',
+	{
+		id: text('id').primaryKey(),
+		prNumber: integer('pr_number').notNull(),
+		branch: text('branch').notNull(),
+		/** The change's head when the run was dispatched: the proposal is for exactly this head. */
+		headSha: text('head_sha').notNull(),
+		/** `main`'s commit when the run was dispatched. */
+		mainSha: text('main_sha').notNull(),
+		status: text('status').$type<MergeRunStatus>().notNull().default('dispatched'),
+		reason: text('reason'),
+		files: jsonb('files').$type<MergeRunFile[]>(),
+		explanation: jsonb('explanation').$type<MergeRunExplanation>(),
+		mergeSha: text('merge_sha'),
+		spendUsd: doublePrecision('spend_usd'),
+		ghRunId: bigint('gh_run_id', { mode: 'number' }),
+		startedById: text('started_by_id').notNull(),
+		startedBy: text('started_by').notNull(),
+		acceptedById: text('accepted_by_id'),
+		acceptedBy: text('accepted_by'),
+		requestId: text('request_id').notNull(),
+		resultAt: timestamp('result_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		finishedAt: timestamp('finished_at', { withTimezone: true }),
+	},
+	(table) => [
+		uniqueIndex('merge_main_runs_request_id_idx').on(table.requestId),
+		uniqueIndex('merge_main_runs_gh_run_id_idx').on(table.ghRunId),
+		uniqueIndex('merge_main_runs_live_idx')
+			.on(table.prNumber)
+			.where(sql`${table.status} in ('dispatched', 'running', 'proposed')`),
+		index('merge_main_runs_pr_idx').on(table.prNumber, table.createdAt),
+		check(
+			'merge_main_runs_status_check',
+			sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')`,
+		),
+	],
+);
+
+export type MergeMainRun = typeof mergeMainRuns.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
