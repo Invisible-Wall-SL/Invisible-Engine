@@ -348,7 +348,12 @@ const simulate = ({
 	drifts = false,
 	netcode = 'engine',
 	settlePx = 0.01,
+	apply = 'frame',
+	stall,
 }) => {
+	// The runtime's own player takes the newest state once a frame (`online.ts` `applyState`); the
+	// SDK's reconciler hears every state itself.
+	const perFrame = netcode === 'engine' && apply === 'frame';
 	const game = gameOf(rules ? { rules } : {}, zones);
 	const { online, field } = game;
 	const stepMs = 1000 / online.tickHz;
@@ -397,6 +402,12 @@ const simulate = ({
 			settleChecked: true,
 			prevDrawn: new Map(),
 			states: 0,
+			/** The newest own state not yet applied, and how many times one was. */
+			newest: undefined,
+			passes: 0,
+			/** While its frames are held (a blocked main thread), the states that queue for it. */
+			stalled: false,
+			queued: [],
 		});
 	}
 
@@ -412,6 +423,8 @@ const simulate = ({
 		worstOtherJumpRatio: 0,
 		worstOffPath: 0,
 		worstOwnJump: 0,
+		stallStates: 0,
+		stallPasses: 0,
 		lagSum: 0,
 		lagFrames: 0,
 		held: 0,
@@ -449,6 +462,14 @@ const simulate = ({
 	};
 
 	const deliverState = (device, state) => {
+		if (device.stalled) {
+			device.queued.push(state);
+			return;
+		}
+		recordState(device, state);
+	};
+
+	const recordState = (device, state) => {
 		const now = clock.now + device.skew;
 		device.states += 1;
 		device.view.observe(state.step, now);
@@ -457,18 +478,45 @@ const simulate = ({
 				device.others.push(p.id, state.step, p.x, p.y);
 				continue;
 			}
-			device.predictor.receive(p, state.step);
-			if (device.pilot.resting && device.lastMoving && p.ack >= device.lastMoving) {
-				if (device.settleFrom === undefined) {
-					device.settleFrom = clock.now;
-					device.settleChecked = false;
-				}
+			device.newest = { p, step: state.step };
+			if (!perFrame) applyState(device);
+		}
+	};
+
+	const applyState = (device) => {
+		const own = device.newest;
+		if (!own) return;
+		device.newest = undefined;
+		device.passes += 1;
+		device.predictor.receive(own.p, own.step);
+		if (device.pilot.resting && device.lastMoving && own.p.ack >= device.lastMoving) {
+			if (device.settleFrom === undefined) {
+				device.settleFrom = clock.now;
+				device.settleChecked = false;
 			}
 		}
 	};
 
 	const frame = (device) => {
 		const now = clock.now + device.skew;
+		let catchUp;
+		if (stall?.device === device.id) {
+			if (clock.now >= stall.at && clock.now < stall.at + stall.ms) {
+				device.stalled = true;
+				return;
+			}
+			if (device.stalled) {
+				// The held states land at once, each in its own task, then this frame runs.
+				device.stalled = false;
+				catchUp = device.passes;
+				stats.stallStates = device.queued.length;
+				for (const state of device.queued.splice(0)) recordState(device, state);
+				// Nothing on a held screen moves smoothly: the catch-up frame is not a step.
+				device.prevDrawn.clear();
+			}
+		}
+		if (perFrame) applyState(device);
+		if (catchUp !== undefined) stats.stallPasses = device.passes - catchUp;
 		device.viewStep = device.view.advance(now) ?? device.viewStep;
 		device.predictor.tick(now);
 		device.steps.advance(frameMs, () => {
@@ -796,6 +844,47 @@ for (const net of NETWORKS) {
 	);
 }
 
+// A device whose main thread is blocked for 2 s while the room keeps sending: its states queue and
+// land between two frames. The runtime applies the newest once (`online.ts` `applyState`); a pass
+// per state would reconcile the own player once for every one of them, each replaced by the next.
+for (const apply of ['state', 'frame']) {
+	await check(
+		`a 2 s stall, applied per ${apply}: ${apply === 'frame' ? 'one pass' : 'a pass per state'} on the catch-up, and the prediction still exact`,
+		() => {
+			const r = simulate({
+				net: { latency: 80, jitter: 20, loss: 0.01, reliable: true },
+				seconds: 20,
+				seed: `stall-${apply}`,
+				apply,
+				stall: { device: 'p0', at: 8000, ms: 2000 },
+			});
+			assert.ok(r.stallStates >= 30, `${r.stallStates} states queued in the stall`);
+			assert.equal(r.stallPasses, apply === 'frame' ? 1 : r.stallStates);
+			assert.equal(r.corrections, 0, `${r.corrections} corrections`);
+			assert.equal(r.exactRests, r.rests, 'every rest is the room’s own place, bit for bit');
+			assert.ok(r.worstOffPath <= 2, `${r.worstOffPath} steps off the room's path`);
+			console.log(
+				`  stall per ${apply}: ${r.stallStates} states queued, ${r.stallPasses} own-player pass(es) on the catch-up frame, ${r.rests} rests exact`,
+			);
+		},
+	);
+}
+await check(
+	'a 2 s stall on a datagram link, applied per frame: one pass, and the corrections still converge',
+	() => {
+		const r = simulate({
+			net: { latency: 150, jitter: 50, loss: 0.03, reliable: false },
+			seconds: 20,
+			seed: 'stall-dgram',
+			stall: { device: 'p0', at: 8000, ms: 2000 },
+		});
+		assert.ok(r.stallStates >= 30, `${r.stallStates} states queued in the stall`);
+		assert.equal(r.stallPasses, 1);
+		assert.equal(r.snaps, 0, 'no correction was long enough to draw at once');
+		assert.ok(r.worstOwnJump <= 1.5, `the own player moved ${r.worstOwnJump} steps in a frame`);
+	},
+);
+
 // --- 3. the same room under `netcode: 'colyseus'` (the SDK's own reconciler) -----------------
 
 for (const net of NETWORKS) {
@@ -1064,7 +1153,15 @@ await check(
 		const joining = body('enterRoom');
 		assert.ok(/onMessage\(ONLINE_EVENT[\s\S]*flowSignalsOf\([\s\S]*raise\(/.test(joining));
 		assert.ok(body('raise').includes('getFlowV2()?.dispatch(signal.name, signal.payload)'));
-		assert.ok(body('received').includes('bindServerVariables(current, state)'));
+		// Each state records what interpolation needs; the rest is applied once a frame, from the newest.
+		const record = body('recordState');
+		const apply = body('applyState');
+		assert.ok(record.includes('others.push('));
+		for (const once of ['bindServerVariables(', '.reconcile(', 'abilities.acked(', 'retain('])
+			assert.ok(apply.includes(once) && !record.includes(once), `${once} runs once a frame`);
+		assert.ok(/onStateChange\(onState\)/.test(joining) && joining.includes('recordState(current'));
+		assert.ok(/^[^]*?applyState\(current\);[^]*?clock\.advance\(/.test(body('tickOnline')));
+		assert.ok(apply.includes('bindServerVariables(current, state)'));
 		assert.ok(body('bindServerVariables').includes('serverValuesOf('));
 		assert.ok(body('bindServerVariables').includes('serverVariablesOf('));
 		// Raised in the fixed step that sends the input, not when the room answers.
@@ -1072,7 +1169,7 @@ await check(
 		assert.ok(
 			/handle\.send\(\);[\s\S]*predictAbilities\(current, input\.buttons, input\.seq\)/.test(tick),
 		);
-		assert.ok(body('received').includes('abilities.acked(player.ack)'), 'refused presses expire');
+		assert.ok(apply.includes('abilities.acked(player.ack)'), 'refused presses expire');
 		assert.ok(body('predictAbilities').includes('abilitySignal('));
 		assert.ok(
 			/flowSignalsOf\([\s\S]*current\.abilities,?\s*\)/.test(joining),

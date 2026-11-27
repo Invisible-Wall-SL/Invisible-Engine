@@ -642,6 +642,30 @@ in view, then rests. 4 verdicts:
 The room's river is another every run, so whether two pieces start apart is held in Node
 (`check:salmons-art`), not here. Trees are never a rig: `zone-art-play.mjs --cost` measures why.
 
+## A stall (`--stall`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-stall --stall
+```
+
+One page (ST), a salmon in a room of 20 (the bots), holding ArrowUp. Three times it blocks the
+page's main thread for 2 s while the room keeps sending, lets the held messages land, and steps
+one frame. The page's own `performance.now` and timers are the determinism probe's virtual clock,
+so the block and the timings use the real clock, kept by an init script that also times every
+`ws.onmessage` (`__NET_TASKS__`). It reads `online.net` (`states` recorded, frames that `applied`
+one; `online.ts` `recordState` / `applyState`). 4 verdicts:
+
+- 2 s of the room's states queue (≥ 30) and each is recorded as it lands;
+- none is applied before the next frame, and that frame applies one: the newest (a runtime from
+  before 2026-11-27 applies every one: `applied` = `states`);
+- the newest state agrees with the prediction (no correction), and at rest after it the own salmon
+  is drawn within a step of the room's place (it drifts in the current);
+- no page error.
+
+`result.json` `stall` keeps each trial's message count and handler time and the catch-up frame's
+time beside the next frame's.
+
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 
 ```

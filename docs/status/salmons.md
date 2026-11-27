@@ -2626,6 +2626,49 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-27 — **Performance T6: the net client applies the room's state once a frame**
+  ([design/salmons-performance](../design/salmons-performance.md) §4 T6; branch
+  `claude/salmons-perf-t6-net`; in review; runtime only, no wire, schema, server or config
+  change). Each state used to run a whole pass as it landed (Flow's server values, a `Set` of the
+  players, a push per player, the own player's reconcile); after a stall up to 82 land between two
+  frames (Mali reading `914870b5`: `netMs` max 91.9 ms on the frame with 82 patches), each pass
+  replaced by the next. Now `online.ts` `recordState` (the room's `onStateChange`) keeps only what
+  interpolation needs from each state (its arrival for the render clock, everyone else's place at
+  its step) and `applyState`, first in `tickOnline`, does the rest once from the newest. An old
+  server and a new runtime, or the reverse, see no difference on the wire.
+  - **Measured** (`salmons-play.mjs --stall`, headless shell, a room of 20, a 2 s block, three
+    trials, main + the same probe counters vs this branch): passes on the catch-up 43 → 1 (`applied`
+    43 before the frame → 0, then 1 in it); room-message handler time 0.8–1.1 ms → 0.3–0.5 ms for
+    the ~44 held messages (−55 %; what is left is the SDK's decode); the catch-up frame 5.9–8.5 ms vs
+    5.3–7.7 ms, the same as the frame after it within noise; 0 corrections either way. On a desktop
+    CPU the pass is cheap; on the Mali, at ~1.1 ms a held message, the same share is ~50 ms of the
+    92 ms spike (an estimate, to confirm with a T2 lab reading).
+  - **`check:netcode`** applies the own state once a frame as the runtime does (the reliable and
+    datagram rows are unchanged within noise: e.g. datagram 150 ms, 549 → 538 corrections, every rest
+    converged) and adds a 2 s stall per state (34 queued → 34 passes) and per frame (40 → 1), the
+    prediction exact in both, and a stall over a lossy datagram link (1 pass, no snap).
+  - **Input is sent once per FIXED step, not per render frame** (the two reviews disagreed).
+    `tickOnline` sends inside `createFixedStep`'s callback, and the readings agree: Mali `914870b5`
+    sent 3879 messages over 146 s while its loop ran 3942 steps (1483 menu frames × 1.2 + 1201 play
+    frames × 1.8) in 2685 frames; Samsung `793da528` 4065 messages for 4062 steps. 26.5 msg/s is
+    below 30 because a long frame's time is dropped (Pixi caps `deltaMS` at 100 ms, the loop runs
+    at most 5 steps a frame: `simDroppedMs`) and the socket's seconds include the time before the
+    loop runs. Dropped time sends no input and moves nothing, on the device and in the room alike
+    (the room rests the player and banks credit), so the server's credit stays right: no bug.
+  - **Wire ideas for the owner (not built; §5):** (1) other players' places as uint16 at ¼ px (the
+    river is 1800 × 7200, under 16384) in a versioned room, own player float: ≈ −4 of ≈ 14 B per
+    moving body, ≈ −30 % of patch bytes (≈ 8.5 → 6 KB/s in on the Mali reading); an old runtime
+    joins only the old room version. (2) Game Config `nearby.max` 6400 × 6400 → about two screens
+    (≈ 3300): most of a 20-player room falls outside it on the long river, so in-bytes and the
+    server's per-client encode shrink with it; `patchHz` 20 → 15 with a 133 ms interpolation delay:
+    −25 % of messages and bytes, others drawn 33 ms later. (3) WebSocket permessage-deflate: float32
+    deltas compress poorly, guess 15–30 % of bytes for a zlib pass per client per patch on the
+    server; measure with `scripts/room-load.mjs` before deciding.
+  - **Guard:** the invariant in [families/arcade](../knowledge/families/arcade.md) "Online, device
+    Flow is presentation" (record each state, apply the newest once a frame), `check:netcode`'s
+    stall rows and source checks, `salmons-play.mjs --stall` ([playtest](../playtest/salmons.md)
+    "A stall").
+
 - 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
   room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
   gone. The line now rests at `room / 1.15` there (including canvases that only just fit it), so the whole pop fits inside the margins

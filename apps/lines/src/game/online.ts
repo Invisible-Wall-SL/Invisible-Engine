@@ -173,9 +173,9 @@ import { stateModes } from './stateModes.svelte';
  * the keyboard and clamped exactly as the server clamps it, and every player of the room drawn as a
  * spawned instance of its character's component in the play field's spawn layer. The device never
  * decides a place: it sends inputs only. Its own player is PREDICTED (`engine-mechanics`
- * `createPredictor`: stepped at once with the room's own step, reconciled with each state the room
- * sends), and everyone else is INTERPOLATED about 100 ms behind the room (`createSnapshotClock`,
- * `createInterpolator`). Each input names the room step the device was drawing everyone else at
+ * `createPredictor`: stepped at once with the room's own step, reconciled with the newest state the
+ * room sent, once a frame), and everyone else is INTERPOLATED about 100 ms behind the room
+ * (`createSnapshotClock`, `createInterpolator`, which take every state as it arrives). Each input names the room step the device was drawing everyone else at
  * (`view`), so an ability is tested against what the player saw. On a world screen it also says how
  * much of the world the window shows about the own player ({@link follow}; `engine-mechanics`
  * `shown.js`): a room whose `nearby` has a `max` sends it the players in that view as well as the
@@ -187,7 +187,7 @@ import { stateModes } from './stateModes.svelte';
  * interpolated the same way in both, so `view` means the same.
  *
  * FLOW (P11.2): the room's events reach the flow as its online events (`flowSignalsOf`), and the
- * room's scores and round are written, on each state, into the variables the flow declares the
+ * room's scores and round are written, from the newest state each frame, into the variables the flow declares the
  * room owns (`FlowVariable.server`), which its HUD binds as `var:<id>`. The own player's abilities
  * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
  * drawn at once. A player that is out is not drawn until it respawns. A player the room marks
@@ -500,6 +500,10 @@ type Session = {
 	switched: boolean;
 	/** The last room state's arrival and step, while the `?perf=1` probe reads ({@link noteLate}). */
 	arrival: { atMs: number; step: number } | undefined;
+	/** A state came since the last frame applied one ({@link applyState}). */
+	unapplied: boolean;
+	/** The room's states recorded, and how many frames applied one (the probe's). */
+	net: { states: number; applied: number };
 };
 
 /** What this page joins rooms of, read once at its boot: the config's own game, the server and the
@@ -905,6 +909,8 @@ async function enterRoom(
 		closed: false,
 		switched,
 		arrival: undefined,
+		unapplied: false,
+		net: { states: 0, applied: 0 },
 	};
 	if (switched && reloading) {
 		room.leave(true).catch(() => {});
@@ -949,7 +955,7 @@ async function enterRoom(
 	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
 	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
-	const onState = () => received(current, performance.now());
+	const onState = () => recordState(current, performance.now());
 	room.onStateChange(onState);
 	meterMessages(room);
 	const offEvents = room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
@@ -1007,7 +1013,8 @@ const NO_GROUND: ArtMount = () => () => {};
  */
 async function showRoom(current: Session, launch: Launch, join: NextJoin) {
 	if (current.field) setFieldArt(current.field.id, NO_GROUND);
-	received(current, performance.now());
+	recordState(current, performance.now());
+	applyState(current);
 	const flow = getFlowV2();
 	if (!flow) return;
 	const { chain } = await restartFlow(flow, bakedFlowV2Doc(), {
@@ -1414,48 +1421,68 @@ function reconcilerOf(
 	return options && predict.reconciler(player, { input: current.room.input(), ...options });
 }
 
-/** A state from the room: the own player reconciled, everyone else's place recorded at its step. */
-function received(current: Session, nowMs: number) {
+/**
+ * A state from the room, as it arrives: its arrival and everyone else's place at its step — what
+ * interpolating them needs, which each state carries anew. Everything else (the flow's values, the
+ * own player's reconcile) reads only the newest state, so it waits for the frame
+ * ({@link applyState}): after a stall a burst of states lands between two frames, and each would
+ * otherwise be applied whole only for the next to replace it.
+ */
+function recordState(current: Session, nowMs: number) {
+	const state = stateOf(current.room);
+	const players = state.players;
+	const step = state.step;
+	if (!players || step === undefined) return;
+	current.net.states += 1;
+	if (arcadePerf.on) noteLate(current, step, nowMs);
+	current.view.observe(step, nowMs);
+	const own = current.room.sessionId;
+	players.forEach((player, id) => {
+		if (id !== own) current.others.push(id, step, player.x, player.y);
+	});
+	current.unapplied = true;
+}
+
+/** The newest state the room sent since the last frame: the flow's values bound, the players gone
+ *  forgotten, the own player reconciled — once, however many states came. */
+function applyState(current: Session) {
+	if (!current.unapplied) return;
+	current.unapplied = false;
 	const state = stateOf(current.room);
 	const players = state.players;
 	if (!players || state.step === undefined) return;
-	if (arcadePerf.on) noteLate(current, state.step, nowMs);
-	current.view.observe(state.step, nowMs);
+	current.net.applied += 1;
 	bindServerVariables(current, state);
 	current.others.retain(new Set(players.keys()));
-	players.forEach((player, id) => {
-		if (id !== current.room.sessionId) {
-			current.others.push(id, state.step!, player.x, player.y);
-			return;
-		}
-		// A respawn as another character: its own body, speed and abilities from now on.
-		if (current.character !== player.character) {
-			current.character = player.character;
-			current.abilities = undefined;
-			current.me = undefined;
-			if (current.sdk) {
-				current.sdk.me?.dispose();
-				current.sdk.me = undefined;
-			}
-		}
-		current.abilities ??= createAbilityPredictor(current.game, player.character);
-		current.abilities.acked(player.ack);
-		// The SDK reconciles on its own, from the input acknowledgement each state carries.
+	const player = players.get(current.room.sessionId);
+	if (!player) return;
+	// A respawn as another character: its own body, speed and abilities from now on.
+	if (current.character !== player.character) {
+		current.character = player.character;
+		current.abilities = undefined;
+		current.me = undefined;
 		if (current.sdk) {
-			current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
-			return;
+			current.sdk.me?.dispose();
+			current.sdk.me = undefined;
 		}
-		current.me ??= predictorOf(current, player);
-		current.me?.reconcile({
-			x: player.x,
-			y: player.y,
-			ack: player.ack,
-			still: player.status !== STATUS.free || player.held === true,
-			step: state.step,
-			air: player.air,
-			carryX: player.carryX,
-			carryY: player.carryY,
-		});
+	}
+	current.abilities ??= createAbilityPredictor(current.game, player.character);
+	current.abilities.acked(player.ack);
+	// The SDK reconciles on its own, from the input acknowledgement each state carries.
+	if (current.sdk) {
+		current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
+		return;
+	}
+	current.me ??= predictorOf(current, player);
+	current.me?.reconcile({
+		x: player.x,
+		y: player.y,
+		ack: player.ack,
+		still: player.status !== STATUS.free || player.held === true,
+		step: state.step,
+		air: player.air,
+		carryX: player.carryX,
+		carryY: player.carryY,
 	});
 }
 
@@ -2956,6 +2983,7 @@ export function tickOnline(dtMs: number) {
 		return;
 	}
 	const now = performance.now();
+	applyState(current);
 	current.viewStep = current.view.advance(now) ?? current.viewStep;
 	// The SDK's order: reconcile and decay, then send (its reconciler steps each send), then read.
 	current.sdk?.predict.tick(now);
@@ -3063,6 +3091,7 @@ export function onlineProbe() {
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),
+						net: { ...current.net },
 						phase: state.phase ?? '',
 						round: state.round ?? 0,
 						winner: state.winner ?? '',
