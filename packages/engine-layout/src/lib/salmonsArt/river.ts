@@ -298,8 +298,7 @@ type Among = {
 	index: number;
 };
 
-/** A ground chunk's side, cells, and the grid the view's ground box is rounded out to, px: the
- *  chunks shown change only when that rounded box does. */
+/** A ground chunk's side, cells, and px. */
 const CHUNK = 8;
 const CHUNK_PX = CHUNK * CELL;
 /** The grid the upright pieces' view box is rounded out to, px, and the one the pieces among the
@@ -1295,19 +1294,15 @@ export function mountSalmonsRiver(
 		if (at < 0) chunk.home.addChild(chunk.view);
 		else chunk.home.addChildAt(chunk.view, at);
 	};
-	let groundSeen = '';
 	let ahead: Chunk[] = [];
-	/** The chunks that meet the view's ground box rounded out to the chunk grid, shown (made and put
-	 *  in place first); the rest hidden; the ring just past them queued to be made ahead. */
+	/** The chunks that meet the view's ground box shown (made and put in place first), the rest
+	 *  hidden: a chunk's `visible` changes, and the ground's draw list is rebuilt, only when one
+	 *  comes or goes. The ring a chunk past them is queued to be made ahead. */
 	const cullGround = (ground: Box) => {
-		const near = roundOut(ground, CHUNK_PX);
-		const key = keyOf(near);
-		if (key === groundSeen) return;
-		groundSeen = key;
-		const ring = padded(near, CHUNK_PX);
+		const ring = padded(ground, CHUNK_PX);
 		ahead = [];
 		for (const chunk of chunks) {
-			const show = meets(chunk.box, near);
+			const show = meets(chunk.box, ground);
 			if (show) {
 				if (!chunk.built) build(chunk);
 				attach(chunk);
