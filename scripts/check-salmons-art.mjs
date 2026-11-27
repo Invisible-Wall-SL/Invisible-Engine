@@ -1686,7 +1686,8 @@ check(
 // sorted only when a body's depth changes the order. Played against a layer whose zIndex is set
 // every frame, as before: moves (ties and crossings), spawns (sorted at once, as a mount sorts),
 // despawns and pieces with a fixed zIndex coming and going; the order drawn is the same every
-// frame, and the lazy layer sorts on far fewer of them.
+// frame, every body's zIndex is its depth whenever a draw list is built, and the lazy layer sorts
+// on far fewer of them.
 const { setDepth } = await import('../packages/engine-layout/src/lib/depthOrder.ts');
 check('the spawn layer sorts only when a depth changes the order, and draws the same order', () => {
 	let seed = 7;
@@ -1712,7 +1713,13 @@ check('the spawn layer sorts only when a depth changes the order, and draws the 
 	const sorts = { eager: 0, lazy: 0 };
 	const render = (parent, key) => {
 		parent.onRender?.(undefined);
-		if (parent.sortDirty) sorts[key]++;
+		if (parent.sortDirty) {
+			sorts[key]++;
+			// What reads a zIndex as the draw list is built (the underwater layer) reads the depth.
+			if (parent === lazy)
+				for (const body of bodies)
+					assert.equal(body.b.zIndex, body.depth, `${body.b.label}'s zIndex at a build`);
+		}
 		if (parent.sortableChildren) parent.sortChildren();
 	};
 	for (let i = 0; i < 12; i++) spawn();

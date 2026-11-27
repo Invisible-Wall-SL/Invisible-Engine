@@ -4,8 +4,9 @@
 // is a river (a seed and its levels), a projector, a canvas, a zoom, antialiasing and a
 // resolution; its camera is walked along the river from stop to stop, a frame at a time on a
 // fixed clock (so the culling, the chunks and every animation move as a game moves them), and the
-// canvas is read at each stop. Nothing but the river is drawn (no players, no screens), so a
-// difference is the river's.
+// canvas is read at each stop, the camera off the pixel grid as one following a body is (one case
+// on whole pixels, where float ties decide the ripple's edge). Nothing but the river is drawn (no
+// players, no screens), so a difference is the river's.
 //
 //   git worktree add ../ie-main origin/main && (cd ../ie-main && pnpm install)
 //   node scripts/salmons/river-pixels.mjs --base ../ie-main [--out <dir>] [--chrome <exe>]
@@ -94,9 +95,12 @@ async function render(c) {
 	camera.addChild(into, layer);
 	app.stage.addChild(camera);
 	const unregister = registerProjectedLayer(SALMONS_FIELD_LAYER, layer);
+	// A camera on whole pixels puts the ripple's edges on whole pixels too, where their rounding
+	// is decided by the last bit of a float.
+	const snap = c.aligned ? Math.round : (v) => v;
 	const lookAt = (x, y) => {
 		const p = projector.project(x, y);
-		camera.position.set(c.w / 2 - c.zoom * p.x, c.h / 2 - c.zoom * p.y);
+		camera.position.set(snap(c.w / 2 - c.zoom * p.x), snap(c.h / 2 - c.zoom * p.y));
 	};
 	let time = 0;
 	const frame = () => {
@@ -113,7 +117,7 @@ async function render(c) {
 		const [a, b] = [c.stops[s - 1], c.stops[s]];
 		for (let i = 1; i <= c.steps; i++) {
 			const t = i / c.steps;
-			// Off the pixel grid, as a camera that follows a body is.
+			// Off the pixel grid, as a camera that follows a body is (unless the case is aligned).
 			lookAt(a.x + (b.x - a.x) * t + 0.37, a.y + (b.y - a.y) * t + 0.21);
 			frame();
 		}
@@ -186,6 +190,17 @@ const CASES = [
 		antialias: true,
 		resolution: 1,
 	},
+	{
+		seed: 42,
+		levels: 'original',
+		mirrored: false,
+		w: 960,
+		h: 540,
+		zoom: 2,
+		antialias: true,
+		resolution: 1,
+		aligned: true,
+	},
 ];
 const CELL = 48;
 
@@ -256,7 +271,7 @@ try {
 		const [base, here] = await Promise.all(
 			[pages.base, pages.here].map((page) => page.evaluate(`window.riverPixels.render(${run})`)),
 		);
-		const tag = `${c.seed}-${c.levels}-${c.mirrored ? 'mirrored' : 'plain'}-${c.w}x${c.h}-z${c.zoom}-${c.antialias ? 'aa' : 'noaa'}-r${c.resolution}`;
+		const tag = `${c.seed}-${c.levels}-${c.mirrored ? 'mirrored' : 'plain'}-${c.w}x${c.h}-z${c.zoom}-${c.antialias ? 'aa' : 'noaa'}-r${c.resolution}${c.aligned ? '-aligned' : ''}`;
 		base.shots.forEach((shot, i) => {
 			const a = decode(shot);
 			const b = decode(here.shots[i]);

@@ -8,9 +8,11 @@ import type { Container } from 'pixi.js';
  * {@link setDepth} keeps each child's depth and sets its `zIndex` only when it is out of the
  * parent's container or a sort is due. Before every sort of the parent (Pixi's, or one asked for
  * by a mount) each child is given its depth as its `zIndex`, so the sort sees the depths as if they
- * had been set all along; and before each render the parent is sorted if its children are no
- * longer in depth order. A stable sort of children already in order leaves them as they are, so the
- * order drawn is the one setting the `zIndex` every frame gave, ties included.
+ * had been set all along; before each render the parent is sorted if its children are no longer in
+ * depth order, and when its draw list is to be built each child's `zIndex` is its depth (what reads
+ * one while the list is built reads it fresh). A stable sort of children already in order leaves
+ * them as they are, so the order drawn is the one setting the `zIndex` every frame gave, ties
+ * included.
  */
 
 const depths = new WeakMap<Container, number>();
@@ -48,9 +50,12 @@ function keep(parent: Container) {
 		sort.call(parent);
 	};
 	const before = parent.onRender;
+	// Before the draw list is built, so whatever reads a zIndex as it is built (Salmons' underwater
+	// layer sorts by its body's) reads its depth: quietly when a build is already asked for.
 	parent.onRender = (renderer) => {
 		before?.(renderer);
-		if (!parent.sortDirty && !inOrder(parent)) flush(parent);
+		if (parent.sortDirty) flush(parent, true);
+		else if (!inOrder(parent)) flush(parent);
 	};
 }
 

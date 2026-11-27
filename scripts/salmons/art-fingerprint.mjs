@@ -2,8 +2,9 @@
 // with no GPU, into a scene graph whose every drawn piece, in the order it is drawn (its kind, its
 // place, scale and turn from the river's container, tint, alpha, filters, depth, texture and every
 // fill of a drawing), is hashed; how the pieces are grouped in containers is not. Two rivers with
-// the same fingerprint are drawn alike, piece for piece and colour for colour. Textures made by the drawing (the riverbed
-// and the sea) are named by their drawing's fills; the art's regions by their names.
+// the same fingerprint are drawn alike, piece for piece and colour for colour. Textures made by the
+// drawing (the riverbed and the sea) are named by their drawing's fills; the art's regions by their
+// names.
 
 import { createHash } from 'node:crypto';
 import { createRequire, registerHooks } from 'node:module';

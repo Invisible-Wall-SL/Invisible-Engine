@@ -1,10 +1,10 @@
 import {
 	AnimatedSprite,
+	Bounds,
 	Container,
 	DisplacementFilter,
 	Graphics,
 	Matrix,
-	Rectangle,
 	Sprite,
 	Texture,
 	TilingSprite,
@@ -64,8 +64,8 @@ import { zoneFrames, type RiverZoneArt, type ZoneFrames } from './zoneArt';
  * its draw list is rebuilt only when a chunk comes or goes. (The upright pieces, the cliffs and the
  * reflections are not: they are few, and drawn relative to a group a world wide their see-through
  * layers round a level differently on the GPU.) A chunk keeps its tiles in the order they were
- * laid, and the chunks of a layer are ordered so that any two tiles that overlap are drawn in that
- * order too ({@link chunkFor}); the riverbed's ripple covers the tiles in view, not their chunks
+ * laid, and the chunks of a layer are ordered so that any two tiles that overlap in area are drawn
+ * in that order too ({@link chunkFor}); the riverbed's ripple covers the tiles in view, not their chunks
  * ({@link rippleBy}): the river draws as if every tile were laid loose. The upright pieces are
  * culled by a coarser box, their clocks by the view; the pieces among the players come and go
  * with the view exactly, as loose pieces did (their order among the players is by depth, ties by
@@ -321,11 +321,8 @@ type Chunk = {
 	/** Its group's container, and its place in the group's order. */
 	home: Container;
 	rank: number;
-	/** A riverbed chunk's tiles: each one's box in the world, and, once made, the box its picture
-	 *  covers under the ripple, and theirs all together. */
+	/** A riverbed chunk's tiles: each one's box in the world, in their order. */
 	boxes?: Box[];
-	areas?: Box[];
-	area?: Box;
 };
 /**
  * A run of a ground layer's tiles drawn as a loose layer drew them: the tiles raised by one lift
@@ -578,7 +575,7 @@ export function mountSalmonsRiver(
 
 	// The ground: drawn flat (`flat`, the plane turned 45° and squashed by `turn`), the riverbed
 	// apart in `rippled`, a container square to the screen that its ripple (the displacement filter)
-	// is drawn over: under it, `filterArea` is the box the riverbed's tiles in view cover.
+	// is drawn over, its area measured as the riverbed's was before it was chunked.
 	const turn = new Container();
 	turn.scale.set(1, 0.5);
 	turn.isRenderGroup = true;
@@ -613,11 +610,8 @@ export function mountSalmonsRiver(
 	displacement.renderable = false;
 	const filter = new DisplacementFilter({ sprite: displacement, scale: { x: 6, y: 4 } });
 	rippled.filters = [filter];
-	const rippleArea = new Rectangle();
-	rippled.filterArea = rippleArea;
-	const host = into;
 	const roots = [floor, displacement, cliffs, turn, reflections, upright];
-	host.addChild(...roots);
+	into.addChild(...roots);
 
 	const uprightCulled: Culled[] = [];
 	const among: Among[] = [];
@@ -1241,50 +1235,60 @@ export function mountSalmonsRiver(
 	for (const group of allGroups)
 		[...group.chunks.values()].sort(byPlace).forEach((chunk, i) => (chunk.rank = i));
 	const chunkOf = new Map(chunks.map((chunk) => [chunk.view, chunk]));
-	/** The box a riverbed tile's picture covers under the ripple, in its container's frame. */
-	const rippledBox = (view: Container, home: Container): Box => {
-		for (const node of [bedPlane, home, view]) node.updateLocalTransform();
-		const m = new Matrix()
-			.copyFrom(bedPlane.localTransform)
-			.append(home.localTransform)
-			.append(view.localTransform);
-		const b = view.getLocalBounds();
-		const xs = [b.minX, b.maxX, b.minX, b.maxX];
-		const ys = [b.minY, b.minY, b.maxY, b.maxY];
-		const x = xs.map((px, i) => m.a * px + m.c * ys[i] + m.tx);
-		const y = xs.map((px, i) => m.b * px + m.d * ys[i] + m.ty);
-		return { x0: Math.min(...x), y0: Math.min(...y), x1: Math.max(...x), y1: Math.max(...y) };
-	};
 	const build = (chunk: Chunk) => {
-		const views = chunk.make.map((make) => make());
-		chunk.view.addChild(...views);
+		chunk.view.addChild(...chunk.make.map((make) => make()));
 		chunk.make = [];
 		chunk.built = true;
-		if (chunk.boxes) {
-			chunk.areas = views.map((view) => rippledBox(view, chunk.home));
-			chunk.area = emptyBox();
-			for (const area of chunk.areas) grow(chunk.area, area);
-		}
 	};
 	const bedChunks = chunks.filter((chunk) => chunk.boxes);
-	/**
-	 * The ripple's area: the box the riverbed's tiles that meet the view's ground box cover, as when
-	 * each tile was culled on its own and the filter measured the ones shown. A chunk is shown whole,
-	 * so the box is not the chunks'.
-	 */
+	/** The riverbed's tiles that meet the view's ground box: the ones a riverbed culled tile by
+	 *  tile drew, as its chunks are shown whole. */
+	let rippling: Container[] = [];
 	const rippleBy = (ground: Box) => {
-		const covered = emptyBox();
+		rippling = [];
 		for (const chunk of bedChunks) {
-			const { boxes, areas, area } = chunk;
-			if (!boxes || !areas || !area || !meets(chunk.box, ground)) continue;
-			if (within(chunk.box, ground)) grow(covered, area);
-			else boxes.forEach((box, i) => meets(box, ground) && grow(covered, areas[i]));
+			const { boxes } = chunk;
+			if (!boxes || !chunk.built || !meets(chunk.box, ground)) continue;
+			const tiles = chunk.view.children;
+			if (within(chunk.box, ground)) rippling.push(...tiles);
+			else boxes.forEach((box, i) => meets(box, ground) && rippling.push(tiles[i]));
 		}
-		const none = covered.x0 > covered.x1;
-		rippleArea.x = none ? 0 : covered.x0;
-		rippleArea.y = none ? 0 : covered.y0;
-		rippleArea.width = none ? 0 : covered.x1 - covered.x0;
-		rippleArea.height = none ? 0 : covered.y1 - covered.y0;
+	};
+	/**
+	 * The ripple's area, as the filter measured the riverbed when its tiles were laid loose and
+	 * culled one by one: each tile of {@link rippleBy}'s, its frame through the chain of transforms
+	 * from the scene's render group down to it, composed in the same order, so the area's edges are
+	 * the same floats and round to the same pixels. The ground's render group, `rippled` and the
+	 * chunks add only identities to that chain.
+	 */
+	const chain = { bed: new Matrix(), group: new Matrix(), tile: new Matrix() };
+	rippled.getFastGlobalBounds = (_factorRenderLayers?: boolean, bounds = new Bounds()) => {
+		bounds.clear();
+		const scene = turn.parentRenderGroup;
+		if (!scene) return bounds;
+		bedPlane.updateLocalTransform();
+		bed.updateLocalTransform();
+		chain.bed
+			.appendFrom(bedPlane.localTransform, turn.relativeGroupTransform)
+			.appendFrom(bed.localTransform, chain.bed);
+		let home: Container | null = null;
+		for (const tile of rippling) {
+			const group = tile.parent?.parent ?? null;
+			if (!group) continue;
+			if (group !== home) {
+				home = group;
+				group.updateLocalTransform();
+				chain.group.appendFrom(group.localTransform, chain.bed);
+			}
+			if (!(tile instanceof Sprite)) continue;
+			tile.updateLocalTransform();
+			chain.tile.appendFrom(tile.localTransform, chain.group);
+			const frame = tile.bounds;
+			bounds.addFrame(frame.minX, frame.minY, frame.maxX, frame.maxY, chain.tile);
+		}
+		if (!bounds.isValid) bounds.set(0, 0, 0, 0);
+		bounds.applyMatrix(scene.worldTransform);
+		return bounds;
 	};
 	const attach = (chunk: Chunk) => {
 		if (chunk.view.parent === chunk.home) return;
@@ -1320,8 +1324,8 @@ export function mountSalmonsRiver(
 		}
 	};
 
-	// What animates in the upright pieces moves on only while the view holds it, as each piece did
-	// when it was culled on its own: their drawing is culled by a coarser box, their clocks by the view.
+	// What animates in the upright pieces moves on only while the view holds it, as when each piece
+	// was culled on its own; only their drawing is culled by a coarser box.
 	const animated = new Set<Container>([...ticking, ...rigs.map((rig) => rig.view)]);
 	const clocked = uprightCulled.filter(({ view }) => animated.has(view));
 	const stopped = new Set<Container>();
@@ -1368,7 +1372,7 @@ export function mountSalmonsRiver(
 		placedBy = undefined;
 		for (const piece of among) if (piece.view?.parent) piece.view.removeFromParent();
 		layer = now && !now.destroyed ? now : undefined;
-		if (layer) layerShift = layer.toLocal({ x: 0, y: 0 }, host);
+		if (layer) layerShift = layer.toLocal({ x: 0, y: 0 }, into);
 		return layer;
 	};
 
@@ -1376,7 +1380,7 @@ export function mountSalmonsRiver(
 	const inverse = new Matrix();
 	let viewBox: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
 	const cull = () => {
-		const m = host.worldTransform;
+		const m = into.worldTransform;
 		const screen = app.renderer.screen;
 		const key = `${m.a},${m.b},${m.c},${m.d},${m.tx},${m.ty},${screen.width},${screen.height}`;
 		if (key === seen) return false;
@@ -1509,7 +1513,7 @@ export function mountSalmonsRiver(
 		destroyed: () => roots.every((root) => root.destroyed),
 		among: () => ({ drawn: amongDrawn, layer: !!layer }),
 		aboveWater: () => {
-			host.addChild(reflections, upright);
+			into.addChild(reflections, upright);
 		},
 	};
 }
