@@ -271,11 +271,12 @@ export async function launchChrome({
 	}
 
 	/** Evaluate an (async) expression in the page and return its value, or throw its error. */
-	async function evaluate(expression) {
+	async function evaluate(expression, timeoutMs = cdpTimeoutMs) {
 		const res = await cdp(
 			'Runtime.evaluate',
 			{ expression, awaitPromise: true, returnByValue: true },
 			session,
+			timeoutMs,
 		);
 		if (res.error) throw new Error(JSON.stringify(res.error));
 		const r = res.result;

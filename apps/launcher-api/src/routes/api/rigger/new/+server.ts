@@ -8,6 +8,7 @@ import { artRevision, cutFrames, readCut } from '$lib/server/rigFrameSourceStore
 import {
 	newRigControls,
 	requestFit,
+	requestModules,
 	requestSheet,
 	resolveNewRigBody,
 } from '$lib/server/riggerNewRig';
@@ -59,8 +60,9 @@ const basename = (k: string): string => {
  * dropdown. The client's tolerant loader is what lets such a rig (and a saved rig whose
  * region names don't resolve) build without throwing.
  *
- * Body: `{ manifestKey, name, rigId?, templateId?, fit? | sheet?, frame? }` or `{ noAtlas: true,
- * name, rigId?, templateId?, fit? }`. `frame: { job }` (🦴 Create rig) names the cut the fit was made
+ * Body: `{ manifestKey, name, rigId?, templateId?, modules?, fit? | sheet?, frame? }` or `{ noAtlas:
+ * true, name, rigId?, templateId?, modules?, fit? }` (`modules`: the template's module set,
+ * docs/design/rig-modules.md; a sheet's is its mapping's). `frame: { job }` (🦴 Create rig) names the cut the fit was made
  * from: the rig remembers it in `frame-source.json`, so ✂ Edit cut opens it again (frame-to-rig §12
  * F2j).
  */
@@ -152,6 +154,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const sheet = requestSheet(body?.sheet);
 	if (sheet && sheet.manifestKey !== manifestKey)
 		throw error(400, 'the sheet mapping is of another atlas than the one picked');
+	const modules = requestModules(body?.modules);
 
 	// Resolve the page image + `.atlas` text + region count for either path.
 	let pageName: string;
@@ -198,7 +201,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		});
 	}
 
-	const made = await resolveNewRigBody(rigId, templateId, regions, fit, sheet);
+	const made = await resolveNewRigBody(rigId, templateId, regions, fit, sheet, modules);
 	const { skeleton, template } = made;
 	const frameSource = await newFrameSource(clientKey, projectKey, body?.frame, {
 		name,

@@ -222,10 +222,11 @@ const both = (f) => Object.fromEntries(SIDES.flatMap((s) => Object.entries(f(s))
  */
 const PERFORMERS = {
 	'half-body': {
-		// NellyAnimTest's fit (§8.3): chest 185 / 150, neck → head 52 / 40, arms 1.17–1.24 × the
-		// template's, the right forearm foreshortened to 56 / 170.
+		// NellyAnimTest's fit (§8.3): chest 185 / 150, neck → head 52 / 40 (shared by the neck's upper
+		// half and the head), arms 1.17–1.24 × the template's, the right forearm foreshortened to 56 / 170.
 		lengths: {
 			chest: 1.233,
+			neck_upper: 1.3,
 			head: 1.3,
 			lower_arm_l: 1.242,
 			lower_arm_r: 1.168,
@@ -247,7 +248,8 @@ const PERFORMERS = {
 		aims: {
 			spine: 'chest',
 			chest: 'neck',
-			neck: 'head',
+			neck: 'neck_upper',
+			neck_upper: 'head',
 			head: 'face',
 			...both((s) => ({
 				[`upper_arm_${s}`]: `lower_arm_${s}`,
@@ -261,6 +263,7 @@ const PERFORMERS = {
 		lengths: {
 			spine: 1.2,
 			chest: 1.15,
+			neck_upper: 1.3,
 			head: 1.3,
 			lower_arm_l: 1.1,
 			lower_arm_r: 0.9,
@@ -289,7 +292,8 @@ const PERFORMERS = {
 			hip: 'spine',
 			spine: 'chest',
 			chest: 'neck',
-			neck: 'head',
+			neck: 'neck_upper',
+			neck_upper: 'head',
 			...both((s) => ({
 				[`upper_arm_${s}`]: `lower_arm_${s}`,
 				[`lower_arm_${s}`]: `hand_${s}`,
@@ -300,9 +304,16 @@ const PERFORMERS = {
 		joints: ['root'],
 	},
 	'bust-face': {
-		lengths: { chest: 1.1, shoulder_l: 1.15, shoulder_r: 1.15, neck: 0.8, head: 1.25 },
+		lengths: {
+			chest: 1.1,
+			shoulder_l: 1.15,
+			shoulder_r: 1.15,
+			neck: 0.8,
+			neck_upper: 1.25,
+			head: 1.25,
+		},
 		turns: { chest: 5, neck: -9, head: 7 },
-		aims: { chest: 'neck', neck: 'head', head: 'face' },
+		aims: { chest: 'neck', neck: 'neck_upper', neck_upper: 'head', head: 'face' },
 		joints: ['root', 'shoulder_l', 'shoulder_r'],
 	},
 };

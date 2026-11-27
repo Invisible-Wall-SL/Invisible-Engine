@@ -48,7 +48,7 @@
 //    - partialface: a brow or a mouth drawing makes the rig (it was a bare 500), each face drawing
 //      drawn where placed and bent on its bones from there, the starred parts left out listed;
 //    - proportions: every drawing where it was arranged, at the sheet's scale; at rest and with every
-//      chain bone turned it rides its own bone whole, and the torso and head fold nowhere;
+//      chain bone turned it rides its own bone whole, and the torso, neck and head fold nowhere;
 //    - headturn: turning the head turns the head's drawing, its face, the nose and the brows with it;
 //    - faceturn: a face capture's head turn on a head drawn without its face turns the head with it —
 //      its middle under the features drawn apart moving as they do, its outline staying, nothing
@@ -58,6 +58,9 @@
 //      put it there, a part's props in the layers' order, the head's props over its face, under the
 //      front hair (🗺 Layers: sheet-layers.mjs);
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
+// Two checks, so each stays well inside CI's 300 s for one (the whole ran 130–300 s there): this file
+// runs the plain sheet's guards, `sheet-rig-arranged.mjs` the arranged sheet's and the owner's sheet
+// shape's (`ARRANGED`), each guard with its mutants.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--mutants <guard>] [--write]
 //   (--mutants: only that guard's mutants.)
 //   (--write: make the sheet from the F2 fixture's parts again.)
@@ -1765,7 +1768,6 @@ const GUARDS = {
 				JSON.stringify(skinned[part]),
 			) && good;
 		for (const part of [
-			'neck',
 			...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
 			ALTERNATE.part,
 		]) {
@@ -1773,6 +1775,27 @@ const GUARDS = {
 			good = only(part, doc.slots.find((s) => s.name === slot).bone);
 		}
 		good = only('torso', 'torso_image', 'spine', 'clavicle_l', 'clavicle_r');
+		// The neck bends along its two bones, its foot into the torso and its top into the head.
+		const underHead = (b) => {
+			for (
+				let x = doc.bones.find((y) => y.name === b);
+				x;
+				x = doc.bones.find((y) => y.name === x.parent)
+			)
+				if (x.name === 'head') return true;
+			return false;
+		};
+		good =
+			ok(
+				'skin: the neck bends along its two bones and at its seams into the torso and the head',
+				['neck', 'neck_upper', 'torso_image', 'head_image'].every((b) =>
+					skinned.neck.includes(b),
+				) &&
+					skinned.neck.every(
+						(b) => ['neck', 'neck_upper', 'torso_image'].includes(b) || underHead(b),
+					),
+				JSON.stringify(skinned.neck),
+			) && good;
 		good =
 			ok(
 				'skin: the torso bends at its waist and both shoulder lines',
@@ -2278,7 +2301,7 @@ const GUARDS = {
 				name,
 				bone: doc.slots.find((s) => s.name === slot).bone,
 				size: size.get(att.path ?? name),
-				bends: name === 'torso' || name === 'head',
+				bends: name === 'torso' || name === 'head' || name === 'neck',
 			})),
 		);
 		const frame = framePosed(rig);
@@ -2775,8 +2798,25 @@ const ONLY = process.argv.includes('--only')
 const MUTANTS_OF = process.argv.includes('--mutants')
 	? process.argv[process.argv.indexOf('--mutants') + 1]
 	: null;
+/** The guards `sheet-rig-arranged.mjs` runs (`--part arranged`): the sheet arranged as the frame, and the owner's sheet shape. */
+const ARRANGED = new Set([
+	'arrange',
+	'framejoints',
+	'partialface',
+	'proportions',
+	'faceturn',
+	'headturn',
+	'draworder',
+]);
+const PART = process.argv.includes('--part')
+	? process.argv[process.argv.indexOf('--part') + 1]
+	: 'plain';
+if (PART !== 'plain' && PART !== 'arranged') throw new Error(`no part "${PART}" (plain, arranged)`);
+for (const id of ARRANGED) if (!GUARDS[id]) throw new Error(`ARRANGED names no guard "${id}"`);
+/** Whether guard `id` (and its mutants) runs in this part: `--only` / `--mutants` name it whatever the part. */
+const inPart = (id) => !!(ONLY || MUTANTS_OF) || ARRANGED.has(id) === (PART === 'arranged');
 for (const [id, guard] of Object.entries(GUARDS)) {
-	if ((ONLY && id !== ONLY) || MUTANTS_OF) continue;
+	if ((ONLY && id !== ONLY) || MUTANTS_OF || !inPart(id)) continue;
 	console.log(`\n=== ${id}`);
 	guard(M0, (line) => console.log(`    ${line}`));
 }
@@ -3164,7 +3204,7 @@ const SOURCES = {
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {
-	if (MUTANTS_OF && guard !== MUTANTS_OF) continue;
+	if ((MUTANTS_OF && guard !== MUTANTS_OF) || !inPart(guard)) continue;
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {
 		ok(`mutant planted: ${what}`, false, `"${from}" is not in ${file}`);

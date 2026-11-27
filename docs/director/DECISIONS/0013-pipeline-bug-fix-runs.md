@@ -199,6 +199,22 @@ steps:
 
 **Authentication to the launcher: GitHub OIDC, no shared secret.**
 
+**Amended 2026-11-27 (owner's choice, "option B"): a result too large for the launcher's request
+limit travels through R2.** adapter-node refuses any body past `BODY_SIZE_LIMIT` (512 KB, measured on
+the gzipped body), and a fix run's result carries whole files (one gzips to about 479 KB alone). So
+a result whose gzip is past 400 KB is not posted: the job asks `POST /api/pipeline/fix-runs/<id>/result-upload`
+(same OIDC token and run binding as `…/result`; a live run only) for `{ url, key, expiresAt, maxBytes }`,
+a presigned R2 PUT for the run's one key `_runs/fix/<id>/result.json.gz`, good for 15 minutes; PUTs the
+gzipped bytes; then posts `{ "upload": { "key", "sha256", "bytes" } }` to `…/result` with a fresh
+token. A result at or under 400 KB goes inline as before. The job PUTs only to the exact URL the
+launcher just returned, over https, at an R2 S3 host (`<account>.r2.cloudflarestorage.com`; never a
+URL from anywhere else), follows no redirect, and never prints the URL (it carries a signature). The
+launcher takes the pointer only for the run's own key, reads the object bounded at 8 MB, checks its
+size and sha256, gunzips within 8 MB, and parses it as it would an inline body; it deletes the object
+after the read whatever the outcome. A missing, oversize or altered object is a 400 with a sentence,
+the run keeps waiting for the backstop, and the backstop deletes a leftover object when it ends a
+run. No new secret: the launcher signs with the R2 credentials it already has.
+
 - Steps 3 and 5 request an OIDC token with audience `invisible-launcher-bug-fix`. The launcher
   checks it against GitHub's published keys with `node:crypto` (no new dependency;
   `githubApp.ts` already does RS256 by hand). It requires:

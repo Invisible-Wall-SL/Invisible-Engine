@@ -183,6 +183,14 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-27 — **The dopesheet stretch bar squashes again.** `startDopeScale` (`view.html`) took
+  the squash floor (no two selected times closer than 1ms) from the smallest gap across EVERY
+  selected key, so two rows keyed a fraction of a millisecond apart (2/3s stored as 0.6666 on one
+  row, 0.6667 on another) pinned `minRatio` at ×1 and the grip could only spread. Only keys on one
+  row can merge, so the floor now reads each row's own gaps (1ms, or 2e-4 for a pair already closer).
+  Guard: a synthetic case in `tools/rigger-spike/stretch.mjs` (red on the old code at ×1.00); its
+  "distinct times" check now counts per row. The spike's 9 control-time reds on
+  `apps/price/.../symbolsSpecial` predate this and are unchanged.
 - 2026-11-27 — **A graph box scale no longer drifts with the mouse still.** `renderGraphBody`
   re-fits the value range (keys ± 14%) on every redraw and kept the old range only while
   `graphDrag` was set; a box scale sets `graphBox`, so each mousemove rescaled the keys, the redraw

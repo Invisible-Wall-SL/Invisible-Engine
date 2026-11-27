@@ -62,8 +62,9 @@ named instead of discovered.
 root
 └─ chest                (breathing: scale Y, small)
    ├─ shoulder_l / shoulder_r
-   └─ neck
-      └─ head           (nod, tilt)
+   └─ neck              (nod, shared with neck_upper)
+      └─ neck_upper     (§3.6)
+         └─ head        (tilt)
          ├─ face        (owns the face mesh; small turn left/right)
          │  ├─ brow_l / brow_r
          │  ├─ eye_l / eye_r      (lids swap)
@@ -123,8 +124,9 @@ root                    (hop: translate Y)
 └─ hip                  (pelvis)
    ├─ spine             (lean)
    │  └─ chest          (torso; breath)
-   │     ├─ neck        (nod)
-   │     │  └─ head     (tilt)
+   │     ├─ neck        (nod, shared with neck_upper)
+   │     │  └─ neck_upper
+   │     │     └─ head  (tilt)
    │     └─ upper_arm_l / _r   (raise)
    │        └─ lower_arm_*      (elbow)
    │           └─ hand_*        (open / fist / point swap)
@@ -161,8 +163,9 @@ root                     (the waist cut)
 └─ hip                   (pelvis stub)
    └─ spine              (lean)
       └─ chest           (twist, breath)
-         ├─ neck         (nod)
-         │  └─ head      (tilt, turn)
+         ├─ neck         (nod, shared with neck_upper)
+         │  └─ neck_upper
+         │     └─ head   (tilt, turn)
          │     ├─ hair_back, hair_front
          │     └─ face   (the shared face block, §4)
          └─ clavicle_l / _r        (shrug)
@@ -209,6 +212,26 @@ lip-sync line and face import made for one plays on the other. The block brings 
 and `head_turn`; `head_nod` and `breath` stay this template's. Head tilt is read from the face
 (the eye line), not from the body's ears, so one performance never maps it twice.
 
+### 3.6 The neck: two bones
+
+The owner on the sheet-made Half body rig, 2026-11-27: "the neck bone is not doing the correct
+thing, and is sliding way too much left and right". Every template's neck is two bones: `neck` on
+the chest at the collar and `neck_upper` halfway up it, the head on that. A turn of the neck is
+shared by the two (Head nod keys half on each; 📍 Follow positions bends both alike), so the neck
+curves rather than swinging stiff from the collar. A drawn neck is skinned along its length across
+the two and at its seams — its foot under the collar rides the torso, its top under the chin the
+head — so a bent neck stays in its collar and under the jaw (a sheet's other drawings stay rigid,
+frame-to-rig §13). A drawn neck's length (🗺 From my sheet, 🎞 Frame to rig) is shared by the two
+offsets as the template shares it.
+
+`neck_upper` is a **link** (`RigTemplateBone.link`): added after rigs were made, with no template
+version. A rig without it is given the template with it folded into `neck` (`templateWithLinks`:
+the head hung from the neck where it was, Head nod on `neck` alone), so its Controls key and read as
+before; the Controls read a control from all its drives of one property (least squares, an unkeyed
+bone at its setup), so an old clip's nod reads the same on either. 🔄 Update rig puts the link in
+(`frameRigUpdate`): on the rig's own line between the neck and the head, the bones renumbered for
+the weighted vertices, every key kept, so every clip poses as it did.
+
 ## 4. Face channels
 
 The artist animates **channels**, not bones. Each channel is a number (or a shape name) that the
@@ -228,7 +251,7 @@ Rigger turns into ordinary keys, per the contract:
 | `brow_l` / `brow_r`         | −1…1       | `brow_*` translate Y + attachment at the ends           |
 | `brow_in_*` / `brow_out_*`  | −1…1       | `brow_in_*` / `brow_out_*` translate Y                  |
 | `gaze`                      | x, y −1…1  | `pupil_*` translate (+ `lid_follow_*` on y)             |
-| `head_tilt`, `head_nod`     | degrees    | `head` rotate / `neck` rotate                           |
+| `head_tilt`, `head_nod`     | degrees    | `head` rotate / `neck` + `neck_upper` rotate, half each |
 | `head_turn`                 | −1…1       | `face` translate X + children parallax                  |
 | `breath`                    | 0–1        | `chest` scale Y                                         |
 
@@ -258,7 +281,9 @@ carry across every image the slot swaps to. 📐 Save as template turns them bac
 on 2026-11-20 at the owner's word, nothing having shipped on them): a rig that names another version opens as a rig with
 no template — no Controls section, but its keys are ordinary timelines, so it opens and plays. A
 rig's keys are its controls' values × their travel, so changing a control's travel means a new
-version (and the rigs on the old one lose their Controls); widening a range does not.
+version (and the rigs on the old one lose their Controls); widening a range does not. A
+template's **modules** (hands with fingers, simple or none — [rig-modules](rig-modules.md)) are
+choices over the same version: a rig records the ones off their default beside `{ id, version }`.
 
 ## 5. Where face motion comes from
 
@@ -669,9 +694,14 @@ default one ⤢ makes), with the rig's depths:
   body the shoulders and the hips (a waist-up shot's hips are guessed off the frame, so a point off
   the picture is not an anchor); Bust with face the eyes and mouth corners. It replaces the root's 2D
   hop and move. Nearer / further (the root's scale) stays and the translate allows for it.
-- **The head** (Half body): `neck` is translated in the chest's frame so the eyes' and mouth corners'
-  middle lands on the face's, at most 90 rig units (a third of the shoulders) from its place; a frame
-  past it is held there and said.
+- **The neck** (Half body) bends (§3.6) — each of its bones by the same share, about the chest's
+  plane — so the eyes' and mouth corners' middle lands on the face's **across the neck** (square to
+  its line), at most 35° in all; a frame past it is held there and said. The head keeps the face's
+  3D turn. Nothing is translated: the neck's base stays on the torso and the head on its neck, and a
+  rig whose head stands higher or lower on its shoulders than the performer's keeps that difference.
+  (Until 2026-11-27 `neck` was translated in the chest's frame onto the face, up to 90 units: the
+  neck and head slid sideways over the torso — 38 units for a 5 cm slide of the head, 28 at rest
+  for the rig's proportions, 11 for a 30° turn whose parallax differs from the performer's.)
 - **The limbs** reach their tracked end by two-bone IK in 3D: the arm the wrist of the hand found on
   it (Hand Landmarker's, where it is within 0.3 shoulder widths of Pose Landmarker's; else the
   pose's), Full body's legs the ankles. The bend goes toward the tracked elbow (or knee), else the
@@ -684,9 +714,10 @@ default one ⤢ makes), with the rig's depths:
   head are placed and the limbs reach from the body **as its keys play it** — a 1° key tolerance on the
   chest is 4.5 units at a shoulder. The bones a limb reaches with are solved after the rest of the frame,
   so the root is placed on this frame's clavicles (on NellyAnimTest the shoulders 0.8 → 0.5).
-- **Ordinary keys.** Translate keys on the root and the neck (2D: neither is a bone the bake owns),
-  reduced within 0.5 rig units; the arms' turns are `orient` keys as before. Every other bone keys
-  exactly what Angles only keys.
+- **Ordinary keys.** Translate keys on the root (2D: not a bone the bake owns), reduced within 0.5
+  rig units; the neck's bend and the arms' turns are `orient` keys, the neck's translate held at its
+  setup under the import (an import made before kept it moved). Every other bone keys exactly what
+  Angles only keys, but the head's turn against its bent neck (its turn in the world is the face's).
 
 **Before (`main`) and after, median / p90 / max, rig units** (the shoulders are 280 apart), the clip
 keyed as the page keys it and posed by engine-rig:

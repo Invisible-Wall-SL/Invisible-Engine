@@ -275,6 +275,114 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Large run results travel through R2 (ADR-0013 §4 / ADR-0015 §10, owner's option B).**
+  adapter-node refuses a body past 512 KB (gzipped), and a fix run's result (whole files) or a
+  Resolve-conflict result can pass it. A result whose gzip is past 400 KB is now PUT by the job to a
+  presigned R2 URL (`POST /api/pipeline/{fix,merge}-runs/<id>/result-upload`, same OIDC claims and run
+  binding as the result, live runs only, key `_runs/{fix,merge}/<id>/result.json.gz`, 15 minutes), and
+  the job posts `{ upload: { key, sha256, bytes } }`. The launcher accepts either body: for a pointer it
+  checks the run's own key, reads the object bounded at 8 MB, checks size and sha256, gunzips within
+  8 MB, parses as inline, and deletes the object whatever happened (a bad pointer is a 400, the run waits
+  for the backstop). The backstops delete a leftover object when they end a run. The job's allowlist
+  takes only the exact URL the launcher returned, over https, at `<account>.r2.cloudflarestorage.com`
+  (bucket label and `eu` allowed), no redirects, never printed. Code: `pipelineRunResultUpload.ts`,
+  `bugFixRuns.ts` (`readResultBody`), `scripts/bug-fix/collect.mjs` (`postResult`, shared by
+  `scripts/merge-main/collect.mjs`). Not provable offline: a real presigned PUT to R2 and a real runner
+  (see the PR). Optional owner step: a 1-day lifecycle rule on `_runs/` (`docs/INFRA.md`).
+
+- 2026-11-27 — **Resolve conflict's job code (ADR-0015 card 15B1).** The owner: "I get the
+  conflict with main a lot, and there is no way to fix it from the pipeline". `scripts/merge-main/`,
+  runnable on a local checkout. Wiring for 15B2 is in its `README.md`; nothing calls it yet.
+  - **`merge.mjs` (job `merge`, no secrets).** It merges `main` into the change at the two pinned
+    SHAs path by path, with no rename detection, as the launcher's three-tree Accept builds it (§5).
+    It applies §3's rules: `docs-append`, `runtime-bytes`, `vendored-bundle` and `ratchet`. It
+    applies §4's job refusals, then writes the `merge` record (its shape is in the header).
+    - **No branch code runs in the job** (owner, 2026-11-27: it runs in `main`'s context, and a
+      branch's install or build could poison the Actions cache that `main`'s other workflows
+      restore). `runtime-bytes`, `vendored-bundle` and the ratchets take `main`'s file, mechanical,
+      `choice` `main`, `pending` with the command to run later. `merge.mjs` never runs `pnpm`, an
+      install, a build or a ratchet; `check:merge-main` stubs the spawner and the PATH and proves it.
+      `regenerated` is no longer a `choice`.
+    - The proposal and the "Main merged in" card say what follows Accept: runtime bytes, CI's check
+      fails, click **Re-record runtime bytes** (#1936); a vendored bundle, rebuild with
+      `pnpm --filter launcher-api build:<name>` in the change's session; a ratchet, lower the
+      baseline in the change's session if `check:svelte` or lint fails.
+    - `docs-append` hands the file to the model when both sides added the same block (two or more
+      lines of 40+ characters), since keeping both would write it twice.
+    - The protected paths, lockfile names and vendored bundles are read from
+      `bugFixRunsChange.ts` and `check-vendored-bundles.mjs`, never copied.
+  - **`collect.mjs` (job `propose`).**
+    - `stage` redoes the merge from main's git and refuses a record that differs, all of it. It
+      then lays out the merged tree and writes `conflicts.json`.
+    - `prepare` renders the CLI's conf (settings from `scripts/bug-fix/settings.json` with the
+      conflicts folder read-only, `coordinator.md` as the prompt, the agents, the tsx shim) as
+      `bug-fix.yml`'s own prepare does. It fails clearly while 15B2's `coordinator.md` is missing.
+    - `result` holds the run to §4: only its files change; an edit outside a hunk is listed; no
+      marker is left; UTF-8 with no NUL; the caps. For a mechanical-only run it fills `explanation`
+      from the rules. It builds §10's body and POSTs it with OIDC (audience
+      `invisible-launcher-merge-main`).
+    - It reuses `scripts/bug-fix/collect.mjs`'s helpers by import. They are now exported, and
+      `oidcToken` takes the audience.
+  - **`budget_usd`** (§10 as amended on 2026-11-27) is `BUDGET_USD`, and it is required. With `0`
+    the model does not run, the mechanical part is still proposed, and a real conflict ends
+    `needs_person` saying the month's budget is spent.
+  - **Gate:** `pnpm check:merge-main`, 113 checks, picked up by `check:all`. It covers one case per
+    rule and per refusal on scratch repos, collect's guards, the §10 shape, and both steps end to end
+    against a loopback launcher.
+  - **Replay (ADR §9),** over the 296 merges of `main` into the window's 147 branches
+    (11-04…26):
+    - 212 conflict path by path (`git merge-tree`: 213). 106 are mechanical-only.
+    - 81 of those equal the person's merge commit, with the regenerated manifests' contents set
+      aside.
+    - The 25 that differ are the person's own edits. Blank lines between the two additions: 8.
+      Main's lines put first: 3. Text rewritten inside the entries: 8. Files outside the conflict
+      edited in the merge commit: 6 (Accept never takes those).
+    - **The manifest rule, run for real** on BUG-20's merge `fa73b7d86`: `pnpm install` and
+      `check:runtime-bytes --update --only` all five ids, in 7 minutes. The merged tree equals the
+      person's merge commit, and the five manifests are byte for byte their own re-record
+      `3a3940ea3`.
+  - **Found: `apps/launcher-api/static/rigger/view.html` holds a raw NUL** at byte 809,576: an
+    option value `"\u0000none"` written as the character itself. git merges the file as text,
+    because it looks for NUL only in the first 8 KB. §10 refuses a NUL in a file's content, though,
+    so every merge where both sides changed the file ends `needs_person`: 19 of the window's 212.
+    Writing the escape instead is a one-line launcher fix (launcher-studio).
+
+- 2026-11-27 — **Resolve conflict, the launcher side (ADR-0015 card 15C).** Hidden until
+  `merge-main.yml` is on `main` (15B2); the job's side is `scripts/merge-main/` (15B1).
+  - Migration `0052_merge_main_runs.sql` (the table of §8 with its partial unique index, so one
+    pull request has one live run, a proposal waiting counting as live). Setting
+    `PIPELINE_MERGE_MAIN_BUDGET_USD` (default $6, Admin › Settings); the spend is a
+    `director_spend` row per model (`run_id` `merge:<id>`, agent `merge-main`) and
+    `fixGlobals` adds it to the month's total against `PIPELINE_FIX_MONTHLY_USD`.
+  - `POST /api/pipeline/changes/<n>/resolve` `{ requestId }` (409 codes `workflow_not_live`,
+    `not_open`, `not_conflicted`, `on_hold`, `merge_run_live`, `request_id_reused`; a spent
+    month still dispatches), `POST /api/pipeline/merge-runs/<id>/result` (OIDC audience
+    `invisible-launcher-merge-main`; §10 parsed strictly, texts cleaned and scanned, stored as a
+    proposal), `…/merge-runs/<id>/accept` `{ headSha }` and `…/discard`, `GET …/merge-runs`.
+    Modules `pipelineMergeRuns*.ts`; the OIDC claims are `bugFixRuns.ts`'s `verifiedJobClaims`
+    now shared by both jobs.
+  - Accept builds the merge from three trees (`pipelineMergeRunsBuild.ts`, as `revertCommit`
+    does): a path neither side changed is untouchable, one only one side changed takes that side,
+    only both-changed paths take the run's content (a build rule's file with `main`'s entry,
+    pending); stale when the head moved or `main` changed a conflicted file. The run's dollar cap
+    is never dispatched above $100 (`dispatchBudget`), as the job refuses more. The backstop rides `bugReports.ts`' sync.
+  - Fix runs may not change `scripts/merge-main/`, the new vocabulary or the new fixture
+    (`bugFixRunsChange.ts`, `scripts/bug-fix/settings.json` and `coordinator.md`).
+  - Fixtures: `check:merge-main-runs` (new, 189 checks), `check:pipeline-changes` (the conflict
+    sentence), `check:bug-fix-runs`, `check:bug-fix-workflow`.
+  - **Joined to the job (15B1), same day.** `check:merge-main-join` runs the job's own code on
+    real scratch repos (docs append, a pending runtime-bytes file, a model resolution with a
+    pending build, identical and both-deleted paths, a harness refusal, a spent budget, a binary),
+    feeds the exact JSON `encodeBody` sends to `parseMergeResult`, then Accept's `planMerge` over
+    the same repos, and compares the tree with git's own merge plus the resolution. It found two
+    drifts, both fixed launcher side: a path both sides changed identically (`choice` `main`) or
+    deleted may be a protected path or a lockfile, and a pending rule file (`choice` `main`) is a
+    rule file. The parser now takes only the job's three forms (proposal, refusal, failure; every
+    key present, `null` where a form has none), the result route reads up to 8 MB unpacked
+    (`readResultBody` takes a cap), and `usage` is priced from `pricing.json` and a cost the job
+    names is ignored. Raw NULs in `rigger/view.html`, `sheet-tool/ui.html` and
+    `optimize-build-assets.mjs` are now `\u0000`, and `check:merge-main` fails on a new one.
+
 - 2026-11-27 — **A fix run's size counts by lines (owner's choice; amends ADR-0013 §5).** BUG-23's
   fix run changed one line of `static/rigger/view.html` (1.64 MB) and was refused: "400 KB, a
   changed file counts whole". Now the 400 KB is the bytes of the lines a change adds plus removes

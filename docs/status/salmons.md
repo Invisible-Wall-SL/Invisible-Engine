@@ -30,9 +30,9 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
-    T6 net client — started · T4 river chunks — draft PR #1972 (pixel-identical; lab: mount 39.7k → 6.4k
+    T6 net client — started · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
     objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
-    (stacked on #1972; no pass per body: lab filter passes 1.8 → 1, the bed's; two owner questions:
+    #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; two owner questions:
     sharper swimming salmon at resolution > 1 and on MSAA edges; Recent changes 2026-11-27).
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
@@ -2644,7 +2644,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 - 2026-11-27 — **Performance T5: the water a body is drawn under, in its own shaders**
   ([design/salmons-performance](../design/salmons-performance.md) §3 cause 2, §4 T5; branch
-  `claude/salmons-perf-t5-shaders`, stacked on T4; in review). No config, layout or flow change.
+  `claude/salmons-perf-t5-shaders`, PR #1989; in review). No config, layout or flow change.
   - **What changed.** `salmonsArt/bodyShaders.ts` (new): each body's own program, Pixi's mesh (or
     graphics) program with a step doing what its pass did to its pixel — rounded to 8 bits as the
     pass's target kept it, then `ColorMatrixFilter`'s fragment line for line (the salmon) or the
@@ -2759,10 +2759,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     103/103; a first run beside five runtime builds failed one colour read, not again),
     `--trees` 4/4, `--zone-rig` 4/4, `salmons-river-tour.mjs` seeds 1 and 4 (seed 4's climb also
     alone, 4/4 on branch and main), `salmons-levels-play.mjs` 57/57.
-  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five): `lines` +299 B,
-    `match3` +314 B, `card` +283 B gzip (`SpawnLayer` ships in every runtime; its projected branch
-    runs only on an iso world screen), `arcade` +2,056 B and `arcade3d` +2,077 B (the same plus
-    the lazy Salmons art chunk).
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five, against main 88e4409):
+    `lines` +299 B, `match3` +316 B, `card` +268 B gzip (`SpawnLayer` ships in every runtime; its
+    projected branch runs only on an iso world screen), `arcade` +2,184 B and `arcade3d` +2,185 B
+    (the same plus the lazy Salmons art chunk).
   - **Reviewed** (`code-reviewer`): fixed a stale zIndex the underwater layer (`blood.ts` `sunk`)
     could sort by when the players' layer was already due a sort, and a one-pixel rounding of the
     ripple's edge with the camera on whole pixels (now measured exactly as before).
@@ -2785,6 +2785,17 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   field), and `lab-run.mjs` cannot play it (its published-game URL joins the live game server).
   **Not verified:** the workflow job on GitHub's runner (it was never run there); the numbers on a
   device.
+
+- 2026-11-27 — **Performance, T1: the Invisible Profiler can now say why an arcade game is slow**
+  (branch `claude/salmons-perf-t1-probe`, in review; plan `docs/design/salmons-performance.md` §2 and
+  track T1; the detail is in [status/profiler](profiler.md) "P10"). Reports `perf: 10`: busy time per
+  phase against the display's frame (judged instead of fps for an arcade game), hidden / throttled
+  time (a throttled reading is marked, not comparable), `lobby` / `loading` / `play` / `spectate`
+  with the room's phase as the spike state, a p95 per counter, a scene sample (nodes, drawn, culled,
+  draws / passes per render-group layer), GPU time where offered, and the room's bytes by kind with
+  sends per step. Probe and launcher only: no game looks or plays differently, no Game Config
+  value changed. The next Salmons readings should use the capture protocol of the plan §6 and be
+  read as busy ms against 16.7, not fps.
 
 - 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
   room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was

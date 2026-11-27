@@ -270,6 +270,15 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 		neck: 'head',
 		head: 'face',
 	};
+	// The neck's upper half (a link: a template from before it has none) halfway up the drawn neck,
+	// the neck straight in the frame.
+	const lengths = [...LENGTHS];
+	if (byName.get('neck_upper')?.parent === 'neck' && byName.get('head')?.parent === 'neck_upper') {
+		J.neck_upper = mid(N, Hd);
+		aims.neck = 'neck_upper';
+		aims.neck_upper = 'head';
+		lengths.push('neck_upper');
+	}
 	for (const s of SIDES) {
 		J[`upper_arm_${s}`] = S[s];
 		J[`lower_arm_${s}`] = R(j.elbow[s]);
@@ -282,10 +291,10 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 			aims[`hand_${s}`] = `middle_1_${s}`;
 		}
 	}
-	const short = LENGTHS.filter((n) => len(sub(J[n], J[byName.get(n)!.parent!])) < 1e-3);
+	const short = lengths.filter((n) => len(sub(J[n], J[byName.get(n)!.parent!])) < 1e-3);
 	if (short.length)
 		return { ok: false, problem: `the joints of ${short.join(', ')} are on top of each other` };
-	const fit = fitFromJoints(t, J, aims, LENGTHS);
+	const fit = fitFromJoints(t, J, aims, lengths);
 	const fingers: NonNullable<RigFit['fingers']> = {};
 	const bends: NonNullable<RigFit['bends']> = {};
 	for (const s of SIDES) {
@@ -473,11 +482,13 @@ const NECK_SHOULDERS = 0.2;
 /** A limb's width at a joint, as a share of the segment's length (a drawn arm's, about). */
 const LIMB_WIDTH = { shoulder: 0.38, elbow: 0.34, wrist: 0.28 };
 /**
- * The joints inside one drawing, where a part drawn apart (`skinBends` `apart`) still bends: the
- * torso's waist and its shoulder lines.
+ * The joints where a part drawn apart (`skinBends` `apart`) still bends: the torso's waist and its
+ * shoulder lines; the neck along its length and at its seams, its foot (under the collar) riding the
+ * torso and its top (under the chin) the head, so a bent neck stays in its collar and under the jaw.
  */
 const OWN_JOINTS: Record<string, readonly string[]> = {
 	torso: ['spine', 'clavicle_l', 'clavicle_r'],
+	neck: ['neck_upper', 'torso_image', 'head_image'],
 };
 /** Each skinned part's mesh: columns × rows over its (untrimmed) image. */
 const SKIN_GRID: Record<string, [number, number]> = {
@@ -602,8 +613,12 @@ export function skinBends(
 	both(['torso', 'torso_image'], ['neck', 'neck'], N, collar, 0.6 * neckWidth, neckWidth);
 	const jaw = across(sub(Hd, N), sub(Fc, Hd));
 	const faced = face.filter((j) => skel.findBone(j.bone));
+	const Nu = at('neck_upper');
 	joint('neck', 'head_image', Hd, jaw, 0.6 * neckWidth, neckWidth, faced);
-	joint('head', 'neck', Hd, [-jaw[0], -jaw[1]], 0.6 * neckWidth, neckWidth);
+	joint('head', Nu ? 'neck_upper' : 'neck', Hd, [-jaw[0], -jaw[1]], 0.6 * neckWidth, neckWidth);
+	// The neck bends along its length across its upper half (each takes half a turn of it): last, so
+	// the collar and the jaw keep their blends whole.
+	if (Nu) joint('neck', 'neck_upper', Nu, sub(Hd, N), len(sub(Hd, N)), len(sub(Hd, N)) + neckWidth);
 	const headBone = slotBone('head');
 	if (apart && faced.length && parts.includes('head') && headBone)
 		out.head ??= { bones: [{ bone: headBone }], grid: SKIN_GRID.face };
@@ -729,6 +744,8 @@ export interface PartsRequest {
 	foreshortened: { part: string; ratio: number }[];
 	/** What of the drawn face the face's bones move (`faceNote`), for the report. */
 	face: string;
+	/** Parts of the cut the template draws no image for, each drawn into the part it names. */
+	merge?: Record<string, string>;
 }
 
 /**
@@ -741,6 +758,9 @@ export interface PartsRequest {
  * read off that frame), and an arm segment's length is that frame's, the frame clip bringing its
  * next joint in to where this frame draws it (the image squeezed along it, as the template's
  * shortening does), so the rig still poses as this frame and every other part comes back.
+ *
+ * A part the template draws no image for (a module left out, docs/design/rig-modules.md §5) is drawn
+ * into the part `into` names (`drawnInto`: a hand into its forearm), and so are the props it hosts.
  */
 export function framePartsRequest(
 	t: RigTemplate,
@@ -748,6 +768,7 @@ export function framePartsRequest(
 	track: TrackFrame,
 	pivots: Record<string, P> = {},
 	sources: Record<string, PartSource> = {},
+	into: Record<string, string> = {},
 ): Fitted<PartsRequest> {
 	const j = frameJoints(track, cut.size[0], cut.size[1]);
 	if (!j.ok) return j;
@@ -756,7 +777,10 @@ export function framePartsRequest(
 	const { scale: k, origin } = ff.value;
 	const props = (cut.props ?? []).filter((p) => p.take !== false);
 	const propNames = new Set((cut.props ?? []).map((p) => p.name));
-	const own = cut.names.filter((n) => !propNames.has(n));
+	const cutParts = cut.names.filter((n) => !propNames.has(n));
+	const merge = Object.fromEntries(cutParts.filter((n) => into[n]).map((n) => [n, into[n]]));
+	const own = [...new Set(cutParts.map((n) => merge[n] ?? n))];
+	const slotIn = (s?: string) => (s === undefined ? s : (into[s] ?? s));
 	const byName = new Map(t.bones.map((b) => [b.name, b]));
 	const base = ff.value.fit;
 	const lengthened: RigFit = { ...base, bones: { ...base.bones }, frame: { ...base.frame } };
@@ -766,6 +790,7 @@ export function framePartsRequest(
 	> = {};
 	let headFace: P[] | null = null;
 	for (const [part, src] of Object.entries(sources)) {
+		if (merge[part]) continue;
 		if (!own.includes(part)) return { ok: false, problem: `the cut has no part ${part}` };
 		if (!src.cut.names.includes(part))
 			return { ok: false, problem: `the frame ${part} is taken from has no ${part}` };
@@ -856,7 +881,7 @@ export function framePartsRequest(
 		fitProps.push({
 			name: p.name,
 			bone: parent,
-			...(p.before !== undefined ? { before: p.before } : { after: p.after }),
+			...(p.before !== undefined ? { before: slotIn(p.before) } : { after: slotIn(p.after) }),
 			at: [Math.round(local.x * 1e4) / 1e4, Math.round(local.y * 1e4) / 1e4],
 		});
 	}
@@ -897,6 +922,7 @@ export function framePartsRequest(
 			joints: ff.value.joints,
 			foreshortened: foreshortened(track, cut.size[0], cut.size[1]).filter((f) => !sources[f.part]),
 			face: faceNote(drawn?.moves ?? []),
+			...(Object.keys(merge).length ? { merge } : {}),
 		},
 	};
 }

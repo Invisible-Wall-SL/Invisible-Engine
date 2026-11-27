@@ -16,6 +16,7 @@
  */
 import type { SheetMapping, SheetProp } from '../rigSheetMap';
 import {
+	changeModules,
 	frameRigUpdate,
 	keepDrawOrders,
 	madeAttachments,
@@ -23,6 +24,7 @@ import {
 	mergedSlots,
 	type FrameUpdateInput,
 	type FrameUpdateReport,
+	type ModuleChangeReport,
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
 import {
@@ -33,13 +35,21 @@ import {
 	type SheetPreview,
 } from './rigSheetFit';
 import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
-import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
+import type { RigTemplateControls } from './rigTemplateControls';
+import { templateWithModules } from './rigTemplateModules';
+import {
+	templateWithLinks,
+	templateRig,
+	type RigTemplate,
+	type TemplateRegion,
+} from './rigTemplates';
 
 type Json = Record<string, unknown>;
 const isRecord = (v: unknown): v is Json =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export interface SheetUpdateInput {
+	/** The template whole: each mapping is built with its own modules (`asMapped`). */
 	template: RigTemplate;
 	/** The sheet's regions (the rig's own sheet: an update never changes it). */
 	regions: readonly TemplateRegion[];
@@ -63,11 +73,15 @@ export interface SheetUpdateResult {
 	 * frame, rig units): a rig with 3D data takes them into its `rig3d.json`.
 	 */
 	depths: Record<string, number>;
+	/** When the modules changed: the new set's control layer, for the rig's own to take what came. */
+	controls?: RigTemplateControls;
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean }[];
 		frame: FrameClipChange;
 		/** The slots the Layers list moved, when the author changed it: else the rig's order stays. */
 		layered: string[];
+		/** The template's modules changed with the mapping: what went and what came (`changeModules`). */
+		modules?: ModuleChangeReport;
 	};
 }
 
@@ -120,6 +134,10 @@ function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMappi
 	};
 }
 
+/** Template `t` (whole) with the modules mapping `m` was made with (docs/design/rig-modules.md). */
+export const asMapped = (t: RigTemplate, m: SheetMapping): RigTemplate =>
+	templateWithModules(t, m.template.modules);
+
 /** What 🔄 Update rig merges into the open rig (`frameRigUpdate`), and the edited mapping's fit. */
 export function merging(o: SheetUpdateInput): Fitted<{
 	fit: RigFit;
@@ -128,18 +146,22 @@ export function merging(o: SheetUpdateInput): Fitted<{
 	asMade: Json | null;
 	sameRegion: (part: string) => boolean;
 }> {
-	const now = build(o.template, o.regions, o.mapping);
+	const tNow = asMapped(o.template, o.mapping);
+	const now = build(tNow, o.regions, o.mapping);
 	if (!now.ok) return now;
 	const { skeleton: fresh, fit } = now.value;
-	const freshBind = frameWorld(fitTemplate(o.template, fit).bones, fit.frame);
+	const freshBind = frameWorld(fitTemplate(tNow, fit).bones, fit.frame);
 	// As made: the kept mapping built today (a rig made before the head turn, none of its bones, built
-	// without one); a kept mapping that no longer builds takes the rig's own attachments as made, so
-	// nothing reads as edited by hand.
-	const turnedBefore = ((o.current.bones ?? []) as { name?: unknown }[]).some((b) =>
-		(HEAD_TURN_BONES as readonly unknown[]).includes(b.name),
-	);
+	// without one; before a link of the template, without it); a kept mapping that no longer builds
+	// takes the rig's own attachments as made, so nothing reads as edited by hand.
+	const bones = ((o.current.bones ?? []) as { name?: unknown }[]).map((b) => String(b.name));
+	const turnedBefore = bones.some((b) => (HEAD_TURN_BONES as readonly string[]).includes(b));
 	const keptAs = turnedBefore || o.was.turn !== undefined ? o.was : { ...o.was, turn: 0 };
-	const was = build(o.template, o.regions, keptAs);
+	const was = build(
+		templateWithLinks(asMapped(o.template, o.was), new Set(bones)),
+		o.regions,
+		keptAs,
+	);
 	const asMade = was.ok ? was.value.skeleton : o.current;
 	const names = was.ok
 		? madeAttachments(asMade).map((m) => m.name)
@@ -170,11 +192,12 @@ export function merging(o: SheetUpdateInput): Fitted<{
 					(o.mapping.parts[part]?.region ?? o.mapping.props.find((p) => p.name === part)?.region),
 		);
 	const keep = new Set([...(o.keep ?? [])].filter(sameRegion));
+	const links = tNow.bones.filter((b) => b.link).map((b) => b.name);
 	return {
 		ok: true,
 		value: {
 			fit,
-			input: { current: o.current, fresh, freshBind, made, props, keep },
+			input: { current: o.current, fresh, freshBind, made, props, keep, links },
 			asMade: was.ok ? asMade : null,
 			sameRegion,
 		},
@@ -203,9 +226,26 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	const merge = merging(o);
 	if (!merge.ok) return merge;
 	const { fit, input, asMade, sameRegion } = merge.value;
-	const { doc, report } = frameRigUpdate(input);
+	// The mapping changed the template's modules (docs/design/rig-modules.md §4): the rig takes out
+	// what the new set lacks and gets what it adds, then the parts merge as ever.
+	let modules: ModuleChangeReport | undefined;
+	let current = input.current;
+	if (
+		JSON.stringify(o.was.template.modules ?? {}) !==
+		JSON.stringify(o.mapping.template.modules ?? {})
+	) {
+		const changed = changeModules(
+			o.current,
+			asMapped(o.template, o.was),
+			asMapped(o.template, o.mapping),
+			input.fresh,
+		);
+		if (!changed.ok) return { ok: false, problem: changed.problem };
+		({ doc: current, report: modules } = changed);
+	}
+	const { doc, report } = frameRigUpdate({ ...input, current });
 	const layers = sheetLayersApplied(
-		o.template,
+		asMapped(o.template, o.mapping),
 		fit,
 		o.mapping,
 		o.was.layers,
@@ -250,12 +290,16 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		ok: true,
 		value: {
 			doc,
-			depths: headTurnDepths(o.template, fit),
+			depths: headTurnDepths(asMapped(o.template, o.mapping), fit),
+			...(modules && asMapped(o.template, o.mapping).controls
+				? { controls: asMapped(o.template, o.mapping).controls }
+				: {}),
 			report: {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
 				frame,
 				layered,
+				...(modules ? { modules } : {}),
 			},
 		},
 	};
@@ -296,12 +340,12 @@ export function outlineDoc(rig: SheetRigOutline): Json {
 export function sheetEditPreview(
 	o: Pick<SheetUpdateInput, 'template' | 'regions' | 'was' | 'mapping'> & { rig: SheetRigOutline },
 ): LayersFitted<SheetPreview> {
-	const shown = sheetPreview(o.template, o.regions, o.mapping, { edit: true });
+	const shown = sheetPreview(asMapped(o.template, o.mapping), o.regions, o.mapping, { edit: true });
 	if (!shown.ok) return shown;
 	const merge = merging({ ...o, current: outlineDoc(o.rig) });
 	if (!merge.ok) return merge;
 	const layers = sheetLayersApplied(
-		o.template,
+		asMapped(o.template, o.mapping),
 		merge.value.fit,
 		o.mapping,
 		o.was.layers,

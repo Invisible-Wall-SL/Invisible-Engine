@@ -16,12 +16,18 @@
  */
 
 import {
+	CODES_KEPT,
 	FILES_KEPT,
 	HEAVIEST_KEPT,
+	OTHER_CODE,
 	classOf,
 	createNetworkMonitor,
+	messageLabel,
 	networkLines,
 	safeUrl,
+	socketStats,
+	tallyCode,
+	type CodeTally,
 	type ResourceLike,
 } from './perfNetwork';
 
@@ -335,6 +341,81 @@ check(
 	[10, { inMessages: 20, inBytes: 4000, outMessages: 30, outBytes: 300 }, 4096],
 );
 check('no room traffic, no socket', 'socket' in createNetworkMonitor(PAGE, 1).block(), false);
+check(
+	'a tally with no per-kind data gives none (the perf: 9 shape)',
+	[rb.socket?.byCode, rb.socket?.stateShare, rb.socket?.perStep],
+	[undefined, undefined, undefined],
+);
+
+console.log('5b. room messages by kind, and sends per step (perf: 10)');
+const text = (type: string, body = 3) => {
+	const bytes = new Uint8Array(2 + type.length + body);
+	bytes[0] = 13;
+	bytes[1] = 0xa0 | type.length;
+	for (let i = 0; i < type.length; i++) bytes[2 + i] = type.charCodeAt(i);
+	return bytes;
+};
+check(
+	'a state, a patch',
+	[messageLabel(Uint8Array.of(14, 1)), messageLabel(Uint8Array.of(15, 1))],
+	['state', 'patch'],
+);
+check('a room message by its type name', messageLabel(text('input')), 'input');
+check('a room message by a number type', messageLabel(Uint8Array.of(13, 7, 1)), 'message 7');
+check('another protocol code', messageLabel(Uint8Array.of(10, 1)), 'code 10');
+check('a modifier bit does not change the code', messageLabel(Uint8Array.of(14 | 32, 1)), 'state');
+const into: Record<string, CodeTally> = {};
+for (let i = 0; i < 40; i++) tallyCode(into, `kind${i}`, 10);
+tallyCode(into, 'kind0', 90);
+check(
+	'at most CODES_KEPT kinds, the rest one other, an old kind still counted',
+	[Object.keys(into).length, into[OTHER_CODE].messages, into.kind0],
+	[CODES_KEPT + 1, 40 - CODES_KEPT, { messages: 2, bytes: 100, largest: 90 }],
+);
+const hostile: Record<string, CodeTally> = {};
+for (const label of ['constructor', '__proto__', 'toString', 'hasOwnProperty'])
+	tallyCode(hostile, label, 5);
+check(
+	'a label that names an Object.prototype member is `other`, and nothing global is written',
+	[
+		Object.keys(hostile),
+		hostile[OTHER_CODE]?.messages,
+		(Object as unknown as { messages?: number }).messages,
+		({} as { messages?: number }).messages,
+	],
+	[[OTHER_CODE], 4, undefined, undefined],
+);
+const inByCode: Record<string, CodeTally> = {};
+const outByCode: Record<string, CodeTally> = {};
+tallyCode(inByCode, 'patch', 600);
+tallyCode(inByCode, 'patch', 400);
+tallyCode(inByCode, 'events', 50);
+for (let i = 0; i < 30; i++) tallyCode(outByCode, 'input', 10);
+const kinds = socketStats({
+	since: 0,
+	last: 1000,
+	inMessages: 3,
+	inBytes: 1050,
+	inLargest: 600,
+	states: 2,
+	stateBytes: 1000,
+	outMessages: 30,
+	outBytes: 300,
+	outLargest: 10,
+	inByCode,
+	outByCode,
+	steps: 15,
+});
+check(
+	'bytes by kind, heaviest first, the state bytes against the rest, and sends per step',
+	[kinds.byCode?.in.map((c) => c.code), kinds.byCode?.out[0], kinds.stateShare, kinds.perStep],
+	[
+		['patch', 'events'],
+		{ code: 'input', messages: 30, bytes: 300, largest: 10 },
+		{ stateBytes: 1000, otherBytes: 50 },
+		{ steps: 15, outMessages: 2, outBytes: 20, inMessages: 0.2 },
+	],
+);
 
 console.log('6. caps');
 const big = createNetworkMonitor(PAGE, 1);
