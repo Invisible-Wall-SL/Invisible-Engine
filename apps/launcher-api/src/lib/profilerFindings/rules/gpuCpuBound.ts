@@ -141,6 +141,7 @@ export const gpuCpuBoundAgainst =
 				}
 				out.push({
 					id: `gpuCpuBound:${key}:${group[0].buildVersion ?? ''}:${phase}`,
+					subject: `gpuCpuBound:${key}:${phase}`,
 					rule: 'gpuCpuBound',
 					severity: verdict === 'fail' ? 'medium' : 'low',
 					title: `${phase} is ${side} on ${deviceOf(group[0])}`,

@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
-import { PERF_REPORT_MAX_BYTES, PERF_RETENTION_MS } from '$lib/profiler';
+import { PERF_REPORT_MAX_BYTES, retentionEnd } from '$lib/profiler';
 import {
 	gameKeyRefusal,
 	summarizeBuildBreakdown,
@@ -19,6 +19,7 @@ import {
 	headObject,
 	putObjectText,
 } from '../r2';
+import { listedBuilds } from './rowFilters';
 import { ReportRefused, UPLOAD_ID_RE } from './store';
 
 /**
@@ -228,19 +229,30 @@ export function toBuildListItem(r: PerfBuild, newest: boolean): PerfBuildListIte
 		issues: { error: r.issuesError, warn: r.issuesWarn, info: r.issuesInfo },
 		registeredAt: r.registeredAt.toISOString(),
 		keep: r.keep,
+		archivedAt: r.archivedAt?.toISOString() ?? null,
 		expiresAt:
-			r.keep || newest
+			newest && !r.archivedAt
 				? null
-				: new Date(r.registeredAt.getTime() + PERF_RETENTION_MS).toISOString(),
+				: (retentionEnd({
+						keep: r.keep,
+						at: r.registeredAt,
+						archivedAt: r.archivedAt,
+					})?.toISOString() ?? null),
 	};
 }
 
-/** A project's builds, newest first; rows the purge has claimed are already gone to the page. */
-export async function listBuilds(projectKey: string, limit = 200): Promise<PerfBuildListItem[]> {
+/**
+ * A project's builds, newest first; rows the purge has claimed are already gone to the page.
+ * Archived ones are left out unless asked for.
+ */
+export async function listBuilds(
+	projectKey: string,
+	{ archived = false, limit = 200 }: { archived?: boolean; limit?: number } = {},
+): Promise<PerfBuildListItem[]> {
 	const rows = await getDb()
 		.select()
 		.from(perfBuilds)
-		.where(and(eq(perfBuilds.projectKey, projectKey), isNull(perfBuilds.purgingAt)))
+		.where(listedBuilds(projectKey, archived))
 		.orderBy(desc(perfBuilds.registeredAt), desc(perfBuilds.id))
 		.limit(limit);
 	const newest = newestOfLines(rows);

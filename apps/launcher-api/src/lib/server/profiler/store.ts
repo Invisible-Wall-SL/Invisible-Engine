@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import {
 	PERF_REPORT_MAX_BYTES,
-	PERF_RETENTION_MS,
+	retentionEnd,
 	phaseSetOf,
 	summarizePerfReport,
 	PERF_REPORT_SOURCES,
@@ -11,6 +11,7 @@ import {
 	type PerfReportListItem,
 	type PerfReportSummary,
 } from '$lib/profiler';
+import { withoutRepeats } from '$lib/profilerDedupe';
 import { reportFacts, type ReportFacts } from '$lib/profilerFindings/facts';
 import { redactReportText } from '$lib/profilerNetwork';
 import { getDb } from '../db';
@@ -18,6 +19,9 @@ import { getGame, isOnlineRuntimeGameUrl } from '../games';
 import { currentPointer } from '../publishedRuntime';
 import { runtimePointer } from '../testServerManifest';
 import { perfReports, type PerfReport } from '../db/schema';
+import { removeClaimed } from './purge';
+import { earlierSendsOf, fullerSendOf, listedReports } from './rowFilters';
+import { sqlDeleteClaims } from './purgeJob';
 import { perfReportKey, perfUploadKey, perfUploadsPrefix } from '../projectPaths';
 import {
 	ConflictError,
@@ -195,6 +199,8 @@ async function insertRow(
 			gameKind: s.kind,
 			arcadePhases,
 			capped30: s.capped30,
+			sendKey: s.sendKey,
+			sendFrames: s.sendFrames,
 			drawsMean: s.drawsMean,
 			jsMs: s.jsMs,
 			textureMb: s.textureMb,
@@ -231,6 +237,53 @@ async function dropUnregistered(id: string, key: string): Promise<void> {
 	await deleteObject(key).catch(() => undefined);
 }
 
+/**
+ * The probe's reading is cumulative — every send is the whole window so far — and names the window
+ * (`sendKey`). A send no fuller than one already stored for its window (a resend, the short
+ * form sent on hide after a tap's full one, a slow upload landing late) is that reading: it answers
+ * its id and writes nothing. A fuller one is stored and replaces the earlier sends of its window
+ * (`replaceEarlierSends`).
+ */
+async function storedSend(origin: UploadScope, s: ParsedReport): Promise<string | null> {
+	if (!s.sendKey) return null;
+	const [row] = await getDb()
+		.select({ id: perfReports.id })
+		.from(perfReports)
+		.where(fullerSendOf(origin.projectKey, s.sendKey, origin.session, s.sendFrames))
+		.orderBy(desc(perfReports.sendFrames))
+		.limit(1);
+	return row?.id ?? null;
+}
+
+/**
+ * Removes the earlier, shorter sends of a window a fuller reading now stands for — through the
+ * purge's own claim, which leaves one that is kept or that a bug cites. Best effort: one left
+ * behind is not listed anyway (`profilerDedupe.ts`) and the purge takes it in 15 days.
+ */
+async function replaceEarlierSends(
+	origin: UploadScope,
+	s: ParsedReport,
+	id: string,
+): Promise<void> {
+	if (!s.sendKey) return;
+	try {
+		const earlier = await getDb()
+			.select({ id: perfReports.id })
+			.from(perfReports)
+			.where(earlierSendsOf(origin.projectKey, s.sendKey, origin.session, id, s.sendFrames));
+		if (!earlier.length) return;
+		const own = sqlDeleteClaims.reading;
+		const claimed = await own.claimSuperseded(
+			origin.projectKey,
+			earlier.map((r) => r.id),
+			new Date(),
+		);
+		await removeClaimed({ claimed, store: own.store, deleteObject, what: 'reading' });
+	} catch (e) {
+		console.error('profiler: earlier sends of a reading not replaced', e);
+	}
+}
+
 /** Keeps a report sent in the request body. Returns its id. */
 export async function saveReport(origin: ReportOrigin, sent: string): Promise<string> {
 	if (Buffer.byteLength(sent) > PERF_REPORT_MAX_BYTES) {
@@ -239,6 +292,8 @@ export async function saveReport(origin: ReportOrigin, sent: string): Promise<st
 	const text = redactReportText(sent);
 	const bytes = Buffer.byteLength(text);
 	const summary = parseReport(text);
+	const stored = await storedSend(origin, summary);
+	if (stored) return stored;
 	await refuseFullSession(origin);
 	const id = randomUUID();
 	const key = perfReportKey(origin.clientKey, origin.projectKey, id);
@@ -249,6 +304,7 @@ export async function saveReport(origin: ReportOrigin, sent: string): Promise<st
 		await dropUnregistered(id, key);
 		throw e;
 	}
+	await replaceEarlierSends(origin, summary, id);
 	return id;
 }
 
@@ -322,6 +378,11 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 		await deleteObject(staged).catch(() => undefined);
 		throw e;
 	}
+	const stored = await storedSend(origin, summary);
+	if (stored) {
+		await deleteObject(staged).catch(() => undefined);
+		return stored;
+	}
 	const key = perfReportKey(origin.clientKey, origin.projectKey, id);
 	let wroteIt = false;
 	try {
@@ -345,6 +406,7 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 		throw e;
 	}
 	await deleteObject(staged).catch(() => undefined);
+	await replaceEarlierSends(origin, summary, id);
 	return id;
 }
 
@@ -388,20 +450,32 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		textureMb: r.textureMb,
 		counts: r.counts,
 		network: r.network,
+		sendKey: r.sendKey,
+		perfVersion: r.perfVersion,
 		keep: r.keep,
-		expiresAt: r.keep ? null : new Date(r.capturedAt.getTime() + PERF_RETENTION_MS).toISOString(),
+		archivedAt: r.archivedAt?.toISOString() ?? null,
+		expiresAt:
+			retentionEnd({ keep: r.keep, at: r.capturedAt, archivedAt: r.archivedAt })?.toISOString() ??
+			null,
 	};
 }
 
-/** A project's readings, newest first; rows the purge has claimed are already gone to the page. */
-export async function listReports(projectKey: string, limit = 500): Promise<PerfReportListItem[]> {
+/**
+ * A project's readings, newest first; rows the purge has claimed are already gone to the page.
+ * Archived ones are left out unless asked for, and so is a reading another one stands for (a repeat
+ * send of its window, an exact copy: `profilerDedupe.ts`).
+ */
+export async function listReports(
+	projectKey: string,
+	{ archived = false, limit = 500 }: { archived?: boolean; limit?: number } = {},
+): Promise<PerfReportListItem[]> {
 	const rows = await getDb()
 		.select()
 		.from(perfReports)
-		.where(and(eq(perfReports.projectKey, projectKey), isNull(perfReports.purgingAt)))
+		.where(listedReports(projectKey, archived))
 		.orderBy(desc(perfReports.capturedAt))
 		.limit(limit);
-	return rows.map(toListItem);
+	return withoutRepeats(rows.map(toListItem));
 }
 
 /**

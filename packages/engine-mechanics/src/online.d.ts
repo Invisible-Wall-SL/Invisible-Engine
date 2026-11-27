@@ -143,3 +143,13 @@ export function characterBody(
 		| undefined,
 	at: { x: number; y: number },
 ): Body;
+export const INTERPOLATION_DELAY_MS: 100;
+export function interpolationDelayFor(patchHz: number): number;
+export const PACKED_POSITIONS: 'u16';
+export function positionScale(field: { w: number; h: number }): number;
+export function packPosition(px: number, scale: number): number;
+export function unpackPosition(packed: number, scale: number): number;
+export function placeOnWire(
+	player: { x?: number; y?: number; px?: number; py?: number },
+	posScale: number | undefined,
+): { x: number; y: number };

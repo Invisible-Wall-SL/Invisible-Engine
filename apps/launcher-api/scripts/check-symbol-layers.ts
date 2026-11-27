@@ -822,6 +822,21 @@ check(
 	true,
 );
 
+// The authored win frame fits its Rigger Bounds frame into the cell: centred on the frame (not the
+// skeleton origin), contain-fitted to the live cell, the symbol bundles' load scale divided out. It
+// used to ride the coded payframe's `SYMBOL_SIZE * 0.19` width on its origin, so an author had to
+// draw the Bounds far smaller than the art, and off-centre, to see it fit in game.
+const winFrameSrc = read(`${here}../../../apps/lines/src/components/SymbolWinFrame.svelte`);
+const authoredFrame = winFrameSrc.match(/\{#if highlight\}([\s\S]*?)\{:else\}/)?.[1] ?? '';
+for (const [label, needle] of [
+	['centres the Bounds frame on the cell', 'anchor={0.5}'],
+	['fits the live cell width', 'width={geometry.cellWidthLocal}'],
+	['fits the live cell height', 'height={geometry.cellHeightLocal}'],
+	['contain-fits', 'fit="contain"'],
+	['divides out the symbol load scale', 'loadScaleBase={1}'],
+] as const)
+	check(`win frame — the authored frame ${label}`, authoredFrame.includes(needle), true);
+
 if (failures) {
 	console.log(`\nsymbol layers: ${failures} FAILED of ${checks} checks`);
 	process.exit(1);

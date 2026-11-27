@@ -30,11 +30,14 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder —
-    in review, PR #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures
-    arcade), and T3b, Salmons' own loading backdrop in place of the slot background (approved;
-    branch `claude/salmons-perf-t3b-loading`, GPU art → 13 MB) ·
-    T6 net client — started · T4 river chunks — draft PR #1972 (pixel-identical; lab: mount 39.7k → 6.4k
-    objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — after T4.
+    merged #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures arcade),
+    and T3b, Salmons' own loading backdrop in place of the slot background (approved; PR #1981,
+    GPU art → 13 MB) ·
+    T6 net client — merged #1970 · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
+    objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
+    #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; owner accepted the sharper,
+    MSAA-smoothed swimming salmon; Recent changes 2026-11-27) · T7 packed places + 15 states a
+    second (owner, 2026-11-27) — PR #1975.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2738,6 +2741,174 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     gate is in `Game.svelte`, and the walk's branch is in the shared boot.
   - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
     (2 / 2 runs; failed on `each_key_duplicate` before the loader fix, passes on main).
+
+- 2026-11-27 — **Performance T7: everyone else's place in 16 bits, Salmons at 15 states a second**
+  (owner: "go ahead with 16-bit positions and patchHz 15"; plan
+  [design/salmons-performance](../design/salmons-performance.md) §5; branch
+  `claude/salmons-perf-t7-wire`, on T6; in review). Wire:
+  [design/realtime-multiplayer](../design/realtime-multiplayer.md) §5 "Packed places".
+  - **What changed.** A device joins with `positions: 'u16'` and a nearby room sends it everyone
+    else's place as uint16 `px` / `py` in steps of the room's `posScale` (`engine-mechanics`
+    `positionScale`: ⅛ px on a generated river, ½ px on the original's 6768 × 19728 map, which the
+    live project plays), its own float32 as before. View tags on the nearby state (`schema.ts`
+    `VIEW_TAG.exact` / `packed`), fields only appended: a runtime that does not ask is sent float32
+    for everyone, a runtime on a server that does not pack reads `x` / `y` (`placeOnWire`), and
+    both kinds share a room. A room with no nearby box, and the 3D wire, are unchanged. Salmons'
+    config in code sends 15 states a second; everyone else is drawn two states' time behind
+    (`online.js` `interpolationDelayFor`: 133 ms; 100 ms at 20 and faster), and the room's lag
+    compensation reaches as much further back (`onlineRules.js` `rewindMsFor`: 283 ms, 8 steps, at
+    15; 250 ms at 20 and faster), so a phone's round trip is compensated as before (code review).
+    A game at 20 a second or faster draws and compensates as before; one configured slower (none in
+    the repo) is drawn two states behind instead of 100 ms.
+  - **Measured, before → after, on this container.** `room-load.mjs --devices 20 --seconds 40
+    --jump 0.02 --respawn` (Salmons, the generated river; main's checkout vs this branch): a device
+    receives 14.39 → 8.82 KB/s on average (−39 %; max 17.49 → 11.27), 20 → 15.1 states a second,
+    the server sends 0.281 → 0.172 MB/s, CPU 16 → 17 %, RSS 206 → 200 MB; the budget the script
+    holds (10 KB/s average, 16 max) was missed on main and is met. The same at 15 Hz with float32
+    (`--positions float`): 10.9 KB/s, so the rate is −24 % and packing a further −19 %.
+    `salmons-lab.mjs --runs 3` (T2's lab, the original map, a room of 21; main + the T6 runtime vs
+    this branch): in 20.9 → 16.1 msg/s, 1353 → 836 B/s (−38 %), 65.8 → 52.5 B a patch, 14.2 → 11.7 B
+    a patch per player sent; out unchanged (15.5 / 15.4 msg/s: one input a step, at the lab's ~5
+    fps 3 steps a frame); jsMs 21.3 → 20.5 and the handler time a patch below the probe's 0.1 ms
+    resolution in both. `check:room-wire`, one live room of 61 players: 709 B a patch to a device
+    sent float32, 484 B to one sent packed (−32 %).
+  - **Gates:** `check:room-wire` 10 (new: the scale, the packing, the fallback, Salmons' 15 Hz; a
+    live room with a device of each kind), `check:netcode` 33 (adds 15 Hz packed rows: the own player
+    still exact, no snap), `check:room-sim` 43, `check:room-bots` 56, `check:online-rules` 40,
+    `check:room-lobby` 42, `check:room-levels` 16 (its schema regex takes the multi-line state),
+    `check:svelte --only apps/lines` 145 (baseline 145). Playtests on this runtime:
+    `salmons-wire-play.mjs` 18/18 (new: both deploy orders, against main's server, with the T6
+    build as the old runtime), `online-play.mjs` 20/20 and `--netcode colyseus` 20/20,
+    `salmons-rejoin-play.mjs` 58/58, `salmons-play.mjs` 103/103. `check:runtime-bytes`: only
+    `arcade` (+126 B gzip) and `arcade3d` (+178 B) move, re-recorded; the rest byte-identical.
+  - **Owner steps.** (1) The game server must be redeployed with this (Railway `game-server`
+    rebuilds on a merge that touches `services/game-server`): a deploy restarts the process and
+    closes every running room, as any game-server deploy does; devices see the room lost and load
+    again. Deploy order does not matter: old runtimes keep working on the new server and new
+    runtimes on the old one. (2) Merging does not change the live rate: the room reads the
+    published snapshot's config, whose `arcade.online` has no `patchHz`, so the Game Config default
+    (20) fills it; `salmons.js` is only the export / playtest config. In `/config` → **Online room**
+    → **States per second** type **15**, then **Publish**.
+    Rooms made after that (≤ 90 s: the launcher's and the server's config caches) send 15.
+- 2026-11-27 — **Performance T6: the net client applies the room's state once a frame**
+  ([design/salmons-performance](../design/salmons-performance.md) §4 T6; branch
+  `claude/salmons-perf-t6-net`; in review; runtime only, no wire, schema, server or config
+  change). Each state used to run a whole pass as it landed (Flow's server values, a `Set` of the
+  players, a push per player, the own player's reconcile); after a stall up to 82 land between two
+  frames (Mali reading `914870b5`: `netMs` max 91.9 ms on the frame with 82 patches), each pass
+  replaced by the next. Now `online.ts` `recordState` (the room's `onStateChange`) keeps only what
+  interpolation and Flow need from each state (its arrival for the render clock, everyone else's
+  place at its step, the server variables) and `applyState`, first in `tickOnline`, does the rest
+  once from the newest. An old
+  server and a new runtime, or the reverse, see no difference on the wire.
+  - **Measured** (`salmons-play.mjs --stall`, headless shell, a room of 20, a 2 s block, three
+    trials, main + the same probe counters vs this branch): passes on the catch-up 43 → 1 (`applied`
+    43 before the frame → 0, then 1 in it); room-message handler time 0.8–1.1 ms → 0.3–0.5 ms for
+    the ~44 held messages (−55 %; what is left is the SDK's decode); the catch-up frame 5.9–8.5 ms vs
+    5.3–7.7 ms, the same as the frame after it within noise; 0 corrections either way. On a desktop
+    CPU the pass is cheap; on the Mali, at ~1.1 ms a held message, the same share is ~50 ms of the
+    92 ms spike (an estimate, to confirm with a T2 lab reading).
+  - **`check:netcode`** applies the own state once a frame as the runtime does (the reliable and
+    datagram rows are unchanged within noise: e.g. datagram 150 ms, 549 → 538 corrections, every rest
+    converged) and adds a 2 s stall per state (34 queued → 34 passes) and per frame (40 → 1), the
+    prediction exact in both, and a stall over a lossy datagram link (1 pass, no snap).
+  - **Input is sent once per FIXED step, not per render frame** (the two reviews disagreed).
+    `tickOnline` sends inside `createFixedStep`'s callback, and the readings agree: Mali `914870b5`
+    sent 3879 messages over 146 s while its loop ran 3942 steps (1483 menu frames × 1.2 + 1201 play
+    frames × 1.8) in 2685 frames; Samsung `793da528` 4065 messages for 4062 steps. 26.5 msg/s is
+    below 30 because a long frame's time is dropped (Pixi caps `deltaMS` at 100 ms, the loop runs
+    at most 5 steps a frame: `simDroppedMs`) and the socket's seconds include the time before the
+    loop runs. Dropped time sends no input and moves nothing, on the device and in the room alike
+    (the room rests the player and banks credit), so the server's credit stays right: no bug.
+  - **Wire ideas for the owner (not built; §5):** (1) other players' places as uint16 at ¼ px (the
+    river is 1800 × 7200, under 16384) in a versioned room, own player float: ≈ −4 of ≈ 14 B per
+    moving body, ≈ −30 % of patch bytes (≈ 8.5 → 6 KB/s in on the Mali reading); an old runtime
+    joins only the old room version. (2) Game Config `nearby.max` 6400 × 6400 → about two screens
+    (≈ 3300): most of a 20-player room falls outside it on the long river, so in-bytes and the
+    server's per-client encode shrink with it; `patchHz` 20 → 15 with a 133 ms interpolation delay:
+    −25 % of messages and bytes, others drawn 33 ms later. (3) WebSocket permessage-deflate: float32
+    deltas compress poorly, guess 15–30 % of bytes for a zlib pass per client per patch on the
+    server; measure with `scripts/room-load.mjs` before deciding.
+  - **Gates:** `check:netcode` 31, `check:room-sim` 43, `check:room-bots` 56, `check:online-rules`
+    40, `check:room-lobby` 42, `check:agents-knowledge` ok, `check:svelte --only apps/lines` 145
+    (baseline 145). Playtests: `online-play.mjs` 20/20 (engine) and 20/20 (`--netcode colyseus`),
+    `salmons-rejoin-play.mjs` 58/58, `salmons-play.mjs` 103/103, `--stall` 4/4.
+    `check:runtime-bytes`: only `arcade` (+110 B gzip) and `arcade3d` (+88 B) move, re-recorded;
+    the slot, match-3 and card runtimes are byte-identical.
+  - **Code review (`code-reviewer`, 2026-11-27).** The Flow's server variables are written as each
+    state lands again, not once a frame: the play field ticks only from the basegame screen, and
+    Salmons' seed flow checks `var:phase` / `var:secondsLeft` on the start screen's tap, so a cold
+    boot into a lobby read `''` and the lobby never showed. A room event about the own player (or a
+    round start, which clears its cooldowns) applies the newest state first, since a step's events
+    follow its patch. `check:netcode`'s per-frame model keeps the newest state by step (a datagram
+    can overtake). The `--stall` playtest reads its two counters in one call.
+  - **Guard:** the invariant in [families/arcade](../knowledge/families/arcade.md) "Online, device
+    Flow is presentation" (record each state, apply the newest once a frame), `check:netcode`'s
+    stall rows and source checks, `salmons-play.mjs --stall` ([playtest](../playtest/salmons.md)
+    "A stall").
+
+- 2026-11-27 — **Performance T5: the water a body is drawn under, in its own shaders**
+  ([design/salmons-performance](../design/salmons-performance.md) §3 cause 2, §4 T5; branch
+  `claude/salmons-perf-t5-shaders`, PR #1989; in review). No config, layout or flow change.
+  - **What changed.** `salmonsArt/bodyShaders.ts` (new): each body's own program, Pixi's mesh (or
+    graphics) program with a step doing what its pass did to its pixel — rounded to 8 bits as the
+    pass's target kept it, then `ColorMatrixFilter`'s fragment line for line (the salmon) or the
+    wading pass's waterline about the look's place (the bear). `looks.ts`: the salmon's rope is
+    drawn by it; the glint is no longer an additive mesh but found per pixel from its own 7-point
+    rope strip and added before the matrix, as it was inside the pass (so no blend change splits
+    the batch). Going under or out of the water sets a uniform; nothing sets `filters`. The bear's
+    picture is a quad mesh in place of its `Sprite` (Pixi's own quad bounds) and its claw a
+    `Graphics` with `customShader`, both told the line by `wade.ts` (`OwnWater`): a code look
+    takes no pass. A rig or a turned clip still wades through `wadeFilter.ts`, and so does a code
+    look whose GPU refuses the programs (asked of the driver at mount; a salmon is then drawn
+    crisp). `SpawnLayer.svelte`: the gold filter is no longer set on the container a clip or a
+    code look hides (Salmons' golden salmon is its own texture: no gold pass in Salmons).
+    The probe's `wading` reads `drawnUnder` and `pass` in place of `filtered`.
+  - **Not done, and why.** The bed's full-screen displacement stays (one pass; resolution / MSAA
+    are owner decisions, §5). The gold filter on a marked *clip* stays (other games' clips; none in
+    Salmons). Root draw-list rebuilds are not lowered measurably: a body under or out of the water
+    was a small share of them; the rest are the sources T4 listed (`MountedArt` re-mounts, the
+    blood trail's puffs, depth reorders).
+  - **Pixels** (`scripts/salmons/bodies-pixels.mjs --base <T4 worktree>`, new: ten salmon and four
+    bears — under both tints, surfacing, leaping, in the sea, on a bank, red, gold, wading in and
+    half under — over a seeded noise backdrop, 14 stops × 5 cases, through the back buffer as the
+    game draws, each differing pixel put to the body that drew it). A salmon out of the water: 0.
+    At resolution 1 without MSAA ≈ 0.07 % of pixels differ, 97 % of them by one level (8-bit
+    rounding in a different order), the rest ≤ 3 on the waterline's edge, one glint cluster ≤ 11.
+    Bears: ≤ 5. Two differences are the passes' own side effects; **the owner accepted both
+    (2026-11-27: "Sharper is fine", "Smoother is fine")**. Side by side (before, after, the
+    differences): `docs/playtest/salmons-t5/res1-swimming-salmon.png`, `res2-swimming-salmon.png`.
+    1. `ColorMatrixFilter` runs at Pixi's default filter resolution, 1 (`Filter.defaultOptions`;
+       the wading pass is `'inherit'`): on a resolution-2 phone every swimming salmon was drawn at
+       half resolution and scaled up. Drawn by its own program it is as sharp as it is out of the
+       water (≈ 2.3k px per salmon differ at resolution 2, by up to ~140).
+    2. It also runs with `antialias: 'off'`: a swimming salmon's outline was not smoothed by MSAA.
+       Now it is, as out of the water (10–60 px on each salmon's outline, by up to ~100).
+  - **Measured** (T2's lab, `salmons-lab.mjs --runs 3`, seed 31337, 20 bots; T4's build vs this
+    one; headless desktop, ~4 bodies in view): filter passes 1.8 → **1.0** (the bed's), passes
+    5.7 → 4.0, target switches 7.8 → 6.0, draws 18.0 → 14.7, GL calls 126 → 133 (spread 15 %:
+    each body's uniforms). The bodies harness: 8.05 → 0 filter passes a frame, root rebuilds
+    0.07 → 0.05. Root rebuilds in the lab's play (a renderer hook, 2 runs each): 0.57 → 0.58.
+  - **`[BindGroup] textureSource destroyed while still bound`** (seen by T3 when the ladder
+    changes quality): not T5's. Fixed in #1973 (T3): `pixi-svelte` `renderQuality.ts`
+    `backBufferMsaa().set` destroyed the back buffer's texture while Pixi's present shader still
+    held it; it now destroys it a tick later.
+  - **Gates:** `check:salmons-art` 50 → 53 (a look drawing its own water never takes the pass,
+    and a refused one is drawn through it; the salmon's step carries `ColorMatrixFilter`'s
+    fragment lines and the glint's alpha is packed as Pixi packs it; the bear's quad is where a
+    `Sprite` puts it, trimmed or not), `check:zone-art` 132, `check:salmons-levels` 27,
+    `check:room-levels` 16, svelte-check `engine-layout` at baseline (290).
+  - **Played** on the branch's arcade build, alone on the machine: `salmons-play.mjs` 103/103 (the
+    code-look bear wades with no pass, the rig through it), `--trees`, `salmons-river-tour.mjs`
+    seeds 1 and 4, `salmons-levels-play.mjs`: all pass.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux): all five move — `SpawnLayer` ships
+    in every runtime, the Salmons art chunk in arcade and arcade3d. Against main f4f8484 (T4 merged), in gzip: `lines` 0 B (its hashes move), `match3` +8 B,
+    `card` +12 B (the gold line), `arcade` +3,244 B and `arcade3d` +3,260 B, almost all in the
+    lazy Salmons art chunk (the programs' GLSL).
+  - **Reviewed** (`code-reviewer`): fixed a trimmed bear texture's UVs (`quadOf`: Pixi's
+    `textureMatrix` takes UVs over the untrimmed rect), the bear's quad geometry never destroyed,
+    the glint's alpha without its ancestors', two glint point counts, the three programs linked
+    together; the playtest doc reads the probe's `drawnUnder` / `pass`.
 
 - 2026-11-27 — **Performance T4: the river in chunks** ([design/salmons-performance](../design/salmons-performance.md)
   §4 T4; branch `claude/salmons-perf-t4-river`; in review). Pixel-identical; no config, layout or

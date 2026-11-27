@@ -49,6 +49,9 @@ export const bugTriageName = (kind: BugKind): string =>
 export const BUG_STATUSES = ['open', 'working', 'resolved', 'wontFix'] as const;
 export type BugStatus = (typeof BUG_STATUSES)[number];
 
+/** A bug someone still has to act on: open, or being fixed. `resolved` and `wontFix` are closed. */
+export const BUG_ACTIVE_STATUSES: readonly BugStatus[] = ['open', 'working'];
+
 export const BUG_STATUS_LABELS: Record<BugStatus, string> = {
 	open: 'Open',
 	working: 'Working on',

@@ -8,8 +8,10 @@
 // forearm prop worn anew left where the list puts it: neither; a list moving a slot there, a prop worn
 // anew on an arm drawn behind the head, a finger Setup drew behind the head: both. Without a rig the
 // preview refuses exactly what 🦴 Create rig refuses. Every guard is mutation-checked: a planted mutant
-// of the shipped code turns its check red (each run on the cases it targets).
-//   node tools/rigger-spike/sheet-layers-preview.mjs [--only <guard>] [--no-mutants]
+// of the shipped code turns its check red (each run on the cases it targets). Half the cases and their
+// mutants run here, the other half in `sheet-layers-preview-b.mjs` (`--part b`): every case builds the
+// sheet many times over, and one file of them all came within 80 s of check:all's five minutes.
+//   node tools/rigger-spike/sheet-layers-preview.mjs [--only <guard>] [--no-mutants] [--part b]
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -91,6 +93,11 @@ async function load(mutate = []) {
 
 let checks = 0;
 let fails = 0;
+/** The cases `--part b` runs (`sheet-layers-preview-b.mjs`); the others run without it. */
+const PART_B = new Set(['placed', 'bandBehind', 'finger', 'bandOff']);
+const B =
+	process.argv.includes('--part') && process.argv[process.argv.indexOf('--part') + 1] === 'b';
+const inPart = (id) => PART_B.has(id) === B;
 const ok = (label, cond, detail = '') => {
 	checks++;
 	if (cond) return true;
@@ -161,7 +168,7 @@ const GUARDS = {
 	 */
 	preview(M, log, only = null) {
 		let good = true;
-		const on = (id) => !only || only.has(id);
+		const on = (id) => inPart(id) && (!only || only.has(id));
 		const t = M.HALF_BODY;
 		const base = baseMapping(M);
 		const made = create(M, base);
@@ -172,8 +179,14 @@ const GUARDS = {
 				m,
 			);
 		const setup = (doc) => doc.slots.map((s) => s.name);
-		// The list names the template's slots, the rig its regions' (one slot per region, §13.1h).
-		const named = (m) => M.sheetRig(t, REGIONS, m).value.fit.slots;
+		// The list names the template's slots, the rig its regions' (one slot per region, §13.1h): built
+		// once per mapping (a build fits the face: the setup asks again and again).
+		const names = new Map();
+		const named = (m) => {
+			const key = JSON.stringify(m);
+			if (!names.has(key)) names.set(key, M.sheetRig(t, REGIONS, m).value.fit.slots);
+			return names.get(key);
+		};
 		const roleOf = (m) => {
 			const back = new Map(Object.entries(named(m)).map(([r, n]) => [n, r]));
 			return (n) => back.get(n) ?? n;
@@ -232,7 +245,10 @@ const GUARDS = {
 		const pinky = clone(base);
 		const glow = REGIONS.find((r) => r.name === 'bg_glow');
 		pinky.parts.pinky_1_l = { region: 'bg_glow', joints: { pivot: [glow.w / 2, glow.h / 2] } };
-		const pinkyBack = toBehind(create(M, pinky), rn('pinky_1_l', pinky), rn('head', pinky));
+		// Built only when its case runs (a mutant runs only the cases it targets).
+		let pinkyRig;
+		const pinkyBack = () =>
+			(pinkyRig ??= toBehind(create(M, pinky), rn('pinky_1_l', pinky), rn('head', pinky)));
 		const armList = opened(armBack);
 		const onArm = band(base);
 		const placed = { ...onArm, layers: list({ ...onArm, layers: armList }) };
@@ -280,7 +296,7 @@ const GUARDS = {
 				'finger',
 				'a finger Setup drew behind the head, the list opened from it and changed',
 				pinkyBack,
-				{ ...pinky, layers: moved(opened(pinkyBack, pinky), 'prop_chain', 'torso') },
+				() => ({ ...pinky, layers: moved(opened(pinkyBack(), pinky), 'prop_chain', 'torso') }),
 				false,
 				pinky,
 			],
@@ -293,9 +309,10 @@ const GUARDS = {
 				onArm,
 			],
 		];
-		for (const [id, what, rig, mapping, accepted, was = base] of cases) {
+		for (const [id, what, rig, edited, accepted, was = base] of cases) {
 			if (!on(id)) continue;
 			const current = typeof rig === 'function' ? rig() : rig;
+			const mapping = typeof edited === 'function' ? edited() : edited;
 			// The slots the preview judges are the ones the update's merge leaves, before any layers.
 			const o = { template: t, regions: REGIONS, was, mapping };
 			const full = M.merging({ ...o, current });
@@ -439,6 +456,7 @@ const SOURCES = {
 	'rigFrameUpdate.ts': join(SERVER, 'rigFrameUpdate.ts'),
 };
 for (const [guard, what, mutation, cases] of MUTANTS) {
+	if (!cases.some(inPart)) continue;
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {
 		ok(`mutant planted: ${what}`, false, `"${from}" is not in ${file}`);

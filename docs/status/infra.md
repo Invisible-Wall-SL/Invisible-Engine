@@ -138,6 +138,19 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-27 — **Resolve conflict's workflow (ADR-0015 card 15B2), for the owner's hand merge.**
+  `.github/workflows/merge-main.yml`: job `merge` holds nothing and runs no branch code (git and
+  `main`'s `merge.mjs` only: no pnpm, no install, no build, no Actions cache), so a branch cannot
+  poison the cache `main`'s workflows restore; a build rule's file stays `main`'s, `pending`. Job
+  `propose` (`bug-fix` environment) installs `main`'s lockfile before the merged tree is laid out
+  (pnpm would otherwise read the branch's `.npmrc`, `packageManager` and pnpmfile outside the
+  sandbox), stages it, and runs Claude Code in `bug-fix.yml`'s sandbox, its steps copied word for
+  word, only when conflicts are left and the budget is above 0. The model's prompt is
+  `scripts/merge-main/coordinator.md`; since #1990 it no longer asks the model for each side of a
+  hunk (the job reads both from git) and names the launcher's diff of what Accept changes, with the
+  refusals for new lines. `pnpm check:merge-main-workflow` pins every rule with a
+  mutant and holds the copied steps to `bug-fix.yml`'s, so a one-line change to either side fails
+  it. INFRA "Resolve conflict (merge-main.yml)".
 - 2026-11-18 — **Actions queue relief.** 178 runs were queued behind the free org plan's 20
   concurrent jobs, some for a week, and jobs began to time out unacquired. `current-games.yml`'s
   concurrency group dropped the commit for PR and push runs, so a new push cancels the superseded

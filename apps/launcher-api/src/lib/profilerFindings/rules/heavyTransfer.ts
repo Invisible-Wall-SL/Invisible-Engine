@@ -100,6 +100,7 @@ export const heavyTransfer: Rule = (ctx) => {
 			const top = newest.net.heaviest.find((f) => f.bytes !== null);
 			out.push({
 				id: `heavyTransfer:total:${key}:${build}`,
+				subject: `heavyTransfer:total:${key}`,
 				rule: 'heavyTransfer',
 				severity: totalVerdict === 'fail' ? 'high' : 'medium',
 				title: `${round1(total)} MB downloaded on ${deviceClass}`,
@@ -138,6 +139,7 @@ export const heavyTransfer: Rule = (ctx) => {
 		const bytes = heavy.reduce((n, f) => n + (f.bytes ?? 0), 0);
 		out.push({
 			id: `heavyTransfer:files:${key}:${build}`,
+			subject: `heavyTransfer:files:${key}`,
 			rule: 'heavyTransfer',
 			severity: failing ? 'high' : 'medium',
 			title: `${heavy.length} file${heavy.length === 1 ? '' : 's'} over ${fileLine?.warn ?? fileLine?.fail} MB on ${deviceClass}`,

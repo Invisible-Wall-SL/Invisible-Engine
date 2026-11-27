@@ -7,6 +7,16 @@ overwriting a newer save (#821):
 [launcher.md](launcher.md#a-manual-save-overwrote-a-colleagues-newer-save). Held coin labels
 drawing black (#963): [hold-and-win](../families/hold-and-win.md#known-failure-modes).
 
+### An authored win frame needed tiny, off-centre Bounds to fit the symbol
+- **Symptom:** a Rigger win frame (a fire ring) fit the cell in game only when its Bounds were
+  drawn far smaller than the art and offset from it.
+- **Cause:** `SymbolWinFrame.svelte` sized every frame like the coded payframe — `SYMBOL_SIZE × 0.19`
+  wide, placed by the skeleton origin, at the symbol load scale 2 — never reading the Bounds frame.
+- **Fix:** an authored frame mounts `anchor={0.5}`, contain-fitted to the live cell, with
+  `loadScaleBase={1}`; only the coded fallback keeps the old numbers.
+- **Guard:** `check:symbol-layers` (the win-frame checks).
+- **PR:** this branch (2026-11-27)
+
 ### All-at-once win lines stayed on screen through the bonus game
 - **Symptom:** with "Show all win lines at once" on, a trigger spin's lines and amounts stayed
   over the whole bonus (seen on a Hold and Win bonus).

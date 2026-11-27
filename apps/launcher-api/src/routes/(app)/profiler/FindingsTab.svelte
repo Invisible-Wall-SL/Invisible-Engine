@@ -1,7 +1,15 @@
 <script lang="ts">
-	import { BUG_STATUS_LABELS, BUG_TOOL, bugPath, isBugStatus, type BugKind } from '$lib/bugReports';
+	import {
+		BUG_STATUS_LABELS,
+		BUG_TOOL,
+		bugPath,
+		bugRef,
+		isBugStatus,
+		type BugKind,
+	} from '$lib/bugReports';
 	import type { Verdict } from '$lib/profilerBudgets';
-	import { fileFindingHref, filedLabel, type FiledFinding } from '$lib/profilerFindings/bug';
+	import { fileFindingHref, filedLabel } from '$lib/profilerFindings/bug';
+	import type { FiledView } from '$lib/profilerFindings/filed';
 	import { RULE_TITLES, type Finding, type Severity } from '$lib/profilerFindings/finding';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import VerdictBadge from './VerdictBadge.svelte';
@@ -9,11 +17,13 @@
 	interface Props {
 		/** Null when they could not be computed this load. */
 		findings: Finding[] | null;
-		/** The bug each filed finding has (P5); null when it could not be read this load. */
-		filed: Record<string, FiledFinding> | null;
+		/** The bug each filed finding has and where it stands (P5); null when it could not be read this load. */
+		filed: Record<string, FiledView> | null;
 		/** Which list each finding is filed in. */
 		fileAs: Record<string, BugKind>;
 		projectKey: string;
+		/** Archived rows are in the list: a filing re-reads the live ones, so it is off meanwhile. */
+		showArchived: boolean;
 		/** The viewer's tools: File as bug needs the list's own. */
 		bugTools: ReadonlySet<string>;
 		onOpenBuild: (id: string) => void;
@@ -29,6 +39,8 @@
 
 	let owner = $state('');
 	let device = $state('');
+	/** Findings whose bug is open or being fixed are left out unless this is on. */
+	let showFiled = $state(false);
 
 	const owners = $derived(
 		[...new Map(findings.map((f) => [f.owner.id, f.owner.label])).entries()].sort((a, b) =>
@@ -43,13 +55,16 @@
 	// A filter whose value a re-read took away shows everything rather than an empty list.
 	const ownerShown = $derived(owners.some(([id]) => id === owner) ? owner : '');
 	const deviceShown = $derived(devices.includes(device) ? device : '');
-	const shown = $derived(
+	const matching = $derived(
 		findings.filter(
 			(f) =>
 				(!ownerShown || f.owner.id === ownerShown) &&
 				(!deviceShown || (f.deviceClass ?? NO_DEVICE) === deviceShown),
 		),
 	);
+	/** A finding already a bug that someone is dealing with leaves the list; a regressed one stays. */
+	const hiddenFiled = $derived(matching.filter((f) => filed[f.id]?.hidden));
+	const shown = $derived(showFiled ? matching : matching.filter((f) => !filed[f.id]?.hidden));
 
 	/** A reading opens Compare: the finding's pair in its order, when it is one of them. */
 	function compareFrom(f: Finding, id: string): void {
@@ -69,10 +84,22 @@
 			and builds it was read from: a reading opens Compare, a build its detail on the Builds tab.
 			Lab runs count only where the rule reads counts, never fps. File as bug opens Bug Reports
 			filled in — a game bug for the game's own content, a pipeline bug for the engine or a tool —
-			and keeps the readings and builds it cites for as long as the bug exists.
+			and keeps the readings and builds it cites for as long as the bug exists. A finding already
+			filed shows "Filed: BUG-n" with the bug's status and leaves this list while the bug is open or
+			being fixed (Show filed brings it back); the bug follows the finding to the next build. If the
+			bug was closed as fixed and a reading or build made after that still shows the finding, it
+			comes back marked regressed. One row per subject: the same thing measured on several readings
+			is one finding with all its evidence.
 		</p>
 	{/snippet}
 	{#snippet actions()}
+		<label
+			class="filter"
+			title="Findings whose bug is open, being fixed, or fixed and not seen again are left out of the list"
+		>
+			<input type="checkbox" bind:checked={showFiled} />
+			Show filed{hiddenFiled.length ? ` (${hiddenFiled.length})` : ''}
+		</label>
 		<label class="filter">
 			Owner
 			<select bind:value={owner}>
@@ -95,7 +122,11 @@
 			Nothing to cut yet — the rules need readings (Readings tab) or build records (Builds tab).
 		</p>
 	{:else if !shown.length}
-		<p class="muted">No finding matches these filters.</p>
+		<p class="muted">
+			{hiddenFiled.length
+				? `Every matching finding is already filed as a bug (${hiddenFiled.length}) — Show filed lists them.`
+				: 'No finding matches these filters.'}
+		</p>
 	{:else}
 		<div class="table-wrap">
 			<table>
@@ -111,10 +142,17 @@
 				</thead>
 				<tbody>
 					{#each shown as f (f.id)}
-						<tr>
+						<tr class:filed={filed[f.id]?.hidden}>
 							<td><VerdictBadge verdict={SEVERITY_BADGE[f.severity]} label={f.severity} /></td>
 							<td>
 								<strong>{f.title}</strong>
+								{#if filed[f.id]?.state === 'regressed'}
+									<span
+										class="regressed"
+										title={`${bugRef(filed[f.id].number)} was closed as fixed, and a reading or build made after that shows this again`}
+										>regressed</span
+									>
+								{/if}
 								<div class="sub">{RULE_TITLES[f.rule]}{f.gameKey ? ` · ${f.gameKey}` : ''}</div>
 								{#if f.detail.length}
 									<ul class="detail">
@@ -166,22 +204,30 @@
 									>
 									<!-- eslint-enable svelte/no-navigation-without-resolve -->
 									<div class="sub">
-										{isBugStatus(bug.status) ? BUG_STATUS_LABELS[bug.status] : bug.status}
+										({isBugStatus(bug.status) ? BUG_STATUS_LABELS[bug.status] : bug.status})
 									</div>
-								{:else if !props.filed}
-									<span class="muted" title="The filed bugs could not be read this load">?</span>
-								{:else if props.bugTools.has(BUG_TOOL[props.fileAs[f.id]])}
-									<!-- A query on another route: `resolve()` cannot carry one. -->
-									<!-- eslint-disable svelte/no-navigation-without-resolve -->
-									<a
-										class="file"
-										href={fileFindingHref(f, props.projectKey, props.fileAs[f.id])}
-										title={`Opens the ${props.fileAs[f.id]} bug form, filled in from this finding`}
-										>File as bug</a
-									>
-									<!-- eslint-enable svelte/no-navigation-without-resolve -->
-								{:else}
-									<span class="muted" title="Your role does not have this bug list">—</span>
+								{/if}
+								{#if !filed[f.id] || (filed[f.id].state === 'regressed' && !filed[f.id].exact)}
+									{#if !props.filed}
+										<span class="muted" title="The filed bugs could not be read this load">?</span>
+									{:else if props.showArchived}
+										<span
+											class="muted"
+											title="Hide archived rows (Readings or Builds) to file this finding">—</span
+										>
+									{:else if props.bugTools.has(BUG_TOOL[props.fileAs[f.id]])}
+										<!-- A query on another route: `resolve()` cannot carry one. -->
+										<!-- eslint-disable svelte/no-navigation-without-resolve -->
+										<a
+											class="file"
+											href={fileFindingHref(f, props.projectKey, props.fileAs[f.id])}
+											title={`Opens the ${props.fileAs[f.id]} bug form, filled in from this finding`}
+											>File as bug</a
+										>
+										<!-- eslint-enable svelte/no-navigation-without-resolve -->
+									{:else}
+										<span class="muted" title="Your role does not have this bug list">—</span>
+									{/if}
 								{/if}
 							</td>
 						</tr>
@@ -202,6 +248,20 @@
 	}
 	.sub {
 		font-size: 11px;
+	}
+	tr.filed td {
+		opacity: 0.6;
+	}
+	.regressed {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 0 6px;
+		border: 1px solid #6a3b3b;
+		border-radius: 8px;
+		background: #2a1618;
+		color: #ff9a9a;
+		font-size: 11px;
+		font-weight: 600;
 	}
 	.filter {
 		display: inline-flex;

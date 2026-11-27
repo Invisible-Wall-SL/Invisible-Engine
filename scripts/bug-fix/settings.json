@@ -61,6 +61,7 @@
 			"Edit(/{{WORKSPACE}}/services/director-worker/agents/**)",
 			"Edit(/{{WORKSPACE}}/services/director-worker/families/**)",
 			"Edit(/{{WORKSPACE}}/services/director-worker/src/untrusted.ts)",
+			"Edit(/{{WORKSPACE}}/services/director-worker/package.json)",
 			"Edit(/{{WORKSPACE}}/docs/knowledge/**)",
 			"Edit(/{{WORKSPACE}}/docs/director/DECISIONS/**)",
 			"Edit(/{{WORKSPACE}}/.vscode/**)",
@@ -103,7 +104,8 @@
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-fix-runs.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-reports.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-merge-main-join.ts)",
-			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-merge-main-runs.ts)"
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-merge-main-runs.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/prove-merge-runs.ts)"
 		]
 	},
 	"sandbox": {

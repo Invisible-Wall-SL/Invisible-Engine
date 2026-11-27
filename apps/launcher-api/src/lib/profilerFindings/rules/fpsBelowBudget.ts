@@ -34,6 +34,7 @@ export const fpsBelowBudget: Rule = (ctx) => {
 				const line = m.warn ?? m.fail;
 				out.push({
 					id: `fpsBelowBudget:${game}:${g.readings[0].buildVersion ?? ''}:${g.id}:${m.metric}:${m.phase}`,
+					subject: `fpsBelowBudget:${game}:${g.id}:${m.metric}:${m.phase}`,
 					rule: 'fpsBelowBudget',
 					severity: m.verdict === 'fail' ? 'high' : 'medium',
 					title: fps

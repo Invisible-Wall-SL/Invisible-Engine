@@ -36,6 +36,7 @@ export const firstFrame: Rule = (ctx) => {
 		const before = newest.net.heaviest.filter((f) => f.stage === 'beforeFirstFrame' && f.bytes);
 		out.push({
 			id: `firstFrame:${key}:${newest.r.buildVersion ?? ''}`,
+			subject: `firstFrame:${key}`,
 			rule: 'firstFrame',
 			severity: stage.bytes >= FIRST_FRAME.mediumBytes ? 'medium' : 'low',
 			title: `${toMb(stage.bytes)} MB before the first frame on ${newest.r.deviceClass ?? '?'}`,

@@ -6,6 +6,7 @@ import {
 	BUTTONS,
 	MOVE_SCALE,
 	ONLINE_EVENT,
+	PACKED_POSITIONS,
 	STATUS,
 	abilitySignal,
 	characterBody,
@@ -16,6 +17,8 @@ import {
 	createFixedStep,
 	createHookLines,
 	flowSignalsOf,
+	interpolationDelayFor,
+	placeOnWire,
 	serverValuesOf,
 	shownInRoom,
 	shownOf,
@@ -174,10 +177,10 @@ import { stateModes } from './stateModes.svelte';
  * the keyboard and clamped exactly as the server clamps it, and every player of the room drawn as a
  * spawned instance of its character's component in the play field's spawn layer. The device never
  * decides a place: it sends inputs only. Its own player is PREDICTED (`engine-mechanics`
- * `createPredictor`: stepped at once with the room's own step, reconciled with each state the room
- * sends), and everyone else is INTERPOLATED about 100 ms behind the room (`createSnapshotClock`,
- * `createInterpolator`). Each input names the room step the device was drawing everyone else at
- * (`view`), so an ability is tested against what the player saw. On a world screen it also says how
+ * `createPredictor`: stepped at once with the room's own step, reconciled with the newest state the
+ * room sent, once a frame), and everyone else is INTERPOLATED about 100 ms behind the room
+ * (`createSnapshotClock`, `createInterpolator`, which take every state as it arrives). Each input
+ * names the room step the device was drawing everyone else at (`view`), so an ability is tested against what the player saw. On a world screen it also says how
  * much of the world the window shows about the own player ({@link follow}; `engine-mechanics`
  * `shown.js`): a room whose `nearby` has a `max` sends it the players in that view as well as the
  * box's.
@@ -336,8 +339,14 @@ const CONSENTED = 4000;
 type PlayerState = {
 	name?: string;
 	character: string;
-	x: number;
-	y: number;
+	/** Float32, sent to every device for its own player, and for everyone to a device that did not
+	 *  ask for packed places; unset for the others on one that did: read another's place through
+	 *  {@link placeOnWire}. */
+	x?: number;
+	y?: number;
+	/** Everyone else's place packed in `posScale` steps a px, to a device that asked for it. */
+	px?: number;
+	py?: number;
 	connected: boolean;
 	ack: number;
 	status: number;
@@ -360,6 +369,8 @@ type PlayerState = {
 	 *  from an older server. */
 	heldBy?: string;
 };
+/** The own player as its device is sent it: always float32 `x` / `y` (`VIEW_TAG.exact`). */
+type OwnPlayerState = PlayerState & { x: number; y: number };
 type RoomState = {
 	step: number;
 	phase: string;
@@ -377,6 +388,9 @@ type RoomState = {
 	 *  starts); unset from an older server, or by a game with no lobby. */
 	picking?: boolean;
 	players: Map<string, PlayerState>;
+	/** Steps per px of a packed place; unset from a server older than packed places or a room
+	 *  that sends none. */
+	posScale?: number;
 	/** What its rules module left on the field (Salmons' bloodstains); unset from an older server. */
 	stains?: StainList;
 };
@@ -395,7 +409,7 @@ type Session = {
 	/** The own player, once the room has placed it (`netcode: 'engine'`). */
 	me: Predictor | undefined;
 	/** The SDK's prediction and its reconciler for the own player (`netcode: 'colyseus'`). */
-	sdk: { predict: Predict; me: Reconciler<PlayerState> | undefined } | undefined;
+	sdk: { predict: Predict; me: Reconciler<OwnPlayerState> | undefined } | undefined;
 	/** The render clock and tracks for everyone else. */
 	view: SnapshotClock;
 	others: Interpolator;
@@ -501,6 +515,10 @@ type Session = {
 	switched: boolean;
 	/** The last room state's arrival and step, while the `?perf=1` probe reads ({@link noteLate}). */
 	arrival: { atMs: number; step: number } | undefined;
+	/** A state came since the last frame applied one ({@link applyState}). */
+	unapplied: boolean;
+	/** The room's states recorded, and how many frames applied one (the probe's). */
+	net: { states: number; applied: number };
 };
 
 /** What this page joins rooms of, read once at its boot: the config's own game, the server and the
@@ -776,6 +794,8 @@ async function enterRoom(
 			game,
 			...join,
 			...(size ? { size: Number(size) } : {}),
+			// Everyone else's place packed, where the room packs; an older server ignores it.
+			positions: PACKED_POSITIONS,
 		});
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
@@ -839,7 +859,10 @@ async function enterRoom(
 		seq: 0,
 		me: undefined,
 		sdk: predict && { predict, me: undefined },
-		view: createSnapshotClock({ stepMs: 1000 / resolved.online.tickHz }),
+		view: createSnapshotClock({
+			stepMs: 1000 / resolved.online.tickHz,
+			delayMs: interpolationDelayFor(resolved.online.patchHz),
+		}),
 		others: createInterpolator({
 			snapPx: snapFor(
 				Math.max(...resolved.online.characters.map((c) => c.speed)) +
@@ -906,6 +929,8 @@ async function enterRoom(
 		closed: false,
 		switched,
 		arrival: undefined,
+		unapplied: false,
+		net: { states: 0, applied: 0 },
 	};
 	if (switched && reloading) {
 		room.leave(true).catch(() => {});
@@ -952,10 +977,13 @@ async function enterRoom(
 	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
 	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
-	const onState = () => received(current, performance.now());
+	const onState = () => recordState(current, performance.now());
 	room.onStateChange(onState);
 	meterMessages(room);
 	const offEvents = room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
+		// A step's events come after the patch that shows it: one that resets the own player's
+		// cooldowns or places it reads that patch's ack and place, not the last frame's.
+		if (events.some((event) => touchesOwn(event, room.sessionId))) applyState(current);
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
 		current.lines.events(events);
@@ -1010,7 +1038,8 @@ const NO_GROUND: ArtMount = () => () => {};
  */
 async function showRoom(current: Session, launch: Launch, join: NextJoin) {
 	if (current.field) setFieldArt(current.field.id, NO_GROUND);
-	received(current, performance.now());
+	recordState(current, performance.now());
+	applyState(current);
 	const flow = getFlowV2();
 	if (!flow) return;
 	const { chain } = await restartFlow(flow, bakedFlowV2Doc(), {
@@ -1386,7 +1415,7 @@ function bindServerVariables(current: Session, state: Partial<RoomState>) {
 }
 
 /** The own player's predictor, from its first place in the room. */
-function predictorOf(current: Session, player: PlayerState): Predictor | undefined {
+function predictorOf(current: Session, player: OwnPlayerState): Predictor | undefined {
 	const { game } = current;
 	const character = game.online.characters.find((c) => c.id === player.character);
 	if (!character) return undefined;
@@ -1411,54 +1440,86 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 function reconcilerOf(
 	current: Session,
 	predict: Predict,
-	player: PlayerState,
-): Reconciler<PlayerState> | undefined {
+	player: OwnPlayerState,
+): Reconciler<OwnPlayerState> | undefined {
 	const options = reconcilerOptions(current.game, current.room.sessionId, player);
 	return options && predict.reconciler(player, { input: current.room.input(), ...options });
 }
 
-/** A state from the room: the own player reconciled, everyone else's place recorded at its step. */
-function received(current: Session, nowMs: number) {
+/**
+ * A state from the room, as it arrives: its arrival, everyone else's place at its step (what
+ * interpolating them needs, which each state carries anew) and the flow's values the room owns (a
+ * flow reads them in an event chain or before the play field ticks a frame: Salmons' lobby check
+ * at the start screen's tap). The own player's reconcile reads only the newest state, so it waits
+ * for the frame ({@link applyState}): after a stall a burst of states lands between two frames,
+ * and each would otherwise be reconciled only for the next to replace it.
+ */
+function recordState(current: Session, nowMs: number) {
+	const state = stateOf(current.room);
+	const players = state.players;
+	const step = state.step;
+	if (!players || step === undefined) return;
+	current.net.states += 1;
+	if (arcadePerf.on) noteLate(current, step, nowMs);
+	current.view.observe(step, nowMs);
+	bindServerVariables(current, state);
+	const own = current.room.sessionId;
+	const scale = state.posScale ?? 0;
+	players.forEach((player, id) => {
+		if (id === own) return;
+		const at = placeOnWire(player, scale);
+		current.others.push(id, step, at.x, at.y);
+	});
+	current.unapplied = true;
+}
+
+/** Whether a room event is about the own player (`own`), or starts a round (which clears its
+ *  cooldowns). */
+function touchesOwn(event: OnlineEvent, own: string): boolean {
+	if (event.type === 'roundStart') return true;
+	const { id, by, target } = event as { id?: string; by?: string; target?: string };
+	return id === own || by === own || target === own;
+}
+
+/** The newest state the room sent since the last frame: the players gone forgotten, the own player
+ *  reconciled — once, however many states came. */
+function applyState(current: Session) {
+	if (!current.unapplied) return;
+	current.unapplied = false;
 	const state = stateOf(current.room);
 	const players = state.players;
 	if (!players || state.step === undefined) return;
-	if (arcadePerf.on) noteLate(current, state.step, nowMs);
-	current.view.observe(state.step, nowMs);
-	bindServerVariables(current, state);
+	current.net.applied += 1;
 	current.others.retain(new Set(players.keys()));
-	players.forEach((player, id) => {
-		if (id !== current.room.sessionId) {
-			current.others.push(id, state.step!, player.x, player.y);
-			return;
-		}
-		// A respawn as another character: its own body, speed and abilities from now on.
-		if (current.character !== player.character) {
-			current.character = player.character;
-			current.abilities = undefined;
-			current.me = undefined;
-			if (current.sdk) {
-				current.sdk.me?.dispose();
-				current.sdk.me = undefined;
-			}
-		}
-		current.abilities ??= createAbilityPredictor(current.game, player.character);
-		current.abilities.acked(player.ack);
-		// The SDK reconciles on its own, from the input acknowledgement each state carries.
+	const player = players.get(current.room.sessionId) as OwnPlayerState | undefined;
+	if (!player) return;
+	// A respawn as another character: its own body, speed and abilities from now on.
+	if (current.character !== player.character) {
+		current.character = player.character;
+		current.abilities = undefined;
+		current.me = undefined;
 		if (current.sdk) {
-			current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
-			return;
+			current.sdk.me?.dispose();
+			current.sdk.me = undefined;
 		}
-		current.me ??= predictorOf(current, player);
-		current.me?.reconcile({
-			x: player.x,
-			y: player.y,
-			ack: player.ack,
-			still: player.status !== STATUS.free || player.held === true,
-			step: state.step,
-			air: player.air,
-			carryX: player.carryX,
-			carryY: player.carryY,
-		});
+	}
+	current.abilities ??= createAbilityPredictor(current.game, player.character);
+	current.abilities.acked(player.ack);
+	// The SDK reconciles on its own, from the input acknowledgement each state carries.
+	if (current.sdk) {
+		current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
+		return;
+	}
+	current.me ??= predictorOf(current, player);
+	current.me?.reconcile({
+		x: player.x,
+		y: player.y,
+		ack: player.ack,
+		still: player.status !== STATUS.free || player.held === true,
+		step: state.step,
+		air: player.air,
+		carryX: player.carryX,
+		carryY: player.carryY,
 	});
 }
 
@@ -1870,7 +1931,10 @@ function ownPlace(current: Session) {
 function placeOf(current: Session, id: string, player: PlayerState) {
 	const own = id === current.room.sessionId ? ownPlace(current) : undefined;
 	if (own) return own;
-	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
+	return (
+		current.others.at(id, current.viewStep) ??
+		placeOnWire(player, stateOf(current.room).posScale ?? 0)
+	);
 }
 
 /** How fast a drawn player's lift follows the ground under it, per second: a waterfall's step
@@ -2959,6 +3023,7 @@ export function tickOnline(dtMs: number) {
 		return;
 	}
 	const now = performance.now();
+	applyState(current);
 	current.viewStep = current.view.advance(now) ?? current.viewStep;
 	// The SDK's order: reconcile and decay, then send (its reconciler steps each send), then read.
 	current.sdk?.predict.tick(now);
@@ -3022,8 +3087,10 @@ export function onlineProbe() {
 	}[] = [];
 	const hidden: string[] = [];
 	const everyone = state?.players;
+	const scale = state?.posScale ?? 0;
 	everyone?.forEach((p, id) => {
-		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
+		const place = placeOnWire(p, scale);
+		bodies.push({ id, x: place.x, y: place.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
 		else if (current) {
 			const at = carriedPlace(current, everyone, p) ?? placeOf(current, id, p);
@@ -3072,6 +3139,13 @@ export function onlineProbe() {
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),
+						net: { ...current.net },
+						wire: {
+							posScale: state.posScale ?? 0,
+							packed: [...(state.players ?? new Map<string, PlayerState>())].filter(
+								([id, p]) => id !== current.room.sessionId && p.px !== undefined,
+							).length,
+						},
 						phase: state.phase ?? '',
 						round: state.round ?? 0,
 						winner: state.winner ?? '',

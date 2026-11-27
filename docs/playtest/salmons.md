@@ -467,13 +467,14 @@ game server would put a bot-less test client among real players.
     (a fisherman) join `salmons-wade`, the original's level pinned to one seed (the band river's
     water stops a bear; this one's lets it in), from a snapshot whose config names it, so the
     room plays and the pages draw the river made in Node. The probe's `online.art.wading` (room
-    id → `{ depth, tint, line, filtered }`, `filtered` read off the look's own container) says
-    how each wading character is drawn. The room stands WB's bear on a bank a cell and a half
-    from the water: depth 0, no filter, and its fur at two heights up its middle
+    id → `{ depth, tint, line, drawnUnder, pass }`: whether it is drawn half under, and whether
+    through the pass on the look's own container (a rig, a turned clip) rather than its own
+    programs (the code look, since T5)) says how each wading character is drawn. The room stands
+    WB's bear on a bank a cell and a half from the water: depth 0, not drawn under, and its fur at two heights up its middle
     (`14c-bear-on-the-bank.png`). WB's Left key walks it in (the screen's Left is across the
     river and up it): the depth, read every two frames, rises one way through at least three
     values to 1 in six to eleven readings (about 250 ms). Stood three cells into calm water:
-    depth 1, through the filter, under one of the water's tints, its waterline's ends over the
+    depth 1, drawn under by its own programs (no pass), under one of the water's tints, its waterline's ends over the
     look's middle and its lowest point under it; in `14d-bear-wades.png` the fur is fur above
     the line, and below it not fur as seen but fur once the tint is taken back out
     (`(seen − 0.75 · T) / 0.25`), and darker in every channel than the same water was in the
@@ -482,7 +483,7 @@ game server would put a bot-less test client among real players.
     The room stands WF's fisherman on the middle of a bridge's
     deck, over open water: his own page draws him by his code look and has no wading for him
     (`14e-fisherman-on-a-bridge.png`). Back on the bank the bear's depth falls the same way to 0
-    and its look has no filter. No page error on either. On a runtime from before the wading
+    and its look is not drawn under. No page error on either. On a runtime from before the wading
     the probe has no `wading` and the first verdict fails.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
     snapshot that registers three stub clips (S's with the room's own config, no generator, so it
@@ -606,7 +607,7 @@ middle and its lowest point under it; the rig's colour at 130 px and, at 40 px, 
 the tint is taken back out: `rig-bear-wades.png`), then on the bank again (no filter). This is
 the look the wading can silently miss: Pixi measures no size for a rig when it places a filter
 and skips the pass, so the wading hands it the look's box. On a runtime whose wading does not,
-the second of the four fails on its `filtered` and its pixels.
+the second of the four fails on its `drawnUnder` / `pass` and its pixels.
 
 ## A held catch (`--hold`)
 
@@ -736,6 +737,32 @@ in view, then rests. 4 verdicts:
 
 The room's river is another every run, so whether two pieces start apart is held in Node
 (`check:salmons-art`), not here. Trees are never a rig: `zone-art-play.mjs --cost` measures why.
+
+## A stall (`--stall`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-stall --stall
+```
+
+One page (ST), a salmon in a room of 20 (the bots), holding ArrowUp. Three times it blocks the
+page's main thread for 2 s while the room keeps sending, lets the held messages land, and steps
+one frame. The page's own `performance.now` and timers are the determinism probe's virtual clock,
+so the block and the timings use the real clock, kept by an init script that also times every
+`ws.onmessage` (`__NET_TASKS__`). It reads `online.net` (`states` recorded, times one was
+`applied`; `online.ts` `recordState` / `applyState`), which a runtime from before 2026-11-27
+lacks. 4 verdicts:
+
+- 2 s of the room's states queue (≥ 30) and each is recorded as it lands;
+- they are applied a handful of times, not once a state: the next frame applies the newest, and
+  before it only an event about the own salmon applies one (a step's events follow its patch);
+- the newest state agrees with the prediction (no correction; under `--netcode colyseus` the probe
+  counts none, so only the place is tested), and at rest after it the own salmon is drawn within
+  a step of the room's place (it drifts in the current);
+- no page error.
+
+`result.json` `stall` keeps each trial's message count and handler time and the catch-up frame's
+time beside the next frame's.
 
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 
@@ -1031,12 +1058,15 @@ both netcodes; throwaway probes, not a script here (`docs/status/salmons.md`, 20
 
 ### The bear's wading (2026-11-25)
 
-`pnpm check:salmons-art` (33) holds what a browser cannot read exactly: the waterline's arc and
+`pnpm check:salmons-art` (53) holds what a browser cannot read exactly: the waterline's arc and
 the line of a body at a depth, the 250 ms ease, who wades where on the original's level (a bear on
 open water; not on a bank, a sandbank, a rock or the sea; not a fisherman on a bridge's deck, nor
 a salmon), that a look on land has no filter and one in the water has one whose colour uniform is
 `underTint`'s own matrix, one mount a player and a look, what is let go and when, a GPU that
-refuses the pass, and the pass's place on the screen at four zooms and resolutions.
+refuses the pass, and the pass's place on the screen at four zooms and resolutions; and since T5
+that a code look drawing its own water never takes the pass (it is told the line; refused, the
+pass draws it), the salmon's step being `ColorMatrixFilter`'s fragment, and the bear's quad where
+a `Sprite` puts it, trimmed or not.
 
 ## Known gaps
 
