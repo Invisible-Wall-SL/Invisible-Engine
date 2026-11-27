@@ -431,8 +431,9 @@
 				`${last.at} s (${Math.round(last.slowShare * 100)}% slow, ${last.frameMs} ms)`
 			: 'no switches';
 		const trial = q.trials.at(-1);
+		const outcome = trial?.kept ? 'kept' : trial?.steppedOn ? 'stepped on' : 'reverted';
 		const verdict = trial
-			? `last trial L${trial.level} ${trial.kept ? 'kept' : 'reverted'} ` +
+			? `last trial L${trial.level} ${outcome} ` +
 				`(${Math.round(trial.before.slowShare * 100)}% → ${Math.round(trial.after.slowShare * 100)}% ` +
 				`slow, ${trial.before.frameMs} → ${trial.after.frameMs} ms)`
 			: undefined;
