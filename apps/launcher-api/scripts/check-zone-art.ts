@@ -68,6 +68,8 @@ import { isDeepStrictEqual } from 'node:util';
 import type { LayoutDoc } from 'engine-layout';
 import type { GameConfigDoc } from 'game-config';
 
+import { liveState } from './lib/liveState.ts';
+
 interface Stored {
 	text: string;
 	modified: number;
@@ -1225,6 +1227,22 @@ for (const [project, base] of [
 		],
 		[undefined, [], []],
 	);
+}
+
+// 10b. The page holds its doc as a `$state` proxy, which `structuredClone` refuses: every edit of
+// the card still lands (a ＋ Variant once did nothing).
+{
+	const { live, saved } = await liveState();
+	const doc = live(structuredClone(PLAIN));
+	cardEdits.setZoneArtSource(doc, '@trees', 0, { kind: 'sprite', region: `${SHEET}::pine` });
+	ok('10b. a variant is added on a $state doc', cardEdits.addZoneArtVariant(doc, '@trees'));
+	cardEdits.setZoneArtScale(doc, '@trees', '0.8');
+	eq('10b. … and a scale set', saved(doc).arcade?.zoneArt?.['@trees'], {
+		source: { kind: 'sprite', region: `${SHEET}::pine` },
+		variants: [{ kind: 'sprite', region: `${SHEET}::pine` }],
+		placement: 'stamp',
+		scale: 0.8,
+	});
 }
 
 // 11. Scenery is never a rig.

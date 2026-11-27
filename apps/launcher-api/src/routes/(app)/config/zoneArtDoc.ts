@@ -110,8 +110,10 @@ function store(doc: GameConfigDoc, map: Record<string, unknown>): void {
 	}
 }
 
+/** A JSON round trip, not `structuredClone`: the page's doc is a `$state` proxy, which
+ *  `structuredClone` refuses with a DataCloneError. */
 const copy = (doc: GameConfigDoc): Record<string, ZoneArt> =>
-	structuredClone(doc.arcade?.zoneArt ?? {});
+	JSON.parse(JSON.stringify(doc.arcade?.zoneArt ?? {}));
 
 /**
  * Set picture `index` of a family (0 its source, 1… its variants) to `source`. A family with no
@@ -149,7 +151,7 @@ export function addZoneArtVariant(doc: GameConfigDoc, family: string): boolean {
 	const map = copy(doc);
 	const art = map[family];
 	if (!art || (art.variants?.length ?? 0) >= ZONE_ART_LIMITS.variants) return false;
-	art.variants = [...(art.variants ?? []), structuredClone(art.source)];
+	art.variants = [...(art.variants ?? []), { ...art.source }];
 	store(doc, map);
 	return true;
 }

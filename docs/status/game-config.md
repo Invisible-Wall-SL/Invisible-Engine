@@ -821,6 +821,12 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   `gameConfigStorage.ts` and `pageDoc.ts`). P6 adds it with the compile on save. Gates and the
   rules side: [status/salmons](salmons.md).
 
+- 2026-11-27 — **Zone art: ＋ Variant, Scale and the bin did nothing once a family had art**
+  (owner report; branch `claude/youthful-mccarthy-bweigw`). `config/zoneArtDoc.ts` copied the map
+  with `structuredClone`, which throws a DataCloneError on the page's `$state` proxy, so every edit
+  of an existing entry failed silently (only the first pick, on an empty map, landed). It now copies
+  with a JSON round trip. `check:zone-art` §10b runs the edits on a real `$state` doc
+  (`scripts/lib/liveState.ts`).
 - 2026-11-26 — **Zone art: a rig as a family's picture** (owner: "add rig as a zone art source";
   agent `arcade-games`; branch `claude/wizardly-galileo-kjszii`, in review). **Drawn with** has a
   third choice, **Rig**: one of the project's rigs and one of its animations, looped or played
