@@ -4676,18 +4676,19 @@ function faceShapeControls(ch){
 }
 
 // A rig with no mouth image at all: its mouth is drawn on the head (made from a frame, whose head
-// bends to the jaw, corners and lips; frame-to-rig §12 F2i).
+// bends to the jaw, corners and lips; frame-to-rig §12 F2i), or jointed with no mouth slot at all
+// (`drawn`: a sheet's rig, one slot per region, §13.1h).
 function faceDrawnMouth(ch, has){
-  return ![ch.shapes.rest, ...Object.keys(ch.shapes.open)].some((p) => has(ch.shapes.slot, p));
+  return !!ch.shapes.drawn || ![ch.shapes.rest, ...Object.keys(ch.shapes.open)].some((p) => has(ch.shapes.slot, p));
 }
 
 // A mouth shape, plus the jaw opened by that shape's amount and the corners and lips it poses (each
-// back to rest on a shape that does not name it); on a drawn mouth, those moves alone. `skip`:
-// controls the caller keys itself.
+// back to rest on a shape that does not name it); on a drawn mouth, those moves alone (and no image
+// key where the rig has no mouth slot). `skip`: controls the caller keys itself.
 function faceKeyShape(anim, ch, part, t, channels, has, skip){
   const shown = faceShapePart(ch, part, has);
   const posed = shown || (faceDrawnMouth(ch, has) ? part : null);
-  faceKeyAttachment(anim, ch.shapes.slot, shown, t);
+  if (!ch.shapes.drawn) faceKeyAttachment(anim, ch.shapes.slot, shown, t);
   for (const id of faceShapeControls(ch)){
     if (skip && skip.has(id)) continue;
     const c = channels.find((x) => x.id === id);
@@ -12838,6 +12839,7 @@ function s2rApplyUpdate(plan){
     rawDoc = plan.skeleton;
     normalizeKeys(rawDoc);
     sheetSrc.doc = plan.sheet;
+    s2rRenamedOnSidecars(plan.report.renamed);
     s2rTurnDepths(plan.depths);
     if (plan.report.modules) modulesOnSidecars(plan.report.modules, plan.controls);
     rebuildFromRawDoc(sel);
@@ -12846,6 +12848,29 @@ function s2rApplyUpdate(plan){
   s2r.dirty = false;
   renderAnimSection();
   renderTimeline();
+}
+
+// One slot per region (frame-to-rig §13.1h): the slots and bones 🔄 Update rig renamed, followed by
+// the rig's control layer, its 3D data (layers, views, 🔒 locks, a prop bone's depth and keys) and the
+// Slots panel's eyes and folders, before the rebuild drops what names a slot that went.
+function s2rRenamedOnSidecars(r){
+  if (!r) return;
+  const slots = new Map(Object.entries(r.slots || {})), bones = new Map(Object.entries(r.bones || {}));
+  if (!slots.size && !bones.size) return;
+  if (controlsDoc && window.RiggerControls)
+    controlsDoc = window.RiggerControls.renameControls(controlsDoc, { bone: bones, slot: slots, ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() });
+  // Through names of their own first, so two that trade names do not land on one.
+  const twoStep = (m, rename) => {
+    const via = [...m].map(([from, to], i) => [from, "\u0000" + i, to]);
+    for (const [from, tmp] of via) rename(from, tmp);
+    for (const [, tmp, to] of via) rename(tmp, to);
+  };
+  if (rig3d.doc && R3()){
+    twoStep(bones, (f, t) => R3().rename3d(rig3d.doc, "bone", f, t));
+    twoStep(slots, (f, t) => R3().rename3d(rig3d.doc, "slot", f, t));
+    if (bones.size) bake3dReset();
+  }
+  twoStep(slots, renameSlotView);
 }
 
 // A module change (docs/design/rig-modules.md §4) on the open rig's sidecars: its control layer and
@@ -12906,6 +12931,14 @@ function s2rTurnDepths(depths){
   if (!Object.keys(bones).length) delete rig3d.doc.bones;
 }
 
+// One slot per region (frame-to-rig §13.1h): what an update renamed, keys and all, and the empty
+// template slots it took out.
+function regionSlotsNote(r){
+  if (!r) return "";
+  const renamed = Object.entries(r.slots || {});
+  return (renamed.length ? "One slot per region, named as your sheet names it (each with its keys): " + renamed.map(([a, b]) => a + " → " + b).join(", ") + ".\n\n" : "") +
+    (r.dropped && r.dropped.length ? "Empty template slots no region is drawn in, taken out: " + r.dropped.join(", ") + ".\n\n" : "");
+}
 function reportSheetUpdate(stem, rep){
   const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
   const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
@@ -12925,6 +12958,7 @@ function reportSheetUpdate(stem, rep){
     (removed.length ? "Removed (the mapping no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
     (rep.layered && rep.layered.length ? "Drawn in the order of your Layers list: " + rep.layered.join(", ") + " moved.\n\n" : "") +
+    regionSlotsNote(rep.renamed) +
     (kept.length ? "Your own meshes kept: " + kept.join(", ") + ".\n\n" : "") +
     (rep.deformDropped.length ? "Deform keys dropped: " + rep.deformDropped.map((d) => d.part).join(", ") + ".\n\n" : "") +
     (rep.foldedBones.length ? "Bones you deleted, their share given to the bone above: " + rep.foldedBones.map((f) => f.bone + " → " + f.into).join(", ") + ".\n\n" : "") +
@@ -13451,13 +13485,23 @@ function s2rLayersOut(st = s2r){
   return list.join() === s2rLayerList(false, st).join() ? {} : { layers: list };
 }
 // 🗺 Edit mapping: the list starts as the open rig draws its slots (a reorder in Setup's slots
-// included), so 🔄 Update rig keeps that order unless it is changed here.
+// included), so 🔄 Update rig keeps that order unless it is changed here. The list names the
+// template's slots, the rig its regions' (one slot per region, §13.1h): each read back to its own.
 function s2rLayersFromRig(){
   if (!rawDoc || !s2r.sheet || !s2r.tpl) return;
   const drawn = new Set(s2rLayerList(false));
-  const own = rawDoc.slots.map((s) => s.name).filter((n) => drawn.has(n)).reverse();
+  const role = new Map(Object.entries(s2rRigSlotNames()).map(([r, n]) => [n, r]));
+  const own = rawDoc.slots.map((s) => role.get(s.name) || s.name).filter((n) => drawn.has(n)).reverse();
   if (own.length) s2r.layers = own;
   s2rRender();
+}
+// Each template slot the mapping in the dialog draws in, by the name the rig gives it (its region's:
+// one slot per region, §13.1h), as the launcher names it.
+function s2rRigSlotNames(st = s2r){
+  if (!s2r.tpl || !window.RiggerMotion || !window.RiggerMotion.sheetSlotNames) return {};
+  const parts = {};
+  for (const [p, m] of Object.entries(st.map)) if (s2rPart(p)) parts[p] = { region: m.region };
+  return window.RiggerMotion.sheetSlotNames(s2r.tpl, { parts, props: st.props });
 }
 // The slot a pick draws in: a part's, a prop's own.
 function s2rSelSlot(){
@@ -13493,7 +13537,7 @@ function s2rRenderLayers(){
   if (!box) return;
   box.innerHTML = "";
   if (!s2r.sheet || !s2r.tpl) return;
-  const list = s2rLayerList(), at = s2rSelSlot();
+  const list = s2rLayerList(), at = s2rSelSlot(), named = s2rRigSlotNames();
   const sum = $("#s2rLayersSec > summary");
   sum.textContent = "Layers · " + list.length + (s2rLayersOut().layers ? " · yours" : "");
   for (const slot of list){
@@ -13512,10 +13556,11 @@ function s2rRenderLayers(){
     if (region) s2rThumb(cv, region);
     const n = document.createElement("span");
     n.className = "s2rName";
-    n.textContent = slot;
-    const more = prop ? "on " + prop.host : parts.filter((p) => p !== slot).join(", ");
+    const own = named[slot] || slot;
+    n.textContent = own;
+    const more = prop ? "on " + prop.host : parts.filter((p) => p !== own).join(", ");
     if (more){ const i = document.createElement("i"); i.textContent = more; n.appendChild(i); }
-    n.title = slot + (prop ? ": a prop on " + prop.host : parts.length ? ": " + parts.join(", ") : "");
+    n.title = own + (prop ? ": a prop on " + prop.host : parts.length ? ": the region drawing " + parts.join(", ") : "");
     d.onclick = () => { s2rPickSlot(slot); s2rRender(); s2rDraw(); };
     d.append(g, cv, n);
     box.appendChild(d);

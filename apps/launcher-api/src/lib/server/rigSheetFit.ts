@@ -58,6 +58,7 @@ import {
 	sheetLayerList,
 	sheetPropPlaces,
 	sheetSide,
+	sheetSlotNames,
 	type P,
 	type SheetKind,
 	type SheetMapping,
@@ -706,7 +707,9 @@ export function sheetRig(
 			: {}),
 		...(m.layers && fitLayers ? { order: [...m.layers].reverse() } : {}),
 	};
-	const against = layersAgainstDepth(t, fit);
+	// Judged by the rig's names for its slots (its regions'), as the Layers list shows them.
+	const names = sheetSlotNames(t, m);
+	const against = layersAgainstDepth(t, { ...fit, slots: names });
 	if (against) return layersRefused(against);
 	const mains = mapped.filter((x) => x.main).map((x) => x.part);
 	const posed = framePose(t, fit, mains);
@@ -736,6 +739,8 @@ export function sheetRig(
 		if (b?.grid && w > h && b.grid[0] < b.grid[1]) b.grid = [b.grid[1], b.grid[0]];
 	}
 	if (Object.keys(bends).length) fit.bends = bends;
+	// One slot per region, named as the region is (§13.1h): the fit names the roles, and this the rig's.
+	fit.slots = names;
 	const problem = templateFitProblem(t, fit);
 	if (problem) return no(problem);
 	return {
@@ -776,13 +781,12 @@ function layersAgainstDepth(t: RigTemplate, fit: RigFit): string | null {
 
 /**
  * Why a draw order (`slots`, back to front: a fitted template's, or a rig's) cannot stand with the
- * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged. A
- * slot outside the Layers list (`listed`, when given) was put there in Setup, and is worded so.
+ * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged;
+ * every slot a depth control steps is one the Layers list draws (one slot per region, §13.1h).
  */
 function slotsAgainstDepth(
 	channels: readonly RigTemplateChannel[],
 	slots: readonly string[],
-	listed?: ReadonlySet<string>,
 ): string | null {
 	const at = new Map(slots.map((n, i) => [n, i]));
 	for (const c of channels) {
@@ -793,22 +797,25 @@ function slotsAgainstDepth(
 		for (const st of c.order.steps) {
 			if (!at.has(st.behind) || at.get(st.behind)! < at.get(back)!) continue;
 			const moves = `the control "${c.label}" moves it from in front of "${st.behind}" to behind it`;
-			return listed && !listed.has(back)
-				? `Setup's slots draw "${back}" behind "${st.behind}", but ${moves}: fix the order in Setup's slots, or leave the Layers as opened`
-				: `the Layers draw "${back}" behind "${st.behind}", but ${moves}: keep ${back} in front of ${st.behind}`;
+			return `the Layers draw "${back}" behind "${st.behind}", but ${moves}: keep ${back} in front of ${st.behind}`;
 		}
 	}
 	return null;
 }
 
-/** The slots mapping `m` draws in, back to front, as its Layers list orders them (`sheetLayerList`). */
-function sheetLayerOrder(t: RigTemplate, m: SheetMapping): string[] {
+/**
+ * The slots mapping `m` draws in, back to front, as its Layers list orders them (`sheetLayerList`),
+ * by the names `fit` gives them in the rig (§13.1h).
+ */
+function sheetLayerOrder(t: RigTemplate, m: SheetMapping, fit: RigFit): string[] {
 	const slotOf = (part: string) => t.parts.find((p) => p.name === part)?.slot ?? part;
 	return sheetLayerList(
 		t.slots.map((s) => s.name),
 		slotOf,
 		m,
-	).reverse();
+	)
+		.reverse()
+		.map((n) => fit.slots?.[n] ?? n);
 }
 
 /**
@@ -825,7 +832,7 @@ function layersJudged(
 	had: readonly string[],
 ): boolean {
 	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null)) return false;
-	const want = sheetLayerOrder(t, m);
+	const want = sheetLayerOrder(t, m, fit);
 	if (inDrawOrder(had, want).some((n, i) => n !== had[i])) return true;
 	const have = new Set(had);
 	const stepped = new Set(fitTemplate(t, fit).channels.flatMap((c) => c.order?.slots ?? []));
@@ -849,12 +856,11 @@ export function sheetLayersApplied(
 ): LayersFitted<string[] | null> {
 	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null))
 		return { ok: true, value: null };
-	const want = sheetLayerOrder(t, m);
+	const want = sheetLayerOrder(t, m, fit);
 	const now = inDrawOrder(merged, want);
 	if (now.every((n, i) => n === merged[i])) return { ok: true, value: null };
 	const against =
-		layersJudged(t, fit, m, was, had) &&
-		slotsAgainstDepth(fitTemplate(t, fit).channels, now, new Set(want));
+		layersJudged(t, fit, m, was, had) && slotsAgainstDepth(fitTemplate(t, fit).channels, now);
 	return against ? layersRefused(against) : { ok: true, value: now };
 }
 
@@ -895,7 +901,7 @@ export function sheetPreview(
 	);
 	const order = inDrawOrder(
 		ft.slots.map((s) => s.name),
-		m.layers ? sheetLayerOrder(t, m) : [],
+		m.layers ? sheetLayerOrder(t, m, fit) : [],
 	);
 	const slotAt = new Map(order.map((n, i) => [n, i]));
 	const slotOf = (name: string) => ft.parts.find((p) => p.name === name)?.slot ?? name;

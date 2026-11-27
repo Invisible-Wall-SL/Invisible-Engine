@@ -24,6 +24,7 @@ import {
 	ownerRig,
 	player,
 	runGate,
+	slotOf,
 	turnOf,
 	turned,
 } from './owner-sheet.mjs';
@@ -35,7 +36,7 @@ const ROLL = 20;
 /** How far off the capture's roll the head's drawing may turn (degrees); off its turn, rig units. */
 const TURN_KEPT = 0.75;
 const WHOLE = 0.5;
-/** The face's own parts and the glasses a roll carries round the head with it. */
+/** The face's own parts (by template slot) a roll carries round the head with it, as the glasses. */
 const CARRIED = ['pupil_l', 'pupil_r', 'lid_upper_l', 'lid_lower_r', 'nose', 'lip_upper'];
 
 const GUARDS = {
@@ -56,7 +57,7 @@ const GUARDS = {
 			const head = turnOf(drawn(rest, 'head'), drawn(end, 'head'));
 			const pivot = [rest.findBone('head').worldX, rest.findBone('head').worldY];
 			const parts = [
-				...(face ? [] : CARRIED),
+				...(face ? [] : CARRIED.map((r) => slotOf(rig, r))),
 				...rig.irig.slots.filter((s) => /glasses/.test(s.name)).map((s) => s.name),
 			];
 			const slip = parts.map((s) => {

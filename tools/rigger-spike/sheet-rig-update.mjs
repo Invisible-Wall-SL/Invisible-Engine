@@ -141,6 +141,12 @@ const USER_SLOT = 'user_patch';
 const MOVED = 5;
 /** Two drawings this close (rig units, the rig's offsets written to 1e-4) are the same. */
 const SAME = 0.01;
+/**
+ * The slot of `doc` drawing template part `part`: its attachment keeps the part's name, the slot
+ * takes its region's (one slot per region, frame-to-rig §13.1h).
+ */
+const slotIn = (doc, part) =>
+	Object.entries(doc.skins[0].attachments).find(([, by]) => by[part])?.[0] ?? part;
 
 /** The mapping the page sends for the sheet, arranged as its preview draws it at rest. */
 function baseMapping(M) {
@@ -245,7 +251,7 @@ function authored(doc) {
 			prop_glasses: { translate: [{ time: 0.25, x: 3, y: 1 }] },
 		},
 	};
-	const torso = d.skins[0].attachments.torso.torso;
+	const torso = d.skins[0].attachments[slotIn(d, 'torso')].torso;
 	const i = torso.vertices.indexOf(1) + 2;
 	torso.vertices[i] = Math.round((torso.vertices[i] + 2.5) * 1e4) / 1e4;
 	return d;
@@ -385,14 +391,13 @@ const GUARDS = {
 		let good = true;
 		good =
 			ok(
-				'remapped: the neck draws its new region',
-				doc.skins[0].attachments.neck?.neck?.path === 'bg_glow',
-				JSON.stringify(doc.skins[0].attachments.neck?.neck?.path),
+				'remapped: the neck draws its new region, in a slot named after it',
+				doc.skins[0].attachments.bg_glow?.neck?.path === 'bg_glow' &&
+					!doc.slots.some((s) => s.name === slotIn(made, 'neck')),
+				JSON.stringify(doc.slots.map((s) => s.name)),
 			) && good;
 		const fresh = create(M, edited);
-		const named = Object.keys(fresh.skins[0].attachments).filter(
-			(s) => s.startsWith('torso') || s.startsWith('head'),
-		);
+		const named = ['torso', 'head'].map((part) => slotIn(fresh, part));
 		for (const slot of named)
 			for (const [name, att] of Object.entries(fresh.skins[0].attachments[slot])) {
 				const got = doc.skins[0].attachments[slot]?.[name];
@@ -404,16 +409,14 @@ const GUARDS = {
 					) && good;
 			}
 		const [b, a] = [posed(M, made, 'frame'), posed(M, doc, 'frame')];
-		const off = farthest(
-			drawing(b, 'lower_arm_r', 'lower_arm_r'),
-			drawing(a, 'lower_arm_r', 'lower_arm_r'),
-		);
+		const fore = slotIn(made, 'lower_arm_r');
+		const off = farthest(drawing(b, fore, 'lower_arm_r'), drawing(a, fore, 'lower_arm_r'));
 		good =
 			ok('remapped: an untouched part draws in the frame where it did', off <= SAME, `${off}`) &&
 			good;
 		void before;
 		log(
-			`neck → ${doc.skins[0].attachments.neck.neck.path}; the right forearm moved ${off.toExponential(1)}`,
+			`neck → ${doc.skins[0].attachments[slotIn(doc, 'neck')].neck.path}; the right forearm moved ${off.toExponential(1)}`,
 		);
 		return good;
 	},
@@ -428,7 +431,7 @@ const GUARDS = {
 			posed(M, c.doc, 'frame'),
 			posed(M, fresh, 'frame'),
 		];
-		const arm = (s) => drawing(s, 'upper_arm_l', 'upper_arm_l');
+		const arm = (s) => drawing(s, slotIn(c.made, 'upper_arm_l'), 'upper_arm_l');
 		const moved = d2(centre(arm(was)), centre(arm(now)));
 		const off = farthest(arm(now), arm(want));
 		good =
@@ -471,7 +474,7 @@ const GUARDS = {
 			ok(
 				'props: the badge has a bone on the torso and a slot drawn over it',
 				doc.bones.some((b) => b.name === 'prop_badge') &&
-					order.indexOf('prop_badge') > order.indexOf('torso') &&
+					order.indexOf('prop_badge') > order.indexOf(slotIn(doc, 'torso')) &&
 					report.added.includes('prop_badge'),
 				order.join(' '),
 			) && good;
@@ -503,13 +506,12 @@ const GUARDS = {
 				JSON.stringify(torso),
 			) && good;
 		const kept = updateCase(M, { keep: ['torso'] });
+		const vertsOf = (doc) =>
+			JSON.stringify(doc.skins[0].attachments[slotIn(doc, 'torso')].torso.vertices);
 		good =
 			ok(
 				'handedit: kept when asked (the dragged vertex stays), replaced when not',
-				JSON.stringify(kept.doc.skins[0].attachments.torso.torso.vertices) ===
-					JSON.stringify(kept.before.skins[0].attachments.torso.torso.vertices) &&
-					JSON.stringify(asked.doc.skins[0].attachments.torso.torso.vertices) !==
-						JSON.stringify(asked.before.skins[0].attachments.torso.torso.vertices),
+				vertsOf(kept.doc) === vertsOf(kept.before) && vertsOf(asked.doc) !== vertsOf(asked.before),
 			) && good;
 		log(`hand-edited: ${torso.map((h) => `${h.part} (may keep: ${h.canKeep})`).join(', ')}`);
 		return good;
@@ -552,6 +554,7 @@ const GUARDS = {
 		const t = M.HALF_BODY;
 		const base = baseMapping(M);
 		const made = create(M, base);
+		const setup = (doc) => doc.slots.map((s) => s.name);
 		const drawn = new Set(
 			M.sheetLayerList(
 				t.slots.map((s) => s.name),
@@ -559,6 +562,16 @@ const GUARDS = {
 				base,
 			),
 		);
+		// The list names the template's slots, the rig its regions' (one slot per region, §13.1h): a
+		// rig's order is read back into the list's names as 🗺 Edit mapping reads it.
+		const names = M.sheetRig(t, REGIONS, base).value.fit.slots;
+		const rn = (n) => names[n] ?? n;
+		const roles = new Map(Object.entries(names).map(([r, n]) => [n, r]));
+		const listed = (doc) =>
+			setup(doc)
+				.map((n) => roles.get(n) ?? n)
+				.filter((n) => drawn.has(n))
+				.reverse();
 		// The author's reorder in Setup's slots: the watch under its forearm; and a clip of theirs with
 		// a draw-order key drawing the left hand in front of everything.
 		const before = clone(made);
@@ -567,17 +580,16 @@ const GUARDS = {
 			1,
 		)[0];
 		before.slots.splice(
-			before.slots.findIndex((s) => s.name === 'lower_arm_r'),
+			before.slots.findIndex((s) => s.name === rn('lower_arm_r')),
 			0,
 			watch,
 		);
-		const hand = before.slots.findIndex((s) => s.name === 'hand_l');
+		const hand = before.slots.findIndex((s) => s.name === rn('hand_l'));
 		before.animations.layered = {
 			drawOrder: [
-				{ time: 0.5, offsets: [{ slot: 'hand_l', offset: before.slots.length - 1 - hand }] },
+				{ time: 0.5, offsets: [{ slot: rn('hand_l'), offset: before.slots.length - 1 - hand }] },
 			],
 		};
-		const setup = (doc) => doc.slots.map((s) => s.name);
 		const keyed = (doc) =>
 			posed(M, doc, 'layered', 0.6)
 				.drawOrder.map((s) => s.data.name)
@@ -602,9 +614,7 @@ const GUARDS = {
 					setup(same.doc).join(' '),
 				) && good;
 		}
-		const fromRig = setup(before)
-			.filter((n) => drawn.has(n))
-			.reverse();
+		const fromRig = listed(before);
 		if (on('opened')) {
 			const opened = update({ ...clone(base), layers: fromRig });
 			good =
@@ -623,18 +633,15 @@ const GUARDS = {
 			good =
 				ok(
 					'layers: a changed list orders the slots it lists (the chain behind the torso)',
-					after
-						.filter((n) => drawn.has(n))
-						.reverse()
-						.join() === own.join() && changed.report.layered.includes('prop_chain'),
+					listed(changed.doc).join() === own.join() &&
+						changed.report.layered.includes('prop_chain'),
 					after.join(' '),
 				) && good;
-			const others = (list) =>
-				JSON.stringify(list.map((n, i) => [n, i]).filter(([n]) => !drawn.has(n)));
 			good =
 				ok(
-					'layers: every slot it does not list keeps its place',
-					others(after) === others(setup(before)),
+					'layers: no slot made or lost: one per region, every one listed',
+					after.length === setup(before).length && listed(changed.doc).length === after.length,
+					after.join(' '),
 				) && good;
 			good =
 				ok(
@@ -648,17 +655,15 @@ const GUARDS = {
 		// a list then changed to move a slot meets the control.
 		const armBack = clone(before);
 		const arm = armBack.slots.splice(
-			armBack.slots.findIndex((s) => s.name === 'upper_arm_l'),
+			armBack.slots.findIndex((s) => s.name === rn('upper_arm_l')),
 			1,
 		)[0];
 		armBack.slots.splice(
-			armBack.slots.findIndex((s) => s.name === 'head'),
+			armBack.slots.findIndex((s) => s.name === rn('head')),
 			0,
 			arm,
 		);
-		const armList = setup(armBack)
-			.filter((n) => drawn.has(n))
-			.reverse();
+		const armList = listed(armBack);
 		const armUpdate = (layers) =>
 			M.updateSheetRig({
 				template: t,
@@ -685,7 +690,9 @@ const GUARDS = {
 				ok(
 					'layers: a changed list that leaves the arm behind the head refused, naming the depth control',
 					!armRefused.ok &&
-						/the Layers draw "upper_arm_l" behind "head"/.test(armRefused.problem) &&
+						armRefused.problem.includes(
+							`the Layers draw "${rn('upper_arm_l')}" behind "${rn('head')}"`,
+						) &&
 						/depth/i.test(armRefused.problem),
 					armRefused.ok ? 'updated' : armRefused.problem,
 				) && good;
@@ -724,36 +731,50 @@ const GUARDS = {
 							.filter((n) => had.has(n))
 							.join() === setup(armBack).join() &&
 						setup(wornKept.value.doc).indexOf('prop_badge') + 1 ===
-							setup(wornKept.value.doc).indexOf('torso'),
+							setup(wornKept.value.doc).indexOf(rn('torso')),
 					wornKept.ok ? setup(wornKept.value.doc).join(' ') : wornKept.problem,
 				) && good;
 		}
 		if (on('finger')) {
-			// A slot the list does not name (a finger) drawn behind the head in Setup: a changed list is
-			// judged on the order the update applies, so the finger the control steps meets it too.
-			const finger = clone(before);
-			const pinky = finger.slots.splice(
-				finger.slots.findIndex((s) => s.name === 'pinky_1_l'),
-				1,
-			)[0];
+			// A finger drawn as a part of its own (one slot per region: a finger no region draws has no
+			// slot), drawn behind the head in Setup; the list opened from that order, then changed: the
+			// finger the control steps meets it, in the Layers' words.
+			const pinky = clone(base);
+			const glow = regionOf('bg_glow');
+			pinky.parts.pinky_1_l = { region: 'bg_glow', joints: { pivot: [glow.w / 2, glow.h / 2] } };
+			const finger = create(M, pinky);
+			const at = finger.slots.findIndex((s) => s.name === 'bg_glow');
+			const [slot] = finger.slots.splice(at, 1);
 			finger.slots.splice(
-				finger.slots.findIndex((s) => s.name === 'head'),
+				finger.slots.findIndex((s) => s.name === rn('head')),
 				0,
+				slot,
+			);
+			const fingerList = M.sheetLayerList(
+				t.slots.map((s) => s.name),
+				(p) => slotOf(M, p),
 				pinky,
 			);
+			const pinkyRoles = new Map([...roles, ['bg_glow', 'pinky_1_l']]);
+			const opened = setup(finger)
+				.map((n) => pinkyRoles.get(n) ?? n)
+				.filter((n) => fingerList.includes(n))
+				.reverse();
+			opened.splice(opened.indexOf('prop_chain'), 1);
+			opened.splice(opened.indexOf('torso') + 1, 0, 'prop_chain');
 			const fingerRefused = M.updateSheetRig({
 				template: t,
 				regions: REGIONS,
-				was: base,
-				mapping: { ...clone(base), layers: own },
+				was: pinky,
+				mapping: { ...clone(pinky), layers: opened },
 				current: finger,
 			});
 			good =
 				ok(
-					"layers: a changed list judged on the order the update applies (a finger Setup drew behind the head), worded for Setup's slots",
+					'layers: a changed list holds a finger Setup drew behind the head to the depth control, in its words',
 					!fingerRefused.ok &&
-						/^Setup's slots draw "pinky_1_l" behind "head"/.test(fingerRefused.problem) &&
-						/fix the order in Setup's slots/.test(fingerRefused.problem),
+						fingerRefused.problem.includes(`the Layers draw "bg_glow" behind "${rn('head')}"`) &&
+						/depth/i.test(fingerRefused.problem),
 					fingerRefused.ok ? 'updated' : fingerRefused.problem,
 				) && good;
 		}
@@ -789,9 +810,9 @@ const GUARDS = {
 				ok(
 					'layers: a prop worn anew on an arm, drawn behind the head, refused as 🦴 Create rig refuses it',
 					!bandRefused.ok &&
-						/the Layers draw "prop_band" behind "head"/.test(bandRefused.problem) &&
+						bandRefused.problem.includes(`the Layers draw "prop_band" behind "${rn('head')}"`) &&
 						!bandCreate.ok &&
-						/behind "head"/.test(bandCreate.problem),
+						bandCreate.problem.includes(`behind "${rn('head')}"`),
 					bandRefused.ok ? 'updated' : bandRefused.problem,
 				) && good;
 		}
@@ -863,7 +884,7 @@ const MUTANTS = [
 	[
 		'kept',
 		'the rig rebuilt from the mapping, not merged',
-		[UPD, 'input: { current: o.current, fresh,', 'input: { current: fresh, fresh,'],
+		[UPD, 'current: migrated.doc,\n\t\t\t\tfresh,', 'current: fresh,\n\t\t\t\tfresh,'],
 	],
 	[
 		'remapped',
@@ -902,8 +923,8 @@ const MUTANTS = [
 		'as made read off the new build',
 		[
 			UPD,
-			'const asMade = was.ok ? was.value.skeleton : o.current;',
-			'const asMade = was.ok ? now.value.skeleton : o.current;',
+			'const asMade = was.ok ? was.value.skeleton : migrated.doc;',
+			'const asMade = was.ok ? now.value.skeleton : migrated.doc;',
 		],
 	],
 	[
@@ -929,7 +950,11 @@ const MUTANTS = [
 	[
 		'layers',
 		'the list applied back to front',
-		[FIT, '\t\tm,\n\t).reverse();\n}', '\t\tm,\n\t);\n}'],
+		[
+			FIT,
+			'\t)\n\t\t.reverse()\n\t\t.map((n) => fit.slots?.[n] ?? n);',
+			'\t).map((n) => fit.slots?.[n] ?? n);',
+		],
 		['changed'],
 	],
 	['layers', "a draw-order key's drawing not kept", [UPD, '\t\tback();\n', ''], ['changed']],
@@ -973,18 +998,8 @@ const MUTANTS = [
 	],
 	[
 		'layers',
-		"a slot Setup put wrong worded as the Layers'",
-		[FIT, 'return listed && !listed.has(back)', 'return false'],
-		['finger'],
-	],
-	[
-		'layers',
-		"a list judged on the template's order, not the one the update applies",
-		[
-			FIT,
-			'slotsAgainstDepth(fitTemplate(t, fit).channels, now, new Set(want));',
-			'slotsAgainstDepth(fitTemplate(t, fit).channels, want, new Set(want));',
-		],
+		'a list never held to the depth controls for a slot Setup moved',
+		[FIT, '\tif (inDrawOrder(had, want).some((n, i) => n !== had[i])) return true;\n', ''],
 		['finger'],
 	],
 	[
