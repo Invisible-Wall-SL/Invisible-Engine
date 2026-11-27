@@ -7,7 +7,18 @@ import {
 	type Affine,
 	type RigFit,
 } from './rigTemplateFit';
-import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
+import type { RigTemplateControls } from './rigTemplateControls';
+import {
+	moduleChoiceProblem,
+	templateWithModules,
+	type RigModuleChoice,
+} from './rigTemplateModules';
+import {
+	templateFitProblem,
+	templateRig,
+	type RigTemplate,
+	type TemplateRegion,
+} from './rigTemplates';
 
 /**
  * 🔄 Update rig (docs/design/frame-to-rig.md §12 F2j): the parts a re-edited cut makes, swapped into
@@ -804,6 +815,302 @@ function dropDeforms(
 		}
 	}
 	return n;
+}
+
+// ---- a rig's modules changed in place --------------------------------------------------------------
+
+/** What a module change did to a rig (docs/design/rig-modules.md §4). */
+export interface ModuleChangeReport {
+	/** Bones taken out with their keys and constraints, a weighted vertex's share handed up. */
+	bones: string[];
+	/** Slots taken out with their attachments and keys. */
+	slots: string[];
+	/** Bones kept with nothing left on them (a bare wrist): their controls go too. */
+	bared: string[];
+	/** Constraints taken out: they named a bone that went. */
+	constraints: string[];
+	/** Keys taken out with them (bone, slot, attachment and deform keys). */
+	keys: number;
+	/** Bones and slots put in, where the build of the new set has them. */
+	added: { bones: string[]; slots: string[] };
+}
+
+/** What a template has of a rig: its bones and slots by name. */
+interface TemplateNames {
+	bones: readonly { name: string }[];
+	slots: readonly { name: string }[];
+}
+
+/**
+ * Rig `current` (made with template `from`: its modules) with the module set of template `to`
+ * (docs/design/rig-modules.md §4), in place: what `from` has and `to` lacks taken out — slots with
+ * their attachments and keys, bones with their keys and the constraints naming them, a weighted
+ * vertex's share of a bone that goes handed to the nearest bone kept above it where the vertex is at
+ * setup, the bones renumbered, every draw-order key still drawing what it drew — and, with `fresh`
+ * (`templateRig` of `to` over the rig's art, on its lengths), what `to` has and `from` lacks put in
+ * where `fresh` has it, its art bound to the rig's bones. Refused when the author hung a bone or a
+ * slot of their own on a bone that goes. Neither input is modified.
+ */
+export function changeModules(
+	current: Json,
+	from: TemplateNames,
+	to: TemplateNames,
+	fresh?: Json,
+): { ok: true; doc: Json; report: ModuleChangeReport } | { ok: false; problem: string } {
+	const doc = structuredClone(current) as Doc;
+	const report: ModuleChangeReport = {
+		bones: [],
+		slots: [],
+		bared: [],
+		constraints: [],
+		keys: 0,
+		added: { bones: [], slots: [] },
+	};
+	const [fromBones, toBones, fromSlots, toSlots] = [from.bones, to.bones, from.slots, to.slots].map(
+		(xs) => new Set(xs.map((x) => x.name)),
+	);
+	const goneBones = new Set(
+		doc.bones.filter((b) => fromBones.has(b.name) && !toBones.has(b.name)).map((b) => b.name),
+	);
+	const goneSlots = new Set(
+		(doc.slots ?? [])
+			.filter((s) => fromSlots.has(s.name) && !toSlots.has(s.name))
+			.map((s) => s.name),
+	);
+	const strayBone = doc.bones.find(
+		(b) => b.parent && goneBones.has(b.parent) && !goneBones.has(b.name),
+	);
+	if (strayBone)
+		return {
+			ok: false,
+			problem: `your bone "${strayBone.name}" hangs from "${strayBone.parent}", which the change takes out: hang it elsewhere first`,
+		};
+	const straySlot = (doc.slots ?? []).find((s) => goneBones.has(s.bone) && !goneSlots.has(s.name));
+	if (straySlot)
+		return {
+			ok: false,
+			problem: `your slot "${straySlot.name}" is on "${straySlot.bone}", which the change takes out: move it first`,
+		};
+	const anims = Object.values(doc.animations ?? {}).filter(isRecord);
+
+	// The slots, their attachments and keys; every draw-order key re-read without them.
+	const reorder = keepDrawOrders(doc);
+	for (const skin of doc.skins ?? []) for (const s of goneSlots) delete skin.attachments?.[s];
+	for (const a of anims) {
+		for (const key of ['attachments', 'deform'] as const) {
+			const by = a[key];
+			if (!isRecord(by)) continue;
+			for (const skin of Object.values(by))
+				if (isRecord(skin))
+					for (const s of goneSlots)
+						if (skin[s] !== undefined) {
+							report.keys += count(skin[s]);
+							delete skin[s];
+						}
+		}
+		if (isRecord(a.slots))
+			for (const s of goneSlots)
+				if (a.slots[s] !== undefined) {
+					report.keys += count(a.slots[s]);
+					delete a.slots[s];
+				}
+	}
+	const emptied = new Set(
+		(doc.slots ?? [])
+			.filter((s) => goneSlots.has(s.name) && !goneBones.has(s.bone))
+			.map((s) => s.bone),
+	);
+	doc.slots = (doc.slots ?? []).filter((s) => !goneSlots.has(s.name));
+	reorder();
+	report.slots.push(...goneSlots);
+	report.bared.push(...[...emptied].filter((b) => !doc.slots!.some((s) => s.bone === b)));
+
+	// The constraints naming a bone that goes, and their keys.
+	const goneConstraints = new Map<ConstraintKind, Set<string>>();
+	for (const kind of CONSTRAINT_KINDS) {
+		const list = (doc[kind] as Json[] | undefined) ?? [];
+		const kept = list.filter((c) => {
+			const named = [c.target, c.bone, ...(Array.isArray(c.bones) ? c.bones : [])];
+			if (!named.some((n) => typeof n === 'string' && goneBones.has(n))) return true;
+			(goneConstraints.get(kind) ?? goneConstraints.set(kind, new Set()).get(kind)!).add(
+				String(c.name),
+			);
+			report.constraints.push(String(c.name));
+			return false;
+		});
+		if (doc[kind] !== undefined) doc[kind] = kept;
+	}
+	for (const a of anims)
+		for (const [kind, names] of goneConstraints) {
+			const tl = a[kind];
+			if (isRecord(tl))
+				for (const n of names) {
+					report.keys += count(tl[n]);
+					delete tl[n];
+				}
+		}
+	for (const skin of doc.skins ?? []) {
+		for (const kind of CONSTRAINT_KINDS) {
+			const names = goneConstraints.get(kind);
+			if (names && Array.isArray(skin[kind]))
+				skin[kind] = (skin[kind] as string[]).filter((n) => !names.has(n));
+		}
+		if (Array.isArray(skin.bones))
+			skin.bones = (skin.bones as string[]).filter((b) => !goneBones.has(b));
+	}
+
+	// The bones: their keys, a weighted vertex's share handed up, the rest renumbered.
+	for (const a of anims)
+		if (isRecord(a.bones))
+			for (const b of goneBones)
+				if (a.bones[b] !== undefined) {
+					report.keys += count(a.bones[b]);
+					delete a.bones[b];
+				}
+	if (goneBones.size) {
+		const W = setupWorld(doc.bones);
+		const byName = new Map(doc.bones.map((b) => [b.name, b]));
+		const above = (n: string): string => {
+			let b = byName.get(n);
+			while (b && goneBones.has(b.name) && b.parent) b = byName.get(b.parent);
+			return b?.name ?? doc.bones[0].name;
+		};
+		const index = new Map(doc.bones.map((b, i) => [b.name, i]));
+		for (const { slot, name, att } of attachmentsOf(doc)) {
+			const inf = influences(att);
+			if (!inf || !inf.some((one) => one.some(([b]) => goneBones.has(doc.bones[b].name)))) continue;
+			const before = deformLength(att);
+			const folded = inf.map((one) => {
+				const merged = new Map<number, [number, number, number]>();
+				for (const [b, x, y, w] of one) {
+					const n = doc.bones[b].name;
+					let [i, lx, ly] = [b, x, y];
+					if (goneBones.has(n)) {
+						const to = above(n);
+						[lx, ly] = apply(invert(W.get(to)!), ...apply(W.get(n)!, x, y));
+						i = index.get(to)!;
+					}
+					const acc = merged.get(i);
+					merged.set(i, acc ? [acc[0] + lx * w, acc[1] + ly * w, acc[2] + w] : [lx * w, ly * w, w]);
+				}
+				return [...merged].map(([i, [sx, sy, w]]): [number, number, number, number] => [
+					i,
+					round4(sx / w),
+					round4(sy / w),
+					round4(w),
+				]);
+			});
+			att.vertices = flatten(folded);
+			report.keys += dropDeforms(doc, slot, name, before, deformLength(att));
+		}
+		reorderBones(
+			doc,
+			doc.bones.map((b) => b.name).filter((n) => !goneBones.has(n)),
+		);
+		report.bones.push(...goneBones);
+	}
+
+	// What the new set adds, from its build over the rig's art.
+	const made = fresh as Doc | undefined;
+	if (made) {
+		const has = (n: string) => doc.bones.some((b) => b.name === n);
+		const madeBones = new Map(made.bones.map((b) => [b.name, b]));
+		const nearest = (n: string): string => {
+			for (let b = madeBones.get(n); b; b = b.parent ? madeBones.get(b.parent) : undefined)
+				if (has(b.name)) return b.name;
+			return doc.bones[0].name;
+		};
+		const adds = (n: string) => toBones.has(n) && !fromBones.has(n);
+		for (const b of made.bones)
+			if (adds(b.name) && !has(b.name)) {
+				doc.bones.push(placedOn(b, nearest(b.parent ?? b.name), made, doc));
+				report.added.bones.push(b.name);
+			}
+		doc.slots ??= [];
+		const slotAdds = (n: string) =>
+			toSlots.has(n) && !fromSlots.has(n) && !doc.slots!.some((s) => s.name === n);
+		const places = newSlotPlaces(doc.slots, made.slots ?? [], slotAdds);
+		for (const { at, slot } of places) doc.slots.splice(at, 0, structuredClone(slot));
+		const madeSkin = (made.skins ?? []).find((s) => s.name === 'default') ?? made.skins?.[0];
+		doc.skins ??= [];
+		if (!doc.skins.length) doc.skins.push({ name: 'default', attachments: {} });
+		const skin = doc.skins.find((s) => s.name === 'default') ?? doc.skins[0];
+		skin.attachments ??= {};
+		const madeNames = made.bones.map((b) => b.name);
+		const bind = setupWorld(made.bones);
+		const folding: FrameUpdateReport = {
+			replaced: [],
+			handEdited: [],
+			added: [],
+			turned: [],
+			linked: [],
+			removed: [],
+			rehung: [],
+			deformDropped: [],
+			foldedBones: [],
+			slotless: [],
+		};
+		for (const { slot } of places) {
+			report.added.slots.push(slot.name);
+			const atts = madeSkin?.attachments?.[slot.name];
+			if (!atts) continue;
+			skin.attachments[slot.name] = Object.fromEntries(
+				Object.entries(atts).map(([n, att]) => [
+					n,
+					bound(
+						att,
+						madeNames,
+						bind,
+						doc.bones.map((b) => b.name),
+						nearest,
+						folding,
+					),
+				]),
+			);
+		}
+		for (const kind of CONSTRAINT_KINDS) {
+			const list = (made[kind] as Json[] | undefined) ?? [];
+			for (const c of list) {
+				const named = [c.target, c.bone, ...(Array.isArray(c.bones) ? c.bones : [])];
+				const mine = ((doc[kind] as Json[] | undefined) ?? []).some((x) => x.name === c.name);
+				if (mine || !named.some((n) => typeof n === 'string' && report.added.bones.includes(n)))
+					continue;
+				if (!named.every((n) => typeof n !== 'string' || has(n))) continue;
+				doc[kind] = [...((doc[kind] as Json[] | undefined) ?? []), structuredClone(c)];
+			}
+		}
+	}
+	return { ok: true, doc, report };
+}
+
+/**
+ * 🧩 Modules for a rig made with ＋ New rig (docs/design/rig-modules.md §4): rig `current`, made from
+ * template `whole` with module set `was`, changed to `now` — what goes taken out, what comes made over
+ * the rig's art (`regions`) on its fit (when it still fits the new set) and merged (`changeModules`).
+ */
+export function planModules(o: {
+	whole: RigTemplate;
+	was?: RigModuleChoice;
+	now: RigModuleChoice;
+	regions: readonly TemplateRegion[];
+	fit?: RigFit | null;
+	current: Json;
+}):
+	| { ok: true; doc: Json; report: ModuleChangeReport; controls?: RigTemplateControls }
+	| { ok: false; problem: string } {
+	const bad = moduleChoiceProblem(o.whole, o.now);
+	if (bad) return { ok: false, problem: bad };
+	const from = templateWithModules(o.whole, o.was);
+	const to = templateWithModules(o.whole, o.now);
+	const fit = o.fit && !templateFitProblem(to, o.fit) ? o.fit : undefined;
+	const changed = changeModules(o.current, from, to, templateRig(to, o.regions, fit).skeleton);
+	if (!changed.ok) return changed;
+	return {
+		ok: true,
+		doc: changed.doc,
+		report: changed.report,
+		...(to.controls ? { controls: to.controls } : {}),
+	};
 }
 
 // ---- the sidecar's record of what was made ------------------------------------------------------

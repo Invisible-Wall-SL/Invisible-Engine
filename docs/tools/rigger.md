@@ -1342,6 +1342,14 @@ template** below), listed as `<name> (template v<n>)`.
   **Create**, **🗺 From my sheet** (its parts list drops what the choice leaves out) and, for now,
   only the defaults to **🎞 From a Flipbook frame**. The rig's Controls, picker, IK, 3D setup and
   🎥 Motion all follow the choice: a capture keys no hand the rig lacks.
+- **Change a rig's modules later** with **🧩** in the rig panel (shown when its template has
+  modules): pick, **Apply**. What the new choice leaves out leaves the rig — its bones, slots and
+  every key on them (you're told how many first); a mesh of yours weighted to a bone that goes moves
+  onto the bone above it where it stands; what it adds is made over the rig's art where a new rig
+  has it. One ↶ undo, then saved. A bone or slot of your own on a bone that would go stops it (move
+  it first). A rig made from a sheet changes its modules in **🗺 Edit mapping** (🧩 opens it): the
+  pickers sit in its top row, the parts list follows, and **🔄 Update rig** makes the change (map the
+  hands' regions to add hands back). A rig cut from a frame keeps every module for now.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template, and its modules off their default, in a `template.json` beside
   it in the bundle (a 🗺 rig's mapping keeps them too, so 🔄 Update rig builds the same rig).

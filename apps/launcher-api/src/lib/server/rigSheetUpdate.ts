@@ -16,6 +16,7 @@
  */
 import type { SheetMapping, SheetProp } from '../rigSheetMap';
 import {
+	changeModules,
 	frameRigUpdate,
 	keepDrawOrders,
 	madeAttachments,
@@ -23,6 +24,7 @@ import {
 	mergedSlots,
 	type FrameUpdateInput,
 	type FrameUpdateReport,
+	type ModuleChangeReport,
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
 import {
@@ -33,6 +35,7 @@ import {
 	type SheetPreview,
 } from './rigSheetFit';
 import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
+import type { RigTemplateControls } from './rigTemplateControls';
 import { templateWithModules } from './rigTemplateModules';
 import {
 	templateWithLinks,
@@ -70,11 +73,15 @@ export interface SheetUpdateResult {
 	 * frame, rig units): a rig with 3D data takes them into its `rig3d.json`.
 	 */
 	depths: Record<string, number>;
+	/** When the modules changed: the new set's control layer, for the rig's own to take what came. */
+	controls?: RigTemplateControls;
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean }[];
 		frame: FrameClipChange;
 		/** The slots the Layers list moved, when the author changed it: else the rig's order stays. */
 		layered: string[];
+		/** The template's modules changed with the mapping: what went and what came (`changeModules`). */
+		modules?: ModuleChangeReport;
 	};
 }
 
@@ -219,7 +226,24 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	const merge = merging(o);
 	if (!merge.ok) return merge;
 	const { fit, input, asMade, sameRegion } = merge.value;
-	const { doc, report } = frameRigUpdate(input);
+	// The mapping changed the template's modules (docs/design/rig-modules.md §4): the rig takes out
+	// what the new set lacks and gets what it adds, then the parts merge as ever.
+	let modules: ModuleChangeReport | undefined;
+	let current = input.current;
+	if (
+		JSON.stringify(o.was.template.modules ?? {}) !==
+		JSON.stringify(o.mapping.template.modules ?? {})
+	) {
+		const changed = changeModules(
+			o.current,
+			asMapped(o.template, o.was),
+			asMapped(o.template, o.mapping),
+			input.fresh,
+		);
+		if (!changed.ok) return { ok: false, problem: changed.problem };
+		({ doc: current, report: modules } = changed);
+	}
+	const { doc, report } = frameRigUpdate({ ...input, current });
 	const layers = sheetLayersApplied(
 		asMapped(o.template, o.mapping),
 		fit,
@@ -267,11 +291,15 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		value: {
 			doc,
 			depths: headTurnDepths(asMapped(o.template, o.mapping), fit),
+			...(modules && asMapped(o.template, o.mapping).controls
+				? { controls: asMapped(o.template, o.mapping).controls }
+				: {}),
 			report: {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
 				frame,
 				layered,
+				...(modules ? { modules } : {}),
 			},
 		},
 	};

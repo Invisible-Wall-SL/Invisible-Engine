@@ -37,6 +37,7 @@ export async function load(mutate = []) {
 			contents: [
 				"export * from './server/rigSheetFit.ts';",
 				"export * from './server/rigSheetUpdate.ts';",
+				"export { changeModules, planModules } from './server/rigFrameUpdate.ts';",
 				"export * from './rigSheetMap.ts';",
 				"export * from './server/rigTemplates.ts';",
 				"export * from './server/rigTemplateModules.ts';",
@@ -112,6 +113,8 @@ export async function load(mutate = []) {
 	const mod = await import(pathToFileURL(out).href);
 	return {
 		...mod,
+		/** A function of the page's script as written there (a mutant swapped in), by name. */
+		pageSource: (name) => pageFn(name, page),
 		/** The page's functions `names` (and its consts `consts`), by name. */
 		page: (names, consts = []) =>
 			new Function(

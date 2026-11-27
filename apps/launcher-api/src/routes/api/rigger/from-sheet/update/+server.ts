@@ -86,6 +86,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			},
 		},
 		depths: made.value.depths,
+		...(made.value.controls ? { controls: made.value.controls } : {}),
 		report: made.value.report,
 	});
 };
