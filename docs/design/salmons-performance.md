@@ -101,6 +101,8 @@ after T4 merges to avoid `SpawnLayer.svelte` conflicts).
   slot sample's purple-mine background (`foregroundAnimation` mm_bg rig, 2.9 MB GPU) behind the
   loading text, because the arcade reference layout keeps the coded slot Background anchor. Give the
   arcade reference its own loading art, then the coded slot Background and mm_bg can go too.
+  **Approved by the owner 2026-11-27** ("yes, give Salmons its own loading background"); built in T3,
+  from Salmons' own code-drawn art.
 - **WS permessage-deflate:** measure with `scripts/room-load.mjs` first.
 
 ## 6. Capture protocol (until T1 lands)
