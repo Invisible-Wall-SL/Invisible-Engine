@@ -266,6 +266,54 @@ partial unique index on (pr_number) where status in ('dispatched','running','pro
 **Order:** 15A first. Then 15B1 and 15C in parallel. 15B2 is the only card that waits on the
 owner's hands, and it holds only the YAML.
 
+### 10. The contract between the job and the launcher (fixed before 15B1 and 15C start)
+
+15B1 writes the job's side, and 15C writes the launcher's. Each pins this section in its fixtures,
+and the last of the two to land adds a cross-check that feeds 15B1's `collect` output to 15C's
+parser.
+
+**Dispatch** (the App, on `main`): `merge-main.yml` with the inputs `merge_run` (10 lower-case hex),
+`pr` (digits), `head_sha` and `main_sha` (40 lower-case hex). The run is named
+`Merge main <merge_run>`.
+
+**The result**, posted once by job `propose`'s `collect` to
+`POST /api/pipeline/merge-runs/<merge_run>/result` with a GitHub OIDC token (audience
+`invisible-launcher-merge-main`), as JSON:
+
+```
+{
+  "mergeRun": "<id>", "headSha": "<40 hex>", "mainSha": "<40 hex>", "baseSha": "<40 hex>",
+  "outcome": "proposed" | "needs_person" | "harness_conflict" | "protected_conflict"
+           | "too_large" | "no_proposal",
+  "failure": "<sentence>",            // instead of outcome, when the job itself broke
+  "reason": "<sentence naming the file or files>",   // every outcome but proposed
+  "files": [ { "path": "...", "choice": "main" | "change" | "both" | "combined" | "regenerated",
+               "rule": "runtime-bytes" | "vendored-bundle" | "docs-append" | "ratchet" | null,
+               "content": "<text>" | null, "mode": "100644" | "100755" } ],
+  "explanation": {
+    "conflicted": [ { "path": "...", "met": [ { "pr": 1234 | null, "title": "..." } ] } ],
+    "hunks": [ { "path": "...", "index": 0, "main": "...", "change": "...",
+                 "takes": "main" | "change" | "both" | "combined", "why": "...",
+                 "nowDoes": "..." | null, "otherwise": "..." | null } ],
+    "outside": [ { "path": "...", "what": "..." } ],
+    "checks": [ { "command": "...", "ok": true } ],
+    "risks": "..."
+  },
+  "usage": [ /* as a fix run's result: per model, tokens and the CLI's cost */ ]
+}
+```
+
+- **`files`** holds only the paths both sides changed, plus the files a rule regenerated. Content is
+  UTF-8 text with no NUL (a binary is `needs_person`). `null` content means deleted. The launcher
+  refuses any other path (§5).
+- **`explanation`** is required when `outcome` is `proposed`, mechanical-only included. For a
+  mechanical-only run, `collect` fills it from the rules: each hunk's `takes` and `why` come from
+  the rule, and `checks` lists the regeneration commands. `risks` is never empty: "none found" is
+  allowed. Missing or empty fields end the run `no_proposal`.
+- **Caps:** at most 10 files for the model plus the regenerated ones; 2 MB a file and 4 MB in all;
+  each text field 3,000 characters; 16,000 for `explanation` in all. Everything is untrusted text,
+  cleaned and scanned like a fix run's summary (ADR-0013 §5).
+
 ## Consequences
 
 - **About half the conflicts clear with one click and no spend.** The rest cost about $1–3 and a
