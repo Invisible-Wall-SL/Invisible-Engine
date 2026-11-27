@@ -16,8 +16,11 @@
  * are held for it), and 15 windows under 1% slow give a waiting second chance back; a browser's
  * 30 fps rhythm never adapts (Low Power Mode caps idle frames too) while rounds at 30 on a device
  * that idles at 60, a device slower than 30 (an iPhone 13 Pro at 14 fps) or a jittery 25–45 ms one
- * do; the floor holds; a step up after 30 good windows is a trial that backs off and is never
- * retried; at most 12 switches, the last only a revert. And the effects wiring of
+ * do; the floor holds; a step up after 30 good windows is a trial that backs off, retried after
+ * twice the wait at most twice (never without the second chance); after the second chance a step
+ * that does not help goes straight to the effects level; at most 12 switches, and the effects level
+ * stays reachable to the last of them (the review's mali2 session, 300 seeded random sessions).
+ * And the effects wiring of
  * `installRenderQuality` on a stand-in app: the effects are lowered and given back only on a
  * change (down to the last level, up from it, down again), and its teardown gives them back.
  */
@@ -527,6 +530,7 @@ console.log('\nthe second chance');
 		warm.endsWith('6->5 headroom 0, 5->6 slow again 0.3') &&
 			waiting?.level === 5 &&
 			waiting.failures === 1 &&
+			!waiting.never &&
 			waiting.goodWindows === 2 * RULES.goodWindows &&
 			snap.level.index < PHONE.length - 1 &&
 			snap.level.postFx === true &&
@@ -546,7 +550,8 @@ console.log('\nthe second chance');
 	check(
 		'a device always too slow one level up retries it at most once per doubling, within the cap',
 		steps.length <= RULES.maxSwitches &&
-			tries.length === 4 &&
+			tries.length === 1 + RULES.upRetries &&
+			sim.controller.snapshot().stepUp?.never === true &&
 			gaps.every((gap, i) => i === 0 || gap >= 1.8 * gaps[i - 1]) &&
 			steps.every((s) => ['slow', 'headroom', 'slow again'].includes(s.reason)) &&
 			sim.level() === 1,
@@ -594,7 +599,8 @@ console.log('\nthe second chance');
 	);
 }
 {
-	// One second chance a session: once it is taken, a step down that does not help stops.
+	// One second chance a session: once it is taken, a later step down that does not help leaves
+	// only the effects level to try, and when that does not help either, stepping down stops.
 	const sim = device();
 	sim.rounds(20, at(36, 36, 0));
 	const kept = sim.level();
@@ -603,12 +609,13 @@ console.log('\nthe second chance');
 	const climbed = sim.level();
 	sim.rounds(80, at(36));
 	check(
-		'one second chance a session: a later step down that does not help stops',
+		'one second chance a session: after it a step that does not help goes straight to effects',
 		kept === 2 &&
 			climbed === 0 &&
 			trail(sim) ===
 				'0->1 slow 0.3, 1->0 no gain 0.3, 0->2 second chance 0.3, 2->1 headroom 0, ' +
-					'1->0 headroom 0, 0->1 slow 0.3, 1->0 no gain 0.3' &&
+					'1->0 headroom 0, 0->1 slow 0.3, 1->0 no gain 0.3, 0->6 effects 0.3, ' +
+					'6->0 no gain 0.3' &&
 			sim.level() === 0 &&
 			sim.controller.snapshot().downStopped &&
 			sim.controller.snapshot().secondChance === 'taken' &&
@@ -743,7 +750,7 @@ console.log('\nstepping up');
 		'without the second chance (engine-3d) a level that went slow is never tried again',
 		trail(single) === '0->1 slow 0.3, 1->0 headroom 0, 0->1 slow again 0.3' &&
 			single.level() === 1 &&
-			single.controller.snapshot().stepUp?.goodWindows === Infinity,
+			single.controller.snapshot().stepUp?.never === true,
 		trail(single),
 	);
 }
@@ -784,15 +791,17 @@ console.log('\nswitch cap');
 	))
 		sim.rounds(rounds, phase);
 	check(
-		`a trial is only started while its revert still fits under ${RULES.maxSwitches}, less the ` +
-			"second chance's two",
-		sim.history().length === RULES.maxSwitches - 3 &&
-			sim.history().every((s, i) => s.reason === (i % 2 ? 'headroom' : 'slow')),
+		`a trial is only started while its revert, the drop to the effects level and the second ` +
+			`chance's two still fit under ${RULES.maxSwitches}; past that a slow step is unjudged`,
+		trail(sim) ===
+			'0->1 slow 0.3, 1->0 headroom 0, 0->1 slow 0.24, 1->0 headroom 0, 0->1 slow 0.24, ' +
+				'1->0 headroom 0, 0->1 slow 0.24, 1->0 headroom 0, 0->1 second chance 0.27, ' +
+				'1->0 headroom 0, 0->1 no room 0.29' && sim.level() === 1,
 		trail(sim),
 	);
 	const worse = device();
-	// Heat and cool by turns until only the second chance's two switches are left, then slow at
-	// every level: the second chance takes them, to the effects level, and its revert is the last.
+	// Heat and cool by turns until the cap is nearly spent, then slow at every level, the effects
+	// level too: the last switch still lands on the effects level, kept unjudged.
 	const cycles = (RULES.maxSwitches - 2) / 2;
 	for (let i = 0; i < cycles; i++) {
 		worse.rounds(6, hot);
@@ -801,10 +810,11 @@ console.log('\nswitch cap');
 	worse.rounds(80, at(36, 36));
 	const steps = worse.history();
 	check(
-		`never more than ${RULES.maxSwitches} switches, and the last is a revert`,
+		`never more than ${RULES.maxSwitches} switches, and the last lands on the effects level`,
 		steps.length === RULES.maxSwitches &&
-			steps.at(-1)?.reason === 'no gain' &&
-			steps.at(-2)?.to === PHONE.length - 1,
+			steps.at(-1)?.reason === 'no room' &&
+			steps.at(-1)?.to === PHONE.length - 1 &&
+			worse.level() === PHONE.length - 1,
 		trail(worse),
 	);
 }
@@ -827,6 +837,64 @@ for (const cycles of [3, 5]) {
 			sim.history().length <= RULES.maxSwitches,
 		trail(sim),
 	);
+}
+{
+	// The review's mali2: the walk to the effects level, a warm spell's failed climb, a cool spell
+	// that climbs back, then BUG-20's phone again: the effects level is still reachable.
+	const mali = at(36, 36, 36, 36, 36, 36, 0);
+	const sim = device();
+	sim.rounds(90, mali);
+	sim.rounds(1, at(0, 0, 0, 0, 0, 36, 0));
+	sim.rounds(150, at(0));
+	const climbed = sim.level();
+	sim.rounds(200, mali);
+	check(
+		'after a failed climb and a cool spell that climbs back, slow again reaches the effects level',
+		climbed < PHONE.length - 1 &&
+			sim.level() === PHONE.length - 1 &&
+			sim.controller.snapshot().level.postFx === false &&
+			sim.history().length <= RULES.maxSwitches,
+		trail(sim),
+	);
+}
+{
+	// Seeded random sessions: spells of slow (some lighter lower down, the effects level always
+	// light), each a random length, then a long cool spell, then slow at every level but the last.
+	let seed = 1;
+	const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const sessions = 300;
+	let reached = 0;
+	let cooled = 0;
+	let withinCap = 0;
+	const missed: string[] = [];
+	for (let n = 0; n < sessions; n++) {
+		const sim = device();
+		const spells = 2 + Math.floor(random() * 6);
+		for (let i = 0; i < spells; i++) {
+			const base = [0, 13, 20, 36][Math.floor(random() * 4)];
+			const lighter = random() < 0.5;
+			const perLevel = Array.from({ length: PHONE.length }, (_, l) =>
+				l === PHONE.length - 1
+					? 0
+					: lighter
+						? Math.max(0, base - l * Math.floor(random() * 6))
+						: base,
+			);
+			sim.rounds(5 + Math.floor(random() * 40), at(...perLevel));
+		}
+		sim.rounds(400, at(0));
+		if (sim.level() < PHONE.length - 1) cooled++;
+		sim.rounds(150, at(36, 36, 36, 36, 36, 36, 0));
+		if (sim.level() === PHONE.length - 1) reached++;
+		else if (missed.length < 3) missed.push(trail(sim));
+		if (sim.history().length <= RULES.maxSwitches) withinCap++;
+	}
+	check(
+		`${sessions} seeded sessions: slow at every level above the effects level always ends there`,
+		reached === sessions && withinCap === sessions,
+		`${reached}/${sessions} reached; ${missed.join(' | ')}`,
+	);
+	console.log(`       (${cooled}/${sessions} were above the effects level after the cool spell)`);
 }
 
 console.log('\nreadout');

@@ -39,31 +39,39 @@
  * THE SECOND CHANCE: one step down that did not help is not the end. Four slow windows in a row
  * after the revert (twice the evidence a first step needs) take it: past the level that did not
  * help, two levels down, never past the last level, the effects one (so from a level already at
- * resolution 1 it lands there, with no rule of its own). It is a walk judged against those four windows: a level that helps is kept, one
- * that does not steps one more level down (`steppedOn` in its verdict), and at the last level that
- * does not help the walk goes back to where it started and stepping down stops for the session.
- * So a device slow at every resolution (a Mali-G57 phone, BUG-20) still reaches the effects level,
- * while one just over the line stops at the first level that helps and keeps its effects. Fifteen
- * windows in a row under 1% slow while it waits give it back unused: a device that recovered
- * starts a later slow spell from a first step again. If the step that did not help was already to
- * the last level, stepping down stops. One second chance a session, and until it is taken the
- * last two switches of the cap are its own: ordinary steps down and up leave them, a walk that
- * would not fit jumps straight to the effects level, and when no ordinary step fits four slow
- * windows take the second chance there and then. So earlier spells never keep a device slow at
- * every resolution from the effects level. The game's controller has it
+ * resolution 1 it lands there, with no rule of its own). It is a walk judged against those four
+ * windows: a level that helps is kept, one that does not steps one more level down (`steppedOn`
+ * in its verdict), and at the last level that does not help the walk goes back to where it
+ * started. So a device slow at every resolution (a Mali-G57 phone, BUG-20) still reaches the
+ * effects level, while one just over the line stops at the first level that helps and keeps its
+ * effects. Fifteen windows in a row under 1% slow while it waits give it back unused: a device
+ * that recovered starts a later slow spell from a first step again. One second chance a session;
+ * after it, a step down that did not help leaves only the effects level to try (`effectsNext`):
+ * the next four slow windows go straight there (`effects`). Only the effects level not helping
+ * stops stepping down for the session. The game's controller has it
  * ({@link installRenderQuality}); `engine-3d`, which walks its own ladder with this controller,
  * does not ({@link RenderQualityOptions}): there the first step down that does not help stops
  * stepping down.
  *
  * Thirty good windows in a row (under 1% slow) below the top level try one level up; if that goes
  * slow within two windows it steps back. With the second chance that level is tried again after
- * twice as many good windows each time it failed (60, 120, 240…), so a warm spell does not pin a
- * device at the effects level for the session, and one always too slow up there flaps at most
- * once per doubling, within the cap: a window is 2 s of round frames at 60 fps, so after 2, 4 and
- * 8 minutes of good play. Without it (`engine-3d`) that level is never tried again. At most 12
- * switches a session (6 without the second chance), and a step that starts a trial is taken only
- * while its revert still fits. Every trial's verdict, with what started it and what the level
- * measured, is kept for the readout.
+ * twice as many good windows each time it failed (60, then 120), at most twice
+ * ({@link QUALITY_RULES}`.upRetries`), so a warm spell does not pin a device at the effects level
+ * for the session, and one always too slow up there flaps at most twice more, after 2 and 4
+ * minutes of good play (a window is 2 s of round frames at 60 fps). A level's failure count never
+ * goes down, even after a retry is kept: a later climb to it waits the doubled time again. Without
+ * the second chance (`engine-3d`) that level is never tried again.
+ *
+ * THE CAP: steps down and up share at most 12 switches a session (6 without the second chance),
+ * and a step that starts a trial is taken only while its revert still fits. With the second
+ * chance the effects level stays reachable to the end of the cap, an invariant rather than a
+ * rule per case: until the second chance is taken its step to the effects level and that step's
+ * revert keep 2 switches no ordinary step or step up may spend, and every ordinary step that
+ * could leave the device above the effects level keeps 1 more for a later drop there. Past that,
+ * a slow spell takes the second chance at once, or steps down unjudged (`no room`): one level
+ * while a switch is still left after it, else straight to the effects level. So above the
+ * effects level a switch is always left, unless that level was tried and did not help. Every
+ * trial's verdict, with what started it and what the level measured, is kept for the readout.
  *
  * Configured by the game ({@link configureRenderQuality}); the tools never configure it, so `/fx`,
  * the editors and previews never adapt. A deterministic render and a `?render=` pin never install
@@ -111,8 +119,11 @@ export const QUALITY_RULES = {
 	goodWindowShare: 0.01,
 	/** Good windows in a row that try one level up; doubled for each failed try of that level. */
 	goodWindows: 30,
-	/** Switches in a session, with the second chance (the game's ladder); until it is taken, two
-	 *  of them are held for it. */
+	/** Tries of a level up after its first one went slow; after these it is never tried again. A
+	 *  level's failure count never goes down. */
+	upRetries: 2,
+	/** Switches in a session, down and up alike, with the second chance (the game's ladder): two
+	 *  held for it until it is taken, one for a drop to the effects level (THE CAP). */
 	maxSwitches: 12,
 	/** Switches in a session without it (`engine-3d`'s ladder walks this controller too). */
 	maxSwitchesSingleTry: 6,
@@ -133,8 +144,12 @@ export interface QualityLevel {
 export type RenderQualityMode = 'adaptive' | RenderTier;
 
 /** `slow` steps down, `second chance` is a step of the walk after a step down that did not help,
- *  `no gain` reverts a step down, `headroom` steps up, `slow again` reverts the step up. */
-export type QualitySwitchReason = 'slow' | 'second chance' | 'no gain' | 'headroom' | 'slow again';
+ *  `effects` goes straight to the effects level after a later step down did not help, `no room`
+ *  steps down unjudged when the cap leaves no room for a trial's revert (one level while a switch
+ *  is still left after it, else to the effects level), `no gain` reverts a step down, `headroom`
+ *  steps up, `slow again` reverts the step up. */
+export type QualitySwitchReason =
+	'slow' | 'second chance' | 'effects' | 'no room' | 'no gain' | 'headroom' | 'slow again';
 
 /** Where the session's one second chance is: not needed (again), waiting for its slow windows, or
  *  taken. */
@@ -168,23 +183,32 @@ export interface QualityTrial {
 	steppedOn: boolean;
 }
 
+/**
+ * A step up whose tries went slow: the level, the failed tries, the good windows in a row so far,
+ * and either the run it waits for or `never` (tries used up, or `engine-3d`'s single try).
+ */
+export type QualityStepUp = { level: number; failures: number; good: number } & (
+	{ never: false; goodWindows: number } | { never: true }
+);
+
 export interface RenderQualitySnapshot {
 	mode: RenderQualityMode;
 	level: { index: number } & QualityLevel;
 	levels: number;
 	/**
-	 * No more steps down this session: steps down that did not help used up the second chance, or,
-	 * where the controller has none (`engine-3d`'s single try), one step down did not help.
+	 * No more steps down this session: the effects level was tried and did not help, or, where the
+	 * controller has no second chance (`engine-3d`'s single try), one step down did not help.
 	 */
 	downStopped: boolean;
 	/** Absent where the controller has none (a fixed level, `engine-3d`). */
 	secondChance?: QualitySecondChance;
 	/**
-	 * The step up from here once a try of that level went slow: the good windows in a row it waits
-	 * for (`Infinity`: never again, `engine-3d`), the run so far, and the failed tries. Absent while
-	 * the level above has not failed.
+	 * The next slow spell goes straight to the effects level: the second chance was taken and a
+	 * later step down did not help. Absent where the controller has no second chance.
 	 */
-	stepUp?: { level: number; goodWindows: number; good: number; failures: number };
+	effectsNext?: boolean;
+	/** The step up from here once a try of that level went slow. Absent while it has not failed. */
+	stepUp?: QualityStepUp;
 	history: QualitySwitch[];
 	trials: QualityTrial[];
 }
@@ -285,15 +309,16 @@ export function createRenderQualityController(
 	let goodRun = 0;
 	let downStopped = false;
 	let secondChance: QualitySecondChance = 'unused';
+	let effectsNext = false;
 	const last = ladder.length - 1;
 	let lastUncappedMs = -Infinity;
 	/** Failed tries of a step up, by the level tried. */
 	const upFailures = new Map<number, number>();
-	/** Good windows in a row a step up to `to` waits for. */
-	const upWindows = (to: number) => {
+	/** Good windows in a row a step up to `to` waits for; undefined: never again. */
+	const upWindows = (to: number): number | undefined => {
 		const failures = upFailures.get(to) ?? 0;
 		if (failures === 0) return rules.goodWindows;
-		return retries ? rules.goodWindows * 2 ** failures : Infinity;
+		return retries && failures <= rules.upRetries ? rules.goodWindows * 2 ** failures : undefined;
 	};
 	let trial: Trial | undefined;
 	let pending: Pending | undefined;
@@ -309,6 +334,15 @@ export function createRenderQualityController(
 	/** Switches held back for the second chance's step to the effects level and its revert, until
 	 *  it is taken: ordinary steps down and up never spend them. */
 	const reserve = () => (retries && secondChance !== 'taken' ? 2 : 0);
+	/**
+	 * Room for an ordinary step down or up from `level` to `to`: the step, its revert, the second
+	 * chance's reserve and, with the second chance, one switch for a later drop to the effects
+	 * level wherever the step or its revert could leave the device above it (a revert to the
+	 * effects level needs none, nor a failed step to it, which stops stepping down). So the effects
+	 * level stays reachable to the end of the cap.
+	 */
+	const stepRoom = (to: number) =>
+		room(2 + (retries && level !== last && to !== last ? 1 : 0) + reserve());
 	/**
 	 * Where the second chance steps from `at`, `skip` levels down, never past the effects level:
 	 * that level at once when only that step and its revert still fit. Undefined when nothing fits.
@@ -358,9 +392,10 @@ export function createRenderQualityController(
 				walk: { from: current.from, baseline: current.baseline },
 			};
 		} else if (!helped) {
-			// A first step that left the last level untried leaves the second chance waiting.
-			if (retries && secondChance === 'unused' && level < last) secondChance = 'waiting';
-			else downStopped = true;
+			// Only the effects level not helping stops stepping down (or any step, single-try).
+			if (!retries || level === last) downStopped = true;
+			else if (secondChance === 'unused') secondChance = 'waiting';
+			else effectsNext = true;
 			if (room(1)) pending = { to: current.from, reason: 'no gain', stats: after };
 		}
 		verdict(current, after, helped, onward !== undefined);
@@ -372,23 +407,38 @@ export function createRenderQualityController(
 		if (trial) return judgeTrial(trial, stats, slow);
 		if (slow) {
 			goodRun = 0;
-			// Waiting, or no room left for an ordinary step and its revert outside the reserve.
 			const waiting = secondChance === 'waiting';
-			const retry = waiting || (retries && secondChance === 'unused' && !room(2 + reserve()));
-			const needed = retry ? rules.retrySlowWindows : rules.slowWindows;
+			const ordinary = stepRoom(level + 1);
+			// Anything but an ordinary step waits for twice the evidence.
+			const careful = retries && (waiting || effectsNext || !ordinary);
+			const needed = careful ? rules.retrySlowWindows : rules.slowWindows;
 			slowRun = [...slowRun, stats].slice(-needed);
 			if (slowRun.length < needed || downStopped || level >= last) return;
+			const run = meanStats(slowRun);
 			// Waiting follows a step to `level + 1` that did not help: the walk starts below it.
-			const to = retry ? chanceStep(level, waiting ? 2 : 1) : level + 1;
-			if (to === undefined || (!retry && !room(2 + reserve()))) return;
-			pending = { to, reason: retry ? 'second chance' : 'slow', stats: meanStats(slowRun) };
-			if (retry) secondChance = 'taken';
+			const chance =
+				waiting || (retries && secondChance === 'unused' && !ordinary)
+					? chanceStep(level, waiting ? 2 : 1)
+					: undefined;
+			if (chance !== undefined) {
+				pending = { to: chance, reason: 'second chance', stats: run };
+				secondChance = 'taken';
+			} else if (effectsNext && room(2)) pending = { to: last, reason: 'effects', stats: run };
+			else if (!careful && ordinary) pending = { to: level + 1, reason: 'slow', stats: run };
+			// No room to judge a step: one level down kept as it is while that still leaves the drop
+			// to the effects level, else that drop.
+			else if (retries && room(1))
+				pending = { to: room(2) ? level + 1 : last, reason: 'no room', stats: run };
 			return;
 		}
 		slowRun = [];
 		goodRun = stats.share < rules.goodWindowShare ? goodRun + 1 : 0;
-		if (secondChance === 'waiting' && goodRun >= rules.retryGoodWindows) secondChance = 'unused';
-		if (level > 0 && goodRun >= upWindows(level - 1) && room(2 + reserve()))
+		if (goodRun >= rules.retryGoodWindows) {
+			if (secondChance === 'waiting') secondChance = 'unused';
+			effectsNext = false;
+		}
+		const wait = level > 0 ? upWindows(level - 1) : undefined;
+		if (wait !== undefined && goodRun >= wait && stepRoom(level - 1))
 			pending = { to: level - 1, reason: 'headroom', stats };
 	};
 
@@ -417,8 +467,12 @@ export function createRenderQualityController(
 			reason,
 			...measure(stats),
 		});
+		if (to === last) effectsNext = false;
 		trial =
-			reason === 'slow' || reason === 'second chance' || reason === 'headroom'
+			reason === 'slow' ||
+			reason === 'second chance' ||
+			reason === 'effects' ||
+			reason === 'headroom'
 				? {
 						up: reason === 'headroom',
 						walk: reason === 'second chance',
@@ -433,6 +487,16 @@ export function createRenderQualityController(
 		slowRun = [];
 		goodRun = 0;
 		return ladder[level];
+	};
+
+	const stepUp = (): QualityStepUp | undefined => {
+		const failures = level > 0 ? (upFailures.get(level - 1) ?? 0) : 0;
+		if (failures === 0) return undefined;
+		const goodWindows = upWindows(level - 1);
+		const at = { level: level - 1, failures, good: goodRun };
+		return goodWindows === undefined
+			? { ...at, never: true }
+			: { ...at, never: false, goodWindows };
 	};
 
 	return {
@@ -454,17 +518,8 @@ export function createRenderQualityController(
 			level: { index: level, ...ladder[level] },
 			levels: ladder.length,
 			downStopped,
-			...(retries ? { secondChance } : {}),
-			...(level > 0 && upFailures.has(level - 1)
-				? {
-						stepUp: {
-							level: level - 1,
-							goodWindows: upWindows(level - 1),
-							good: goodRun,
-							failures: upFailures.get(level - 1) ?? 0,
-						},
-					}
-				: {}),
+			...(retries ? { secondChance, effectsNext } : {}),
+			...(stepUp() ? { stepUp: stepUp() } : {}),
 			history: history.map((entry) => ({ ...entry })),
 			trials: trials.map((entry) => ({
 				...entry,
