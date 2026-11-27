@@ -75,7 +75,8 @@ export interface SheetPlace {
 export interface SheetMapping {
 	sheet: 1;
 	manifestKey: string;
-	template: { id: string; version: number };
+	/** `modules`: the template's modules off their default (docs/design/rig-modules.md). */
+	template: { id: string; version: number; modules?: Record<string, string> };
 	parts: Record<string, SheetPartMap>;
 	props: SheetProp[];
 	/** Rig units per sheet pixel, set by hand; none = the torso's shoulders against the template's. */

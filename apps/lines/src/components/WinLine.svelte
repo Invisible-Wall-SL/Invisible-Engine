@@ -84,14 +84,14 @@
 	import { roundSkip } from 'utils-shared/skipToken';
 
 	import {
-		pathHeadPose,
+		paintWinLine,
 		pathLength,
-		pathSlice,
-		taperRuns,
-		WIN_LINE_CORE_RATIO,
+		winLineDrawMs,
+		winLineGlowAdditive,
+		winLineHeadAt,
 		WIN_LINE_TIP_FADE_MS,
 		type WinLineHeadPose,
-		type WinLineTaperRun,
+		type WinLinePaintPart,
 	} from 'engine-layout';
 
 	import { getContext } from '../game/context';
@@ -160,7 +160,7 @@
 
 	/**
 	 * One line's head (Invisible Symbols State Machine → Payline style). Where it is comes from the
-	 * line's own progress (`pathHeadPose`, the end of the stroke `tracePath` draws); this holds what
+	 * line's own progress (`winLineHeadAt`, the end of the stroke `paintWinLine` draws); this holds what
 	 * it is doing. `trailing` is whether the trail still emits — on while an animated line draws, off
 	 * the moment it lands, after which the particles live out their lives until the line is cleared.
 	 */
@@ -208,8 +208,7 @@
 
 	/** The styled payline. Each switch is off for a project that never authored it, and with all of
 	 *  them off the line strokes, mounts and draws exactly as before they existed. */
-	const glowAdd = line.glow && line.blend === 'add';
-	const tapered = line.taper.alpha < 1 || line.taper.width < 1;
+	const glowAdd = winLineGlowAdditive(line);
 	const tip = line.tip;
 	const headFx = !!tip || line.trailFx.length > 0;
 	const trailDocs = $derived(
@@ -285,8 +284,7 @@
 	}
 
 	/** Where the head is at progress `p`, and which way the line runs there. */
-	const poseOf = (pts: WinLinePoint[], p: number): WinLineHeadPose =>
-		pathHeadPose(pts, p) ?? { ...pts[0], angle: 0 };
+	const poseOf = (pts: WinLinePoint[], p: number): WinLineHeadPose => winLineHeadAt(pts, p);
 
 	const headPose = (drawn: DrawnLine): WinLineHeadPose =>
 		poseOf(drawn.points, drawn.progress.current);
@@ -345,11 +343,7 @@
 				// which draws the line complete and so never takes this branch, nor on a replay.
 				if (!emitterEvent.replay) playSound(line.drawSound);
 				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
-				const len = pathLength(emitterEvent.points);
-				const duration = Math.min(
-					2000,
-					Math.max(180, ((len / (SYMBOL_SIZE * 4)) * 220) / line.speed),
-				);
+				const duration = winLineDrawMs(pathLength(emitterEvent.points), line.speed, SYMBOL_SIZE);
 				await entry.progress.set(1, { duration });
 			}
 			// Cleared while it drew (a hide, the next spin): it lands nowhere — no tip end, no impact
@@ -502,97 +496,11 @@
 		return { x: windowWidth / 2, y: Math.max(0, (windowHeight - height) / 2) };
 	});
 
-	/** Trace the polyline into the graphics path, but only up to `p` (0→1) of its total
-	 *  length — interpolating the final partial segment so the head advances smoothly. */
-	function tracePath(graphics: DrawGraphics, pts: WinLinePoint[], p: number): void {
-		tracePoints(graphics, pathSlice(pts, 0, p));
-	}
-
-	function tracePoints(graphics: DrawGraphics, pts: WinLinePoint[]): void {
-		graphics.moveTo(pts[0].x, pts[0].y);
-		for (let i = 1; i < pts.length; i += 1) graphics.lineTo(pts[i].x, pts[i].y);
-	}
-
-	/** A round end of a tapered stroke: the half disc on the far side of `angle` from the line
-	 *  (`'tail'` faces back along it, `'head'` forward), so it never overlaps the butt-ended run. */
-	function capArc(
-		graphics: DrawGraphics,
-		pose: WinLineHeadPose,
-		radius: number,
-		facing: 'tail' | 'head',
-	): void {
-		const start = pose.angle + (facing === 'head' ? -Math.PI / 2 : Math.PI / 2);
-		graphics.moveTo(pose.x + Math.cos(start) * radius, pose.y + Math.sin(start) * radius);
-		graphics.arc(pose.x, pose.y, radius, start, start + Math.PI);
-		graphics.closePath();
-	}
-
-	/** Stroke a tapered line: each run butt-ended at its own alpha and width, the two ends capped
-	 *  round at the run's — the tail faintest and thinnest, the tip full. */
-	function strokeRuns(
-		graphics: DrawGraphics,
-		runs: WinLineTaperRun[],
-		ends: { tail: WinLineHeadPose; head: WinLineHeadPose },
-		style: { color: string; width: number; alpha: number },
-	): void {
-		if (!runs.length) return;
-		for (const run of runs) {
-			tracePoints(graphics, run.points);
-			graphics.stroke({
-				color: style.color,
-				width: style.width * run.width,
-				alpha: style.alpha * run.alpha,
-				cap: 'butt',
-				join: 'round',
-			});
-		}
-		const first = runs[0];
-		const last = runs[runs.length - 1];
-		capArc(graphics, ends.tail, (style.width * first.width) / 2, 'tail');
-		graphics.fill({ color: style.color, alpha: style.alpha * first.alpha });
-		capArc(graphics, ends.head, (style.width * last.width) / 2, 'head');
-		graphics.fill({ color: style.color, alpha: style.alpha * last.alpha });
-	}
-
-	/** `'cells'` — one vertical segment per winning cell, from its centre ± half a cell. Sub-paths in
-	 *  a single stroke, so cells stacked in a reel merge and separate columns stay disconnected —
-	 *  the readable "these whole columns pay" shape, not a criss-cross zig-zag. */
-	function traceColumns(graphics: DrawGraphics, pts: WinLinePoint[], half: number): void {
-		for (const pt of pts) {
-			graphics.moveTo(pt.x, pt.y - half);
-			graphics.lineTo(pt.x, pt.y + half);
-		}
-	}
-
-	/** `'reels'` — ONE bar per winning reel, spanning that reel's topmost to bottommost winning cell
-	 *  (± half a cell). A ways win pays by whole-reel participation, so the reel is the unit: cells
-	 *  on the same reel become a single continuous bar even when they are NOT adjacent, rather than
-	 *  the scatter of one-cell dashes `traceColumns` would leave. Reels are keyed by the point's `x`,
-	 *  which is the cell SEAT's x (`winLinePointsFor`) — on a FLAT board that is one exact value per
-	 *  reel, so the grouping is lossless. A converging board would give each row its own x and this
-	 *  would have to key on the reel index instead; perspective stands the ways/roll behaviours down
-	 *  (docs/design/perspective-board-mode.md), so it is not that today. */
-	function traceReels(graphics: DrawGraphics, pts: WinLinePoint[], half: number): void {
-		const spans: { x: number; top: number; bottom: number }[] = [];
-		for (const pt of pts) {
-			const span = spans.find((candidate) => candidate.x === pt.x);
-			if (!span) spans.push({ x: pt.x, top: pt.y, bottom: pt.y });
-			else {
-				span.top = Math.min(span.top, pt.y);
-				span.bottom = Math.max(span.bottom, pt.y);
-			}
-		}
-		for (const span of spans) {
-			graphics.moveTo(span.x, span.top - half);
-			graphics.lineTo(span.x, span.bottom + half);
-		}
-	}
-
-	// Re-created whenever the points or the draw progress change, so the <Graphics>
-	// redraws the growing line (the closure captures the current progress value). Called from the
-	// template per drawn line, so each line in the all-at-once set gets its own stroke pass. With an
-	// ADDITIVE glow the halo strokes in its own `<Graphics blendMode="add">` beneath this one
-	// (`glowFor`), and this one draws the rest.
+	// Re-created whenever the points or the draw progress change, so the <Graphics> redraws the
+	// growing line (the closure captures the current progress value). Called from the template per
+	// drawn line, so each line in the all-at-once set gets its own stroke pass. The strokes are
+	// `engine-layout`'s `paintWinLine`, the one the `/symbols` preview draws with. With an ADDITIVE
+	// glow the halo strokes in its own `<Graphics blendMode="add">` beneath this one (`glowFor`).
 	function drawFor(entry: DrawnLine) {
 		return paint(entry, glowAdd ? 'line' : 'both');
 	}
@@ -601,81 +509,17 @@
 		return paint(entry, 'glow');
 	}
 
-	function paint(entry: DrawnLine, part: 'both' | 'glow' | 'line') {
-		const pts = entry.points;
-		const full = entry.fullPoints;
-		const p = entry.progress.current;
-		const drawn = entry.shape;
-		const half = cellHalf;
-		const coreWidth = SYMBOL_SIZE * line.width;
-		// The winning payline's authored colour (Invisible Game Config) overrides BOTH the core line
-		// and its glow halo, so the whole line reads as that colour — UNLESS the author turned off
-		// "Use payline colour from config", which makes the Symbols-tool swatch authoritative. When on
-		// (default) or the win has no config colour, the swatch is the fallback (byte-parity with before).
-		const configColor = line.useConfigColor ? entry.color : undefined;
-		const coreColor = configColor ?? line.color;
-		const haloColor = configColor ?? line.glowColor;
-		// Stamp the current shape into the path: merged per-reel bars for a ways win, per-cell bars for
-		// a cluster/expansion win, the progressive polyline otherwise. Called once per stroke so the
-		// halo + core layer up.
-		const trace = (graphics: DrawGraphics) => {
-			if (drawn === 'reels') return traceReels(graphics, pts, half);
-			if (drawn === 'cells') return traceColumns(graphics, pts, half);
-			return tracePath(graphics, pts, p);
+	function paint(entry: DrawnLine, part: WinLinePaintPart) {
+		const input = {
+			points: entry.points,
+			fullPoints: entry.fullPoints,
+			progress: entry.progress.current,
+			shape: entry.shape,
+			cellHalf,
+			symbolSize: SYMBOL_SIZE,
+			color: entry.color,
 		};
-		// A tapered path strokes in runs that fade and thin toward its start. The runs are cut once
-		// for every stroke, clear of the corners by the widest stroke, so each layer's bands line up.
-		const taper =
-			tapered && drawn === 'path' && pts.length >= 2
-				? {
-						runs: taperRuns(
-							pts,
-							p,
-							line.taper.alpha,
-							line.taper.width,
-							((line.glow ? 4.5 : 1) * coreWidth) / 2,
-						),
-						ends: { tail: poseOf(pts, 0), head: poseOf(pts, p) },
-					}
-				: undefined;
-		const strokeLine = (graphics: DrawGraphics, color: string, width: number, alpha: number) => {
-			if (taper) return strokeRuns(graphics, taper.runs, taper.ends, { color, width, alpha });
-			trace(graphics);
-			graphics.stroke({ color, width, alpha, cap: 'round', join: 'round' });
-		};
-		return (graphics: DrawGraphics) => {
-			// Optional full-payline underlay: the WHOLE path (all reels), drawn COMPLETE (no
-			// animated reveal — it is context, not the win) BENEATH the winning segment, in its own
-			// colour. Off by default, so an un-authored game draws nothing here. Skipped for a column
-			// win — a "full payline" is a connected-line notion that a bar shape has no analogue for.
-			if (part !== 'glow' && drawn === 'path' && line.fullPayline && full.length >= 2) {
-				tracePath(graphics, full, 1);
-				graphics.stroke({
-					color: line.fullPaylineColor,
-					width: coreWidth,
-					alpha: 0.85,
-					cap: 'round',
-					join: 'round',
-				});
-			}
-			if (pts.length < 2) return;
-			// Optional glow: a soft halo built from a few progressively wider, fainter
-			// strokes in the glow colour under the core line (no filter dependency).
-			if (line.glow && part !== 'line') {
-				const halos = [
-					{ w: coreWidth * 4.5, a: 0.08 },
-					{ w: coreWidth * 3, a: 0.13 },
-					{ w: coreWidth * 1.8, a: 0.2 },
-				];
-				for (const halo of halos) strokeLine(graphics, haloColor, halo.w, halo.a);
-			}
-			if (part === 'glow') return;
-			strokeLine(graphics, coreColor, coreWidth, 0.95);
-			// The white-hot centre: a thinner stroke in its own colour on top of the core.
-			if (line.coreColor) {
-				strokeLine(graphics, line.coreColor, coreWidth * WIN_LINE_CORE_RATIO, 1);
-			}
-		};
+		return (graphics: DrawGraphics) => paintWinLine(graphics, line, input, part);
 	}
 </script>
 
