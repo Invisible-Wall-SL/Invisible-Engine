@@ -29,6 +29,11 @@ const ROOT = new URL('../../', import.meta.url);
 const APP = fileURLToPath(new URL('apps/launcher-api/', ROOT));
 const STATIC = join(APP, 'static/');
 const html = readFileSync(join(STATIC, 'rigger/view.html'), 'utf8');
+/** The test take: a 160 × 120 MediaRecorder WebM of a canvas changing colour, 1.18 s long. */
+const TAKE = readFileSync(
+	fileURLToPath(new URL('./fixtures/face-motion/take.webm', import.meta.url)),
+);
+const TAKE_SECONDS = 1.1817;
 if (!existsSync(join(STATIC, 'rigger/vendor/mediapipe/vision_wasm_internal.wasm')))
 	spawnSync('node', [join(APP, 'scripts/copy-mediapipe-wasm.mjs')], { stdio: 'inherit' });
 
@@ -160,6 +165,7 @@ const server = createServer(async (req, res) => {
 	const json = (v, code = 200) => send(code, MIME['.json'], JSON.stringify(v));
 	try {
 		if (p === '/') return send(200, MIME['.html'], html);
+		if (p === '/__fixture/take.webm') return send(200, 'video/webm', TAKE);
 		if (p === '/rig-viewer/skeletons')
 			return json({
 				client: 'c',
@@ -476,18 +482,12 @@ try {
 		(await evaluate('JSON.stringify(rawDoc)')) === before,
 	);
 
-	// 3. A video: recorded here, read from the picked File at the chosen rate.
+	// 3. A video, read from the picked File at the chosen rate: the committed take (a MediaRecorder
+	// WebM, so carrying no length of its own). Recorded live here it came out one or two frames long on
+	// a busy runner, its canvas capture starved, and the read was then right about the wrong video.
 	await evaluate(`(async () => {
-		const c = document.createElement("canvas"); c.width = 160; c.height = 120;
-		const g = c.getContext("2d");
-		const rec = new MediaRecorder(c.captureStream(30), { mimeType: "video/webm" });
-		const parts = []; rec.ondataavailable = (e) => parts.push(e.data);
-		rec.start();
-		const t0 = performance.now();
-		await new Promise((done) => { (function draw(){ g.fillStyle = "hsl(" + ((performance.now() - t0) / 5) + ",50%,50%)"; g.fillRect(0, 0, 160, 120); if (performance.now() - t0 < 1200) setTimeout(draw, 30); else done(); })(); });
-		rec.stop();
-		await new Promise((r) => (rec.onstop = r));
-		const file = new File(parts, "take.webm", { type: "video/webm" });
+		const blob = await (await fetch("/__fixture/take.webm")).blob();
+		const file = new File([blob], "take.webm", { type: "video/webm" });
 		const input = document.querySelector("#faceList .faceMotion input[type=file]");
 		const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
 		input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -508,7 +508,7 @@ try {
 	ok(
 		'the video is read at 12 fps over its whole length, scaled to its picture',
 		!!vt &&
-			vt.seconds > 0.15 &&
+			Math.abs(vt.seconds - TAKE_SECONDS) < 0.02 &&
 			vt.count === Math.floor(vt.seconds * 12) &&
 			vt.got.length === vt.count &&
 			Math.abs(vt.got[1].t - 1 / 12) < 1e-9 &&

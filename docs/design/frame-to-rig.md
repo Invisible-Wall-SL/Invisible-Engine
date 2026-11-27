@@ -1922,7 +1922,9 @@ the page's list the same, and the list may still put the glasses behind the eyes
 (a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
 every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-layers-preview.mjs`, a gate of
 its own for `check:all`'s five minutes (🗺 Edit mapping's preview judges the slots 🔄 Update rig's merge
-leaves and warns exactly when it refuses, in its words; without a rig, as 🦴 Create rig). `sheet-rig-browser.mjs` (the list
+leaves and warns exactly when it refuses, in its words; without a rig, as 🦴 Create rig), split in two
+since 2026-11-27 (`sheet-layers-preview-b.mjs` runs the forearm-prop, finger and placed-prop cases and
+their mutants: one file came within 80 s of the limit). `sheet-rig-browser.mjs` (the list
 as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,
 Ctrl+Shift+] / [; ◧ Arranged in the new order before the launcher answers; the depth control's word
 under the list; sent with the create and the rig drawn so; ↺ Reuse brings it back; Setup's ⋮⋮ drags a
