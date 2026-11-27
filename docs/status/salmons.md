@@ -19,6 +19,19 @@ upload.
 
 ## Current state
 
+- **Performance review and plan (2026-11-27; owner: "understand why the salmon game is running
+  slow … levels … draw calls … the net code"; plan:
+  [design/salmons-performance](../design/salmons-performance.md)).** Eleven profiler readings and a
+  code review: on a Mali-G57 a play frame is ~31 ms render + ~41 ms JS — the river is ~48k loose
+  sprites culled by walking all of them every moved frame, one filter per salmon / bear, the quality
+  ladder never measures arcade, and ~25 MB of slot textures + ~4.4 MB of slot downloads load for
+  nothing. fps readings hide headroom (busy time is not reported; hidden tabs are kept). Six tracks
+  T1–T6 (probe accuracy, Salmons lab run, arcade boot diet + ladder, river chunks, filters into
+  shaders, net client once per frame), each its own session and PR; look-changing items wait for
+  the owner (§5). Track status:
+  - T1 probe accuracy — started · T2 lab run — started · T3 boot diet + ladder — started ·
+    T6 net client — started · T4 river chunks — started · T5 filters → shaders — after T4.
+
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
   `claude/wizardly-galileo-kjszii`; runtime and launcher change, no config change; Salmons draws
