@@ -18,9 +18,12 @@
  * that idles at 60, a device slower than 30 (an iPhone 13 Pro at 14 fps) or a jittery 25–45 ms one
  * do; the floor holds; a step up after 30 good windows is a trial that backs off, retried after
  * twice the wait at most twice (never without the second chance); after the second chance a step
- * that does not help goes straight to the effects level; at most 12 switches, and the effects level
- * stays reachable to the last of them (the review's mali2 session, 300 seeded random sessions).
- * And the effects wiring of
+ * that does not help goes straight to the effects level; the switch budget (12, one back after 150
+ * windows with no switch) spent by a busy spell, the step up waiting and climbing on the refill;
+ * every step judged, on a spent budget too (the review's mild and mali2 sessions); and, over
+ * seeded random sessions (50, or `--fuzz=<n>` after the file name), a device slow at every level
+ * but the effects one always ends there, and never sits above it with no way down. And the
+ * effects wiring of
  * `installRenderQuality` on a stand-in app: the effects are lowered and given back only on a
  * change (down to the last level, up from it, down again), and its teardown gives them back.
  */
@@ -46,6 +49,12 @@ const check = (label: string, ok: boolean, detail = ''): void => {
 	}
 };
 
+/** Seeded random sessions per property, 50 by default: `--fuzz=300` for the full count. */
+const FUZZ = Number(
+	(globalThis as { process?: { argv: string[] } }).process?.argv
+		.find((arg) => arg.startsWith('--fuzz='))
+		?.slice('--fuzz='.length) ?? 50,
+);
 const PLAYING: QualityFrame = { measuring: true, quiet: false, visible: true };
 const IDLE: QualityFrame = { measuring: false, quiet: true, visible: true };
 const LOADING: QualityFrame = { measuring: false, quiet: false, visible: true };
@@ -66,18 +75,22 @@ const PHONE = qualityLadder(3, { msaa: true, msaaSwitchable: true });
 function device(ladder: readonly QualityLevel[] = PHONE, secondChance = true) {
 	const controller = createRenderQualityController(ladder, { secondChance });
 	let measured = 0;
+	// The level as `frame()` hands it back, so a feed reads no snapshot per frame.
+	let current = 0;
 	const sim = {
 		controller,
 		frames: 0,
 		switchedAt: [] as number[],
-		level: () => controller.snapshot().level.index,
+		level: () => current,
 		history: () => controller.snapshot().history,
 		feed(intervalMs: number, state: QualityFrame) {
 			sim.frames++;
 			const next = controller.frame(intervalMs, state);
 			if (next) {
 				sim.switchedAt.push(sim.frames);
-				if (next !== ladder[sim.level()]) throw new Error('returned level is not the current one');
+				current = ladder.indexOf(next);
+				if (current !== controller.snapshot().level.index)
+					throw new Error('returned level is not the current one');
 			}
 		},
 		play(frames: number, slowAt: (level: number) => number, slowMs = SLOW_MS) {
@@ -422,11 +435,11 @@ console.log('\nthe second chance');
 	);
 	const hot = at(36, 0);
 	const capped = device(PHONE, false);
-	for (let i = 0; i < 2 * RULES.maxSwitches; i++)
+	for (let i = 0; i < 2 * RULES.switchBurst; i++)
 		capped.rounds(i % 2 ? 40 : 6, i % 2 ? at(0) : hot);
 	check(
-		`and switches at most ${RULES.maxSwitchesSingleTry} times`,
-		capped.history().length === RULES.maxSwitchesSingleTry - 1,
+		`and switches at most ${RULES.switchBurstSingleTry} times`,
+		capped.history().length === RULES.switchBurstSingleTry - 1,
 		trail(capped),
 	);
 }
@@ -535,21 +548,21 @@ console.log('\nthe second chance');
 			snap.level.index < PHONE.length - 1 &&
 			snap.level.postFx === true &&
 			snap.level.particleCap === 1 &&
-			sim.history().length <= RULES.maxSwitches,
+			sim.history().length <= RULES.switchBurst,
 		`${trail(sim)} ${JSON.stringify(waiting)}`,
 	);
 }
 {
 	// Always too slow one level up, fine at the effects level ('1m 1m-fx': one switch down, so
-	// only the cap and the backoff bound the tries): each wait twice the last, within the cap.
+	// only the budget and the backoff bound the tries): each wait twice the last.
 	const sim = device(qualityLadder(1, { msaa: true, msaaSwitchable: false }));
 	sim.rounds(1000, at(36, 0));
 	const steps = sim.history();
 	const tries = steps.filter((s) => s.reason === 'headroom').map((s) => s.at);
 	const gaps = tries.slice(1).map((t, i) => t - tries[i]);
 	check(
-		'a device always too slow one level up retries it at most once per doubling, within the cap',
-		steps.length <= RULES.maxSwitches &&
+		'a device always too slow one level up retries it at most once per doubling, then never',
+		steps.length <= RULES.switchBurst &&
 			tries.length === 1 + RULES.upRetries &&
 			sim.controller.snapshot().stepUp?.never === true &&
 			gaps.every((gap, i) => i === 0 || gap >= 1.8 * gaps[i - 1]) &&
@@ -619,7 +632,7 @@ console.log('\nthe second chance');
 			sim.level() === 0 &&
 			sim.controller.snapshot().downStopped &&
 			sim.controller.snapshot().secondChance === 'taken' &&
-			sim.history().length <= RULES.maxSwitches,
+			sim.history().length <= RULES.switchBurst,
 		trail(sim),
 	);
 }
@@ -750,7 +763,9 @@ console.log('\nstepping up');
 		'without the second chance (engine-3d) a level that went slow is never tried again',
 		trail(single) === '0->1 slow 0.3, 1->0 headroom 0, 0->1 slow again 0.3' &&
 			single.level() === 1 &&
-			single.controller.snapshot().stepUp?.never === true,
+			single.controller.snapshot().stepUp?.never === true &&
+			single.controller.snapshot().budget?.left === RULES.switchBurstSingleTry - 3 &&
+			single.controller.snapshot().budget?.refillIn === undefined,
 		trail(single),
 	);
 }
@@ -780,42 +795,70 @@ console.log('\nstepping up');
 	check('1 in 120 is', one.history().length === 2 && one.level() === 0, trail(one));
 }
 
-console.log('\nswitch cap');
+console.log('\nswitch budget');
 {
-	// A device that heats up (slow at the top, fine one level down) and cools off, by turns.
+	// A device that heats up (slow at the top, fine one level down) and cools off, by turns, until
+	// the budget left no longer fits a step up with its revert, the reserve and the trip to the
+	// effects level: it waits, then a refill after 150 windows with no switch lets it climb.
 	const hot = at(36, 0);
 	const cool = at(0);
 	const sim = device();
-	for (const [phase, rounds] of Array.from({ length: 2 * RULES.maxSwitches }, (_, i) =>
-		i % 2 ? ([cool, 40] as const) : ([hot, 6] as const),
-	))
-		sim.rounds(rounds, phase);
+	for (let i = 0; i < 4; i++) {
+		sim.rounds(6, hot);
+		sim.rounds(40, cool);
+	}
+	const spent = sim.controller.snapshot().budget;
+	sim.rounds(60, cool);
+	const waited = sim.level();
+	sim.rounds(60, cool);
+	const after = sim.controller.snapshot();
 	check(
-		`a trial is only started while its revert, the drop to the effects level and the second ` +
-			`chance's two still fit under ${RULES.maxSwitches}; past that a slow step is unjudged`,
+		'a busy spell spends the budget, the step up waits, and a refill lets it climb',
 		trail(sim) ===
 			'0->1 slow 0.3, 1->0 headroom 0, 0->1 slow 0.24, 1->0 headroom 0, 0->1 slow 0.24, ' +
-				'1->0 headroom 0, 0->1 slow 0.24, 1->0 headroom 0, 0->1 second chance 0.27, ' +
-				'1->0 headroom 0, 0->1 no room 0.29' && sim.level() === 1,
-		trail(sim),
+				'1->0 headroom 0, 0->1 slow 0.24, 1->0 headroom 0' &&
+			spent?.left === 5 &&
+			spent.refillIn !== undefined &&
+			waited === 1 &&
+			after.level.index === 0 &&
+			after.budget?.burst === RULES.switchBurst,
+		`${trail(sim)} ${JSON.stringify(spent)} ${waited}`,
 	);
 	const worse = device();
-	// Heat and cool by turns until the cap is nearly spent, then slow at every level, the effects
-	// level too: the last switch still lands on the effects level, kept unjudged.
-	const cycles = (RULES.maxSwitches - 2) / 2;
-	for (let i = 0; i < cycles; i++) {
+	// Heat and cool by turns, then slow at every level, the effects level too: the trip there is
+	// judged even on a spent budget, and the effects level that does not help is given back.
+	for (let i = 0; i < 5; i++) {
 		worse.rounds(6, hot);
 		worse.rounds(40, cool);
 	}
-	worse.rounds(80, at(36, 36));
+	worse.rounds(200, at(36, 36));
 	const steps = worse.history();
 	check(
-		`never more than ${RULES.maxSwitches} switches, and the last lands on the effects level`,
-		steps.length === RULES.maxSwitches &&
-			steps.at(-1)?.reason === 'no room' &&
-			steps.at(-1)?.to === PHONE.length - 1 &&
-			worse.level() === PHONE.length - 1,
+		'every step keeps its verdict: on a spent budget an effects level that does not help reverts',
+		steps.at(-1)?.reason === 'no gain' &&
+			steps.at(-1)?.from === PHONE.length - 1 &&
+			worse.controller.snapshot().downStopped &&
+			worse.controller.snapshot().level.postFx === true,
 		trail(worse),
+	);
+}
+{
+	// The review's mild.ts: five heat and cool spells, then 13% slow at every level, the effects
+	// level too. The effects level is tried and given back: the device keeps its effects.
+	const sim = device();
+	for (let i = 0; i < 5; i++) {
+		sim.rounds(6, at(36, 0));
+		sim.rounds(40, at(0));
+	}
+	sim.rounds(300, at(13));
+	const snap = sim.controller.snapshot();
+	check(
+		'a slightly slow device on a spent budget keeps its effects',
+		snap.level.postFx === true &&
+			snap.level.particleCap === 1 &&
+			sim.level() < PHONE.length - 1 &&
+			sim.history().every((s) => s.reason !== 'effects' || s.to === PHONE.length - 1),
+		trail(sim),
 	);
 }
 for (const cycles of [3, 5]) {
@@ -833,9 +876,34 @@ for (const cycles of [3, 5]) {
 			'still reaches the effects level',
 		sim.level() === PHONE.length - 1 &&
 			sim.controller.snapshot().level.postFx === false &&
-			!sim.controller.snapshot().downStopped &&
-			sim.history().length <= RULES.maxSwitches,
+			!sim.controller.snapshot().downStopped,
 		trail(sim),
+	);
+}
+for (const [label, hotAgain, postFx] of [
+	['slow at every resolution keeps', at(36, 36, 36, 36, 36, 36, 0), false],
+	['13% slow everywhere gives back', at(13), true],
+] as const) {
+	// After the walk to the effects level the device cools off and climbs until the budget left
+	// no longer fits an ordinary step: slow again, it takes a judged trip to the effects level
+	// before any refill could come, rather than waiting or dropping there unjudged.
+	const sim = device();
+	sim.rounds(40, at(36, 36, 36, 36, 36, 36, 0));
+	sim.rounds(100, at(0));
+	const climbed = sim.controller.snapshot();
+	sim.rounds(100, hotAgain);
+	const snap = sim.controller.snapshot();
+	const trip = snap.history.slice(climbed.history.length);
+	check(
+		`on a budget too low for an ordinary step, a judged trip: ${label} the effects level`,
+		climbed.level.index < PHONE.length - 2 &&
+			(climbed.budget?.left ?? 0) < 4 &&
+			trip[0]?.reason === 'effects' &&
+			trip[0].to === PHONE.length - 1 &&
+			snap.trials[climbed.trials.length]?.level === PHONE.length - 1 &&
+			snap.trials[climbed.trials.length].kept === !postFx &&
+			snap.level.postFx === postFx,
+		`${trail(sim)} ${JSON.stringify(climbed.budget)}`,
 	);
 }
 {
@@ -852,8 +920,7 @@ for (const cycles of [3, 5]) {
 		'after a failed climb and a cool spell that climbs back, slow again reaches the effects level',
 		climbed < PHONE.length - 1 &&
 			sim.level() === PHONE.length - 1 &&
-			sim.controller.snapshot().level.postFx === false &&
-			sim.history().length <= RULES.maxSwitches,
+			sim.controller.snapshot().level.postFx === false,
 		trail(sim),
 	);
 }
@@ -862,10 +929,9 @@ for (const cycles of [3, 5]) {
 	// light), each a random length, then a long cool spell, then slow at every level but the last.
 	let seed = 1;
 	const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-	const sessions = 300;
+	const sessions = FUZZ;
 	let reached = 0;
 	let cooled = 0;
-	let withinCap = 0;
 	const missed: string[] = [];
 	for (let n = 0; n < sessions; n++) {
 		const sim = device();
@@ -887,14 +953,73 @@ for (const cycles of [3, 5]) {
 		sim.rounds(150, at(36, 36, 36, 36, 36, 36, 0));
 		if (sim.level() === PHONE.length - 1) reached++;
 		else if (missed.length < 3) missed.push(trail(sim));
-		if (sim.history().length <= RULES.maxSwitches) withinCap++;
 	}
 	check(
 		`${sessions} seeded sessions: slow at every level above the effects level always ends there`,
-		reached === sessions && withinCap === sessions,
+		reached === sessions,
 		`${reached}/${sessions} reached; ${missed.join(' | ')}`,
 	);
 	console.log(`       (${cooled}/${sessions} were above the effects level after the cool spell)`);
+}
+{
+	// The review's adv.ts: random ladders, frames sometimes quiet mid-round or hidden, any slow
+	// share at any level and frame length. Above the effects level a device is never left with no
+	// way down: slow at every level but the last, it ends there unless that level was tried and did
+	// not help, within the refills of a long spell.
+	let seed = 3;
+	const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)];
+	let stuck = 0;
+	const missed: string[] = [];
+	for (let n = 0; n < FUZZ; n++) {
+		const ladder = qualityLadder(pick([1, 1.25, 1.5, 1.75, 2, 3]), {
+			msaa: random() < 0.8,
+			msaaSwitchable: random() < 0.7,
+		});
+		const last = ladder.length - 1;
+		const controller = createRenderQualityController(ladder, { secondChance: true });
+		let level = 0;
+		let measured = 0;
+		const feed = (ms: number, state: QualityFrame) => {
+			const next = controller.frame(ms, state);
+			if (next) level = ladder.indexOf(next);
+		};
+		const rounds = (count: number, slowAt: (l: number) => number, slowMs: number) => {
+			for (let r = 0; r < count; r++) {
+				for (let f = 0; f < SPIN_FRAMES; f++) {
+					const k = slowAt(level);
+					const late =
+						Math.floor(((measured + 1) * k) / RULES.windowFrames) >
+						Math.floor((measured * k) / RULES.windowFrames);
+					measured++;
+					feed(late ? slowMs : FRAME_60, {
+						measuring: true,
+						quiet: random() < 0.05,
+						visible: random() > 0.002,
+					});
+				}
+				for (let f = 0; f < BETWEEN_SPINS; f++) feed(FRAME_60, IDLE);
+			}
+		};
+		const phases = 2 + Math.floor(random() * 12);
+		for (let p = 0; p < phases; p++) {
+			const shares = ladder.map(() => pick([0, 0, 1, 5, 13, 20, 36, 60, 120]));
+			const slowMs = pick([22, 33.3, 45, 70]);
+			rounds(1 + Math.floor(random() * (random() < 0.5 ? 8 : 60)), (l) => shares[l], slowMs);
+		}
+		rounds(400, (l) => (l === last ? 0 : 36), SLOW_MS);
+		const snap = controller.snapshot();
+		if (snap.level.index !== last && !snap.downStopped) {
+			stuck++;
+			if (missed.length < 2)
+				missed.push(snap.history.map((s) => `${s.from}->${s.to} ${s.reason}`).join(', '));
+		}
+	}
+	check(
+		`${FUZZ} adversarial sessions: above the effects level a slow device always has a way down`,
+		stuck === 0,
+		`${stuck} stuck; ${missed.join(' | ')}`,
+	);
 }
 
 console.log('\nreadout');
@@ -910,6 +1035,9 @@ console.log('\nreadout');
 			snap.level.postFx === true &&
 			snap.level.particleCap === 1 &&
 			snap.secondChance === 'unused' &&
+			snap.budget?.left === RULES.switchBurst - 1 &&
+			snap.budget.burst === RULES.switchBurst &&
+			snap.budget.refillIn !== undefined &&
 			snap.level.index === 1 &&
 			snap.level.resolution === 1.75 &&
 			snap.level.msaa &&
@@ -941,7 +1069,8 @@ console.log('\nreadout');
 			snap.mode === 'full' &&
 			snap.levels === 1 &&
 			!snap.downStopped &&
-			!('secondChance' in snap),
+			!('secondChance' in snap) &&
+			!('budget' in snap),
 		JSON.stringify(snap),
 	);
 	release();
