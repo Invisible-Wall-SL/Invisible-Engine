@@ -273,8 +273,15 @@ and the last of the two to land adds a cross-check that feeds 15B1's `collect` o
 parser.
 
 **Dispatch** (the App, on `main`): `merge-main.yml` with the inputs `merge_run` (10 lower-case hex),
-`pr` (digits), `head_sha` and `main_sha` (40 lower-case hex). The run is named
-`Merge main <merge_run>`.
+`pr` (digits), `head_sha` and `main_sha` (40 lower-case hex), and `budget_usd` (a decimal, at most
+two places, from 0 to the run cap). The launcher sets `budget_usd` to the smaller of
+`PIPELINE_MERGE_MAIN_BUDGET_USD` and what is left of `PIPELINE_FIX_MONTHLY_USD`, and to `0` when the
+month is spent. The job passes it to the CLI's budget flag, and with `0` it skips the model step: it
+still does the mechanical part, and any real conflict ends `needs_person`. The run is named
+`Merge main <merge_run>`. The launcher stores the run's `base_sha` from the result, and Accept
+treats a merge base other than the stored one as `stale`. (Amended 2026-11-27, from 15C's review:
+without the input the job could not know the cap, and without `base_sha` Accept could not tell
+that the run's hunks were cut against another base.)
 
 **The result**, posted once by job `propose`'s `collect` to
 `POST /api/pipeline/merge-runs/<merge_run>/result` with a GitHub OIDC token (audience
