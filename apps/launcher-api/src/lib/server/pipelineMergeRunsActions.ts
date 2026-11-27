@@ -168,8 +168,13 @@ export async function cancelListedMergeRun(app: GithubApp, id: string): Promise<
 export const MERGE_DID_NOT_START_MS = 15 * 60_000;
 /** Any run whose job has not posted is given up after this long. */
 export const MERGE_TIMED_OUT_MS = 90 * 60_000;
-/** An Accept pushes only with at least this much of its lease left. */
-export const MERGE_ACCEPT_MIN_LEFT_MS = 30_000;
+/**
+ * An Accept pushes only with at least this much of its lease left. One GitHub call can take about a
+ * minute at worst (mint a token 15 s, call 15 s, a 401 re-mints 15 s, call again 15 s), so the
+ * claim cannot lapse while the push is in flight: it started with >= 90 s left and ends within 60 s,
+ * and a lapsed claim is only looked at after the whole lease (5 minutes).
+ */
+export const MERGE_ACCEPT_MIN_LEFT_MS = 90_000;
 /** An Actions run may be stamped a little before the launcher stored its merge run. */
 const BIND_SLACK_MS = 60_000;
 /** Bound runs read per pass, oldest first: the rest wait a minute. */
@@ -205,7 +210,9 @@ async function clearLapsedAccepts(app: GithubApp): Promise<void> {
 		try {
 			const claim = run.acceptClaim ?? '';
 			let landed: string | null = null;
-			if (run.acceptSha && isPlainBranchName(run.branch)) {
+			// A commit was recorded but the tip cannot be read for this name: the claim is kept.
+			if (run.acceptSha && !isPlainBranchName(run.branch)) continue;
+			if (run.acceptSha) {
 				const ref = await app.fetch(refReadPath(repo(), run.branch));
 				if (ref.ok) {
 					const tip = ((await ref.json()) as { object?: { sha?: string } }).object?.sha;
@@ -228,7 +235,7 @@ async function clearLapsedAccepts(app: GithubApp): Promise<void> {
 					{ claim },
 				);
 			} else {
-				await releaseAccept(run.id, claim);
+				await releaseAccept(run.id, claim, run.acceptSha);
 			}
 		} catch (err) {
 			captureServerError(err, { source: 'merge-run accept backstop', mergeRun: run.id });

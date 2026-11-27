@@ -25,7 +25,7 @@ with a new one. Use this format:
     two places) itself, with a `kind`; they are their own field outside the 16,000 prose cap (10,000
     each, 120,000 in all), the `result` is scanned and must be inside its file, and the page gets no
     whole-file content. ADR-0015 §4 and §10 amended.
-  - Accept takes a database claim (`proposed → accepting`, a token, a 3-minute lease on the
+  - Accept takes a database claim (`proposed → accepting`, a token, a 5-minute lease on the
     database's clock; migration 0053 adds `accept_sha`, `accepting_at`, `accept_claim`). Every
     update, settle and release carries the token; the merge commit's SHA is recorded before the push
     and the push needs the claim and 30 s of lease; a lost answer is recognised by the tip being that
@@ -49,10 +49,10 @@ with a new one. Use this format:
   `prove:merge-runs` (real Postgres 16), `check:undefined-names`, `check:svelte --only
   apps/launcher-api`, lint.
 - Decisions: the database claim, with a token and the database's clock, is what makes Accept and
-  Discard one claim across replicas. A clean piece with two places is not guessed: the file counts
-  as edited outside its hunks, so a resolution that repeats a lone `}` must list it under `outside`.
+  Discard one claim across replicas. A clean piece with two places is not guessed (no `result`, "could
+  not be located"), and is not an outside edit: a resolution that repeats a lone `}` is ordinary.
 - Next: 15B2 (`merge-main.yml`, `coordinator.md`): its prompt must stop asking the model for a
-  hunk's `main`/`change`, and should tell it to list an edit near a repeated clean line.
+  hunk's `main`/`change`.
 
 ---
 

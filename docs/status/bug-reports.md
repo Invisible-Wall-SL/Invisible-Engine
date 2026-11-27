@@ -288,9 +288,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
     pieces, never from the model's `result.json`. They are their own field, outside the prose cap
     and scan (10,000 each, 120,000 in all); the page gets no whole-file content, and only the
     proposal waiting gets the lines (ADR-0015 §4, §10).
-  - **Accept takes a database claim** (`proposed → accepting`, a claim id, a 3-minute lease on the
+  - **Accept takes a database claim** (`proposed → accepting`, a claim id, a 5-minute lease on the
     database's clock, migration 0053) before any GitHub write; every update, settle and release
-    carries the id, and the push needs the claim with 30 s of lease left. Discard acts only from
+    carries the id, and the push needs the claim with 90 s of lease left (one slow GitHub call is ~60 s); a claim that holds an earlier holder's commit is kept by any failure that has not read the tip. Discard acts only from
     `proposed` (or a lapsed claim that built nothing), so on any replica one wins whole. The merge
     commit's SHA is stored (with its builder) before the branch moves; a lost answer is recognised by
     the tip being that commit or a descendant, never by parents or the public run id; the backstop

@@ -49,7 +49,7 @@ export const isWorkingMergeRun = (status: MergeRunStatus): boolean =>
  * An Accept holds its claim this long (the database's clock); after it a retry may take the run over,
  * the page offers Accept again and the backstop settles it from the branch's tip.
  */
-export const MERGE_ACCEPT_LEASE_MS = 3 * 60_000;
+export const MERGE_ACCEPT_LEASE_MS = 5 * 60_000;
 
 export const MERGE_RUN_WORKFLOW = 'merge-main.yml';
 export const MERGE_RUN_WORKFLOW_PATH = `.github/workflows/${MERGE_RUN_WORKFLOW}`;
@@ -124,6 +124,11 @@ export interface MergeRunHunk {
 	 * and when the place could not be found.
 	 */
 	result: string | null;
+	/**
+	 * How many lines of the result (the one cut included) are not in `result`: it is capped, and
+	 * Accept pushes the whole file. 0 when nothing was cut.
+	 */
+	resultCut: number;
 }
 
 export interface MergeRunExplanation {
@@ -329,6 +334,8 @@ export interface MergeRunView {
 	spendUsd: number | null;
 	/** When an Accept took its claim (`accepting`), by the database's clock; else null. */
 	acceptingAt: string | null;
+	/** The claim's lease has run out, by the DATABASE's clock (the server says so; the page's is not used). */
+	acceptLapsed: boolean;
 	actionsUrl: string | null;
 	startedBy: string;
 	acceptedBy: string | null;
@@ -344,10 +351,17 @@ export interface MergeRunView {
 function proposalOnly(run: MergeRunRecord): MergeRunExplanation | null {
 	const e = run.explanation;
 	if (!e || run.status === 'proposed' || run.status === 'accepting') return e;
-	return { ...e, hunks: e.hunks.map((h) => ({ ...h, main: '', change: '', result: null })) };
+	return {
+		...e,
+		hunks: e.hunks.map((h) => ({ ...h, main: '', change: '', result: null, resultCut: 0 })),
+	};
 }
 
-export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
+export function mergeRunView(
+	run: MergeRunRecord,
+	repo: string,
+	acceptLapsed = false,
+): MergeRunView {
 	return {
 		id: run.id,
 		prNumber: run.prNumber,
@@ -367,6 +381,7 @@ export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
 		mergeSha: run.mergeSha,
 		spendUsd: run.spendUsd,
 		acceptingAt: run.acceptingAt?.toISOString() ?? null,
+		acceptLapsed,
 		actionsUrl:
 			run.ghRunId === null ? null : `https://github.com/${repo}/actions/runs/${run.ghRunId}`,
 		startedBy: run.startedBy,

@@ -886,6 +886,7 @@ function shapeProblems(body) {
 				'main',
 				'change',
 				'result',
+				'resultCut',
 				'kind',
 				'takes',
 				'why',
@@ -897,6 +898,9 @@ function shapeProblems(body) {
 			TAKES.includes(h.takes) &&
 			[h.main, h.change].every((t) => text(t, LINES_CAP) && t) &&
 			(h.result === null || text(h.result, LINES_CAP)) &&
+			Number.isInteger(h.resultCut) &&
+			h.resultCut >= 0 &&
+			(h.result !== null || h.resultCut === 0) &&
 			text(h.why) &&
 			h.why &&
 			(h.nowDoes === null ? h.takes !== 'combined' : text(h.nowDoes)) &&
@@ -1217,9 +1221,9 @@ check(
 	const f1 = 'function a() {\n\tif (x) {\n\t\ty();\n}\n\tz();\n}\nR2\nend\n';
 	check(
 		placeClean(s1, f1)?.ambiguous === true &&
-			outsideEdited(s1, f1) === true &&
+			outsideEdited(s1, f1) === false &&
 			hunkResults(s1, f1) === null,
-		'placeClean: a clean piece the resolution also holds has two places → treated as edited outside the hunks, no result (not cut short and shown under the wrong hunk)',
+		'placeClean: a clean piece the resolution also holds has two places → NOT an outside edit (the model could not know), and no result (never cut short and shown under the wrong hunk)',
 	);
 	// the same file with the piece in one place only
 	const f1b = 'function a() {\n\tif (x) {\n\t\ty();\n\tz();\n}\nR2\nend\n';
@@ -1235,9 +1239,9 @@ check(
 		'head\nR1\n\tcheck(token);\n\treturn ok;\nR1b\n\tcheck(token);\n\treturn ok;\nR2\ntail\n';
 	check(
 		placeClean(s2, copy2)?.ambiguous === true &&
-			outsideEdited(s2, copy2) === true &&
+			outsideEdited(s2, copy2) === false &&
 			hunkResults(s2, copy2) === null,
-		'placeClean: a clean piece that is in the file twice has two places → edited outside the hunks, no result',
+		'placeClean: a clean piece that is in the file twice has two places → no result: the card never shows text that differs from the file',
 	);
 	check(
 		outsideEdited(s2, 'head\nR1\n\tcheck(token);\n\treturn ok;\nR2\ntail\n') === false &&
@@ -1246,6 +1250,108 @@ check(
 	);
 }
 
+// git's own --diff3 output: two hunks separated by one `\t}`, a resolution that wraps hunk 2 in its own braces
+{
+	const code = (x, y) => `function f() {\n\tx(${x});\n\t}\n\ty(${y});\n}\n`;
+	const job = scratch('ambig', {
+		base: { 'src/w.ts': code(1, 1) },
+		change: [['c', { 'src/w.ts': code(2, 2) }]],
+		main: [['m', { 'src/w.ts': code(3, 3) }]],
+	});
+	const j = propose(job, jobMerge(job).out);
+	j.input.budget = 6;
+	stage(j.p, j.input);
+	const merged = readFileSync(join(j.p.workspace, 'src/w.ts'), 'utf8');
+	const segs = segmentsOf(merged, 7);
+	const wrapped = 'function f() {\n\tx(23);\n\t}\n\tif (c) {\n\t\ty(23);\n\t}\n}\n';
+	check(
+		segs.filter((x) => x.hunk).length === 2 &&
+			json(segs.filter((x) => x.clean !== undefined).map((x) => x.clean)) ===
+				json(['function f() {\n', '\t}\n', '}\n']),
+		'ambig: git really leaves two hunks with one `\\t}` between them',
+	);
+	check(
+		placeClean(segs, wrapped)?.ambiguous === true &&
+			outsideEdited(segs, wrapped) === false &&
+			hunkResults(segs, wrapped) === null,
+		'ambig: the wrapped resolution has two places for the `\\t}` piece, is not an outside edit and gets no result',
+	);
+	apply(j.p.workspace, { 'src/w.ts': wrapped });
+	mkdirSync(j.p.out, { recursive: true });
+	const hunk = (index) => ({
+		path: 'src/w.ts',
+		index,
+		takes: 'combined',
+		why: 'Both.',
+		nowDoes: `It is 23 (${index}).`,
+		otherwise: null,
+	});
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [hunk(0), hunk(1)],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const hs = body.explanation?.hunks.filter((h) => h.path === 'src/w.ts');
+	check(
+		body.outcome === 'proposed' &&
+			hs.length === 2 &&
+			hs.every((h) => h.kind === 'lines' && h.result === null && h.resultCut === 0) &&
+			hs[0].main === '\tx(3);' &&
+			hs[1].change === '\ty(2);',
+		'ambig: an honest wrapped resolution is PROPOSED (not "changed outside its conflicts"), its sides real and its results "not located"',
+	);
+}
+{
+	// a result past the cap is cut, and says by how many lines
+	const long = (x) => `${'a\n'.repeat(6_000)}v = ${x};\n${'b\n'.repeat(6_000)}`;
+	const job = scratch('cut', {
+		base: { 'src/c.ts': 'head\nv = 1;\ntail\n' },
+		change: [['c', { 'src/c.ts': 'head\nv = 2;\ntail\n' }]],
+		main: [['m', { 'src/c.ts': 'head\nv = 3;\ntail\n' }]],
+	});
+	const j = propose(job, jobMerge(job).out);
+	j.input.budget = 6;
+	stage(j.p, j.input);
+	apply(j.p.workspace, { 'src/c.ts': `head\n${long(23)}tail\n` });
+	mkdirSync(j.p.out, { recursive: true });
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [
+				{
+					path: 'src/c.ts',
+					index: 0,
+					takes: 'combined',
+					why: 'Both.',
+					nowDoes: 'x',
+					otherwise: null,
+				},
+			],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const h = body.explanation?.hunks[0];
+	check(
+		body.outcome === 'proposed' &&
+			h.result.endsWith('…') &&
+			Array.from(h.result).length === LINES_CAP &&
+			h.resultCut > 4_000 &&
+			h.resultCut < 12_001,
+		`result: a result past the cap is cut with a trailing … and resultCut counts the lines not shown (${h?.resultCut})`,
+	);
+}
 // the hunk's real lines and its result, from git and the final file (§10)
 {
 	const tabs = (x) =>
@@ -1333,6 +1439,7 @@ check(
 				'otherwise',
 				'path',
 				'result',
+				'resultCut',
 				'takes',
 				'why',
 			]),

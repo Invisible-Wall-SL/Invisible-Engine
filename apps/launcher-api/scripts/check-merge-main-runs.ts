@@ -286,9 +286,10 @@ const store = {
 		r.acceptedBy = person.name;
 		return true;
 	},
-	releaseAccept: async (id: string, claim: string) => {
+	releaseAccept: async (id: string, claim: string, clearing: string | null) => {
 		const r = runOf(id);
 		if (r.status !== 'accepting' || r.acceptClaim !== claim) return;
+		if (r.acceptSha !== null && r.acceptSha !== clearing) return;
 		Object.assign(r, {
 			status: 'proposed',
 			acceptingAt: null,
@@ -311,6 +312,7 @@ const store = {
 		});
 		return true;
 	},
+	dbNow: async () => new Date(),
 	lapsedAccepts: async (leaseMs: number) =>
 		runs
 			.filter((r) => r.status === 'accepting' && +(r.acceptingAt ?? 0) < Date.now() - leaseMs)
@@ -427,6 +429,8 @@ const gh = {
 	compareTooLong: 0,
 	/** The compare answers with no `files` at all. */
 	compareNoFiles: false,
+	/** How many reads of the pull request answer 502 before one works. */
+	readPullFails: 0,
 	/** Runs once, just before a ref update is judged: another replica getting there first. */
 	beforePatch: null as (() => void) | null,
 	/** Runs once, just before a commit is made: the claim's lease running out or being taken over. */
@@ -643,6 +647,10 @@ fake('lib/server/pipelineChanges.ts', {
 		return n;
 	},
 	readPull: async (number: number) => {
+		if (gh.readPullFails > 0) {
+			gh.readPullFails--;
+			throw httpError(502, 'bad gateway');
+		}
 		const pull = gh.pulls.get(number);
 		if (!pull) throw httpError(404, `There is no change #${number}.`);
 		if (pull.fork) {
@@ -872,6 +880,7 @@ const explanation = (paths: string[] = ['src/a.ts'], extra: Json = {}) => ({
 		main: 'const a = 2;',
 		change: 'const a = 3;',
 		result: null,
+		resultCut: 0,
 		kind: 'lines',
 		takes: 'combined',
 		why: 'Both lines matter.',
@@ -1612,7 +1621,7 @@ const dirty = parsed.cleanExplanation({
 	risks: 'none',
 });
 check(
-	'cleaning: tags shown as text, comments and CI-skip directives and bidi marks gone, @ and # quieted, BUG- refs unlinked',
+	'cleaning: tags shown as text, comments and CI-skip directives gone, a bidi mark shown as ⟨U+202E⟩, @ and # quieted, BUG- refs unlinked',
 	[
 		dirty.conflicted[0].met[0].title,
 		dirty.hunks[0].why,
@@ -1626,7 +1635,7 @@ check(
 	[
 		'Fix ‹b›bold‹/b› @⁠bob #⁠12',
 		'Because   bug #⁠7',
-		'<div>{a}</div> ',
+		'<div>{a}</div> ⟨U+202E⟩',
 		'\t\tconst x = 1;\n\t\treturn x;',
 		'\tx',
 		null,
@@ -2186,6 +2195,44 @@ check(
 		],
 		['proposed', '[line hidden: it looks like a secret]', 'const a = 2;'],
 	);
+	// R3-S3a: a format character the run added is refused (the card could not show it as it is)
+	const zwj = '\tconst is‍Admin = true;';
+	const addedZwj = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zwj}\n` }),
+		explanation: withHunks([
+			hunkWith({ main: 'const a = 1;', change: 'const a = 2;', result: zwj }),
+		]),
+	});
+	check(
+		'result: a line the run added with a zero-width joiner (legal in an identifier) → needs_person, naming the file',
+		[addedZwj.run.status, addedZwj.run.reason],
+		[
+			'needs_person',
+			'The change was refused (a line the run added holds an invisible format character in src/a.ts).',
+		],
+	);
+	const ownZwj = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zwj}\n` }),
+		explanation: withHunks([hunkWith({ main: zwj, change: 'const a = 2;', result: zwj })]),
+	});
+	const ownHunk = (ownZwj.run.explanation as { hunks: { main: string; result: string }[] })
+		.hunks[0];
+	check(
+		'result: a format character on a line a side already held is shown as ⟨U+200D⟩, in the sides and in the result, never dropped',
+		[ownZwj.run.status, ownHunk.main, ownHunk.result],
+		['proposed', '\tconst is⟨U+200D⟩Admin = true;', '\tconst is⟨U+200D⟩Admin = true;'],
+	);
+	const keyResult = (ownLine.run.explanation as { hunks: { result: string }[] }).hunks[0].result;
+	check(
+		'result: a secret-looking line a side already held is hidden in the result too, as in the sides',
+		keyResult,
+		'[line hidden: it looks like a secret]',
+	);
+	const cutBad = await failFast({
+		explanation: withHunks([hunkWith({ resultCut: -1 })]),
+	});
+	check('parser: a resultCut that is not a count is refused unread', cutBad.a.status, 400);
+	runOf(cutBad.id).status = 'cancelled';
 	const tooMany = await failFast({
 		explanation: withHunks([hunkWith({ main: 'm'.repeat(40_001) })]),
 	});
@@ -3073,8 +3120,9 @@ check(
 {
 	// Every GitHub URL path the launcher builds from a branch or another name goes through
 	// refReadPath/refWritePath (githubPaths.ts), and nothing else in src builds one from a name.
-	// Whole template literals are read (a path split over lines is still one), and a call site is
-	// allowed by its file's repo-relative path and its template, never by a variable's name.
+	// Whole template literals and quoted strings are read (so `'/git/refs/heads/' + branch` is seen
+	// too), comments and a stray backtick inside a string or a comment are skipped, and a call site is
+	// allowed by its file's repo-relative path and its literal, never by a variable's name.
 	const root = new URL('../', import.meta.url);
 	const walk = (dir: URL): URL[] =>
 		readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -3084,47 +3132,71 @@ check(
 					? [new URL(e.name, dir)]
 					: [],
 		);
-	/** The outermost template literals of a source, nested ones inside their `${…}` kept whole. */
-	const templates = (src: string): string[] => {
-		const out: string[] = [];
-		const readTemplate = (from: number): number => {
-			let i = from + 1;
-			while (i < src.length && src[i] !== '`') {
-				if (src[i] === '\\') i += 2;
-				else if (src[i] === '$' && src[i + 1] === '{') i = readExpression(i + 2);
-				else i++;
+	/**
+	 * The outermost template literals and the quoted strings of a source. `loose` (a .svelte file,
+	 * whose markup is not code: an apostrophe in a sentence is not a string) reads templates only.
+	 */
+	const literals = (
+		src: string,
+		loose: boolean,
+	): { kind: 'template' | 'string'; text: string }[] => {
+		const out: { kind: 'template' | 'string'; text: string }[] = [];
+		let i = 0;
+		const skipComment = (): boolean => {
+			if (src[i] === '/' && src[i + 1] === '/') {
+				while (i < src.length && src[i] !== '\n') i++;
+				return true;
 			}
-			return i + 1;
+			if (src[i] === '/' && src[i + 1] === '*') {
+				const end = src.indexOf('*/', i + 2);
+				i = end < 0 ? src.length : end + 2;
+				return true;
+			}
+			return false;
 		};
-		const readExpression = (from: number): number => {
-			let i = from;
+		const readString = (record: boolean): void => {
+			const q = src[i];
+			const from = i++;
+			while (i < src.length && src[i] !== q && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1;
+			i++;
+			if (record) out.push({ kind: 'string', text: src.slice(from, i) });
+		};
+		const readExpression = (): void => {
 			let depth = 1;
 			while (i < src.length && depth > 0) {
+				if (skipComment()) continue;
 				const c = src[i];
-				if (c === '`') i = readTemplate(i);
-				else if (c === "'" || c === '"') {
-					i++;
-					while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1;
-					i++;
-				} else {
+				if (c === '`') readTemplate(false);
+				else if (c === "'" || c === '"') readString(false);
+				else {
 					if (c === '{') depth++;
 					else if (c === '}') depth--;
 					i++;
 				}
 			}
-			return i;
 		};
-		let i = 0;
+		const readTemplate = (record: boolean): void => {
+			const from = i++;
+			while (i < src.length && src[i] !== '`') {
+				if (src[i] === '\\') i += 2;
+				else if (src[i] === '$' && src[i + 1] === '{') {
+					i += 2;
+					readExpression();
+				} else i++;
+			}
+			i++;
+			if (record) out.push({ kind: 'template', text: src.slice(from, i) });
+		};
 		while (i < src.length) {
-			if (src[i] === '`') {
-				const end = readTemplate(i);
-				out.push(src.slice(i, end));
-				i = end;
-			} else i++;
+			if (!loose && skipComment()) continue;
+			const c = src[i];
+			if (c === '`') readTemplate(true);
+			else if (!loose && (c === "'" || c === '"')) readString(true);
+			else i++;
 		}
 		return out;
 	};
-	const PATTERNS = [
+	const TEMPLATE_PATTERNS = [
 		/git\/refs?\/heads/,
 		/git\/refs?\/\$\{/,
 		/\/branches\/\$\{/,
@@ -3134,15 +3206,54 @@ check(
 		/\/commits\/\$\{/,
 		/[?&]branch=\$\{/,
 	];
+	const STRING_PATTERNS = [
+		/git\/refs?\/(heads\/)?['"]?$/,
+		/git\/refs?\/heads/,
+		/\/branches\/?['"]?$/,
+		/matching-refs/,
+		/[?&](ref|branch)=['"]?$/,
+		/\/compare\/['"]?$/,
+		/\/commits\/['"]?$/,
+	];
+	const flagged = (src: string, loose: boolean): string[] =>
+		literals(src, loose)
+			.filter((l) =>
+				(l.kind === 'template' ? TEMPLATE_PATTERNS : STRING_PATTERNS).some((re) =>
+					re.test(l.text.replace(/\s+/g, ' ')),
+				),
+			)
+			.map((l) => l.text.replace(/\s+/g, ' '));
+	check(
+		'refs scan: a quoted-string concatenation, a stray backtick in a string or a comment, a comment that names a ref',
+		[
+			flagged("const u = '/repos/x/git/refs/heads/' + branch;", false),
+			flagged('const u = "/repos/x/branches/" + name;', false),
+			flagged("const u = '/repos/x/compare/' + a + '...' + b;", false),
+			flagged("const u = '/repos/x/contents/x?ref=' + sha;", false),
+			flagged("const a = '`'; // don't use ` here\nconst u = `/git/ref/heads/${b}`;", false),
+			flagged("// '/git/refs/heads/' + branch\n/* `/git/refs/heads/${b}` */\nconst ok = 1;", false),
+			flagged("const u = refReadPath(repo(), b);\nconst s = 'git commit';", false),
+			flagged("<p>don't `x` it's</p>{`/git/refs/heads/${b}`}", true),
+		],
+		[
+			["'/repos/x/git/refs/heads/'"],
+			['"/repos/x/branches/"'],
+			["'/repos/x/compare/'"],
+			["'/repos/x/contents/x?ref='"],
+			['`/git/ref/heads/${b}`'],
+			[],
+			[],
+			['`/git/refs/heads/${b}`'],
+		],
+	);
 	const ALLOWED = new Set<string>([
 		'src/lib/server/bugFixRuns.ts | `/repos/${r}/git/commits/${sha}`',
 		'src/lib/server/bugFixRuns.ts | `/repos/${r}/git/commits/${head}`',
-		'src/lib/server/githubPaths.ts | `GET /repos/<repo>/git/ref/heads/<branch>`',
 		'src/lib/server/githubPaths.ts | `/repos/${repo}/git/ref/heads/${encodePath(branch)}`',
-		'src/lib/server/githubPaths.ts | `DELETE /repos/<repo>/git/refs/heads/<branch>`',
 		'src/lib/server/githubPaths.ts | `/repos/${repo}/git/refs/heads/${encodePath(branch)}`',
 		'src/lib/server/pipelineAgents.ts | `/repos/${repo()}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`',
 		'src/lib/server/pipelineAgents.ts | `/repos/${repo()}/contents/${AGENTS_DIR}?ref=${sha}`',
+		'src/lib/server/pipelineAgents.ts | `/repos/${r}/git/commits/${parent}`',
 		'src/lib/server/pipelineChanges.ts | `/repos/${r}/commits/${sha}/check-runs?per_page=${PAGE}`',
 		'src/lib/server/pipelineChanges.ts | `/repos/${r}/commits/${sha}/status`',
 		'src/lib/server/pipelineChanges.ts | `/repos/${repo()}/compare/${BASE_BRANCH}...${headSha}?per_page=1`',
@@ -3157,13 +3268,14 @@ check(
 		'src/lib/server/pipelineMergeRuns.ts | `/repos/${repo()}/compare/${newest.mainSha}...${BASE_BRANCH}?per_page=1`',
 		'src/lib/server/pipelineMergeRuns.ts | `/repos/${repo()}/commits/${pull.head.sha}`',
 		'src/lib/server/pipelineMergeRunsActions.ts | `/repos/${repo()}/compare/${acceptSha}...${tip}`',
+		'src/lib/server/pipelineRuntimeBytes.ts | `/repos/${r}/contents/${MANIFEST_DIR}?ref=${headSha}`',
+		'src/lib/server/pipelineRuntimeBytes.ts | `/repos/${r}/git/commits/${headSha}`',
 	]);
 	const found: string[] = [];
 	for (const file of walk(new URL('src/', root))) {
 		const rel = file.pathname.slice(root.pathname.length);
-		for (const t of templates(readFileSync(file, 'utf8'))) {
-			const flat = t.replace(/\s+/g, ' ');
-			if (PATTERNS.some((re) => re.test(flat))) found.push(`${rel} | ${flat}`);
+		for (const hit of flagged(readFileSync(file, 'utf8'), file.pathname.endsWith('.svelte'))) {
+			found.push(`${rel} | ${hit}`);
 		}
 	}
 	const strays = found.filter((f) => !ALLOWED.has(f));
@@ -3388,12 +3500,12 @@ const lapse = (id: string) => {
 	const w = w0();
 	const p = await proposed(w, both);
 	gh.beforeCommit = () => {
-		runOf(p.id).acceptingAt = new Date(Date.now() - 170_000); // 10 s of the 3-minute lease left
+		runOf(p.id).acceptingAt = new Date(Date.now() - 250_000); // 50 s of the 5-minute lease left
 	};
 	gh.calls.length = 0;
 	const a = await accept(ADMIN, w.n, p.id, w.head);
 	check(
-		'fence: an Accept with under 30 s of its lease left at the moment it would push does not push, and gives the claim back',
+		'fence: an Accept with under 90 s of its lease left at the moment it would push does not push, and gives the claim back',
 		[a.status, a.body.code, refPatches().length, runOf(p.id).status],
 		[409, 'accepting', 0, 'proposed'],
 	);
@@ -3563,6 +3675,138 @@ const lapse = (id: string) => {
 		'sql: only columns, the person’s id and name and the lease in seconds go into a raw sql template in pipelineMergeRuns*.ts — never a Date (it throws on postgres-js)',
 		bad,
 		[],
+	);
+}
+
+// R3-S1: a takeover that fails before it has looked at the tip keeps an earlier holder's commit
+{
+	const w = w0();
+	const p = await proposed(w, both);
+	const landed = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
+		w.head,
+		w.main,
+	]);
+	git.refs.set(w.pull.head.ref, landed);
+	w.pull.head.sha = landed;
+	Object.assign(runOf(p.id), {
+		status: 'accepting',
+		acceptSha: landed,
+		acceptedById: 'alice-id',
+		acceptedBy: 'Alice',
+	});
+	lapse(p.id);
+	gh.readPullFails = 1;
+	const bob = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'takeover: Alice’s push landed and her answer was lost; Bob’s takeover fails reading the pull request → the claim is kept with Alice’s commit (never given back as proposed)',
+		[bob.status >= 500, runOf(p.id).status, runOf(p.id).acceptSha === landed],
+		[true, 'accepting', true],
+	);
+	lapse(p.id);
+	await actions.backstopMergeRuns(app, Date.now());
+	check(
+		'takeover: …and the backstop settles it from the tip, accepted by Alice',
+		[runOf(p.id).status, runOf(p.id).mergeSha === landed, runOf(p.id).acceptedBy],
+		['accepted', true, 'Alice'],
+	);
+	// the same takeover, other refusals before the tip is read: on hold
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	const landed2 = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
+		w2.head,
+		w2.main,
+	]);
+	git.refs.set(w2.pull.head.ref, landed2);
+	Object.assign(runOf(p2.id), { status: 'accepting', acceptSha: landed2 });
+	lapse(p2.id);
+	w2.pull.state = 'closed';
+	const closed = await accept(ADMIN, w2.n, p2.id, w2.head);
+	w2.pull.state = 'open';
+	check(
+		'takeover: a change that is not open before the tip was read keeps Alice’s commit too',
+		[closed.status, runOf(p2.id).status, runOf(p2.id).acceptSha === landed2],
+		[409, 'accepting', true],
+	);
+	// the tip has been read and does NOT hold the earlier commit: now a failure may clear it
+	const w3 = w0();
+	const p3 = await proposed(w3, both);
+	Object.assign(runOf(p3.id), { status: 'accepting', acceptSha: 'f'.repeat(40) });
+	lapse(p3.id);
+	gh.fail.set(`GET /compare/${w3.main}...main`, [{ status: 502, message: 'bad gateway' }]);
+	const after = await accept(ADMIN, w3.n, p3.id, w3.head);
+	gh.fail.clear();
+	check(
+		'takeover: once the tip was read and does not hold the earlier commit, a later failure gives the proposal back clean',
+		[after.status >= 500, runOf(p3.id).status, runOf(p3.id).acceptSha],
+		[true, 'proposed', null],
+	);
+}
+// R3 nit: the push margin is longer than the slowest GitHub call, and a normal Accept gets through it
+{
+	const actionsModule = await import(src('lib/server/pipelineMergeRunsActions.ts'));
+	check(
+		'lease: the minimum lease left to push (90 s) is longer than one slow GitHub call (mint 15 + call 15 + re-mint 15 + call 15 = 60 s) and shorter than the lease (5 min)',
+		[
+			actionsModule.MERGE_ACCEPT_MIN_LEFT_MS > 60_000,
+			actionsModule.MERGE_ACCEPT_MIN_LEFT_MS < shared.MERGE_ACCEPT_LEASE_MS,
+			shared.MERGE_ACCEPT_LEASE_MS - actionsModule.MERGE_ACCEPT_MIN_LEFT_MS >= 120_000,
+		],
+		[true, true, true],
+	);
+	const w = w0();
+	const p = await proposed(w, both);
+	gh.beforeCommit = () => {
+		runOf(p.id).acceptingAt = new Date(Date.now() - 200_000); // 100 s left: past the 90 s margin
+	};
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'lease: with 100 s left (just past the margin) the Accept pushes',
+		[a.status, runOf(p.id).status],
+		[200, 'accepted'],
+	);
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	gh.beforeCommit = () => {
+		runOf(p2.id).acceptingAt = new Date(Date.now() - 215_000); // 85 s left: under it
+	};
+	const a2 = await accept(ADMIN, w2.n, p2.id, w2.head);
+	check(
+		'lease: with 85 s left (just under the margin) it does not',
+		[a2.status, runOf(p2.id).status],
+		[409, 'proposed'],
+	);
+	gh.beforeCommit = null;
+}
+// R3 nit: the server says whether the lease lapsed, by the database's clock
+{
+	const w = w0();
+	const p = await proposed(w, both);
+	Object.assign(runOf(p.id), { status: 'accepting', acceptSha: null, acceptedBy: 'Gualtiero' });
+	runOf(p.id).acceptingAt = new Date(Date.now() - 60_000);
+	runOf(p.id).acceptClaim = 'c';
+	const fresh = await call(listRoute.GET, { user: ADMIN, params: { number: String(w.n) } });
+	runOf(p.id).acceptingAt = new Date(Date.now() - 6 * MIN);
+	const old = await call(listRoute.GET, { user: ADMIN, params: { number: String(w.n) } });
+	check(
+		'GET merge-runs: an accepting run says by itself whether its lease lapsed (the server’s clock, not the page’s)',
+		[
+			(fresh.body.run as Json).acceptLapsed,
+			(old.body.run as Json).acceptLapsed,
+			(old.body.run as Json).status,
+		],
+		[false, true, 'accepting'],
+	);
+	const d = await discard(ADMIN, w.n, p.id);
+	check('discard: a lapsed claim that built nothing is discarded', [d.status], [200]);
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	Object.assign(runOf(p2.id), { status: 'accepting', acceptSha: 'a'.repeat(40) });
+	lapse(p2.id);
+	const d2 = await discard(ADMIN, w2.n, p2.id);
+	check(
+		'discard: a lapsed claim that built a commit says an earlier Accept may have pushed and the pipeline settles it',
+		[d2.status, String(d2.body.error).includes('may have pushed')],
+		[409, true],
 	);
 }
 
@@ -3843,6 +4087,7 @@ check(
 );
 // the result column: the job's own lines from the final file, the hunk's words only without them
 const hunk = (takes: string, result: string | null, kind = 'lines') => ({
+	resultCut: 0,
 	main: '\t\tconst a = 3;',
 	change: '\t\tconst a = 2;',
 	result,
@@ -3860,6 +4105,8 @@ check(
 		view.hunkColumns(hunk('combined', null, 'description')).result,
 		view.hunkColumns(hunk('main', null)).result,
 		view.hunkColumns(hunk('combined', null)).result,
+		view.hunkColumns({ ...hunk('combined', 'a\nb'), resultCut: 3 }).result,
+		view.hunkColumns({ ...hunk('combined', 'a\nb'), resultCut: 1 }).result,
 	],
 	[
 		{
@@ -3873,10 +4120,12 @@ check(
 		'It is five.',
 		view.RESULT_NOT_LOCATED,
 		view.RESULT_NOT_LOCATED,
+		'a\nb\n[3 lines of the result are not shown: read the file before accepting.]',
+		'a\nb\n[1 line of the result is not shown: read the file before accepting.]',
 	],
 );
 {
-	const accepting = (ago: number | null) =>
+	const accepting = (ago: number | null, lapsed = false) =>
 		({
 			status: 'accepting',
 			acceptedBy: 'Gualtiero',
@@ -3884,6 +4133,7 @@ check(
 			updatedAt: new Date(clock - 5 * MIN).toISOString(),
 			startedBy: 'x',
 			acceptingAt: ago === null ? null : new Date(clock - ago).toISOString(),
+			acceptLapsed: lapsed,
 			mainSha: 'm'.repeat(40),
 			headSha: 'h'.repeat(40),
 			spendUsd: null,
@@ -3895,10 +4145,10 @@ check(
 		[
 			view.mergeRunLine(accepting(30_000), clock)?.text,
 			view.proposalBar(accepting(30_000), detailNow, facts3, true, clock),
-			view.mergeRunLine(accepting(4 * MIN), clock),
-			view.proposalBar(accepting(4 * MIN), detailNow, facts3, true, clock)?.canAct,
-			view.acceptLapsed(accepting(4 * MIN), clock),
-			view.acceptLapsed(accepting(30_000), clock),
+			view.mergeRunLine(accepting(6 * MIN, true), clock),
+			view.proposalBar(accepting(6 * MIN, true), detailNow, facts3, true, clock)?.canAct,
+			view.acceptLapsed(accepting(6 * MIN, true)),
+			view.acceptLapsed(accepting(30_000)),
 		],
 		['Accepting… by Gualtiero (just now).', null, null, true, true, false],
 	);

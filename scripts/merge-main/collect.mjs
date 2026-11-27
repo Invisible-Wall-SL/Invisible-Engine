@@ -448,8 +448,8 @@ const startsAt = (lines, piece, at) => piece.every((l, i) => lines[at + i] === l
  * Where git's clean pieces lie in `text`, in order, the first at the start and the last at the end,
  * or why they cannot be placed: `null` when a piece is missing or out of order, `ambiguous` when
  * searching each middle piece from the front and from the back gives different places (a piece such
- * as a lone `}` that the resolution also holds, or a copy of one: the file could be read two ways,
- * and one of them has edited text outside the hunks). One function for both `outsideEdited` and
+ * as a lone `}` that a correct resolution also holds, or a copy of one: the file could be read two
+ * ways, so no hunk's result is shown, which is not an edit outside the hunks). One function for both `outsideEdited` and
  * `hunkResults`, so they can never read a file differently.
  */
 export function placeClean(segments, text) {
@@ -490,11 +490,13 @@ export function placeClean(segments, text) {
 
 /**
  * Whether `text` changes anything outside the conflicts of a file's merged `segments`: every clean
- * piece must still be there, in order, and in one place only ({@link placeClean}).
+ * piece must still be there, in order ({@link placeClean}). A piece with two places (a lone `}` that
+ * a correct resolution repeats) is NOT an outside edit: `merge-file` merges eagerly, so such pieces
+ * are ordinary, and the model could not know to list them. Those hunks just get no `result`, and the
+ * card says the lines could not be located.
  */
 export function outsideEdited(segments, text) {
-	const placed = placeClean(segments, text);
-	return placed === null || placed.ambiguous;
+	return placeClean(segments, text) === null;
 }
 
 /**
@@ -612,6 +614,7 @@ function ruleHunks(x) {
 			main: sideOf(x, h.index, 'main'),
 			change: sideOf(x, h.index, 'change'),
 			result: null,
+			resultCut: 0,
 			kind: 'description',
 			takes: 'both',
 			why: DOCS_WHY,
@@ -630,6 +633,7 @@ function ruleHunks(x) {
 			main: words.main,
 			change: words.change,
 			result: null,
+			resultCut: 0,
 			kind: 'description',
 			takes: 'main',
 			why: `Never merged by hand, and never built by the job: ${how}`,
@@ -670,6 +674,7 @@ function modelExplanation(result, plan, outside) {
 			main: sideOf(x, h.index, 'main'),
 			change: sideOf(x, h.index, 'change'),
 			result: null,
+			resultCut: 0,
 			kind: x.segments ? 'lines' : 'description',
 			takes: TAKES.includes(h.takes) ? h.takes : null,
 			why: clean(h.why),
@@ -711,6 +716,20 @@ function readModelResult(file) {
 	} catch {
 		return null;
 	}
+}
+
+/** The text of lines past the cap are not sent: how many lines (a cut one counts) that leaves out. */
+function linesCut(full, cap) {
+	const shown = Array.from(full).slice(0, cap - 1);
+	return full.split('\n').length - shown.filter((c) => c === '\n').length;
+}
+
+/** A hunk's `result` and `resultCut` from what was found in the final file (undefined: not found). */
+function shownResult(found) {
+	if (found === undefined) return { result: null, resultCut: 0 };
+	const whole = cleanLines(found, Infinity);
+	const result = cleanLines(found);
+	return { result, resultCut: result === whole ? 0 : linesCut(whole, LINES_CAP) };
 }
 
 /**
@@ -759,7 +778,7 @@ function explanationOf(plan, own, finals) {
 	const ownHunks = (own?.hunks ?? []).map((h) => {
 		if (!results.has(h.path)) results.set(h.path, resultsOf(h.path));
 		const found = results.get(h.path)?.[h.index];
-		return { ...h, result: found === undefined ? null : cleanLines(found) };
+		return { ...h, ...shownResult(found) };
 	});
 	const hunks = [...ownHunks, ...ruled.flatMap((x) => ruleHunks(x))].sort((a, b) =>
 		a.path === b.path ? a.index - b.index : a.path < b.path ? -1 : 1,

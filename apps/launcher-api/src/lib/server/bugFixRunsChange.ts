@@ -357,6 +357,7 @@ const PROTECTED_PATHS = [
 	'services/director-worker/agents',
 	'services/director-worker/families',
 	'services/director-worker/src/untrusted.ts',
+	'services/director-worker/package.json',
 	'docs/knowledge',
 	'docs/director/decisions',
 	'scripts/commit-scope.mjs',

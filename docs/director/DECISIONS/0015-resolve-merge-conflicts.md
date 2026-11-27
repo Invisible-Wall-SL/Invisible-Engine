@@ -338,22 +338,32 @@ that the run's hunks were cut against another base.)
   ignored): `main` and `change` from `merge-file`'s own segments, untrimmed (only the last line
   break is dropped), and `result` from the final file, as the text between the clean pieces git put
   around the hunk (hunk *i* lies between clean piece *i* and *i + 1*). Where a clean piece has two
-  places (searched from the front and from the back, as `outsideEdited` does: a lone `}` the
-  resolution also holds, or a copy of a piece) the file is treated as edited outside its hunks and
-  `result` is `null`. `kind` is `lines` for a hunk of a content conflict and `description` for a
+  places (searched from the front and from the back: a lone `}` that a correct resolution also
+  holds, which `merge-file` makes ordinary by merging eagerly) the hunks get no `result`. That is not
+  an outside edit (only a piece that cannot be placed at all is), because the model could not know to
+  list it; the card says the lines could not be located and to read the file. A `result` the job cut
+  at its cap says how many lines it left out (`resultCut`), and the card says so before Accept pushes
+  the whole file. `kind` is `lines` for a hunk of a content conflict and `description` for a
   rule's or a modify/delete hunk, whose `main` and `change` are words and whose result follows what
   it took; a `lines` hunk with a `null` result is shown as "could not be located", never as what the
   model says it took. They are outside the 3,000 and 16,000 caps and the prose scan, with their own
   caps (10,000 characters each, 120,000 over all hunks; over it, `no_proposal`). The launcher
   refuses a `result` that is not inside its file's content, scans the `result` lines neither side
-  has for secrets, as sent and as cleaned (a key split by a zero-width character), and hides a
-  side's own line that looks like a secret instead of refusing (the repository holds such lines).
+  has for secrets, as sent, as cleaned and with format characters taken out (a key split by a
+  zero-width character), and hides a side's own line that looks like a secret instead of refusing
+  (the repository holds such lines). A format character (a zero-width joiner, a bidi mark) is shown
+  as `⟨U+200D⟩`, never dropped, since the pushed file keeps it; a line the run added that holds one is
+  refused, naming the file.
   They are shown as text only, to the proposal waiting for Accept, never as HTML and never in the
   other cards.
 - **Accept's claim.** Accept takes `proposed → accepting` in the database, by the database's clock
-  and with a 3-minute lease and a claim id, before any GitHub write; every later update, settle and
+  and with a 5-minute lease and a claim id, before any GitHub write; every later update, settle and
   release carries the claim id, and the merge commit's SHA is stored (with whoever built it) before
-  the branch moves, which the claim must still hold with at least 30 seconds of its lease left.
+  the branch moves, which the claim must still hold with at least 90 seconds of its lease left (one
+  slow GitHub call is about 60 seconds, so the claim cannot lapse while the push is in flight). A
+  claim that already holds an earlier holder's commit is kept, not given back, by any failure that
+  has not read the branch's tip: the backstop settles it from the tip. The page's "has the lease
+  lapsed" is the server's, by the database's clock.
   Discard acts only from `proposed`, or on a lapsed claim that built no commit. A lost answer is
   recognised by the branch's tip being that commit or a descendant of it (a person may push on top),
   never by its parents or a token anyone can copy; the backstop settles a lapsed claim the same way

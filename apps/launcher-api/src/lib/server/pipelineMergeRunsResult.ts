@@ -98,6 +98,7 @@ const HUNK_KEYS = [
 	'main',
 	'change',
 	'result',
+	'resultCut',
 	'kind',
 	'takes',
 	'why',
@@ -189,6 +190,10 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 		if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > 100_000) {
 			return bad('hunks has an index that is not a whole number');
 		}
+		const cut = h.resultCut;
+		if (typeof cut !== 'number' || !Number.isSafeInteger(cut) || cut < 0 || cut > 10_000_000) {
+			return bad('hunks has a resultCut that is not a count of lines');
+		}
 		if (typeof h.kind !== 'string' || !(MERGE_HUNK_KINDS as readonly string[]).includes(h.kind)) {
 			return bad('hunks has a kind the launcher does not know');
 		}
@@ -205,6 +210,7 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 				: h.result === null
 					? null
 					: text(h.result, 'a hunk', MERGE_CAPS.lines),
+			resultCut: cut,
 			kind: h.kind as MergeRunHunk['kind'],
 			takes: h.takes as MergeRunHunk['takes'],
 			why: text(h.why, 'a hunk'),
@@ -296,6 +302,18 @@ export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResu
 // ── Cleaning ──────────────────────────────────────────────────────────────────
 
 const FORMAT = /\p{Cf}/gu;
+const HAS_FORMAT = /\p{Cf}/u;
+
+/**
+ * A format character (a zero-width joiner, a bidi mark) shown as what it is, `⟨U+200D⟩`, never
+ * dropped: the pushed file keeps it, and a legal identifier may hold one, so a card that hid it
+ * would differ from what Accept writes.
+ */
+const visibleFormat = (text: string): string =>
+	text.replace(
+		FORMAT,
+		(c) => `⟨U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}⟩`,
+	);
 
 /**
  * A code excerpt as the card shows it: no format characters (bidi, zero-width), no CI-skip
@@ -303,10 +321,7 @@ const FORMAT = /\p{Cf}/gu;
  * and its indentation stays: only the last line break is dropped.
  */
 function cleanExcerpt(excerpt: string, max: number): string {
-	const kept = withoutDirectives(excerpt.replace(/\r\n?/g, '\n').replace(FORMAT, '')).replace(
-		/\n$/,
-		'',
-	);
+	const kept = withoutDirectives(visibleFormat(excerpt.replace(/\r\n?/g, '\n'))).replace(/\n$/, '');
 	const points = Array.from(kept);
 	return points.length > max ? `${points.slice(0, max - 1).join('')}…` : kept;
 }
@@ -320,8 +335,8 @@ const hideSecretLines = (text: string): string =>
 		.map((line) => (secretIn(line) ? HIDDEN_LINE : line))
 		.join('\n');
 
-const optionalExcerpt = (v: string | null, max: number): string | null =>
-	v === null ? null : cleanExcerpt(v, max);
+const optionalExcerpt = (v: string | null, max: number, hide = false): string | null =>
+	v === null ? null : hide ? hideSecretLines(cleanExcerpt(v, max)) : cleanExcerpt(v, max);
 
 const optionalClean = (v: string | null, max: number): string | null =>
 	v === null ? null : cleanText(v, max) || null;
@@ -338,7 +353,8 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 			index: h.index,
 			main: hideSecretLines(cleanExcerpt(h.main, MERGE_CAPS.lines)),
 			change: hideSecretLines(cleanExcerpt(h.change, MERGE_CAPS.lines)),
-			result: optionalExcerpt(h.result, MERGE_CAPS.lines),
+			result: optionalExcerpt(h.result, MERGE_CAPS.lines, true),
+			resultCut: h.resultCut,
 			kind: h.kind,
 			takes: h.takes,
 			why: cleanText(h.why, MERGE_CAPS.text),
@@ -381,10 +397,13 @@ export const explanationLines = (e: MergeRunExplanation): number =>
 		0,
 	);
 
+const linesOf = (text: string): string[] => text.replace(/\r\n?/g, '\n').split('\n');
+
 /**
- * The first secret in a hunk's `result` lines that neither of its sides had, scanned as sent and as
- * cleaned (cleaning strips zero-width characters that could rejoin a key a scan of the raw text
- * missed). A line a side already held is the repository's own and is not the result's to answer for.
+ * The first secret in a hunk's `result` lines that neither of its sides had, scanned as sent, as
+ * cleaned and with every format character taken out (zero-width characters can split a key a plain
+ * scan misses). A line a side already held is the repository's own and is not the result's to
+ * answer for.
  */
 export function resultSecretProblem(
 	raw: MergeRunExplanation,
@@ -392,14 +411,33 @@ export function resultSecretProblem(
 ): string | null {
 	for (const [i, h] of raw.hunks.entries()) {
 		const c = cleaned.hunks[i];
-		const theirs = new Set(
-			[h.main, h.change, c.main, c.change].flatMap((t) => t.replace(/\r\n?/g, '\n').split('\n')),
-		);
+		const theirs = new Set([h.main, h.change, c.main, c.change].flatMap(linesOf));
 		for (const text of [h.result, c.result]) {
 			if (text === null) continue;
-			for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
-				if (!theirs.has(line) && secretIn(line)) return 'secret scan: a secret in a hunk result';
+			for (const line of linesOf(text)) {
+				if (theirs.has(line)) continue;
+				if (secretIn(line) || secretIn(line.replace(FORMAT, ''))) {
+					return 'secret scan: a secret in a hunk result';
+				}
 			}
+		}
+	}
+	return null;
+}
+
+/**
+ * A line the run added (in neither side) that holds a format character (a zero-width joiner or
+ * non-joiner, which are legal inside a JS or TS identifier, or a bidi mark): the pushed file keeps
+ * it and the card could not show it as it is, so the proposal is refused, naming the file. The path
+ * is named only when it is one of the files the proposal lists.
+ */
+export function addedFormatProblem(raw: MergeRunExplanation, files: MergeRunFile[]): string | null {
+	for (const h of raw.hunks) {
+		if (h.result === null) continue;
+		const theirs = new Set([...linesOf(h.main), ...linesOf(h.change)]);
+		if (linesOf(h.result).some((line) => !theirs.has(line) && HAS_FORMAT.test(line))) {
+			const where = files.some((f) => f.path === h.path) ? ` in ${h.path}` : '';
+			return `a line the run added holds an invisible format character${where}`;
 		}
 	}
 	return null;
@@ -409,9 +447,9 @@ const flat = (text: string): string =>
 	withoutDirectives(text.replace(/\r\n?/g, '\n').replace(FORMAT, ''));
 
 /**
- * The first hunk whose `result` is not in its file's content, or null. The result is cut at the
- * cap with a trailing `…`, so that cut is allowed for; a file the files do not list, a deletion, or
- * text the file does not hold is not.
+ * The first hunk whose `result` (as the job sent it) is not in its file's content, or null. The
+ * result is cut at the cap with a trailing `…`, so that cut is allowed for; a file the files do not
+ * list, a deletion, or text the file does not hold is not.
  */
 export function resultProblem(e: MergeRunExplanation, files: MergeRunFile[]): string | null {
 	for (const h of e.hunks) {
@@ -419,10 +457,8 @@ export function resultProblem(e: MergeRunExplanation, files: MergeRunFile[]): st
 		const file = files.find((f) => f.path === h.path);
 		if (!file || file.content === null) return 'a hunk shows a result that is not in its file';
 		const whole = flat(file.content);
-		if (
-			!whole.includes(h.result) &&
-			!(h.result.endsWith('…') && whole.includes(h.result.slice(0, -1)))
-		) {
+		const shown = flat(h.result);
+		if (!whole.includes(shown) && !(shown.endsWith('…') && whole.includes(shown.slice(0, -1)))) {
 			return 'a hunk shows a result that is not in its file';
 		}
 	}

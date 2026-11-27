@@ -301,8 +301,18 @@ const given = {
 	acceptedBy: null,
 } as const;
 
-/** Give this claim back (`accepting → proposed`) when nothing was pushed; a claim not held is left. */
-export async function releaseAccept(id: string, claim: string): Promise<void> {
+/**
+ * Give this claim back (`accepting → proposed`) when nothing was pushed; a claim not held is left.
+ * A recorded commit is cleared only when the caller names it as `clearing`: its own, or one it has
+ * checked the branch's tip against. A release that has not looked at the tip (a read that failed
+ * before it could) names none, and cannot wipe the commit of an earlier holder whose push may have
+ * landed.
+ */
+export async function releaseAccept(
+	id: string,
+	claim: string,
+	clearing: string | null,
+): Promise<void> {
 	await getDb()
 		.update(mergeMainRuns)
 		.set({ ...given, updatedAt: sql`now()` })
@@ -311,8 +321,19 @@ export async function releaseAccept(id: string, claim: string): Promise<void> {
 				eq(mergeMainRuns.id, id),
 				eq(mergeMainRuns.status, 'accepting'),
 				eq(mergeMainRuns.acceptClaim, claim),
+				clearing === null
+					? isNull(mergeMainRuns.acceptSha)
+					: or(isNull(mergeMainRuns.acceptSha), eq(mergeMainRuns.acceptSha, clearing)),
 			),
 		);
+}
+
+/** The database's clock now, for the page's "has the lease lapsed" (never the browser's or a replica's). */
+export async function dbNow(): Promise<Date> {
+	const [row] = await getDb()
+		.select({ now: sql<Date>`now()` })
+		.from(sql`(select 1) as one`);
+	return new Date(row.now);
 }
 
 /**

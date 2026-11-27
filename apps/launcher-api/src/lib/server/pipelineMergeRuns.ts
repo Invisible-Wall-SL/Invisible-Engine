@@ -71,6 +71,7 @@ import {
 	isExplainedMerge,
 	needsMainsTree,
 	parseMergeResult,
+	addedFormatProblem,
 	resultProblem,
 	resultSecretProblem,
 	textsProblem,
@@ -79,6 +80,7 @@ import {
 import {
 	bindMergeRun,
 	claimAccept,
+	dbNow,
 	getMergeRun,
 	getMergeRunByRequest,
 	insertMergeRun,
@@ -427,9 +429,11 @@ async function decide(
 	const secret = r.explanation && resultSecretProblem(r.explanation, explanation);
 	if (secret) return refused(secret);
 	const hunkPaths = new Set(explanation.hunks.map((h) => h.path));
+	const sent = r.explanation ?? explanation;
 	const problem =
 		filesProblem(r.files, hunkPaths, await mainTreeFor(app, run, r.files)) ??
-		resultProblem(explanation, r.files);
+		addedFormatProblem(sent, r.files) ??
+		resultProblem(sent, r.files);
 	if (problem) return { ...refused(problem), explanation };
 	if (explanationLines(explanation) > MERGE_CAPS.linesTotal) {
 		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.linesTooLong, explanation };
@@ -585,7 +589,9 @@ export async function acceptMergeRun(
 			if (now?.status === 'accepting') conflict('accepting', `Merge run ${id} is being accepted.`);
 			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
 		}
-		const pushed = { sent: false };
+		// An earlier holder's commit may have landed: until this Accept has looked at the tip, the
+		// claim is kept, never given back, so the backstop settles it from the tip.
+		const pushed = { sent: claimed.acceptSha !== null, clearing: null as string | null };
 		try {
 			return await acceptClaimed(
 				app,
@@ -598,7 +604,9 @@ export async function acceptMergeRun(
 			// Nothing was pushed: the proposal is given back (by this claim's id: a claim since taken
 			// over is not ours to give back). A push whose answer is unknown keeps the claim, and its
 			// lease lets the next Accept or the backstop find out from the branch's tip.
-			if (!pushed.sent && claimed.acceptClaim) await releaseAccept(id, claimed.acceptClaim);
+			if (!pushed.sent && claimed.acceptClaim) {
+				await releaseAccept(id, claimed.acceptClaim, pushed.clearing);
+			}
 			throw err;
 		}
 	});
@@ -610,7 +618,7 @@ async function acceptClaimed(
 	run: MergeMainRun & { files: MergeRunFile[]; explanation: MergeRunExplanation },
 	headSha: string,
 	person: MergePerson,
-	pushed: { sent: boolean },
+	pushed: { sent: boolean; clearing: string | null },
 ): Promise<AcceptResult> {
 	const pull = await readPull(run.prNumber, app);
 	if (pull.state !== 'open') conflict('not_open', `#${run.prNumber} is not open.`);
@@ -631,6 +639,12 @@ async function acceptClaimed(
 			mergeSha: run.acceptSha,
 			already: true,
 		};
+	}
+	// The tip has been looked at and does not hold an earlier holder's commit: that commit is not on
+	// the branch, so a release from here may clear it.
+	if (run.acceptSha) {
+		pushed.sent = false;
+		pushed.clearing = run.acceptSha;
 	}
 	if (headSha !== run.headSha || pull.head.sha !== run.headSha) {
 		return stale(run, MERGE_RUN_REASONS.headMoved);
@@ -669,7 +683,7 @@ async function build(
 	pull: GhPull,
 	files: MergeRunFile[],
 	person: MergePerson,
-	pushed: { sent: boolean },
+	pushed: { sent: boolean; clearing: string | null },
 ): Promise<{ end: MergeRunEnd & { status: 'needs_person' } } | { sha: string }> {
 	const r = repo();
 	const needsPerson = (reason: string) => ({
@@ -740,6 +754,7 @@ async function build(
 		);
 		if (!holds) conflict('accepting', 'This Accept no longer holds the claim: try again.');
 		pushed.sent = true;
+		pushed.clearing = commit.sha;
 		const moved = await app.fetch(refWritePath(r, run.branch), {
 			method: 'PATCH',
 			body: JSON.stringify({ sha: commit.sha, force: false }),
@@ -826,7 +841,12 @@ async function discard(
 		// Only a claim whose lease ran out and that built no commit may be discarded: anything else
 		// may have moved the branch, and the backstop settles it from the branch's tip.
 		if (!(await releaseLapsedAccept(id, MERGE_ACCEPT_LEASE_MS))) {
-			conflict('accepting', `Merge run ${id} is being accepted.`);
+			conflict(
+				'accepting',
+				run.acceptSha === null
+					? `Merge run ${id} is being accepted.`
+					: `An Accept on #${number} may have pushed: the pipeline checks the branch and settles it within a few minutes.`,
+			);
 		}
 		const given = await getMergeRun(id);
 		if (given?.status !== 'proposed')
@@ -870,7 +890,7 @@ export async function mergeRunsOfChange(
 	const accepted = runs.find((r) => r.status === 'accepted') ?? null;
 	let behindNow: number | null = null;
 	let headCommittedAt: string | null = null;
-	if (newest?.status === 'proposed' && !app.missing()) {
+	if ((newest?.status === 'proposed' || newest?.status === 'accepting') && !app.missing()) {
 		try {
 			const cmp = await app.json<GhCompare>(
 				`/repos/${repo()}/compare/${newest.mainSha}...${BASE_BRANCH}?per_page=1`,
@@ -885,9 +905,13 @@ export async function mergeRunsOfChange(
 			if (!(err instanceof GithubAppError) && !(err instanceof Error)) throw err;
 		}
 	}
+	// "Has the claim's lease lapsed" is the database's clock, never this replica's or the browser's.
+	const dbMs = newest?.status === 'accepting' ? (await dbNow()).getTime() : 0;
+	const lapsed = (r: MergeMainRun) =>
+		r.status === 'accepting' && dbMs - (r.acceptingAt?.getTime() ?? 0) > MERGE_ACCEPT_LEASE_MS;
 	return {
 		ready,
-		run: newest && viewOf(newest),
+		run: newest && mergeRunView(newest, repo(), lapsed(newest)),
 		accepted: accepted && viewOf(accepted),
 		behindNow,
 		headCommittedAt,
