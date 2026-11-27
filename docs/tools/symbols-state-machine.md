@@ -697,9 +697,12 @@ what it is; every field has its own ⓘ). Everything in it is **off until set**,
 that sets nothing draws exactly the line it always did, silently. Its ↺ icon resets only this
 card.
 
-The card opens on a **live preview**: a board of your project's grid with a win on one of its
-paylines, drawn the way the game draws it — the same strokes, the same moving head and the same
-draw time — with the tip, trail and burst you pick below. It starts on the payline that zig-zags
+The card is laid out like **Flights**: the settings below sit in a framed panel on the left and a
+**live preview** sits beside it on the right (under it in a narrow window), staying in view while
+you scroll the panel; its **About the preview** ⓘ is under the canvas. The preview is a board of
+your project's grid with a win on one of its paylines, drawn the way the game draws it — the same
+strokes, the same moving head and the same draw time — with the tip, trail and burst you pick in
+the panel. It shrinks to fit a narrow column. It starts on the payline that zig-zags
 most; the **Payline** dropdown picks another (a project with no paylines gets a sample zig-zag)
 and **Pays** picks how many reels the win covers (the rest shows with **Show full payline** on).
 It replays by itself a moment after you change any line setting, and the ↻ button replays it on

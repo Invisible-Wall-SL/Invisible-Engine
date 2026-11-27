@@ -199,6 +199,24 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-27 — **Payline style laid out like Flights** (owner: "follow the layout we have in the
+  Flights section as a standard"). The Flights arrangement is now the shared
+  `$lib/ui/EditorPreviewLayout.svelte` (`list?` / `editor` / `preview` / `about?` snippets — a
+  200 px list, the framed field panel, the preview column with a "Preview" label above and an
+  "About the preview" InfoTip below; a wrapping row; the preview column is `position: sticky` so it
+  stays in view beside a long panel), registered in `docs/ui-inventory.md` §22. Flights moved onto
+  it with no visual change (headless screenshots before/after at 1400 and 800 px match to one
+  anti-aliased pixel; box metrics identical). Payline style's fields now sit in the panel and
+  `PaylinePreview` in the preview column; the preview measures its frame and scales the stage to
+  it (aspect kept, capped at 560 px), so a narrow column no longer scrolls sideways. Two `.wl-sub`
+  rules collided (the Payline sub-headings and the Symbol sounds note): the headings are
+  `.wl-heading` now, and the note lost the uppercase/bold it had been inheriting.
+  - **Seen:** a throwaway Vite harness mounting the real `+page.svelte` with load data built by
+    `symbolsPageConfig` over the lines and Hold and Win templates (deleted after).
+  - **Flights side by side (owner's call):** its caption ("Drag A … head: built-in glow") is now
+    capped to the canvas width (640 px), so the preview sits beside the panel at 1400 px instead of
+    under it; it still stacks at 800 px. Seen in a harness of `EditorPreviewLayout` with the real
+    `FlightPreview` (no sideways scroll at either width).
 - 2026-11-27 — **Payline preview fixes** (review of #1969, editor only — `WinLine.svelte`,
   `winLineStyle.ts` and every game runtime untouched).
   - **A missing effect no longer reads "loading effects…" forever.** The doc map now keeps

@@ -1556,23 +1556,25 @@ check("zone art's rigs: each moves on with the river's ticker while in view", ()
 });
 
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
-// piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
-// biomes were data, and are the same of main's after its trees' art (#1922): a level with no
-// biomes block is drawn exactly as it was.
+// piece (`salmons/art-fingerprint.mjs`): a level with no biomes block is drawn exactly as it was.
+// The hashes were of the drawing at main a404522, before the biomes were data, and the same of
+// main's after its trees' art (#1922). Since the river is drawn in chunks (2026-11-27) they are of
+// what is drawn and in which order, not of the containers that hold it; recorded of main 665b407's
+// drawing, the last laid loose, which this one draws alike.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
 const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
 const DRAWN_BEFORE_BIOMES = [
-	{ seed: 1, levels: undefined, projector: 'mirrored', hash: 'ebbbba01c8ade7bf5fe89463' },
-	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: 'b56a21b4022d3b82bb2cfe7d' },
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '6a92bfaa1328bae46bf10584' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '1958546a26690ea154a35aed' },
 	{
 		seed: 123,
 		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
 		projector: 'mirrored',
-		hash: '7fbbc5604e2e2cdf3b20dcde',
+		hash: 'b5fb208cb528704ff1cb5f01',
 	},
-	{ seed: 42, levels: undefined, projector: 'plain', hash: '116464db97ef75359b1d1df4' },
+	{ seed: 42, levels: undefined, projector: 'plain', hash: '083661d70dd1ab4fab36c9c6' },
 ];
 const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
 const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
@@ -1632,10 +1634,11 @@ check('biomes: an authored stretch draws its own trees, floor, grass tint and ri
 		made.some((r) => r.at(-1).includes(`"fill",${0x101010},`)),
 		'the birch riverbed is drawn',
 	);
-	const tinted = rows.filter((r) => r[7] === 0xe0f0a0 && /^grass_/.test(r.at(-1)));
+	const TINT = 8;
+	const tinted = rows.filter((r) => r[TINT] === 0xe0f0a0 && /^grass_/.test(r.at(-1)));
 	assert.ok(tinted.length > 100, `${tinted.length} tinted grass tiles`);
 	assert.ok(
-		rows.filter((r) => /^grass_/.test(r.at(-1) ?? '') && r[7] === 0xffffff).length > 100,
+		rows.filter((r) => /^grass_/.test(r.at(-1) ?? '') && r[TINT] === 0xffffff).length > 100,
 		'the stretch below is untinted',
 	);
 	// The birch grows tree 4 alone, the original's first stretch below it trees 0 and 1.
@@ -1678,5 +1681,80 @@ check(
 		assert.equal(riverLineScale(2, top), 1 + MENU.popGrow);
 	},
 );
+
+// The spawn layer's depth order (2026-11-27, `depthOrder.ts`): a projected world's instances are
+// sorted only when a body's depth changes the order. Played against a layer whose zIndex is set
+// every frame, as before: moves (ties and crossings), spawns (sorted at once, as a mount sorts),
+// despawns and pieces with a fixed zIndex coming and going; the order drawn is the same every
+// frame, every body's zIndex is its depth whenever a draw list is built, and the lazy layer sorts
+// on far fewer of them.
+const { setDepth } = await import('../packages/engine-layout/src/lib/depthOrder.ts');
+check('the spawn layer sorts only when a depth changes the order, and draws the same order', () => {
+	let seed = 7;
+	const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const eager = new Container();
+	const lazy = new Container();
+	const bodies = [];
+	const pieces = [];
+	let next = 0;
+	const spawn = () => {
+		const id = next++;
+		const body = { id, depth: Math.floor(rand() * 40) * 4, a: new Container(), b: new Container() };
+		body.a.label = body.b.label = `b${id}`;
+		body.a.zIndex = body.depth;
+		setDepth(body.b, body.depth);
+		eager.addChild(body.a);
+		eager.sortChildren();
+		lazy.addChild(body.b);
+		lazy.sortChildren();
+		bodies.push(body);
+	};
+	const order = (parent) => parent.children.map((child) => child.label).join();
+	const sorts = { eager: 0, lazy: 0 };
+	const render = (parent, key) => {
+		parent.onRender?.(undefined);
+		if (parent.sortDirty) {
+			sorts[key]++;
+			// What reads a zIndex as the draw list is built (the underwater layer) reads the depth.
+			if (parent === lazy)
+				for (const body of bodies)
+					assert.equal(body.b.zIndex, body.depth, `${body.b.label}'s zIndex at a build`);
+		}
+		if (parent.sortableChildren) parent.sortChildren();
+	};
+	for (let i = 0; i < 12; i++) spawn();
+	for (let frame = 0; frame < 3000; frame++) {
+		for (const body of bodies) {
+			if (rand() < 0.6) body.depth += Math.floor(rand() * 3) - 1;
+			body.a.zIndex = body.depth;
+			setDepth(body.b, body.depth);
+		}
+		if (rand() < 0.02) spawn();
+		if (rand() < 0.015 && bodies.length > 4) {
+			const [gone] = bodies.splice(Math.floor(rand() * bodies.length), 1);
+			gone.a.destroy();
+			gone.b.destroy();
+		}
+		if (rand() < 0.03) {
+			const z = Math.floor(rand() * 40) * 4;
+			const a = new Container();
+			const b = new Container();
+			a.label = b.label = `p${next++}`;
+			a.zIndex = b.zIndex = z;
+			eager.addChild(a);
+			lazy.addChild(b);
+			pieces.push([a, b]);
+		}
+		if (rand() < 0.03 && pieces.length) {
+			const [a, b] = pieces.splice(Math.floor(rand() * pieces.length), 1)[0];
+			a.removeFromParent();
+			b.removeFromParent();
+		}
+		render(eager, 'eager');
+		render(lazy, 'lazy');
+		assert.equal(order(lazy), order(eager), `frame ${frame}`);
+	}
+	assert.ok(sorts.lazy * 4 < sorts.eager, `sorted ${sorts.lazy} times, every frame ${sorts.eager}`);
+});
 
 console.log(`check:salmons-art: ${passed} passed`);

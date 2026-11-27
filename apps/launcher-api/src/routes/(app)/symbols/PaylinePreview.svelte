@@ -69,7 +69,10 @@
 	const size = $derived(boardSize(board));
 	const W = $derived(size.width + MARGIN * 2);
 	const H = $derived(size.height + MARGIN * 2);
-	const fit = $derived(Math.min(1, MAX_WIDTH / W));
+	/** The stage's widest, CSS px; the column may be narrower, and the measured frame wins. */
+	const capWidth = $derived(Math.min(W, MAX_WIDTH));
+	let frameWidth = $state(0);
+	const fit = $derived((frameWidth || capWidth) / W);
 	const rows = $derived(sampleRows(board, lineId));
 	const sample = $derived(samplePoints(board, rows, ofAKind));
 	const lineColor = $derived(board.paylines.find((l) => l.id === lineId)?.color);
@@ -308,7 +311,7 @@
 	);
 </script>
 
-<div class="payline-preview">
+<div class="payline-preview" style:max-width="min(100%, {capWidth}px)">
 	<div class="controls">
 		{#if board.paylines.length}
 			<label>
@@ -338,7 +341,12 @@
 		</label>
 		<IconButton icon="replay" label="Replay the line" onclick={replay} />
 	</div>
-	<div class="frame" style:width="{W * fit}px" style:height="{H * fit}px">
+	<div
+		class="frame"
+		bind:clientWidth={frameWidth}
+		style:width="{capWidth}px"
+		style:aspect-ratio="{W} / {H}"
+	>
 		<div class="stage" style:width="{W}px" style:height="{H}px" style:transform="scale({fit})">
 			<canvas bind:this={canvas} style:width="{W}px" style:height="{H}px"></canvas>
 			{#if trailSet.length && plan.trails && line.enabled}
@@ -421,8 +429,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		max-width: 100%;
-		overflow-x: auto;
+		min-width: 0;
 	}
 	.controls {
 		display: flex;
@@ -440,6 +447,7 @@
 	.frame {
 		position: relative;
 		flex: none;
+		max-width: 100%;
 		border-radius: 8px;
 		overflow: hidden;
 		background: #0b0e13;
