@@ -50,15 +50,15 @@ fixed in a session that never pushed the merge, and branches that were rebased.
 - **219 of the 298 merges hit a conflict, in 112 PRs**: 30% of all merged PRs.
 - **Which files conflicted** (a file counts once per merge; 633 in all):
 
-| Kind | Conflicts | Hunks where both sides only added lines |
-|---|---|---|
-| `docs/status/*.md` | 149 | 115 |
-| Other docs (lessons, families, tool guides, design, playtest) | 82 | 37 |
-| `scripts/runtime-bytes/*.json` | 154 | — (re-recorded, never hand-merged) |
-| Vendored launcher bundles (`static/rigger/vendor/*.js`) | 15 | — |
-| `pnpm-lock.yaml` · a ratchet baseline · a workflow | 4 · 1 · 1 | — |
-| Migrations, `_journal.json` | 0 (12 migrations landed in the window) | — |
-| Code | 227 | 67 |
+| Kind                                                          | Conflicts                              | Hunks where both sides only added lines |
+| ------------------------------------------------------------- | -------------------------------------- | --------------------------------------- |
+| `docs/status/*.md`                                            | 149                                    | 115                                     |
+| Other docs (lessons, families, tool guides, design, playtest) | 82                                     | 37                                      |
+| `scripts/runtime-bytes/*.json`                                | 154                                    | — (re-recorded, never hand-merged)      |
+| Vendored launcher bundles (`static/rigger/vendor/*.js`)       | 15                                     | —                                       |
+| `pnpm-lock.yaml` · a ratchet baseline · a workflow            | 4 · 1 · 1                              | —                                       |
+| Migrations, `_journal.json`                                   | 0 (12 migrations landed in the window) | —                                       |
+| Code                                                          | 227                                    | 67                                      |
 
 - **Per merge:** 113 of 219 (52%) needed no judgement at all. 28 (13%) needed one only in docs,
   and 78 (36%) needed one in code.
@@ -131,12 +131,12 @@ and `main`'s SHA. All four are public, so there is no brief endpoint. The run is
 
 ### 3. Mechanical conflicts: rules in code, no model
 
-| File | Rule | Proof |
-|---|---|---|
-| `scripts/runtime-bytes/*.json` | Take `main`'s, pending | After Accept, CI's required `runtime-bytes` check fails; click **Re-record runtime bytes** on the change (#1936) |
-| Vendored launcher bundles | Take `main`'s, pending | After Accept, rebuild with `pnpm --filter launcher-api build:<name>` in the change's session; `check:vendored-bundles` proves it |
-| A docs hunk where both sides only added lines | Keep both: this change's lines above `main`'s, since it lands later and these files are newest first (`docs/status/README.md`) | The hunk had no base lines, so no line is lost; the proposal shows it |
-| `svelte-check-baseline.json`, `eslint-suppressions.json` | Take `main`'s, pending | After Accept, lower the baseline in the change's session if `check:svelte` or lint fails |
+| File                                                     | Rule                                                                                                                           | Proof                                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/runtime-bytes/*.json`                           | Take `main`'s, pending                                                                                                         | After Accept, CI's required `runtime-bytes` check fails; click **Re-record runtime bytes** on the change (#1936)                 |
+| Vendored launcher bundles                                | Take `main`'s, pending                                                                                                         | After Accept, rebuild with `pnpm --filter launcher-api build:<name>` in the change's session; `check:vendored-bundles` proves it |
+| A docs hunk where both sides only added lines            | Keep both: this change's lines above `main`'s, since it lands later and these files are newest first (`docs/status/README.md`) | The hunk had no base lines, so no line is lost; the proposal shows it                                                            |
+| `svelte-check-baseline.json`, `eslint-suppressions.json` | Take `main`'s, pending                                                                                                         | After Accept, lower the baseline in the change's session if `check:svelte` or lint fails                                         |
 
 - **Pending means `main`'s file, never built.** The three build rules run nothing in the job (§2).
   The record marks the file `pending` with the command a person or CI runs afterwards. The proposal
@@ -163,29 +163,29 @@ and `main`'s SHA. All four are public, so there is no brief endpoint. The run is
 - **The proposal has required fields**, as in ADR-0014 §2. If one is missing, the run ends
   `no_proposal`: "the run did not explain its resolution".
 
-| Heading | What it says |
-|---|---|
-| **What conflicted** | Each file, and which change on `main` it met (`#n`, title) |
-| **What each side wanted** | Per hunk, one plain line for each side |
-| **What the resolution takes** | Per hunk: `main`'s, this change's, both, or combined, and why |
-| **What the merged code now does** | In plain words, for every combined hunk |
-| **What else was possible** | When a hunk had another reasonable answer |
-| **Also changed outside the conflict** | When there is any |
-| **Checks run** · **Risks** | Each gate and its result · required ("none found" is allowed) |
+| Heading                               | What it says                                                                                                                                                                |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What conflicted**                   | Each file, and which change on `main` it met (`#n`, title)                                                                                                                  |
+| **What each side wanted**             | Per hunk, the real lines of each side as git read them (indentation kept), and the lines the resolved file holds there. Never the model's words: `collect` fills them (§10) |
+| **What the resolution takes**         | Per hunk: `main`'s, this change's, both, or combined, and why                                                                                                               |
+| **What the merged code now does**     | In plain words, for every combined hunk                                                                                                                                     |
+| **What else was possible**            | When a hunk had another reasonable answer                                                                                                                                   |
+| **Also changed outside the conflict** | When there is any                                                                                                                                                           |
+| **Checks run** · **Risks**            | Each gate and its result · required ("none found" is allowed)                                                                                                               |
 
 - **Budget.** `PIPELINE_MERGE_MAIN_BUDGET_USD` caps a run at $6, and every run counts toward
   `PIPELINE_FIX_MONTHLY_USD`. Spend goes in `director_spend` (`run_id = 'merge:<id>'`, `agent =
-  'merge-main'`). The estimate is $0.5–3; a whole fix run, with four agents, measured $2.80 (13D).
+'merge-main'`). The estimate is $0.5–3; a whole fix run, with four agents, measured $2.80 (13D).
   With the ceiling spent, a run still does the mechanical part, then ends `needs_person`.
 
-| Refusal | Checked by | Outcome |
-|---|---|---|
-| Not in conflict | launcher | `not_conflicted`; offers Update from main |
-| On hold (§7), or a merge run already live on the change | launcher | `on_hold` · `merge_run_live` |
-| A conflict in `.github/workflows/**` or `scripts/current-games/**` | job | `harness_conflict`: the owner's hand merge (ADR-0004) |
-| The lockfile, a migration collision, or a binary | job | `needs_person`, naming the file |
-| A protected path the model would have to resolve | job | `protected_conflict` |
-| More than 10 files, or 600 conflicting lines, left for the model | job | `too_large` (#1140 ends here) |
+| Refusal                                                            | Checked by | Outcome                                               |
+| ------------------------------------------------------------------ | ---------- | ----------------------------------------------------- |
+| Not in conflict                                                    | launcher   | `not_conflicted`; offers Update from main             |
+| On hold (§7), or a merge run already live on the change            | launcher   | `on_hold` · `merge_run_live`                          |
+| A conflict in `.github/workflows/**` or `scripts/current-games/**` | job        | `harness_conflict`: the owner's hand merge (ADR-0004) |
+| The lockfile, a migration collision, or a binary                   | job        | `needs_person`, naming the file                       |
+| A protected path the model would have to resolve                   | job        | `protected_conflict`                                  |
+| More than 10 files, or 600 conflicting lines, left for the model   | job        | `too_large` (#1140 ends here)                         |
 
 ### 5. Accept: what lands, and on whose branch
 
@@ -261,13 +261,13 @@ partial unique index on (pr_number) where status in ('dispatched','running','pro
 
 ### 9. Phasing
 
-| Card | What | Agent | Proof |
-|---|---|---|---|
-| 15A | Update from main; On hold and Resume. **The workflows spike:** on a scratch branch, with a workflow change on `main`, try `update-branch` and a Git Data merge commit, each as the App | director-backend + director-frontend | `check:pipeline-changes`; the spike's answer recorded in the PR |
-| 15B1 | `scripts/merge-main/`: the merge, the mechanical rules and collect, runnable on a local checkout | infra-railway + regression-guardian | `check:merge-main`, a fixture per rule. A replay of the window's mechanical merges must equal what the person committed, or each difference is explained |
-| 15B2 | `.github/workflows/merge-main.yml`, kept thin: both jobs call 15B1's scripts, and the sandbox steps are copied. Also `coordinator.md` and `docs/INFRA.md` | infra-railway | `check:merge-main-workflow`: the sandbox steps match `bug-fix.yml`'s. **The owner merges it by hand**, because current-games refuses a change that edits a workflow |
-| 15C | The migration; start and its refusals; dispatch; the result endpoint; validation and the three-tree build; the proposal, Accept, Discard and "Main merged in" cards; spend; the backstop; `docs/tools/pipeline-changes.md` and status | director-backend + director-frontend + docs-keeper | `check:pipeline-changes`, `check:merge-main-runs`, `check:migration-order`. Hidden until 15B2 is on `main` |
-| 15D | Pilot on #1929, if it still conflicts, and two more | regression-guardian | The owner accepts or discards each, and says whether the card was clear |
+| Card | What                                                                                                                                                                                                                                  | Agent                                              | Proof                                                                                                                                                               |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 15A  | Update from main; On hold and Resume. **The workflows spike:** on a scratch branch, with a workflow change on `main`, try `update-branch` and a Git Data merge commit, each as the App                                                | director-backend + director-frontend               | `check:pipeline-changes`; the spike's answer recorded in the PR                                                                                                     |
+| 15B1 | `scripts/merge-main/`: the merge, the mechanical rules and collect, runnable on a local checkout                                                                                                                                      | infra-railway + regression-guardian                | `check:merge-main`, a fixture per rule. A replay of the window's mechanical merges must equal what the person committed, or each difference is explained            |
+| 15B2 | `.github/workflows/merge-main.yml`, kept thin: both jobs call 15B1's scripts, and the sandbox steps are copied. Also `coordinator.md` and `docs/INFRA.md`                                                                             | infra-railway                                      | `check:merge-main-workflow`: the sandbox steps match `bug-fix.yml`'s. **The owner merges it by hand**, because current-games refuses a change that edits a workflow |
+| 15C  | The migration; start and its refusals; dispatch; the result endpoint; validation and the three-tree build; the proposal, Accept, Discard and "Main merged in" cards; spend; the backstop; `docs/tools/pipeline-changes.md` and status | director-backend + director-frontend + docs-keeper | `check:pipeline-changes`, `check:merge-main-runs`, `check:migration-order`. Hidden until 15B2 is on `main`                                                          |
+| 15D  | Pilot on #1929, if it still conflicts, and two more                                                                                                                                                                                   | regression-guardian                                | The owner accepts or discards each, and says whether the card was clear                                                                                             |
 
 **Order:** 15A first. Then 15B1 and 15C in parallel. 15B2 is the only card that waits on the
 owner's hands, and it holds only the YAML.
@@ -305,7 +305,8 @@ that the run's hunks were cut against another base.)
                "content": "<text>" | null, "mode": "100644" | "100755" } ],
   "explanation": {
     "conflicted": [ { "path": "...", "met": [ { "pr": 1234 | null, "title": "..." } ] } ],
-    "hunks": [ { "path": "...", "index": 0, "main": "...", "change": "...",
+    "hunks": [ { "path": "...", "index": 0, "main": "<main's lines>", "change": "<this change's>",
+                 "result": "<the resolved file's lines there>" | null,
                  "takes": "main" | "change" | "both" | "combined", "why": "...",
                  "nowDoes": "..." | null, "otherwise": "..." | null } ],
     "outside": [ { "path": "...", "what": "..." } ],
@@ -330,6 +331,23 @@ that the run's hunks were cut against another base.)
 - **Caps:** at most 10 files for the model plus the pending rule files; 2 MB a file and 4 MB in all;
   each text field 3,000 characters; 16,000 for `explanation` in all. Everything is untrusted text,
   cleaned and scanned like a fix run's summary (ADR-0013 §5).
+- **A hunk's real lines are not prose.** `main`, `change` and `result` (amended after the 15C
+  review) are code the repository already holds, not words. `collect` fills them from git, never
+  from the model's `result.json` (the model's own `main`/`change` are ignored): `main` and `change`
+  from `merge-file`'s own segments, untrimmed (only the last line break is dropped), and `result`
+  from the final file, as the text between the clean pieces git put around the hunk (hunk _i_ lies
+  between clean piece _i_ and _i + 1_, the pieces `outsideEdited` finds in order). A rule's hunk and
+  a modify/delete hunk keep a description for `main` and `change` and send `result` `null`; so does
+  a hunk whose place is not found. They are outside the 3,000 and 16,000 caps and the prose scan:
+  10,000 characters each and 120,000 over all hunks (over it: `no_proposal`), and the launcher
+  refuses a `result` that is not inside its file's content, which Accept's content scan reads. They
+  are shown as text only, to the proposal waiting for Accept, never as HTML and never in the
+  other cards.
+- **Accept's claim.** Accept takes `proposed → accepting` in the database, with a 3-minute lease,
+  before any GitHub write; Discard acts only from `proposed`. The merge commit's SHA is stored before
+  the branch moves, so a lost answer is recognised by an exact compare with the branch's tip, and the
+  backstop settles a lapsed claim the same way (accepted if the tip is that commit, else the proposal
+  is given back).
 
 ## Consequences
 

@@ -714,49 +714,22 @@ const TAKES_TEXT: Record<MergeTakes, string> = {
 export const choiceWord = (choice: MergeChoice): string => CHOICE_TEXT[choice];
 export const takesWord = (takes: MergeTakes): string => TAKES_TEXT[takes];
 
-const REGION_LINES = 40;
-const NOT_IN_RESULT = "This side's lines are not in the resolved file at this place.";
-const DELETED_RESULT = 'The resolved file is deleted.';
-
-const lineCount = (text: string): number => (text === '' ? 0 : text.split('\n').length);
-
-/**
- * The resolved file's own lines at a hunk: from the first line either side had, as many as the
- * sides together had (at most {@link REGION_LINES}). Null when neither side's first line is in
- * the file, so a result that dropped both is not dressed up as one that kept them.
- */
-export function resolvedRegion(
-	content: string,
-	h: Pick<MergeRunHunk, 'main' | 'change' | 'takes'>,
-): string | null {
-	const lines = content.split('\n');
-	const starts = [h.change, h.main]
-		.map((text) => text.split('\n').find((l) => l.trim() !== ''))
-		.flatMap((first) => (first === undefined ? [] : [lines.indexOf(first)]))
-		.filter((i) => i >= 0);
-	if (!starts.length) return null;
-	const own = h.takes === 'main' ? h.main : h.takes === 'change' ? h.change : null;
-	const span = own === null ? lineCount(h.change) + lineCount(h.main) : lineCount(own);
-	const from = Math.min(...starts);
-	return lines.slice(from, from + Math.min(Math.max(span, 1), REGION_LINES)).join('\n');
-}
-
 /**
  * One hunk as the card's three columns: main's and this change's lines as git had them, and the
- * result from the resolved file's real content (§5), never from what the hunk says it took. Without
- * the file's content, a combination falls back to what its `nowDoes` says.
+ * result: the resolved file's own lines at the hunk, found by the job from git's clean pieces around
+ * it (§10), never the model's words. A rule's or a modify/delete hunk has no such lines (its
+ * `main` and `change` are descriptions), so its result follows what it took; a combination has only
+ * what `nowDoes` says.
  */
 export function hunkColumns(
-	h: Pick<MergeRunHunk, 'main' | 'change' | 'takes' | 'nowDoes'>,
-	file?: Pick<MergeRunFileView, 'content' | 'deleted'> | null,
+	h: Pick<MergeRunHunk, 'main' | 'change' | 'takes' | 'nowDoes' | 'result'>,
 ): { main: string; change: string; result: string } {
 	let result: string;
-	if (file?.deleted) result = DELETED_RESULT;
-	else if (file?.content == null) result = h.nowDoes ?? '';
-	else
-		result =
-			resolvedRegion(file.content, h) ??
-			(h.takes === 'combined' ? (h.nowDoes ?? '') : NOT_IN_RESULT);
+	if (h.result !== null) result = h.result;
+	else if (h.takes === 'main') result = h.main;
+	else if (h.takes === 'change') result = h.change;
+	else if (h.takes === 'both') result = `${h.change}\n${h.main}`;
+	else result = h.nowDoes ?? '';
 	return { main: h.main, change: h.change, result };
 }
 

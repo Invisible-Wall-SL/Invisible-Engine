@@ -109,6 +109,7 @@ import { getDirectorPricing } from './costs/pricingConfig';
 import { downscaleForModel } from './director/mockupPixels';
 import { ENV } from './env';
 import { GithubAppError, githubApp, type GithubApp } from './githubApp';
+import { refReadPath, refWritePath } from './githubPaths';
 import { OidcError, githubOidc, type GithubOidc, type GithubOidcClaims } from './githubOidc';
 import { forgetChanges } from './pipelineChanges';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -337,7 +338,7 @@ async function launchFixRun(
 
 async function mainSha(app: GithubApp): Promise<string> {
 	try {
-		const ref = await app.json<{ object: { sha: string } }>(`/repos/${repo()}/git/ref/heads/main`);
+		const ref = await app.json<{ object: { sha: string } }>(refReadPath(repo(), 'main'));
 		return ref.object.sha;
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
@@ -1074,7 +1075,7 @@ async function makeBranch(io: Io, branch: string, sha: string, tree: string): Pr
 	if (made.ok) return;
 	const said = `GitHub ${made.status} creating the branch: ${await messageOf(made)}`;
 	if (made.status !== 422) throw new GithubAppError(said, made.status);
-	const ref = await io.app.fetch(`/repos/${r}/git/ref/heads/${branch}`);
+	const ref = await io.app.fetch(refReadPath(r, branch));
 	if (!ref.ok) throw new GithubAppError(said, 422);
 	const head = ((await ref.json()) as { object: { sha: string } }).object.sha;
 	const held = await io.app.json<{ tree: { sha: string } }>(`/repos/${r}/git/commits/${head}`);
@@ -1188,11 +1189,11 @@ async function endOpened(
 async function deleteStray(io: Io, branch: string, made: string): Promise<void> {
 	const r = repo();
 	try {
-		const ref = await io.app.fetch(`/repos/${r}/git/ref/heads/${branch}`);
+		const ref = await io.app.fetch(refReadPath(r, branch));
 		if (!ref.ok) return;
 		const head = ((await ref.json()) as { object?: { sha?: string } }).object?.sha;
 		if (head !== made) return;
-		await write(io, `/repos/${r}/git/refs/heads/${branch}`, { method: 'DELETE' });
+		await write(io, refWritePath(r, branch), { method: 'DELETE' });
 	} catch (err) {
 		if (err instanceof LeaseLost) throw err;
 	}

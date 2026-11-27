@@ -51,6 +51,9 @@
 
 	async function send(action: 'accept' | 'discard'): Promise<void> {
 		if (busy || !run) return;
+		// The head the person is looking at when they click, not whatever a refresh brings while the
+		// confirmation is open.
+		const shown = acceptBody(detail);
 		const confirmed = await askConfirm(
 			action === 'accept'
 				? {
@@ -73,7 +76,7 @@
 				{
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(acceptBody(detail)),
+					body: JSON.stringify(action === 'accept' ? shown : {}),
 				},
 			);
 			const body: unknown = await res.json().catch(() => null);
@@ -146,10 +149,7 @@
 		{#if hunks.length}
 			<h4>Each hunk</h4>
 			{#each hunks as h (`${h.path}:${h.index}`)}
-				{@const cols = hunkColumns(
-					h,
-					run.files.find((f) => f.path === h.path),
-				)}
+				{@const cols = hunkColumns(h)}
 				<div class="hunk">
 					<span class="hunk-name">{h.path} · hunk {h.index + 1} · takes {takesWord(h.takes)}</span>
 					<div class="cols">

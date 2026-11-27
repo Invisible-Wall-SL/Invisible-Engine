@@ -9,6 +9,7 @@ import {
 	MERGE_RUN_REASONS,
 	MERGE_RUN_WORKFLOW_PATH,
 	MERGE_CAPS,
+	UNSAFE_BRANCH_TEXT,
 	OUTCOME_REASONS,
 	capMergeReason,
 	dispatchBudget,
@@ -18,6 +19,7 @@ import {
 	mergeRunView,
 	refusalMessage,
 	startRefusal,
+	type MergeRunExplanation,
 	type MergeRunFile,
 	type MergeRunRefusal,
 	type MergeRunStatus,
@@ -40,10 +42,11 @@ import { createKeyedMutex, mapWithConcurrency } from './concurrency';
 import { getDirectorPricing } from './costs/pricingConfig';
 import { ENV } from './env';
 import { GithubAppError, githubApp, type GithubApp } from './githubApp';
-import { encodePath, isPlainBranchName } from './githubPaths';
+import { isPlainBranchName, refReadPath, refWritePath } from './githubPaths';
 import { githubOidc, type GithubOidc } from './githubOidc';
 import { approverName, forgetChanges, isOnHold, readPull, type GhPull } from './pipelineChanges';
 import {
+	MERGE_ACCEPT_LEASE_MS,
 	cancelListedMergeRun,
 	dispatchMergeRun,
 	mergeWorkflowReady,
@@ -59,22 +62,27 @@ import {
 import {
 	ResultProblem,
 	cleanExplanation,
+	explanationLines,
 	explanationSize,
 	explanationTexts,
 	filesProblem,
 	isExplainedMerge,
 	needsMainsTree,
 	parseMergeResult,
+	resultProblem,
 	textsProblem,
 	type ParsedMergeResult,
 } from './pipelineMergeRunsResult';
 import {
 	bindMergeRun,
+	claimAccept,
 	getMergeRun,
 	getMergeRunByRequest,
 	insertMergeRun,
 	mergeRunsOfPr,
+	recordAcceptSha,
 	recordMergeRunSpend,
+	releaseAccept,
 	settleMergeRun,
 	type MergeMainRun,
 	type MergeRunEnd,
@@ -143,9 +151,7 @@ function requestIdOf(body: unknown): string {
 
 async function mainSha(app: GithubApp): Promise<string> {
 	try {
-		const ref = await app.json<{ object: { sha: string } }>(
-			`/repos/${repo()}/git/ref/heads/${BASE_BRANCH}`,
-		);
+		const ref = await app.json<{ object: { sha: string } }>(refReadPath(repo(), BASE_BRANCH));
 		return ref.object.sha;
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
@@ -188,6 +194,7 @@ export async function startMergeRun(
 		conflicted: pull.mergeable_state === 'dirty',
 		liveRun,
 		workflowLive,
+		plainBranch: isPlainBranchName(pull.head.ref),
 	});
 	const early = startRefusal(facts(live?.id ?? null));
 	if (early) refuse(early, number, live?.id ?? null);
@@ -343,8 +350,9 @@ async function recordSpend(id: string, usage: ReturnType<typeof parseUsage>): Pr
 
 /**
  * `main`'s tree at the run's SHA, read only when a file rests on `filesProblem`'s one exemption (a
- * protected path or a lockfile listed as `main`'s). Null when none does, or when GitHub will not
- * say: the exemption is then not given, and the file is refused like any other.
+ * protected path or a lockfile listed as `main`'s). Null when none does, or when the tree is too
+ * large to list whole (the exemption is then not given). A GitHub error is a 502, so the job sends
+ * the result again: a blip is not turned into a refusal with the wrong reason.
  */
 async function mainTreeFor(
 	app: GithubApp,
@@ -355,8 +363,7 @@ async function mainTreeFor(
 	try {
 		return (await readFiles(app, run.mainSha))?.files ?? null;
 	} catch (err) {
-		if (err instanceof Error) return null;
-		throw err;
+		throw error(502, err instanceof Error ? err.message : String(err));
 	}
 }
 
@@ -414,8 +421,13 @@ async function decide(
 		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.notExplained, explanation };
 	}
 	const hunkPaths = new Set(explanation.hunks.map((h) => h.path));
-	const problem = filesProblem(r.files, hunkPaths, await mainTreeFor(app, run, r.files));
+	const problem =
+		filesProblem(r.files, hunkPaths, await mainTreeFor(app, run, r.files)) ??
+		resultProblem(explanation, r.files);
 	if (problem) return { ...refused(problem), explanation };
+	if (explanationLines(explanation) > MERGE_CAPS.linesTotal) {
+		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.linesTooLong, explanation };
+	}
 	const byModel = r.files.some((f) => f.rule === null && hunkPaths.has(f.path));
 	if (byModel && (await monthSpendBefore(spendUsd)) >= (await getPipelineFixMonthlyCap())) {
 		return { status: 'needs_person', reason: MERGE_RUN_REASONS.budgetSpent, explanation };
@@ -431,7 +443,6 @@ interface GhCommit {
 	sha: string;
 	parents: { sha: string }[];
 	tree: { sha: string };
-	message?: string;
 	commit?: { committer?: { date?: string } | null };
 }
 
@@ -449,7 +460,7 @@ function conflict(code: string, message: string): never {
 }
 
 async function stale(run: MergeMainRun, reason: string): Promise<never> {
-	await settleMergeRun(run.id, ['proposed'], { status: 'stale', reason });
+	await settleMergeRun(run.id, ['accepting'], { status: 'stale', reason });
 	return conflict('stale', reason);
 }
 
@@ -460,6 +471,7 @@ async function stale(run: MergeMainRun, reason: string): Promise<never> {
 async function mainChangedSince(app: GithubApp, from: string): Promise<Set<string> | null> {
 	const cmp = await app.json<GhCompare>(`/repos/${repo()}/compare/${from}...${BASE_BRANCH}`);
 	if (cmp.status !== 'ahead' && cmp.status !== 'identical') return null;
+	if (cmp.files === undefined && (cmp.ahead_by ?? 0) > 0) return null;
 	const files = cmp.files ?? [];
 	if (files.length >= COMPARE_FILES_CAP) return null;
 	const paths = new Set<string>();
@@ -508,29 +520,6 @@ const workflowRefusal = (githubMessage: string): string =>
 		`GitHub refused the push over a workflow file: ${githubMessage}. Use GitHub's own Update branch on the pull request, or copy the merge brief to a session.`,
 	);
 
-/**
- * Whether `head` is this run's own merge commit: the head the run was made on, then `main` at its
- * SHA, carrying the run's id in its message and, when the caller built it, the tree it built. The
- * parents alone are not enough: anyone can make a commit with those two parents.
- */
-async function isOwnMerge(
-	app: GithubApp,
-	run: MergeMainRun,
-	head: string,
-	tree: string | null = null,
-): Promise<boolean> {
-	const c = await app.json<GhCommit>(`/repos/${repo()}/git/commits/${head}`);
-	return (
-		c.parents.length === 2 &&
-		c.parents[0].sha === run.headSha &&
-		c.parents[1].sha === run.mainSha &&
-		(c.message ?? '').includes(`(merge run ${run.id})`) &&
-		(tree === null || c.tree.sha === tree)
-	);
-}
-
-const UNSAFE_BRANCH_TEXT =
-	'This branch has a name the pipeline will not push to (only letters, digits, - _ . and / are allowed): update it on GitHub or by hand.';
 const RENAMED_BRANCH_TEXT =
 	'The pull request is no longer on the branch this run was made for; resolve again.';
 
@@ -544,13 +533,19 @@ export interface AcceptResult {
 
 /**
  * Accept a proposal (`POST /api/pipeline/changes/<n>/merge-runs/<id>/accept`, body `{ headSha }`, the
- * head the card showed). The change is re-read: a head that is not the run's — or `main` having
+ * head the card showed). First the CLAIM, in the database and before any GitHub write: `proposed →
+ * accepting` with a lease ({@link MERGE_ACCEPT_LEASE_MS}); a Discard acts only from `proposed`, and a
+ * second Accept finds the claim taken (409 `accepting`), on any replica. Under the claim the change
+ * is re-read: a branch that is not the run's, or whose head is not the run's — or `main` having
  * changed a conflicted file since the run's SHA (the compare API) — makes the proposal `stale`
- * (409 `stale`), and nothing is written. Otherwise the launcher builds the merge from the merge base,
- * the head and `main` at the run's SHA (`planMerge`): a path only one side changed takes that side,
- * and only the paths both sides changed and a rule's regenerated files take the run's content. The
- * commit's parents are `[head, main SHA]`; `PATCH git/refs` with `force: false` moves the branch.
- * GitHub refusing a push over a workflow file ends the run `needs_person` with the reason.
+ * (409 `stale`) and nothing is written; a name the pipeline will not push to, a change not open or on
+ * hold, give the claim back. Otherwise the launcher builds the merge from the merge base, the head and
+ * `main` at the run's SHA (`planMerge`): a path only one side changed takes that side, and only the
+ * paths both sides changed and a rule's regenerated files take the run's content. The commit's
+ * parents are `[head, main SHA]`; its SHA is stored BEFORE `PATCH git/refs` with `force: false`
+ * moves the branch, so a lost answer is recognised by an exact compare with the branch's tip (never
+ * by its parents or a token anyone can copy). GitHub refusing a push over a workflow file ends the
+ * run `needs_person` with the reason.
  */
 export async function acceptMergeRun(
 	input: { number: number; id: string; headSha: string; person: MergePerson },
@@ -564,52 +559,100 @@ export async function acceptMergeRun(
 		if (run.status === 'accepted' && run.mergeSha) {
 			return { run: viewOf(run), mergeSha: run.mergeSha, already: true };
 		}
-		if (run.status !== 'proposed' || !run.files || !run.explanation) {
+		if (
+			run.status === 'accepting' &&
+			Date.now() - (run.acceptingAt?.getTime() ?? 0) < MERGE_ACCEPT_LEASE_MS
+		) {
+			conflict('accepting', `Merge run ${id} is being accepted: wait a moment.`);
+		}
+		if (
+			(run.status !== 'proposed' && run.status !== 'accepting') ||
+			!run.files ||
+			!run.explanation
+		) {
 			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
 		}
-		const pull = await readPull(number, app);
-		if (pull.state !== 'open') conflict('not_open', `#${number} is not open.`);
-		if (isOnHold(pull)) conflict('on_hold', `#${number} is on hold: resume it first.`);
-		if (pull.head.ref !== run.branch) return stale(run, RENAMED_BRANCH_TEXT);
-		if (!isPlainBranchName(run.branch)) conflict('unsafe_branch', UNSAFE_BRANCH_TEXT);
-		if (input.headSha !== run.headSha) {
-			return stale(run, MERGE_RUN_REASONS.headMoved);
-		}
-		if (pull.head.sha !== run.headSha) {
-			if (await isOwnMerge(app, run, pull.head.sha)) {
-				const done = await settleMergeRun(run.id, ['proposed'], {
-					status: 'accepted',
-					mergeSha: pull.head.sha,
-					acceptedBy: person,
-				});
-				forgetChanges();
-				return { run: viewOf(done ?? run), mergeSha: pull.head.sha, already: true };
+		const claimed = await claimAccept(id, person, MERGE_ACCEPT_LEASE_MS);
+		if (!claimed) {
+			const now = await getMergeRun(id);
+			if (now?.status === 'accepted' && now.mergeSha) {
+				return { run: viewOf(now), mergeSha: now.mergeSha, already: true };
 			}
-			return stale(run, MERGE_RUN_REASONS.headMoved);
+			if (now?.status === 'accepting') conflict('accepting', `Merge run ${id} is being accepted.`);
+			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
 		}
-		const files = run.files;
-		const touched = new Set([
-			...files.map((f) => f.path),
-			...run.explanation.conflicted.map((c) => c.path),
-		]);
-		const moved = await mainChangedSince(app, run.mainSha);
-		if (moved === null || [...moved].some((p) => touched.has(p))) {
-			return stale(run, MERGE_RUN_REASONS.mainMoved);
+		const pushed = { sent: false };
+		try {
+			return await acceptClaimed(
+				app,
+				{ ...claimed, files: run.files, explanation: run.explanation },
+				input.headSha,
+				person,
+				pushed,
+			);
+		} catch (err) {
+			// Nothing was pushed: the proposal is given back. A push whose answer is unknown keeps the
+			// claim, and its lease lets the next Accept or the backstop find out from the branch's tip.
+			if (!pushed.sent) await releaseAccept(id);
+			throw err;
 		}
-		const end = await build(app, run, pull, files, person);
-		if ('end' in end) {
-			await settleMergeRun(run.id, ['proposed'], end.end);
-			conflict('needs_person', end.end.reason ?? 'The resolution was refused.');
-		}
-		// The branch has moved: the row says so even when a Discard from another replica got in first.
-		const done = await settleMergeRun(run.id, ['proposed', 'discarded'], {
+	});
+}
+
+/** An Accept under the claim: the checks, then the build. */
+async function acceptClaimed(
+	app: GithubApp,
+	run: MergeMainRun & { files: MergeRunFile[]; explanation: MergeRunExplanation },
+	headSha: string,
+	person: MergePerson,
+	pushed: { sent: boolean },
+): Promise<AcceptResult> {
+	const pull = await readPull(run.prNumber, app);
+	if (pull.state !== 'open') conflict('not_open', `#${run.prNumber} is not open.`);
+	if (isOnHold(pull)) conflict('on_hold', `#${run.prNumber} is on hold: resume it first.`);
+	if (pull.head.ref !== run.branch) return stale(run, RENAMED_BRANCH_TEXT);
+	if (!isPlainBranchName(run.branch)) conflict('unsafe_branch', UNSAFE_BRANCH_TEXT);
+	if (run.acceptSha && pull.head.sha === run.acceptSha) {
+		const done = await settleMergeRun(run.id, ['accepting'], {
 			status: 'accepted',
-			mergeSha: end.sha,
+			mergeSha: run.acceptSha,
 			acceptedBy: person,
 		});
 		forgetChanges();
-		return { run: viewOf(done ?? run), mergeSha: end.sha, already: false };
+		return {
+			run: viewOf(done ?? (await getMergeRun(run.id)) ?? run),
+			mergeSha: run.acceptSha,
+			already: true,
+		};
+	}
+	if (headSha !== run.headSha || pull.head.sha !== run.headSha) {
+		return stale(run, MERGE_RUN_REASONS.headMoved);
+	}
+	const files = run.files;
+	const touched = new Set([
+		...files.map((f) => f.path),
+		...run.explanation.conflicted.map((c) => c.path),
+	]);
+	const moved = await mainChangedSince(app, run.mainSha);
+	if (moved === null || [...moved].some((p) => touched.has(p))) {
+		return stale(run, MERGE_RUN_REASONS.mainMoved);
+	}
+	const end = await build(app, run, pull, files, person, pushed);
+	if ('end' in end) {
+		await settleMergeRun(run.id, ['accepting'], end.end);
+		conflict('needs_person', end.end.reason ?? 'The resolution was refused.');
+	}
+	const done = await settleMergeRun(run.id, ['accepting'], {
+		status: 'accepted',
+		mergeSha: end.sha,
+		acceptedBy: person,
 	});
+	forgetChanges();
+	return {
+		run: viewOf(done ?? (await getMergeRun(run.id)) ?? run),
+		mergeSha: end.sha,
+		already: false,
+	};
 }
 
 /** The refusal that ends a run `needs_person`, or the merge commit now at the branch. */
@@ -619,6 +662,7 @@ async function build(
 	pull: GhPull,
 	files: MergeRunFile[],
 	person: MergePerson,
+	pushed: { sent: boolean },
 ): Promise<{ end: MergeRunEnd & { status: 'needs_person' } } | { sha: string }> {
 	const r = repo();
 	const needsPerson = (reason: string) => ({
@@ -630,7 +674,7 @@ async function build(
 	const baseSha = base.merge_base_commit?.sha;
 	if (!baseSha) return needsPerson('GitHub reports no merge base for this change.');
 	if (baseSha !== run.baseSha) {
-		await settleMergeRun(run.id, ['proposed'], {
+		await settleMergeRun(run.id, ['accepting'], {
 			status: 'stale',
 			reason: MERGE_RUN_REASONS.otherBase,
 		});
@@ -682,7 +726,9 @@ async function build(
 				parents: [run.headSha, run.mainSha],
 			}),
 		});
-		const moved = await app.fetch(`/repos/${r}/git/refs/heads/${encodePath(run.branch)}`, {
+		await recordAcceptSha(run.id, commit.sha);
+		pushed.sent = true;
+		const moved = await app.fetch(refWritePath(r, run.branch), {
 			method: 'PATCH',
 			body: JSON.stringify({ sha: commit.sha, force: false }),
 		});
@@ -690,12 +736,7 @@ async function build(
 			const message = await messageOf(moved);
 			if (WORKFLOW_MENTION.test(message)) return needsPerson(workflowRefusal(message));
 			if (moved.status === 422) {
-				const now = await app.fetch(`/repos/${r}/git/ref/heads/${encodePath(run.branch)}`);
-				if (now.ok) {
-					const tip = ((await now.json()) as { object: { sha: string } }).object.sha;
-					if (await isOwnMerge(app, run, tip, tree.sha)) return { sha: tip };
-				}
-				await settleMergeRun(run.id, ['proposed'], {
+				await settleMergeRun(run.id, ['accepting'], {
 					status: 'stale',
 					reason: MERGE_RUN_REASONS.headMoved,
 				});
@@ -768,6 +809,7 @@ async function discard(
 		if (!done) conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
 		return viewOf(done);
 	}
+	if (run.status === 'accepting') conflict('accepting', `Merge run ${id} is being accepted.`);
 	if (!isWorkingMergeRun(run.status)) conflict('ended', `Merge run ${id} has already ended.`);
 	if (run.ghRunId !== null) {
 		let asked: Awaited<ReturnType<typeof cancelActionsRun>>;

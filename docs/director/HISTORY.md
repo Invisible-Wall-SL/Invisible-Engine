@@ -15,7 +15,41 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · director-backend (15C review: Accept hardened, before 15B2)
+
+- Did: the post-merge review of #1961 (two rounds).
+  - Blocking: Accept PATCHed an unencoded branch ref (`main#x` would have moved `main`). Every ref
+    URL now goes through `refReadPath`/`refWritePath` (`githubPaths.ts`); Accept refuses a head
+    branch that is not the run's, or not a plain name; Start refuses a non-plain name up front.
+  - A hunk's real lines: `collect.mjs` fills `main`, `change` (untrimmed, from `merge-file`'s
+    segments) and the new `result` (the final file between git's clean pieces) itself; they are their
+    own field outside the 16,000 prose cap and scan (10,000 each, 120,000 in all); the page gets no
+    whole-file content. ADR-0015 §4 and §10 amended.
+  - Accept takes a database claim (`proposed → accepting`, 3-minute lease; migration 0053 adds
+    `accept_sha` and `accepting_at`); Discard acts only from `proposed`; the merge commit's SHA is
+    stored before the push and compared exactly; the backstop settles a lapsed claim.
+  - Also: the compare's 300-file cap and a missing file list are "unknown"; the protected-path and
+    lockfile exemption holds only for main's own entry; Accept posts the head the page showed; a
+    GitHub error reading main's tree is a 502 the job re-sends.
+- Files: `githubPaths.ts` (new), `pipelineMergeRuns.ts`, `…Result.ts`, `…Store.ts`, `…Actions.ts`,
+  `mergeMainRuns.ts`, `schema.ts`, `drizzle/0053_merge_main_accepting.sql`, `view.ts`,
+  `MergeRunCards.svelte`, `ChangeDetailPanel.svelte`, `scripts/merge-main/collect.mjs`, the two
+  fixtures, ADR-0015, `docs/status/bug-reports.md`.
+- Branch / PR: `merge-main-accept-fixes` (not pushed).
+- Tests: `check:merge-main-runs` 304, `check:merge-main` 123, `check:merge-main-join`,
+  `check:pipeline-changes`, `check:bug-fix-runs`, `check:bug-fix-workflow`, `check:migration-order`,
+  `check:undefined-names`, `check:svelte --only apps/launcher-api`, lint.
+- Decisions: the database claim (not the in-process mutex) is what makes Accept and Discard one
+  claim across replicas. `result` is found by the first place a clean piece occurs after the one
+  before: a hunk whose resolution repeats the next clean piece shows short, and it is always text
+  inside the file.
+- Next: 15B2 (`merge-main.yml`, `coordinator.md`): its prompt must stop asking the model for a
+  hunk's `main`/`change`.
+
+---
+
 ## 2026-11-27 · Phase 12 · director-backend + regression-guardian (15B1 and 15C joined)
+
 - Did: the cross-check ADR-0015 §10 asks of the last card to land.
   - `check:merge-main-join` (new, `apps/launcher-api/scripts/check-merge-main-join.ts`): the job's
     own code on real scratch repos, its exact JSON through `parseMergeResult`, `filesProblem` and
@@ -42,6 +76,7 @@ with a new one. Use this format:
 - Next: 15B2 (the workflow), then 15D.
 
 ## 2026-11-27 · Phase 12 · infra-railway + regression-guardian (15B1 built)
+
 - Did: `scripts/merge-main/`, runnable on a local checkout.
   - `merge.mjs` (job `merge`) merges `main` into the change at the pinned SHAs path by path, as
     §5's three-tree Accept does. It applies the §3 rules and the §4 job refusals, and writes the
@@ -73,6 +108,7 @@ with a new one. Use this format:
   NUL in `static/rigger/view.html`, which makes 19 of the window's merges `needs_person`.
 
 ## 2026-11-27 · Phase 12 · coordinator (15A spike answered)
+
 - Did: the owner clicked Update from main on the scratch PR #1940, whose branch started before
   #1928's workflow change. GitHub accepted `update-branch` as the App (merge commit `bee763a`,
   bringing in `.github/workflows/bug-fix.yml`). Recorded on #1940, which is closed, and in
@@ -85,6 +121,7 @@ with a new one. Use this format:
 - Next: 15B1 and 15C.
 
 ## 2026-11-26 · Phase 12 · director-backend + director-frontend (15A built)
+
 - Did: Update from main (`POST …/update`, `update-branch` as the App with `expected_head_sha`;
   409 `head_moved` / `conflict` / `workflow_refused`, GitHub's text kept, capped) and On hold /
   Resume (`…/hold`, `…/resume`: the `on-hold` label and one App comment). Held changes read grey,
@@ -101,6 +138,7 @@ with a new one. Use this format:
   `on-hold` label; 15B1 and 15C.
 
 ## 2026-11-26 · Phase 12 · director-architect (ADR-0015 proposed)
+
 - Did: wrote ADR-0015 after the owner's "no way to fix [the conflict] from the pipeline". Measured
   the window 11-04…11-26: 219 of 298 branch merges of main conflicted (112 PRs); 52% purely
   mechanical. Proposal: Update from main (update-branch as the App); Resolve conflict = a
@@ -113,6 +151,7 @@ with a new one. Use this format:
 - Next: owner review; then 15A (with the workflows-permission spike).
 
 ## 2026-11-26 · Phase 11 · director-backend + director-frontend (14B built)
+
 - Did: a build run must explain its change (`changed`, `howToCheck`, `risks`) or it ends `no_fix`
   and opens nothing; the fix PR body is fixed plain headings (what you reported, what was wrong,
   the option you chose, what changed, what else was possible, how to check it, risks). Mark ready
@@ -123,8 +162,8 @@ with a new one. Use this format:
   `Fix run <id> · diagnose|build`, checked against the brief.
 - Files: migration `0049_fix_run_explanation.sql`; `bugFixRuns*.ts`, `pipelineChanges.ts`,
   `pipelineMerge.ts`; `.github/workflows/bug-fix.yml`, `scripts/bug-fix/{collect,prove-cli,
-  workflow.fixture}.mjs`, `coordinator.md`; `routes/(app)/pipeline/{view.ts,ChangeDetailPanel,
-  +page}.svelte`; docs `pipeline-changes.md`, `pipeline-bugs.md`, `bug-reports.md`, `INFRA.md`.
+workflow.fixture}.mjs`, `coordinator.md`; `routes/(app)/pipeline/{view.ts,ChangeDetailPanel,
++page}.svelte`; docs `pipeline-changes.md`, `pipeline-bugs.md`, `bug-reports.md`, `INFRA.md`.
 - Branch / PR: `claude/focused-hopper-nnfkz5`, #1923.
 - Tests: `check:bug-fix-runs` 172, `check:pipeline-changes` 7976, `check:bug-reports` 144,
   `check:bug-fix-workflow` (55 rules, 252 + 10 mutants), `check:svelte` launcher at baseline 44,
@@ -136,6 +175,7 @@ with a new one. Use this format:
 - Next: the owner merges #1923; a live Diagnose → Build on the slow-phone bug (14C).
 
 ## 2026-11-26 · Phase 11 · director-backend + director-frontend (14A built)
+
 - Did: fix runs now diagnose first. Start fix (now **Diagnose**) changes no file and reports the
   cause, 1–4 options and a recommendation; a person picks one and **Build** starts a run pinned to
   it (`POST /api/bugs/<n>/fix-runs/<id>/build`, a `fix_decision` event). A diagnose run that
@@ -158,6 +198,7 @@ with a new one. Use this format:
 - Next: the owner merges #1918 and clicks through a live Diagnose on the slow-phone bug; 14B.
 
 ## 2026-11-26 · Phase 11 · director-architect (ADR-0014 proposed)
+
 - Did: wrote ADR-0014 after fix run `d2a4594cb1` on a Profiler-filed slow-phone bug. The run ended
   `no_fix` ($0.46, no pull request), but the owner could not tell that, landed on the unrelated
   draft #1140, and found the run is told to decide alone. The proposal: diagnose first, options,
@@ -171,6 +212,7 @@ with a new one. Use this format:
 - Next: owner review of ADR-0014; then 14A.
 
 ## 2026-11-18 · Phase 10 · regression-guardian (current-games: stop rendering superseded heads)
+
 - Did: `current-games.yml`'s concurrency group no longer holds the commit for PR and push runs, so a
   new push cancels the run of the head it replaced; manual runs keep the commit.
   `current-games-verdict.yml` skips its job for a push run (`checkRun` posts nothing for one).
@@ -197,6 +239,7 @@ with a new one. Use this format:
 ---
 
 ## 2026-11-10 · Phase 10 · launcher-studio (13D follow-up: the launcher code a run may not change)
+
 - Did: closed open item 4's protected-path gap. `bugFixRunsChange.ts` now also refuses:
   - `src/lib/server/bugFix*.ts`, which adds `bugFixWorkflow.ts`;
   - `src/lib/server/pipeline*.ts` and all of `src/routes/api/pipeline/`: Pipeline Changes'
@@ -210,6 +253,7 @@ with a new one. Use this format:
   That is 32 more tracked files. The set is the imports of what validates, commits and merges a
   fix run, walked to the end and cut at shared infrastructure. `coordinator.md` and
   `settings.json` were updated to match.
+
 - Files: `apps/launcher-api/src/lib/server/bugFixRunsChange.ts`,
   `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
   `scripts/bug-fix/{coordinator.md,settings.json,workflow.fixture.mjs}`,
@@ -227,6 +271,7 @@ with a new one. Use this format:
   (open item 4). The two-connection Postgres proof is still owed.
 
 ## 2026-11-09 · Phase 10 · infra-railway (13D follow-up: the run is told the launcher's refusals)
+
 - Did: `scripts/bug-fix/coordinator.md`'s Never list now names everything `bugFixRunsChange.ts`
   refuses:
   - every protected path and name, the lockfiles and install keys;
@@ -239,6 +284,7 @@ with a new one. Use this format:
 
   Step 6 asks `code-reviewer` for an old-vs-new comparison over generated inputs on a parser or
   money change. `settings.json` denies the Edit tools 27 more paths and names.
+
 - Files: `scripts/bug-fix/{coordinator.md,settings.json,workflow.fixture.mjs}`,
   `docs/status/bug-reports.md`.
 - Branch / PR: `claude/quizzical-dubinsky-6e4985` (#1548); the owner merges it
@@ -254,6 +300,7 @@ with a new one. Use this format:
   `invisible-rig.js` and on protecting those three modules, and the two-connection Postgres proof.
 
 ## 2026-11-09 · Phase 10 · launcher-studio (13D follow-up: the small items)
+
 - Did: fixed the four small items the pilot left (`docs/status/bug-reports.md`, Recent changes).
   - A run that ends before its job reads the bug records $0, not "spend unknown". `settleFixRun`
     sets it from the status the update finds.
@@ -282,6 +329,7 @@ with a new one. Use this format:
   owed from 13D: the three prompt and review follow-ups, in their own session.
 
 ## 2026-11-09 · Phase 10 · regression-guardian (13D: the Start fix pilot)
+
 - Did: ran ADR-0013's pilot on three real, low-risk pipeline bugs, end to end, with the owner's
   yes at each step.
   - Only one real report was open (BUG-3, a vague escalated layering bug near the engine), so
@@ -323,6 +371,7 @@ with a new one. Use this format:
     early stop, Check 2 on a draft fix PR, `<word>` placeholders dropped from public text.
 
 ## 2026-11-08 · Phase 10 · infra-railway (13B: the live spike)
+
 - Did: ran ADR §10's five-case spike on `main` after the owner merged #1525 (6e528ea3b, admin
   override), on the owner's go-ahead ("Yes, run it").
   - Five seeded `[13B spike]` reports, BUG-4 to BUG-8. Case 1's BUG-8 describes a real defect:
@@ -350,8 +399,7 @@ with a new one. Use this format:
     still unseen.
 - Files: docs/status/bug-reports.md, PLAN.md (13B done), HISTORY.md.
 - Branch / PR: docs/13b-live-spike.
-- Tests: the five runs; Actions runs 42512292337, 42510829701, 42510832676, 42511011789,
-  42511014361.
+- Tests: the five runs; Actions runs 42512292337, 42510829701, 42510832676, 42511011789, 42511014361.
 - Decisions: PLAN 13B is now `done`. Its acceptance is met: `check:bug-fix-workflow`, the spike
   under $20, and the owner's merge.
 - Next:
@@ -360,6 +408,7 @@ with a new one. Use this format:
   - 13C's browser pass; 13D, the pilot.
 
 ## 2026-11-08 · Phase 10 · infra-railway (13B: the fix-run workflow)
+
 - Did: built ADR-0013 card 13B.
   - `.github/workflows/bug-fix.yml`: dispatch only; `contents: read` + `id-token: write`;
     environment `bug-fix`; `run-name: Fix run <id>`. The brief is read with OIDC; a pristine copy of
@@ -431,6 +480,7 @@ with a new one. Use this format:
   in #1525 and here.
 
 ## 2026-11-08 · Phase 10 · director-frontend (13C: Start fix UI)
+
 - Did: Start fix / Send and start fix and the run line (status, PR, Actions link, spend, Stop,
   second-bug File it) on the Bugs tab and the /bugs Triage card; the button is hidden until GitHub
   has an active bug-fix.yml and the App is set (bugFixWorkflow.ts). The escalated bug's fix run
@@ -448,6 +498,7 @@ with a new one. Use this format:
 - Next: 13B (workflow, after the owner's three setup steps); the browser pass; 13D pilot.
 
 ## 2026-11-03 · Phase 10 · coordinator (#1514 merged)
+
 - Did: the owner merged #1514, so 13B waits only for the owner's three setup steps.
 - Files: PLAN.md (Phase 10 intro, 13B row), docs/status/bug-reports.md (open item 4).
 - Branch / PR: docs/oq27-merged.
@@ -455,15 +506,16 @@ with a new one. Use this format:
 - Next: 13B after the owner's setup; 13C can start.
 
 ## 2026-11-03 · Phase 10 · infra-railway (OPEN_QUESTIONS 27: current-games skips fix runs)
+
 - Did: the owner approved OPEN_QUESTIONS 27's default, and `current-games.yml` now does it:
   - a push to `bug-*-fix-` plus 10 lowercase hex characters is ignored;
   - `ready_for_review` is a `pull_request` type;
   - `prepare` is skipped for a fix run's draft (user type `Bot`, branch `bug-…-fix-…`) and for a
     `ready_for_review` on any other PR.
-  The verdict posts `pending` for the draft and nothing for the other skipped runs. Those runs get
-  a concurrency group of their own, so they never cancel the PR's real run. Pipeline Changes'
-  `harnessRunOf` skips a run that concluded `skipped`, so an ordinary PR marked ready keeps its
-  report.
+    The verdict posts `pending` for the draft and nothing for the other skipped runs. Those runs get
+    a concurrency group of their own, so they never cancel the PR's real run. Pipeline Changes'
+    `harnessRunOf` skips a run that concluded `skipped`, so an ordinary PR marked ready keeps its
+    report.
 - Files: .github/workflows/current-games.yml; scripts/current-games/lib/verdict.mjs,
   {verdict,retry,triggers}.fixture.mjs; apps/launcher-api/src/lib/server/pipelineChanges.ts,
   scripts/check-pipeline-changes.ts. Docs: docs/INFRA.md, docs/playtest/current-games.md,
@@ -479,6 +531,7 @@ with a new one. Use this format:
 - Next: 13B after the owner's three setup steps; 13C can start.
 
 ## 2026-11-03 · Phase 10 · launcher-studio (13A: fix runs, back end)
+
 - Did: built ADR-0013 card 13A in apps/launcher-api:
   - the `bug_fix_runs` table and the `fix_run` event kind;
   - the `pipelineBugFix` capability (admin by default, per role or per user, in the "Pipeline bug
@@ -494,7 +547,7 @@ with a new one. Use this format:
   - the backstop in `syncBugLinks`;
   - Stop;
   - `director_spend` rows (`fix:<id>`, agent `bug-fix`).
-  No UI beyond the Admin settings and roles (13C); no workflow (13B).
+    No UI beyond the Admin settings and roles (13C); no workflow (13B).
 - Files: drizzle/0037_bug_fix_runs.sql; src/lib/bugFixRuns.ts;
   src/lib/server/{bugFixRuns,bugFixRunsActions,bugFixRunsChange,bugFixRunsStore,githubOidc}.ts;
   routes api/bugs/[number]/fix-runs/** and api/pipeline/fix-runs/**; roles.ts, appSettings.ts,
@@ -539,6 +592,7 @@ with a new one. Use this format:
   - Owed: a two-connection proof of the store's SQL on real Postgres.
 
 ## 2026-11-03 · Phase 10 · coordinator (ADR-0013 approved)
+
 - Did: recorded the owner's approval of ADR-0013 (items 1–11 at their defaults) and the
   "superseded by ADR-0013" note under ADR-0009 §2.
 - Files: DECISIONS/0013-pipeline-bug-fix-runs.md, DECISIONS/0009-repair-agents-families-knowledge.md,
@@ -549,6 +603,7 @@ with a new one. Use this format:
 - Next: 13A (launcher back end). 13B after the owner's three setup steps.
 
 ## 2026-11-03 · Phase 10 · director-architect (ADR-0013 proposed)
+
 - Did: drafted ADR-0013, a **Start fix** button on a pipeline bug that runs Claude Code headless in
   a GitHub Actions job (`pipeline-triage` → the owning agent → gates → `code-reviewer`). The
   launcher turns the job's result into a draft `bug-<n>-fix-<id>` PR as the GitHub App, so the
@@ -563,6 +618,7 @@ with a new one. Use this format:
 - Next: owner approval of the 11 items in the ADR, then 13A.
 
 ## 2026-10-30 · Director · director-backend (saved prompts on New game)
+
 - Did: Saved prompts beside Notes and style: a picker grouped by client (Load, Save as… under any
   targetable client, Update, Delete); director_prompts table (migration 0036_director_prompts),
   /api/director/prompts routes, access by the New game form's client rule (a hidden client's
@@ -576,6 +632,7 @@ with a new one. Use this format:
 - Next: none open.
 
 ## 2026-10-28 · Phase 9 9G · director-backend + director-frontend + regression-guardian
+
 - Did: Game repair runs (ADR-0012, approved 2026-10-28): repair run kind with reproduce/fix/verify
   and an always-on Repair review; game-doctor (leads, plays the draft, no writes; builder/animator
   fix); bug read ops and build.get_play_shot with an untrusted wrapper (worker-side too);
@@ -608,6 +665,7 @@ with a new one. Use this format:
   end-to-end repair once the draft player is deployed.
 
 ## 2026-10-28 · Phase 9 9F follow-up · director-backend (card family in the pack lists)
+
 - Did: C3 (#1426) added `card` to `GAME_FAMILIES`; the 9F pack lists still named only slot,
   match-3 and arcade, so launcher svelte-check rose 45 → 51 on main. `card` joins
   `FAMILY_PACK_FAMILIES`, `PACK_FAMILY_LABELS` and `MOCKUP_SCREEN_TAGS` (Table, Hand, Deck pick,
@@ -628,6 +686,7 @@ with a new one. Use this format:
 - Next: a card pack goes ready with its adapters and a current-games card screen script.
 
 ## 2026-10-27 · Phase 9 9F · director-backend (runtime family packs)
+
 - Did: Runtime family packs (ADR-0009 §4): services/director-worker/families/{slot,match3,arcade}.md
   carry locked items, mockup tags, region batch order, QA books/screens and the never list; the slot
   pack has a section per kind. The eight definitions are family-neutral. Every turn's system is two
@@ -638,8 +697,8 @@ with a new one. Use this format:
   byte-identical). New game shows the family's tags and the refusal. Pipeline Changes flags pack
   edits; packs are refused as agent write targets. agent-eval.ts takes --before-pack/--after-pack;
   agent-eval.yml runs both sides with main's slot pack.
-- Files: services/director-worker/{families/*,src/{familyPack,families,model,driver,store,main}.ts,
-  src/mockups/analyze.ts,src/eval/run.ts,scripts/agent-eval.ts,agents/*.md,Dockerfile};
+- Files: services/director-worker/{families/_,src/{familyPack,families,model,driver,store,main}.ts,
+  src/mockups/analyze.ts,src/eval/run.ts,scripts/agent-eval.ts,agents/_.md,Dockerfile};
   apps/launcher-api/{drizzle/0034_director_run_family.sql,src/lib/server/{db/schema,director/{runs,
   templates,store,refusals,ops/{mathLock,scene,fx,components}},pipelineChanges}.ts,
   routes/(app)/{director,pipeline}/…}; .github/workflows/agent-eval.yml;
@@ -660,6 +719,7 @@ with a new one. Use this format:
   ADR-0009 §5 superseding note; optionally the after-the-fact analyst eval.
 
 ## 2026-10-27 · Phase 9 9D · director-backend + regression-guardian (QA draft play)
+
 - Did: Served build.request_draft and build.play_draft, so QA can be assigned and the known
   unserved-tool gap is empty. A draft is a run-scoped freeze of the project the way Publish
   freezes (director/drafts/<id>/, never published/**). It fails closed on a null
@@ -689,6 +749,7 @@ with a new one. Use this format:
   no_player. 9F takes migration 0034. Follow-up: draft screenshots on the run page.
 
 ## 2026-10-27 · Phase 9 9H · director-backend (Sound, FX and Component Editor art adapters)
+
 - Did: Six reskin ops, one read + one write per tool, each through the tool's storage with baseEtag
   (409 → conflict): sound.get_doc / sound.set_cues (builder), fx.get_effect / fx.update_art
   (animator), components.get_def / components.update_art (builder). Sound binds only built-ins or
@@ -719,12 +780,13 @@ with a new one. Use this format:
   the new ops in 9F's family-neutral rewrite; the soundPublishCheck gap (filed by the owner).
 
 ## 2026-10-27 · Phase 9 9E · coordinator + docs-keeper (knowledge backfill)
+
 - Did: docs/knowledge/lessons/: 15 area files (~290 lessons, symptom → cause → fix → guard → PR),
   mined from the status files, the frozen history and Director HISTORY, each checked against
   today's code. docs/knowledge/games/: 8 briefs for the 9 live games (waysofwavesbuild is test6's
   build). All 36 [[…]] personal-memory links rebuilt as lesson entries; baseline at 0. Tool,
   Director and infra agents' "Read first" now start at targets.md + their lessons file.
-- Files: docs/knowledge/{lessons,games}/*.md, .claude/agents/*.md (Read first),
+- Files: docs/knowledge/{lessons,games}/_.md, .claude/agents/_.md (Read first),
   scripts/agents-knowledge-baseline.json.
 - Branch / PR: claude/9e-knowledge-backfill, #1411.
 - Tests: check:agents-knowledge (0 memory links), on the merge with main too; a scripted check
@@ -736,6 +798,7 @@ with a new one. Use this format:
   kinds, family-file pointers, six skipped sessions).
 
 ## 2026-10-27 · Phase 9 9G.0 · director-backend
+
 - Did: Adapter answers carrying an image reach the model as an image block in the tool_result,
   not as truncated base64 text; get_variant_image downscales to 1568 px and answers
   { region, id, bytes, image }; image blocks counted in the call projection.
@@ -750,6 +813,7 @@ with a new one. Use this format:
 - Next: an art-director image eval case with 9G.4.
 
 ## 2026-10-27 · Phase 9 9C · launcher-studio + director-backend (pipeline repair)
+
 - **Did:** New build agent `pipeline-triage`: it reproduces a pipeline bug, routes it via
   `owners.json`, sets a `bug-<n>-<slug>` branch, requires `## Lesson` in the fix PR, and treats a
   bug's text as data. It is registered in CLAUDE.md and `owners.json` `pipelineBugs`. `bugBrief()`
@@ -761,7 +825,7 @@ with a new one. Use this format:
   - is idempotent by the opId on its `reported` event;
   - has `bug-<n>` in the agent's text rewritten to `bug #<n>`;
   - is capped at 5 per run, and an open duplicate is refused.
-  The Live run feed links the bug.
+    The Live run feed links the bug.
 - **Files:** `.claude/agents/pipeline-triage.md`, `CLAUDE.md`, `docs/knowledge/owners.json`;
   `apps/launcher-api/src/lib/{bugReports,server/bugReports,server/bugReportsStore,server/pipelineAgents}.ts`,
   `src/lib/server/director/{adapter,gate,registry,ops/bugs}.ts`, the Live run page;
@@ -775,6 +839,7 @@ with a new one. Use this format:
 - **Next:** 9G's escalation builds on `createDirectorBug`.
 
 ## 2026-10-27 · Phase 9 9B · claude (one build agent per game type)
+
 - **Did:** Eight build agents, one per game type: lines-games, ways-games, cluster-games,
   scatter-games, hold-and-win-games, bonus-games, match3-games and arcade-games. Each builds on
   engine-pixi-svelte and owns its playbooks, its screen script and
@@ -798,6 +863,7 @@ with a new one. Use this format:
   lines, spins bonus mode, arcade samples) and about 10 stale docs go to their owning agents.
 
 ## 2026-10-27 · Phase 9 · coordinator (audit, ADR-0009, card 9A)
+
 - **Did:** Audited Director, its runtime agents and the build agents against the platform. Fixed
   the stale build agents and status headers. Wrote ADR-0009 (repair agents, an agent per game
   type, the knowledge base); the owner approved it with changes. Built 9A: the
@@ -817,6 +883,7 @@ with a new one. Use this format:
 - **Next:** 9C in progress; 9D (#1398, ADR-0010 approved) in review; then 9B.
 
 ## 2026-10-23 · Phase 10 P10.1b · claude (tools per family)
+
 - **Did:** The adapter gate refuses an op on a tool the project's game family does not use
   (403 `not_for_family`, `docs/design/game-families.md` §6.5), so an agent cannot author symbols or
   win text for an arcade game. `ADAPTER_TOOL_IDS` maps each adapter tool to its launcher tool;
@@ -829,6 +896,7 @@ with a new one. Use this format:
 - **Next:** nothing for Director in Phase 10 until a non-slot kind can be created (P10.5).
 
 ## 2026-10-08 · Phase 1 · regression-guardian (current-games: freeze the mock contracts)
+
 - **Did:** Fixed the "mock contract changed during the run (test_server/games.json was rewritten)"
   failures. The plan read the live manifest and pinned each contract by hash. Each render shard then
   re-read the same live key minutes later, and every launcher publish rewrites it. The plan now
@@ -846,6 +914,7 @@ with a new one. Use this format:
   review.
 
 ## 2026-10-07 · Phase 8 · coordinator (merge #1101 — card 8F)
+
 - **Did:** Dropped `preset_json` column from `director_runs`. Originally numbered migration 0030;
   regenerated as 0031 after 8E's 0030, so its `when` comes later and drizzle can't skip it. Data
   loss (presets of runs before 8C deploy) approved by owner. Restore steps recorded in
@@ -861,14 +930,15 @@ with a new one. Use this format:
   preset (OPEN_QUESTIONS 25); per-job GPU pricing before any run can start (OPEN_QUESTIONS 24).
 
 ## 2026-10-07 · Phase 8 · coordinator (merge #1095 — card 8C)
+
 - **Did:** Removed old Preset: New game Preset card deleted, nothing reads or writes
   `preset_json`. Stale `preset` key gets 400. Fallback chain moved to
   `estimate-profiles.json` `fallbackRecipe` (sdxl 1024×3 → birefnet). Added new `check:idle
-  --strict`. Owner ran it against prod before merge and after deploy; both quiet.
+--strict`. Owner ran it against prod before merge and after deploy; both quiet.
 - **Files:** `apps/launcher-api/src/lib/server/director/{runs,store}.ts`, `roles.ts`, the New
   game page and `api/director/{templates,estimate,runs}`; `packages/director-costs/src/{index,
-  recipe}.ts`; `services/director-worker/{Dockerfile,estimate-profiles.json,src/{recipes,store,
-  driver,idle}.ts}`; deploy skill.
+recipe}.ts`; `services/director-worker/{Dockerfile,estimate-profiles.json,src/{recipes,store,
+driver,idle}.ts}`; deploy skill.
 - **Branch / PR:** origin/main, #1095 (squash ab8822f).
 - **Tests:** check:director-runs 471, check:recipes 94, prove:art-plan 102, prove:breakdown 80,
   prove:idle 10.
@@ -876,6 +946,7 @@ with a new one. Use this format:
 - **Next:** 8F (drop column) merges immediately after.
 
 ## 2026-10-07 · Phase 8 · coordinator (merge #1116 — 8E polish)
+
 - **Did:** Untracked render (`tracked: false`) leaves its steps planned. Revision refusal applies
   only while a queued `director_atlas_jobs` row exists (not across the session). `settleJob`'s
   SQLSTATE 42703 fallback guarded in a savepoint, so launcher and worker deploy in either
@@ -889,6 +960,7 @@ with a new one. Use this format:
 - **Next:** 8C (preset removal) merges.
 
 ## 2026-10-07 · Phase 8 · coordinator (merge #1093 — card 8E)
+
 - **Did:** Art plan checkpoint UI + "How this was made" (recipe steps, chain images, finished
   tile) + chain pricing in estimate + `director_blueprint_timings` measured per (pipeline,
   genPx). Five coordinator review rounds refined the money rules:
@@ -901,9 +973,9 @@ with a new one. Use this format:
   - Re-rendering a rendered step always needs owner approval.
   - Estimate's high end equals the plan's projection.
 - **Files:** `packages/director-costs/src/{recipe,index}.ts`; `services/director-worker/{src/
-  recipes,driver,runState,workerTools}.ts, scripts/prove-art-plan.ts, estimate-profiles.json,
-  pricing.json}`; `apps/launcher-api/src/lib/server/director/{artPlan,runs,ownerActions,store,
-  atlasJobs,ops/atlas}.ts`, the Live run and New game pages, `drizzle/0030_director_job_steps`.
+recipes,driver,runState,workerTools}.ts, scripts/prove-art-plan.ts, estimate-profiles.json,
+pricing.json}`; `apps/launcher-api/src/lib/server/director/{artPlan,runs,ownerActions,store,
+atlasJobs,ops/atlas}.ts`, the Live run and New game pages, `drizzle/0030_director_job_steps`.
 - **Branch / PR:** origin/main, #1093 (squash 5e2d8fd).
 - **Tests:** prove:art-plan 101/101, check:all 346/346.
 - **Decisions:** Differs from ADR-0008: two retries per step per approval, after which only the
@@ -915,6 +987,7 @@ with a new one. Use this format:
 ---
 
 ## 2026-10-07 · Phase 5 · coordinator (5.5 Catalogue tab)
+
 - **Did:** owner asked for the `atlas.list_blueprints` list to be visible and editable by hand,
   with an easy way to add new blueprints. The list is derived from reviewed cards, so the tab
   shows it as-is (offered / not offered, with why) and sends edits to the existing card editor
@@ -939,6 +1012,7 @@ with a new one. Use this format:
 ---
 
 ## 2026-10-07 · Phase 8 · coordinator (merges #1097, #1098, #1100, #1102, #1103, #1104)
+
 - **Did:** finished card 8D after the code (#1091), one agent definition per PR (ADR-0007):
   - #1097: the five `TRANSITION_TOOLS` allowances made all-or-none per agent and pinned.
   - #1098: new `atlas-technician` definition (Sonnet 5.5 high, the 18 Appendix A tools).
@@ -963,6 +1037,7 @@ with a new one. Use this format:
   sends real RunPod rates (`pricing.json` is still a placeholder).
 
 ## 2026-10-07 · Phase 8 · coordinator (merges #1091)
+
 - **Did:** #1091 (ADR-0008 card 8D, the code half; inert until its agent definitions land).
   - New Atlas adapter ops: `list_blueprints`, `set_atlas_pipeline`, `set_region_pipeline`,
     `set_refs`, `add/remove_layer` (this run's scratch atlases only), `duplicate_atlas`,
@@ -1000,6 +1075,7 @@ with a new one. Use this format:
   8E (#1093) merges main and is reviewed; then 8C (#1095).
 
 ## 2026-10-07 · Phases 3, 5 follow-up · coordinator (merges #1090)
+
 - **Did:** #1090 (OPEN_QUESTIONS 17). A key can no longer alias an existing project's R2 folder
   (`r2Slug(client)/r2Slug(key)`, e.g. `sunken_temple` beside `sunken-temple`).
   - `createProject` and `assignProjectToClient` check under `withProjectKeyLock` on its tx and
@@ -1024,6 +1100,7 @@ with a new one. Use this format:
 - **Next:** owner runs `list:project-folder-aliases` against production once.
 
 ## 2026-10-07 · Phase 5 · coordinator (merges #1082)
+
 - **Did:** #1082 (Trusted current-games verdict, OPEN_QUESTIONS 5).
   - The PR's harness run no longer holds `statuses: write`, never posts `current-games`, and runs
     only for PRs into `main`.
@@ -1050,6 +1127,7 @@ with a new one. Use this format:
   verdict posting `pending` then its result.
 
 ## 2026-10-06 · Phases 3, 4, 5 follow-ups · coordinator (merges #1085)
+
 - **Did:** #1085 (Director follow-ups batch).
   - A breakdown answer row is written with its bill, inside a savepoint: a failed answer write
     rolls back only itself, the bill always commits and the error is rethrown, so a re-ask is
@@ -1079,6 +1157,7 @@ with a new one. Use this format:
 - **Next:** a small follow-up for OPEN_QUESTIONS 17.
 
 ## 2026-10-06 · Phase 8 · coordinator (merges #1081)
+
 - **Did:** #1081 (card 8B, Atlas Maker safety changes for the Director). atlas-tool only; nothing
   changes on a person's atlas.
   - `/saveconfig` `atlas_pipeline` → `manifest.settings.pipeline` (Director only, per-atlas keys
@@ -1094,7 +1173,7 @@ with a new one. Use this format:
   - Refused for a Director token: POSTs to atlas routes without `?manifest=` (400),
     `/uploadblueprint`, and manifest writes R2 did not take (503). `bpParams` ids stored lowercase.
 - **Files:** `services/atlas-tool/{batch_atlas.py,ui_server.py,test_director_safety.py,
-  test_director_calls.py,test_atlas_style_gate.py}`, `docs/status/atlas-maker.md`,
+test_director_calls.py,test_atlas_style_gate.py}`, `docs/status/atlas-maker.md`,
   `docs/tools/atlas-maker.md`.
 - **Branch / PR:** `claude/clever-galileo-0fcc93` → #1081 (squash 4c26341c).
 - **Tests:** `scripts/check-python.py` atlas-tool 40/40, sheet-tool 6/6; CI green. Reviewed twice
@@ -1110,6 +1189,7 @@ with a new one. Use this format:
   person's atlas switch (tiny window).
 
 ## 2026-10-06 · Phases 5, 4, 8 · coordinator (merges #1074, #1076, #1078)
+
 - **Did:**
   - **#1074 (card 5C, Phase 5: merge & history & rollback):** pipelineMerge endpoint pins a SHA and
     fetches the GitHub App token (server re-reads; scoped title via shared scripts/commit-scope.mjs,
@@ -1153,6 +1233,7 @@ with a new one. Use this format:
 - **Owner approval:** All three PRs merged with owner approval (recorded 2026-10-06).
 
 ## 2026-10-06 · Phases 5, 4, 2 · coordinator (merges #1070, #1072, #1073, #1075)
+
 - **Did:**
   - **#1070 (card 5.2, Phase 5: changes list/detail & checks):** the `/pipeline Changes` tab shows
     branches + PRs with files, diffs, CI gates grouped, a report streamed from a new endpoint as a
@@ -1197,6 +1278,7 @@ with a new one. Use this format:
 - **Owner approval:** All four PRs merged with owner approval (recorded 2026-10-06).
 
 ## 2026-10-06 · Phases 3, 5, 4 · coordinator (merges #1067, #1068, #1069)
+
 - **Did:**
   - **#1067 (card 3.9, PLAN 3.6 follow-up):** the breakdown step moves entirely to the worker.
     `analyzeMockups` + `submitBreakdown` run before any agent turn; the checkpoint opens once per
@@ -1232,7 +1314,7 @@ with a new one. Use this format:
     `agents/{mockup-analyst,coordinator}.md`, `.github/workflows/director-worker.yml`,
     `docs/INFRA.md`, `docs/director/eval/mockups/expected-breakdown.json`.
   - #1068: `apps/launcher-api/src/lib/server/{githubApp,zip,pipelineReport,pipelineChanges,
-    pipelineApprovals,pipelineAccess,env}.ts`, `db/schema.ts`, `drizzle/0027_pipeline_approvals.sql`,
+pipelineApprovals,pipelineAccess,env}.ts`, `db/schema.ts`, `drizzle/0027_pipeline_approvals.sql`,
     `src/routes/api/pipeline/changes/**`, `scripts/check-pipeline-changes.ts`,
     `.github/workflows/current-games.yml`, `docs/INFRA.md`, `docs/guides/rotate-a-secret.md`,
     `docs/status/launcher.md`, `docs/tools/pipeline-changes.md`, `docs/playtest/current-games.md`.
@@ -1263,6 +1345,7 @@ with a new one. Use this format:
     lands.
 
 ## 2026-10-06 · Phases 1–3 · coordinator
+
 - **Did:** recorded the merges below. Each card's own HISTORY entry is in its PR description.
   - **#1061 (1F):** the current-games harness is calibrated on the live games. Main vs main gives
     0 changed screens on 161 of 161 screens, twice; a seeded 1 px win-line shift is caught on 21
@@ -1290,6 +1373,7 @@ with a new one. Use this format:
   then 4B/4C screens).
 
 ## 2026-10-05 · Phase 5 · coordinator
+
 - **Did:** the owner approved ADR-0007 (pipeline-change mechanics), changing the eval cap to $20.
 - **Decisions:**
   - GitHub is the record; merge is a SHA-pinned squash through the API; rollback is a revert PR.
@@ -1301,6 +1385,7 @@ with a new one. Use this format:
 - **Next:** Phase 5 starts once the harness is calibrated (1F). The owner creates the GitHub App then.
 
 ## 2026-10-05 · Phase 1 · regression-guardian (skip renders when the runtime is untouched)
+
 - **Did:** `current-games` no longer builds two runtimes and renders every live game for a change
   that cannot reach one. `prepare` reads the diff against the harness's own base and classifies it
   with `scripts/current-games/lib/touched.mjs`: the inputs are `apps/lines` and every workspace
@@ -1324,6 +1409,7 @@ with a new one. Use this format:
   meanwhile for the cards that cannot affect it.
 
 ## 2026-10-05 · Phase 1 · coordinator
+
 - **Did:**
   - Recorded #1044 (3A, `director-worker`; the service is deployed and healthy), #1046 (2C, Atlas
     Maker adapters), #1054 (a harness fix) and #1055 (secret redaction in the harness).
@@ -1337,6 +1423,7 @@ with a new one. Use this format:
   - 2D, 3B and 3C.
 
 ## 2026-10-05 · Phase 1 · regression-guardian (current-games secret redaction)
+
 - **Did:** The `current-games` status description published a secret's raw value on #1046 (`Failed to parse URL from <value>`: a token sat in `PIPELINE_GAMES_URL`, and undici quotes a bad URL). GitHub masks logs only, so every status/step-summary/report text now goes through `scripts/current-games/lib/redact.mjs` (secret values → `***`, plus a hex/base64 backstop), and `listGames` rejects a non-https `PIPELINE_GAMES_URL` with a fixed message.
 - **Files:** `scripts/current-games/{run.mjs,redact.fixture.mjs,lib/{redact,report,games}.mjs}`, `.github/workflows/current-games.yml`, `docs/playtest/current-games.md`
 - **Branch / PR:** `claude/current-games-redact-secrets`.
@@ -1344,6 +1431,7 @@ with a new one. Use this format:
 - **Next:** owner — rotate the exposed value (most likely `PIPELINE_CI_TOKEN`: launcher env + GitHub secret) and set `PIPELINE_GAMES_URL` to the launcher's `/api/pipeline/games` URL.
 
 ## 2026-10-04 · Phase 1–3 · coordinator (recording #1040–#1043, #1044 in review)
+
 - **Did:**
   - Recorded the merges of card D (#1040), card E (#1041), card 2A (#1042) and card 2B (#1043).
   - Card 3A (#1044) is in review.
@@ -1368,6 +1456,7 @@ with a new one. Use this format:
   - Cards 2C/2D now; 3B–3D after #1044 merges.
 
 ## 2026-10-04 · Phase 2 · atlas-python-tools (Card 2B, #1043)
+
 - **Did:**
   - Still renders are now queued and resumable, like `video_runner`: R2 job records under
     `<C>/<P>/_jobs/still/<jobRef>/`, a lease per render, boot adoption, and a lost job re-queued
@@ -1389,6 +1478,7 @@ with a new one. Use this format:
   callback tokens and verifies signatures.
 
 ## 2026-10-04 · Phase 2 · director-backend (Card 2A, #1042)
+
 - **Did:**
   - Added the adapter gate `POST /api/director/adapter/<tool>/<op>`:
     - `DIRECTOR_SERVICE_TOKEN`
@@ -1417,6 +1507,7 @@ with a new one. Use this format:
 - **Next:** 2.4 Atlas Maker adapters and 2.6 other adapters on this registry.
 
 ## 2026-10-04 · Phase 1 · regression-guardian (Card E, #1041)
+
 - **Did:** Built the current-games harness:
   - screen scripts for six game types (12–14 screens each, one `draw:'every'` canary per type)
   - a runner that builds both runtimes, reads snapshots read-only from R2, serves them through the
@@ -1442,6 +1533,7 @@ with a new one. Use this format:
 - **Next:** the owner adds the secrets; the first live run; then make the check required.
 
 ## 2026-10-04 · Phase 1 · platform-integrator (Card D, #1040)
+
 - **Did:**
   - Added `pricing.json` (with RunPod placeholders) and an `app_settings` override.
   - Added the pure `costOfUsage`.
@@ -1464,6 +1556,7 @@ with a new one. Use this format:
 - **Next:** 3.7 writes ledger rows from the worker.
 
 ## 2026-10-04 · Phase 1 · coordinator (recording #1035–#1038)
+
 - **Did:** Recorded the merges of cards A, B and C, plus #1038, a follow-up fixing two problems that card C found. Adopted the default answers to the cards' open questions; see OPEN_QUESTIONS.
 - **Files:** `docs/director/{HISTORY,PLAN,OPEN_QUESTIONS}.md`
 - **Branch / PR:** `claude/upbeat-feynman-pwgx6a` (restarted from main).
@@ -1472,6 +1565,7 @@ with a new one. Use this format:
 - **Next:** card E (harness). Phase 2/3 cards in parallel; they merge only once the harness exists.
 
 ## 2026-10-04 · Phase 1 · platform-integrator (Card C, #1037)
+
 - **Did:**
   - Registered `director` in Create and `pipelineChanges` in a new Pipeline stage (#f778ba), with icons in `TOOL_ICONS` and all 4 toolbar twins.
   - Added a `ToolDef.isNew` "new" tag.
@@ -1494,6 +1588,7 @@ with a new one. Use this format:
 - **Next:** card D; the pages get filled in Phases 4 and 5.
 
 ## 2026-10-04 · Phase 1 · regression-guardian (Card B, #1036)
+
 - **Did:** Added a test-only determinism mode, `?ie_determinism=<seed>`, to the shared runtime:
   - a virtual clock driving rAF, timers, `performance.now`, `Date` and CSS/Web Animations
   - a seeded `Math.random`
@@ -1515,6 +1610,7 @@ with a new one. Use this format:
 - **Next:** card E builds on `__IE_DETERMINISM__` and `determinism-proof.mjs`. A runtime release is needed after this merge.
 
 ## 2026-10-04 · Phase 1 · platform-integrator (Card A, #1035)
+
 - **Did:** Added `GET /api/pipeline/games`.
   - It is gated by a bearer `PIPELINE_CI_TOKEN` compared in constant time: 401 for a wrong or missing token, 503 when the token is unset, no session fallback.
   - It is read-only. It returns `listGames()` joined to live projects, with `publishedPointerKey` and `hasOwnBuiltBundle`, and never a `readToken`.
@@ -1530,6 +1626,7 @@ with a new one. Use this format:
 - **Next:** card E consumes this. The owner sets `PIPELINE_CI_TOKEN` on the launcher and as a GitHub secret.
 
 ## 2026-10-04 · Phase 0 → 1 · coordinator
+
 - **Did:**
   - The owner approved Phase 0 ("alright, let's start").
   - ADR-0001…0006 are now `approved` and all open-question defaults are accepted.
@@ -1547,6 +1644,7 @@ with a new one. Use this format:
 - **Next:** merge #1034 so task sessions start from `main`, then run the Phase 1 cards.
 
 ## 2026-10-04 · Phase 0 · coordinator
+
 - **Did:** Applied the owner's feedback on "looks the same".
   - Tolerance is now a tunable config, not a fixed 0.1 %.
   - Intended visual differences can be approved, with before/after shown for each one.
@@ -1561,6 +1659,7 @@ with a new one. Use this format:
 - **Next:** owner approval of the remaining ADRs and defaults.
 
 ## 2026-10-04 · Phase 0 · coordinator
+
 - **Did:** Added `02-director-new-game.html` from the owner. All six screens now have both a PNG and an HTML file. Closed the mockup-gaps question.
 - **Files:**
   - `docs/director/mockups/02-director-new-game.html`
@@ -1572,6 +1671,7 @@ with a new one. Use this format:
 - **Next:** owner approval of ADR-0001…0006 and the open-question defaults, then Phase 1.
 
 ## 2026-10-04 · Phase 0 · coordinator
+
 - **Did:** The owner re-sent the mockups. I added the Live run screenshot, which was the missing PNG. The other four were identical to the committed files.
 - **Files:**
   - `docs/director/mockups/04-director-live-run.png`
@@ -1583,6 +1683,7 @@ with a new one. Use this format:
 - **Next:** owner review of Phase 0. Only `02-director-new-game.html` is still missing.
 
 ## 2026-10-04 · Phase 0 · coordinator
+
 - **Did:**
   - Explored the platform. The findings and their file paths are in ARCHITECTURE §1.
   - Created the project docs, the six build agents and the seven runtime-agent drafts.

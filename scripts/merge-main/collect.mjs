@@ -99,6 +99,10 @@ const STATUSES = [
 ];
 export const TAKES = ['main', 'change', 'both', 'combined'];
 export const TEXT_CAP = 3_000;
+/** One hunk's `main`, `change` or `result`: real lines, outside the 16,000-character prose cap. */
+export const LINES_CAP = 10_000;
+/** Those lines over every hunk of a proposal. */
+export const LINES_TOTAL_CAP = 120_000;
 export const EXPLANATION_CAP = 16_000;
 const COMMAND_CAP = 300;
 const MAX_CHECKS = 50;
@@ -516,6 +520,20 @@ export function clean(value, cap = TEXT_CAP) {
 	return Array.from(text).slice(0, cap).join('');
 }
 
+/**
+ * Code as a person reads it: CRLF as LF, no hidden or control characters (tab and newline stay),
+ * indentation kept, only the last line break dropped, cut at `cap` with a `…`.
+ */
+export function cleanLines(value, cap = LINES_CAP) {
+	if (typeof value !== 'string') return '';
+	const text = Array.from(value.replace(/\r\n?/g, '\n').replace(HIDDEN, ''))
+		.filter((c) => !control(c))
+		.join('')
+		.replace(/\n$/, '');
+	const points = Array.from(text);
+	return points.length > cap ? `${points.slice(0, cap - 1).join('')}…` : text;
+}
+
 /** Every string a value holds, counted in code points. */
 export function measure(value) {
 	if (typeof value === 'string') return Array.from(value).length;
@@ -561,6 +579,7 @@ function ruleHunks(x) {
 			index: h.index,
 			main: sideOf(x, h.index, 'main'),
 			change: sideOf(x, h.index, 'change'),
+			result: null,
 			takes: 'both',
 			why: DOCS_WHY,
 			nowDoes: null,
@@ -577,6 +596,7 @@ function ruleHunks(x) {
 			index: 0,
 			main: words.main,
 			change: words.change,
+			result: null,
 			takes: 'main',
 			why: `Never merged by hand, and never built by the job: ${how}`,
 			nowDoes: null,
@@ -587,13 +607,13 @@ function ruleHunks(x) {
 
 /**
  * What one side really had in a hunk, from the merge's own segments: the lines as git read them,
- * never the model's account of them. A hunk with no lines on that side (or a modify/delete, which
- * has no segments) falls back to the record's one-line summary.
+ * indentation and all, never the model's account of them. A hunk with no lines on that side (or a
+ * modify/delete, which has no segments) falls back to the record's one-line summary.
  */
 function sideOf(x, index, side) {
 	const hunk = x.segments?.filter((s) => s.hunk)[index]?.hunk;
-	const text = hunk?.[side]?.trim() ? clean(hunk[side]) : '';
-	return text || x.hunks[index][side];
+	const text = cleanLines(hunk?.[side]);
+	return text !== '' ? text : x.hunks[index][side];
 }
 
 /** The model's hunks, outside edits, checks and risks, checked against the files it had. */
@@ -615,6 +635,7 @@ function modelExplanation(result, plan, outside) {
 			index: h.index,
 			main: sideOf(x, h.index, 'main'),
 			change: sideOf(x, h.index, 'change'),
+			result: null,
 			takes: TAKES.includes(h.takes) ? h.takes : null,
 			why: clean(h.why),
 			nowDoes: optional(h.nowDoes),
@@ -658,15 +679,67 @@ function readModelResult(file) {
 }
 
 /**
+ * What the final text holds at each hunk of a merged file, from git's clean pieces around the
+ * hunks (the ones `outsideEdited` finds, in order): hunk i is what lies between clean piece i and
+ * clean piece i + 1. Null when the pieces cannot be found in order. A middle piece is found at its
+ * first place after the one before, so text of a hunk that repeats the next piece shows short.
+ */
+export function hunkResults(segments, text) {
+	const cleans = segments.filter((s) => s.clean !== undefined).map((s) => piecesOf(s.clean));
+	const lines = piecesOf(text);
+	if (!startsAt(lines, cleans[0], 0)) return null;
+	const ends = [cleans[0].length];
+	const starts = [];
+	let at = cleans[0].length;
+	for (const piece of cleans.slice(1, -1)) {
+		let found = -1;
+		for (let i = at; i + piece.length <= lines.length && found < 0; i++) {
+			if (startsAt(lines, piece, i)) found = i;
+		}
+		if (found < 0) return null;
+		starts.push(found);
+		ends.push(found + piece.length);
+		at = found + piece.length;
+	}
+	const last = cleans.at(-1);
+	const lastAt = lines.length - last.length;
+	if (lastAt < at || !startsAt(lines, last, lastAt)) return null;
+	starts.push(lastAt);
+	return ends.map((end, i) => lines.slice(end, starts[i]).join(''));
+}
+
+/** The characters of an explanation that are prose: all but each hunk's real lines. */
+const proseOf = (explanation) =>
+	measure({
+		...explanation,
+		hunks: explanation.hunks.map((h) => [h.path, h.index, h.takes, h.why, h.nowDoes, h.otherwise]),
+	});
+
+/** The code points of every hunk's real lines. */
+const linesOf = (explanation) =>
+	explanation.hunks.reduce((n, h) => n + measure([h.main, h.change, h.result ?? '']), 0);
+
+/**
  * §4's explanation, whole: what conflicted (from main's git), every hunk (the model's and the
  * rules'), what changed outside, the checks and the risks — what follows Accept for each pending
  * build is a risk.
  * Fitted into 16,000 characters by naming fewer of main's commits per file; null when even none
  * does not fit.
  */
-function explanationOf(plan, own) {
+function explanationOf(plan, own, finals) {
 	const ruled = plan.paths.filter((x) => x.rule && (x.status === 'mechanical' || x.pending));
-	const hunks = [...(own?.hunks ?? []), ...ruled.flatMap((x) => ruleHunks(x))].sort((a, b) =>
+	const resultsOf = (path) => {
+		const x = plan.paths.find((y) => y.path === path);
+		const final = finals.get(path);
+		return x?.segments && typeof final === 'string' ? hunkResults(x.segments, final) : null;
+	};
+	const results = new Map();
+	const ownHunks = (own?.hunks ?? []).map((h) => {
+		if (!results.has(h.path)) results.set(h.path, resultsOf(h.path));
+		const found = results.get(h.path)?.[h.index];
+		return { ...h, result: found === undefined ? null : cleanLines(found) };
+	});
+	const hunks = [...ownHunks, ...ruled.flatMap((x) => ruleHunks(x))].sort((a, b) =>
 		a.path === b.path ? a.index - b.index : a.path < b.path ? -1 : 1,
 	);
 	const undone = ruled
@@ -695,7 +768,7 @@ function explanationOf(plan, own) {
 			checks: [...(own?.checks ?? []), ...plan.checks],
 			risks: risks || 'none found',
 		};
-		if (measure(explanation) <= EXPLANATION_CAP) return explanation;
+		if (proseOf(explanation) <= EXPLANATION_CAP) return explanation;
 	}
 	return null;
 }
@@ -762,8 +835,13 @@ function proposalBody(input, plan, { finals, modes }, own, usage) {
 	if (sizes.some((n) => n > MAX_FILE_BYTES) || sizes.reduce((a, b) => a + b, 0) > MAX_TOTAL_BYTES) {
 		return refuse('The merged files are over 2 MB a file or 4 MB in all.');
 	}
-	const explanation = explanationOf(plan, own);
+	const explanation = explanationOf(plan, own, finals);
 	if (!explanation) return refuse('The explanation would be longer than 16,000 characters.');
+	if (linesOf(explanation) > LINES_TOTAL_CAP) {
+		return refuse(
+			`The conflicting lines are over ${LINES_TOTAL_CAP.toLocaleString('en-US')} characters in all.`,
+		);
+	}
 	return {
 		...opening(input, plan.baseSha),
 		outcome: 'proposed',

@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { squashSubjectHasScope } from '../../../../../scripts/commit-scope.mjs';
 import { createKeyedMutex } from './concurrency';
 import { githubApp, GithubAppError, type GithubApp } from './githubApp';
-import { encodePath } from './githubPaths';
+import { refReadPath } from './githubPaths';
 import {
 	approverName,
 	forgetChanges,
@@ -579,7 +579,7 @@ type OnGithub =
  */
 async function revertOnGithub(app: GithubApp, number: number, branch: string): Promise<OnGithub> {
 	const r = repo();
-	const ref = await app.fetch(`/repos/${r}/git/ref/heads/${encodePath(branch)}`);
+	const ref = await app.fetch(refReadPath(r, branch));
 	if (ref.status === 404) return { kind: 'none' };
 	if (!ref.ok) throw new GithubAppError(await githubMessage(ref), ref.status);
 	const { object } = (await ref.json()) as { object: { sha: string } };
@@ -671,9 +671,7 @@ async function revertCommit(app: GithubApp, merge: CompletedMerge, user: User): 
 			`Merge ${short(merge.mergeSha)} is not a squash commit (it has ${squash.parents.length} parents); revert it by hand.`,
 		);
 	}
-	const tip = (
-		await app.json<{ object: { sha: string } }>(`/repos/${r}/git/ref/heads/${BASE_BRANCH}`)
-	).object.sha;
+	const tip = (await app.json<{ object: { sha: string } }>(refReadPath(r, BASE_BRANCH))).object.sha;
 	const [parent, tipCommit] = await Promise.all([
 		app.json<GhCommit>(`/repos/${r}/git/commits/${squash.parents[0].sha}`),
 		app.json<GhCommit>(`/repos/${r}/git/commits/${tip}`),

@@ -133,12 +133,21 @@
 	const canHold = $derived(holdOffered(detail, canMerge));
 	const canResolve = $derived(resolveOffered(detail, mergeRuns, canMerge));
 
-	/** The merge-runs request in flight, so the effect and an action's re-read share one load. */
-	let loading: { number: number; done: Promise<void> } | null = null;
+	/**
+	 * The merge-runs request in flight. The effect and an action's re-read share one load, but a load
+	 * that started before the action settled (an older `epoch`) is never joined: it may predate it.
+	 */
+	let epoch = 0;
+	let loading: { number: number; epoch: number; done: Promise<void> } | null = null;
 
 	function loadMerge(number: number): Promise<void> {
-		if (loading?.number === number) return loading.done;
-		const done = (async () => {
+		if (loading?.number === number && loading.epoch === epoch) return loading.done;
+		const mine: { number: number; epoch: number; done: Promise<void> } = {
+			number,
+			epoch,
+			done: Promise.resolve(),
+		};
+		mine.done = (async () => {
 			try {
 				const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
 				const body: unknown = await res.json().catch(() => null);
@@ -146,11 +155,11 @@
 			} catch {
 				if (number === detail.number) mergeRuns = null;
 			} finally {
-				loading = null;
+				if (loading === mine) loading = null;
 			}
 		})();
-		loading = { number, done };
-		return done;
+		loading = mine;
+		return mine.done;
 	}
 
 	$effect(() => {
@@ -159,6 +168,7 @@
 	});
 
 	async function rereadAll(): Promise<void> {
+		epoch++;
 		await reread();
 		await loadMerge(detail.number);
 	}

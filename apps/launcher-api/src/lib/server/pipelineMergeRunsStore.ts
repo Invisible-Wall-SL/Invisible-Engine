@@ -201,6 +201,78 @@ export async function settleMergeRun(
 	return run ?? null;
 }
 
+// ── The Accept claim ──────────────────────────────────────────────────────────
+
+/**
+ * Take the claim on a proposal before any GitHub write: `proposed → accepting`, or an `accepting`
+ * whose lease ran out (`leaseMs`), in one conditional update; null when someone else holds it, or the
+ * run is neither. The person is recorded with it. Discard acts only from `proposed`, so it and an
+ * Accept cannot both win, on any replica.
+ */
+export async function claimAccept(
+	id: string,
+	person: { id: string; name: string },
+	leaseMs: number,
+	nowMs = Date.now(),
+): Promise<MergeMainRun | null> {
+	const now = new Date(nowMs);
+	const expired = new Date(nowMs - leaseMs);
+	const [run] = await getDb()
+		.update(mergeMainRuns)
+		.set({
+			status: 'accepting',
+			acceptingAt: now,
+			acceptedById: person.id,
+			acceptedBy: person.name,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(mergeMainRuns.id, id),
+				sql`(${mergeMainRuns.status} = 'proposed' or
+					(${mergeMainRuns.status} = 'accepting' and ${mergeMainRuns.acceptingAt} < ${expired}))`,
+			),
+		)
+		.returning();
+	return run ?? null;
+}
+
+/** Record the commit an Accept built, before it moves the branch; only while it holds the claim. */
+export async function recordAcceptSha(id: string, sha: string): Promise<void> {
+	await getDb()
+		.update(mergeMainRuns)
+		.set({ acceptSha: sha, updatedAt: new Date() })
+		.where(and(eq(mergeMainRuns.id, id), eq(mergeMainRuns.status, 'accepting')));
+}
+
+/** Give the claim back (`accepting → proposed`) when nothing was pushed. */
+export async function releaseAccept(id: string): Promise<void> {
+	await getDb()
+		.update(mergeMainRuns)
+		.set({
+			status: 'proposed',
+			acceptingAt: null,
+			acceptedById: null,
+			acceptedBy: null,
+			updatedAt: new Date(),
+		})
+		.where(and(eq(mergeMainRuns.id, id), eq(mergeMainRuns.status, 'accepting')));
+}
+
+/** Runs whose Accept took the claim before `beforeMs` and never settled it (what the backstop clears). */
+export async function lapsedAccepts(beforeMs: number): Promise<MergeMainRun[]> {
+	return getDb()
+		.select()
+		.from(mergeMainRuns)
+		.where(
+			and(
+				eq(mergeMainRuns.status, 'accepting'),
+				sql`${mergeMainRuns.acceptingAt} < ${new Date(beforeMs)}`,
+			),
+		)
+		.orderBy(asc(mergeMainRuns.createdAt));
+}
+
 /** One model's priced usage for the ledger. */
 export interface MergeRunSpendRow {
 	model: string;

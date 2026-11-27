@@ -13,6 +13,7 @@ export const MERGE_RUN_STATUSES = [
 	'dispatched',
 	'running',
 	'proposed',
+	'accepting',
 	'accepted',
 	'discarded',
 	'stale',
@@ -23,11 +24,15 @@ export const MERGE_RUN_STATUSES = [
 ] as const;
 export type MergeRunStatus = (typeof MERGE_RUN_STATUSES)[number];
 
-/** A run that holds its change: the job is working, or a proposal waits for a person. */
+/**
+ * A run that holds its change: the job is working, a proposal waits for a person, or an Accept holds
+ * the claim (`accepting`: taken in the database before any GitHub write, with a lease).
+ */
 export const LIVE_MERGE_RUN_STATUSES = [
 	'dispatched',
 	'running',
 	'proposed',
+	'accepting',
 ] as const satisfies readonly MergeRunStatus[];
 /** A run whose job has not posted yet. */
 export const WORKING_MERGE_RUN_STATUSES = [
@@ -100,6 +105,12 @@ export interface MergeRunHunk {
 	why: string;
 	nowDoes: string | null;
 	otherwise: string | null;
+	/**
+	 * What the resolved file holds where this hunk was: from git and the final file, never the
+	 * model's. Null for a rule's or a modify/delete hunk, whose `main` and `change` are descriptions,
+	 * and when the place could not be found.
+	 */
+	result: string | null;
 }
 
 export interface MergeRunExplanation {
@@ -118,6 +129,10 @@ export const MERGE_CAPS = {
 	total: 4 * 1024 * 1024,
 	text: 3_000,
 	explanation: 16_000,
+	/** One hunk's `main`, `change` or `result` (the real lines, outside `explanation`'s prose cap). */
+	lines: 10_000,
+	/** Those lines over every hunk of a proposal. */
+	linesTotal: 120_000,
 	reason: 300,
 	path: 300,
 	hunks: 200,
@@ -134,6 +149,7 @@ export type MergeRunRefusal =
 	| 'on_hold'
 	| 'merge_run_live'
 	| 'workflow_not_live'
+	| 'branch_unsafe'
 	| 'request_id_reused';
 
 export interface StartFacts {
@@ -143,6 +159,8 @@ export interface StartFacts {
 	conflicted: boolean;
 	liveRun: string | null;
 	workflowLive: boolean;
+	/** The head branch is a name the pipeline pushes to (`isPlainBranchName`). */
+	plainBranch: boolean;
 }
 
 /** The first refusal a start meets, in ADR-0015 §4's order; null lets it in. */
@@ -151,9 +169,13 @@ export function startRefusal(f: StartFacts): MergeRunRefusal | null {
 	if (!f.open) return 'not_open';
 	if (!f.conflicted) return 'not_conflicted';
 	if (f.onHold) return 'on_hold';
+	if (!f.plainBranch) return 'branch_unsafe';
 	if (f.liveRun !== null) return 'merge_run_live';
 	return null;
 }
+
+export const UNSAFE_BRANCH_TEXT =
+	'This branch has a name the pipeline will not push to (only letters, digits, - _ . and / are allowed): update it on GitHub or by hand.';
 
 export function refusalMessage(
 	code: MergeRunRefusal,
@@ -171,6 +193,8 @@ export function refusalMessage(
 			return `A merge run${liveRun ? ` (${liveRun})` : ''} is already live on #${number}.`;
 		case 'not_conflicted':
 			return `#${number} does not conflict with main. Use Update from main instead.`;
+		case 'branch_unsafe':
+			return UNSAFE_BRANCH_TEXT;
 		case 'request_id_reused':
 			return 'That request already started another merge run.';
 	}
@@ -189,6 +213,7 @@ export const MERGE_RUN_REASONS = {
 	goneOnGithub: 'GitHub no longer has the Actions run.',
 	timedOut: 'The run timed out.',
 	notExplained: 'The run did not explain its resolution.',
+	linesTooLong: 'The conflicting lines are too long to show for a person to read.',
 	budgetSpent:
 		"This month's fix-run budget is spent, so only the mechanical part could be kept; resolve the rest by hand.",
 	headMoved: 'The branch moved; resolve again.',
@@ -273,15 +298,7 @@ export interface MergeRunFileView {
 	rule: MergeRule | null;
 	deleted: boolean;
 	bytes: number;
-	/**
-	 * The resolved text, for a file a hunk is about (the card's "result" column reads its region from
-	 * it); null for the others and for a deletion, cut at {@link VIEW_CONTENT_CAP} characters.
-	 */
-	content: string | null;
 }
-
-/** How much of a resolved file the page is sent. */
-export const VIEW_CONTENT_CAP = 200_000;
 
 /** One merge run as the change's detail shows it. The run's words are text, never HTML. */
 export interface MergeRunView {
@@ -304,8 +321,17 @@ export interface MergeRunView {
 	finishedAt: string | null;
 }
 
+/**
+ * The explanation as a page gets it. The real lines of a hunk (`main`, `change`, `result`) are only
+ * for the proposal waiting for Accept or Discard: every other card needs the words, not the code.
+ */
+function proposalOnly(run: MergeRunRecord): MergeRunExplanation | null {
+	const e = run.explanation;
+	if (!e || run.status === 'proposed' || run.status === 'accepting') return e;
+	return { ...e, hunks: e.hunks.map((h) => ({ ...h, main: '', change: '', result: null })) };
+}
+
 export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
-	const explained = new Set((run.explanation?.hunks ?? []).map((h) => h.path));
 	return {
 		id: run.id,
 		prNumber: run.prNumber,
@@ -320,10 +346,8 @@ export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
 			rule: f.rule,
 			deleted: f.content === null,
 			bytes: f.content === null ? 0 : new TextEncoder().encode(f.content).length,
-			content:
-				f.content !== null && explained.has(f.path) ? f.content.slice(0, VIEW_CONTENT_CAP) : null,
 		})),
-		explanation: run.explanation,
+		explanation: proposalOnly(run),
 		mergeSha: run.mergeSha,
 		spendUsd: run.spendUsd,
 		actionsUrl:

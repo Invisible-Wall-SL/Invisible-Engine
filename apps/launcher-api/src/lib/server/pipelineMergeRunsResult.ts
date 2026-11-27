@@ -91,7 +91,17 @@ const REQUIRED_KEYS = [
 ];
 const FILE_KEYS = ['path', 'choice', 'rule', 'content', 'mode'];
 const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks'];
-const HUNK_KEYS = ['path', 'index', 'main', 'change', 'takes', 'why', 'nowDoes', 'otherwise'];
+const HUNK_KEYS = [
+	'path',
+	'index',
+	'main',
+	'change',
+	'result',
+	'takes',
+	'why',
+	'nowDoes',
+	'otherwise',
+];
 const MAX_LIST = 100;
 const TITLE_CAP = 300;
 const COMMAND_CAP = 300;
@@ -183,8 +193,13 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 		return {
 			path: text(h.path, 'a path', MERGE_CAPS.path),
 			index,
-			main: text(h.main, 'a hunk'),
-			change: text(h.change, 'a hunk'),
+			main: text(h.main, 'a hunk', MERGE_CAPS.lines),
+			change: text(h.change, 'a hunk', MERGE_CAPS.lines),
+			result: !('result' in h)
+				? bad('a hunk has no result field')
+				: h.result === null
+					? null
+					: text(h.result, 'a hunk', MERGE_CAPS.lines),
 			takes: h.takes as MergeRunHunk['takes'],
 			why: text(h.why, 'a hunk'),
 			nowDoes: optionalText(h.nowDoes, 'a hunk'),
@@ -278,13 +293,20 @@ const FORMAT = /\p{Cf}/gu;
 
 /**
  * A code excerpt as the card shows it: no format characters (bidi, zero-width), no CI-skip
- * directive, capped. Its tags and brackets stay, since the card renders it as text, never HTML.
+ * directive, capped. Its tags and brackets stay, since the card renders it as text, never HTML,
+ * and its indentation stays: only the last line break is dropped.
  */
 function cleanExcerpt(excerpt: string, max: number): string {
-	const kept = withoutDirectives(excerpt.replace(/\r\n?/g, '\n').replace(FORMAT, '')).trim();
+	const kept = withoutDirectives(excerpt.replace(/\r\n?/g, '\n').replace(FORMAT, '')).replace(
+		/\n$/,
+		'',
+	);
 	const points = Array.from(kept);
 	return points.length > max ? `${points.slice(0, max - 1).join('')}…` : kept;
 }
+
+const optionalExcerpt = (v: string | null, max: number): string | null =>
+	v === null ? null : cleanExcerpt(v, max);
 
 const optionalClean = (v: string | null, max: number): string | null =>
 	v === null ? null : cleanText(v, max) || null;
@@ -299,8 +321,9 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 		hunks: e.hunks.map((h) => ({
 			path: h.path,
 			index: h.index,
-			main: cleanExcerpt(h.main, MERGE_CAPS.text),
-			change: cleanExcerpt(h.change, MERGE_CAPS.text),
+			main: cleanExcerpt(h.main, MERGE_CAPS.lines),
+			change: cleanExcerpt(h.change, MERGE_CAPS.lines),
+			result: optionalExcerpt(h.result, MERGE_CAPS.lines),
 			takes: h.takes,
 			why: cleanText(h.why, MERGE_CAPS.text),
 			nowDoes: optionalClean(h.nowDoes, MERGE_CAPS.text),
@@ -315,22 +338,55 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 	};
 }
 
-/** Every text of an explanation, for the scan and the size cap. */
+/**
+ * Every prose text of an explanation, for the scan and the 16,000-character cap. The real lines of
+ * a hunk (`main`, `change`, `result`) are not prose: they are code the repository already holds,
+ * capped on their own ({@link explanationLines}), and a `result` must be inside its file, which
+ * Accept's content scan reads.
+ */
 export function explanationTexts(e: MergeRunExplanation): string[] {
 	return [
 		...e.conflicted.flatMap((c) => [c.path, ...c.met.map((m) => m.title)]),
-		...e.hunks.flatMap((h) => [
-			h.path,
-			h.main,
-			h.change,
-			h.why,
-			h.nowDoes ?? '',
-			h.otherwise ?? '',
-		]),
+		...e.hunks.flatMap((h) => [h.path, h.why, h.nowDoes ?? '', h.otherwise ?? '']),
 		...e.outside.flatMap((o) => [o.path, o.what]),
 		...e.checks.map((c) => c.command),
 		e.risks,
 	];
+}
+
+/** The code points of every hunk's real lines, for their own cap. */
+export const explanationLines = (e: MergeRunExplanation): number =>
+	e.hunks.reduce(
+		(n, h) =>
+			n +
+			Array.from(h.main).length +
+			Array.from(h.change).length +
+			(h.result === null ? 0 : Array.from(h.result).length),
+		0,
+	);
+
+const flat = (text: string): string =>
+	withoutDirectives(text.replace(/\r\n?/g, '\n').replace(FORMAT, ''));
+
+/**
+ * The first hunk whose `result` is not in its file's content, or null. The result is cut at the
+ * cap with a trailing `…`, so that cut is allowed for; a file the files do not list, a deletion, or
+ * text the file does not hold is not.
+ */
+export function resultProblem(e: MergeRunExplanation, files: MergeRunFile[]): string | null {
+	for (const h of e.hunks) {
+		if (h.result === null) continue;
+		const file = files.find((f) => f.path === h.path);
+		if (!file || file.content === null) return 'a hunk shows a result that is not in its file';
+		const whole = flat(file.content);
+		if (
+			!whole.includes(h.result) &&
+			!(h.result.endsWith('…') && whole.includes(h.result.slice(0, -1)))
+		) {
+			return 'a hunk shows a result that is not in its file';
+		}
+	}
+	return null;
 }
 
 /** The characters an explanation holds in all, in code points. */
@@ -371,7 +427,12 @@ export const isPendingRuleFile = (file: Pick<MergeRunFile, 'path' | 'choice' | '
 function isMainsEntry(f: MergeRunFile, main: Files | null): boolean {
 	if (main === null) return false;
 	const entry = main.get(f.path);
-	if (f.content === null) return entry === undefined;
+	if (f.content === null) {
+		// Absent from `main` as written, and not merely under another case: `.GitHub/…` is not a
+		// deletion of `.github/…`.
+		const lower = f.path.toLowerCase();
+		return entry === undefined && ![...main.keys()].some((k) => k.toLowerCase() === lower);
+	}
 	return entry !== undefined && entry.sha === blobSha(f.content) && entry.mode === f.mode;
 }
 

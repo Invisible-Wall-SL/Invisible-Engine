@@ -284,11 +284,15 @@ server module, routes, page components, triage, screenshots, the pull-request li
     other ref URL is encoded, `main`, or a launcher-made name; `check:merge-main-runs` scans for
     it.
   - **The reviewer sees real bytes.** `collect.mjs` fills a hunk's `main` and `change` from
-    git's own segments, never from the model's `result.json`; `mergeRunView` keeps the resolved
-    content of an explained file, and the card's result column is that file's lines.
-  - **Accept and Discard share one claim**; a 422 from a second replica is checked with
-    `isOwnMerge` (parents, the run id in the message, the tree) before `stale`; a Discard that
-    got in first does not leave `discarded` over a branch that moved.
+    git's own segments (indentation kept) and its `result` from the final file, between git's clean
+    pieces, never from the model's `result.json`. They are their own field, outside the prose cap
+    and scan (10,000 each, 120,000 in all); the page gets no whole-file content, and only the
+    proposal waiting gets the lines (ADR-0015 §4, §10).
+  - **Accept takes a database claim** (`proposed → accepting`, a 3-minute lease, migration 0053)
+    before any GitHub write; Discard acts only from `proposed`, so on any replica one wins whole.
+    The merge commit's SHA is stored before the branch moves (`accept_sha`) and a lost answer is
+    recognised by an exact compare with the tip, never by parents or the public run id; the
+    backstop settles a lapsed claim the same way.
   - `mainChangedSince` is unknown (stale) when the compare lists 300 files; `filesProblem` gives its
     `main`-exemption to a protected path or lockfile only when it is main's own entry at the run's SHA (read from main's tree); Accept posts the head the page
     showed. The branch's push time is not in GitHub's data, so the card still uses the head
