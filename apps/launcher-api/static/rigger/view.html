@@ -21931,8 +21931,11 @@ function startDopeScale(e, edge, dur){
   if (!items.length) return;
   // Ratio limits. Upper: no key may cross t=0 (times are absolute and non-negative, and
   // `retimeTrackKey` clamps a negative to 0, where it would merge with whatever is there). Lower:
-  // two distinct times must never squash into one — a clash DROPS a key and rig editing has no
-  // undo, so 1ms (10× the 1e-4 merge epsilon) is the floor between them.
+  // two distinct times ON ONE ROW must never squash into one — a clash DROPS a key — so 1ms (10×
+  // the 1e-4 merge epsilon) is the floor between them. Only keys sharing a row can merge: keys on
+  // different rows a fraction of a millisecond apart (2/3s written as 0.6666 on one, 0.6667 on
+  // another) used to pin the floor at ×1 and lock the grip against squashing at all. A pair that
+  // is already closer than 1ms keeps 2e-4, the least that still rounds to two times.
   //
   // The upper wall bites hard and silently: a selection containing a key at t=0, anchored anywhere
   // to its right, has maxRatio EXACTLY 1 — spreading it would push t=0 below zero, so the grip
@@ -21941,10 +21944,17 @@ function startDopeScale(e, edge, dur){
   let maxRatio = 200;
   for (const it of items) if (it.startTime < anchorT - 1e-6) maxRatio = Math.min(maxRatio, anchorT / (anchorT - it.startTime));
   const wall = maxRatio < 1.005;
-  const sorted = Array.from(new Set(times.map((t) => roundN(t, 4)))).sort((a, b) => a - b);
-  let gap = Infinity;
-  for (let i = 1; i < sorted.length; i++) gap = Math.min(gap, sorted[i] - sorted[i - 1]);
-  const minRatio = gap > 0 && gap < Infinity ? Math.min(1, 0.001 / gap) : 1;
+  const rowTimes = {};
+  for (const it of items) (rowTimes[it.tid] = rowTimes[it.tid] || new Set()).add(roundN(it.startTime, 4));
+  let minRatio = 0;
+  for (const set of Object.values(rowTimes)){
+    const sorted = [...set].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++){
+      const gap = sorted[i] - sorted[i - 1];
+      minRatio = Math.max(minRatio, (gap >= 0.001 ? 0.001 : 2e-4) / gap);
+    }
+  }
+  minRatio = Math.min(1, minRatio || 1e-3);
   dopeScale = { anchorT, startEdgeT, startX: e.clientX, dur, items, ratio: 1, moved: false, minRatio, maxRatio, wall, snapKeys: dopeSnapKeys(items),
     bar: $("#timeline .tl-scale"), grips: Array.from(document.querySelectorAll("#timeline .tl-scale-grip")) };
   $("#hint").textContent = wall
