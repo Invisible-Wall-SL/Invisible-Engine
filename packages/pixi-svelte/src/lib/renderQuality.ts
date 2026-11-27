@@ -56,10 +56,14 @@
  * stepping down.
  *
  * Thirty good windows in a row (under 1% slow) below the top level try one level up; if that goes
- * slow within two windows it steps back, and that level is never tried again. At most 12 switches a
- * session (6 without the second chance), and a step that starts a trial is taken only while its
- * revert still fits. Every trial's verdict, with what started it and what the level measured, is
- * kept for the readout.
+ * slow within two windows it steps back. With the second chance that level is tried again after
+ * twice as many good windows each time it failed (60, 120, 240…), so a warm spell does not pin a
+ * device at the effects level for the session, and one always too slow up there flaps at most
+ * once per doubling, within the cap: a window is 2 s of round frames at 60 fps, so after 2, 4 and
+ * 8 minutes of good play. Without it (`engine-3d`) that level is never tried again. At most 12
+ * switches a session (6 without the second chance), and a step that starts a trial is taken only
+ * while its revert still fits. Every trial's verdict, with what started it and what the level
+ * measured, is kept for the readout.
  *
  * Configured by the game ({@link configureRenderQuality}); the tools never configure it, so `/fx`,
  * the editors and previews never adapt. A deterministic render and a `?render=` pin never install
@@ -105,7 +109,7 @@ export const QUALITY_RULES = {
 	trialIntervalGain: 0.2,
 	/** A window with less than this share of slow frames is good. */
 	goodWindowShare: 0.01,
-	/** Good windows in a row that try one level up. */
+	/** Good windows in a row that try one level up; doubled for each failed try of that level. */
 	goodWindows: 30,
 	/** Switches in a session, with the second chance (the game's ladder); until it is taken, two
 	 *  of them are held for it. */
@@ -175,6 +179,12 @@ export interface RenderQualitySnapshot {
 	downStopped: boolean;
 	/** Absent where the controller has none (a fixed level, `engine-3d`). */
 	secondChance?: QualitySecondChance;
+	/**
+	 * The step up from here once a try of that level went slow: the good windows in a row it waits
+	 * for (`Infinity`: never again, `engine-3d`), the run so far, and the failed tries. Absent while
+	 * the level above has not failed.
+	 */
+	stepUp?: { level: number; goodWindows: number; good: number; failures: number };
 	history: QualitySwitch[];
 	trials: QualityTrial[];
 }
@@ -277,7 +287,14 @@ export function createRenderQualityController(
 	let secondChance: QualitySecondChance = 'unused';
 	const last = ladder.length - 1;
 	let lastUncappedMs = -Infinity;
-	const upFailed = new Set<number>();
+	/** Failed tries of a step up, by the level tried. */
+	const upFailures = new Map<number, number>();
+	/** Good windows in a row a step up to `to` waits for. */
+	const upWindows = (to: number) => {
+		const failures = upFailures.get(to) ?? 0;
+		if (failures === 0) return rules.goodWindows;
+		return retries ? rules.goodWindows * 2 ** failures : Infinity;
+	};
 	let trial: Trial | undefined;
 	let pending: Pending | undefined;
 	const history: QualitySwitch[] = [];
@@ -320,7 +337,7 @@ export function createRenderQualityController(
 		current.windows.push(stats);
 		if (current.up) {
 			if (slow) {
-				upFailed.add(level);
+				upFailures.set(level, (upFailures.get(level) ?? 0) + 1);
 				if (room(1)) pending = { to: current.from, reason: 'slow again', stats };
 				verdict(current, stats, false);
 			} else if (current.windows.length >= rules.trialWindows)
@@ -371,12 +388,7 @@ export function createRenderQualityController(
 		slowRun = [];
 		goodRun = stats.share < rules.goodWindowShare ? goodRun + 1 : 0;
 		if (secondChance === 'waiting' && goodRun >= rules.retryGoodWindows) secondChance = 'unused';
-		if (
-			goodRun >= rules.goodWindows &&
-			level > 0 &&
-			!upFailed.has(level - 1) &&
-			room(2 + reserve())
-		)
+		if (level > 0 && goodRun >= upWindows(level - 1) && room(2 + reserve()))
 			pending = { to: level - 1, reason: 'headroom', stats };
 	};
 
@@ -443,6 +455,16 @@ export function createRenderQualityController(
 			levels: ladder.length,
 			downStopped,
 			...(retries ? { secondChance } : {}),
+			...(level > 0 && upFailures.has(level - 1)
+				? {
+						stepUp: {
+							level: level - 1,
+							goodWindows: upWindows(level - 1),
+							good: goodRun,
+							failures: upFailures.get(level - 1) ?? 0,
+						},
+					}
+				: {}),
 			history: history.map((entry) => ({ ...entry })),
 			trials: trials.map((entry) => ({
 				...entry,

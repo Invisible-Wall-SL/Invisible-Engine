@@ -503,11 +503,54 @@ console.log('\nthe second chance');
 	);
 	sim.rounds(100, at(36, 36, 36, 36, 36, 36, 0));
 	check(
-		'from there a step up that goes slow backs off and is never retried',
-		trail(sim).endsWith('5->6 second chance 0.3, 6->5 headroom 0, 5->6 slow again 0.3') &&
-			sim.history().length === 9 &&
+		'from there a step up that goes slow backs off, and is tried again only after twice the wait',
+		trail(sim).endsWith(
+			'5->6 second chance 0.3, 6->5 headroom 0, 5->6 slow again 0.3, 6->5 headroom 0, ' +
+				'5->6 slow again 0.3',
+		) &&
+			sim.history().length === 11 &&
 			sim.level() === 6,
 		trail(sim),
+	);
+}
+{
+	// The review's fuzz: a warm spell's climb from the effects level fails, then the device cools
+	// off for good. The failed level is tried again, so the session ends with its effects back.
+	const sim = device();
+	sim.rounds(60, at(36, 36, 36, 36, 36, 36, 0));
+	const warm = trail(sim);
+	const waiting = sim.controller.snapshot().stepUp;
+	sim.rounds(300, at(0));
+	const snap = sim.controller.snapshot();
+	check(
+		'a failed climb from the effects level is tried again once the device cools off',
+		warm.endsWith('6->5 headroom 0, 5->6 slow again 0.3') &&
+			waiting?.level === 5 &&
+			waiting.failures === 1 &&
+			waiting.goodWindows === 2 * RULES.goodWindows &&
+			snap.level.index < PHONE.length - 1 &&
+			snap.level.postFx === true &&
+			snap.level.particleCap === 1 &&
+			sim.history().length <= RULES.maxSwitches,
+		`${trail(sim)} ${JSON.stringify(waiting)}`,
+	);
+}
+{
+	// Always too slow one level up, fine at the effects level ('1m 1m-fx': one switch down, so
+	// only the cap and the backoff bound the tries): each wait twice the last, within the cap.
+	const sim = device(qualityLadder(1, { msaa: true, msaaSwitchable: false }));
+	sim.rounds(1000, at(36, 0));
+	const steps = sim.history();
+	const tries = steps.filter((s) => s.reason === 'headroom').map((s) => s.at);
+	const gaps = tries.slice(1).map((t, i) => t - tries[i]);
+	check(
+		'a device always too slow one level up retries it at most once per doubling, within the cap',
+		steps.length <= RULES.maxSwitches &&
+			tries.length === 4 &&
+			gaps.every((gap, i) => i === 0 || gap >= 1.8 * gaps[i - 1]) &&
+			steps.every((s) => ['slow', 'headroom', 'slow again'].includes(s.reason)) &&
+			sim.level() === 1,
+		`${trail(sim)} gaps ${gaps.map((g) => g.toFixed(0)).join(', ')} s`,
 	);
 }
 {
@@ -684,8 +727,25 @@ console.log('\nstepping up');
 		back?.reason === 'slow again' && back.to === 1 && sim.level() === 1,
 		trail(sim),
 	);
-	sim.rounds(100, hot);
-	check('and is never tried again', sim.history().length === 3, trail(sim));
+	sim.play((2 * RULES.goodWindows - 1) * RULES.windowFrames, hot);
+	sim.idle(pause);
+	const waited = sim.history().length;
+	sim.play(RULES.windowFrames, hot);
+	sim.idle(pause);
+	check(
+		'and is tried again after twice the good windows, not one sooner',
+		waited === 3 && sim.history()[3]?.reason === 'headroom' && sim.history()[3].to === 0,
+		trail(sim),
+	);
+	const single = device(PHONE, false);
+	single.rounds(400, hot);
+	check(
+		'without the second chance (engine-3d) a level that went slow is never tried again',
+		trail(single) === '0->1 slow 0.3, 1->0 headroom 0, 0->1 slow again 0.3' &&
+			single.level() === 1 &&
+			single.controller.snapshot().stepUp?.goodWindows === Infinity,
+		trail(single),
+	);
 }
 {
 	const sim = device();
