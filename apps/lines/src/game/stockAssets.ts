@@ -162,6 +162,9 @@ export type StockAssetsInput = {
 	/** The game has no reel board: an arcade play field or a card table (`engine-game`
 	 *  `GameMechanic.playField` / `cardTable`). Absent ⇒ a board, as every slot and match-3 game. */
 	boardless?: boolean;
+	/** The game draws its own backdrop where the coded background stands (a play field whose rooms
+	 *  have art, `ArcadeBackdrop.svelte`): the coded background mounts nothing. */
+	ownBackdrop?: boolean;
 };
 
 export type StockAssetsAnalysis = {
@@ -213,17 +216,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *
  * A boardless game mounts no `BoardFrame`, win frame or anticipation (they are the reel stack's,
  * `Game.svelte` `reelStack`), and its background is the feature one only in a free game, which a
- * flow's free-spin switch alone can start there (`freeSpins`).
+ * flow's free-spin switch alone can start there (`freeSpins`). A game that draws its own backdrop
+ * (`ownBackdrop`) mounts no coded background at all.
  */
 function codedMountNeeds(
 	data: StockAssetData,
 	freeSpins: boolean,
 	anticipation: boolean,
 	boardless: boolean,
+	ownBackdrop: boolean,
 ): string[] {
 	const out: string[] = [];
 	const { doc, symbols, effects = [], rigFx = {} } = data;
-	if (!hasAuthoredBackground(doc.scenes)) {
+	if (!hasAuthoredBackground(doc.scenes) && !ownBackdrop) {
 		out.push('foregroundAnimation');
 		if (!boardless || freeSpins) out.push('foregroundFeatureAnimation');
 	}
@@ -624,7 +629,8 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		for (const origin of origins) addName(names, name, origin);
 	}
 	const anticipation = firesSwitch(authoredNames, ANTICIPATION_SWITCHES);
-	for (const need of codedMountNeeds(data, freeSpins, anticipation, boardless)) {
+	const ownBackdrop = input.ownBackdrop === true;
+	for (const need of codedMountNeeds(data, freeSpins, anticipation, boardless, ownBackdrop)) {
 		addName(names, need, 'coded mount');
 	}
 

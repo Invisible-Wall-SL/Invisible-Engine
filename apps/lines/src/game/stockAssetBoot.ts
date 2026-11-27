@@ -6,6 +6,7 @@ import {
 } from 'engine-layout';
 
 import { bootStockAssetData } from '../editor-scenes';
+import { drawsOwnBackdrop } from '../families/arcade';
 import { anticipationParam } from './anticipationParam';
 import { fallbackEditorScenes } from './fallbackLayout';
 import { getActiveGameConfig, getSymbolsInPlay } from './gameConfig';
@@ -41,6 +42,7 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 	// A play field or a card table has no reel board (`stockAssets.ts` `boardless`).
 	const mechanic = gameMechanic();
 	const boardless = mechanic.playField || mechanic.cardTable;
+	const ownBackdrop = mechanic.playField && drawsOwnBackdrop();
 	// `?anticipation=` arms the reel anticipation at boot (`Game.svelte`), as the flow action does.
 	const urlArmsAnticipation =
 		typeof location !== 'undefined' && anticipationParam(location.search) !== null;
@@ -55,6 +57,7 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 			config: getActiveGameConfig(),
 			symbolsInPlay: getSymbolsInPlay(),
 			boardless,
+			ownBackdrop,
 		});
 	let analysis = analyse(urlArmsAnticipation);
 	if (urlArmsAnticipation && stockFilesPruned()) {

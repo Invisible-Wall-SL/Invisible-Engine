@@ -799,6 +799,14 @@ try {
 	});
 	const levelShot = await a.page.screenshot();
 	writeFileSync(join(out, 'level.png'), levelShot);
+	// Salmons' own backdrop (owner, 2026-11-27): published by the room's art, not drawn while the
+	// field is played (the world covers it); the lobby's verdict below sees it drawn.
+	const playBackdrop = (await a.state()).arcade?.online?.screens?.backdrop;
+	verdict(
+		'Salmons’ own backdrop is in (the pink salmon), and not drawn while the field is played',
+		playBackdrop?.fish > 0 && playBackdrop.shown === false,
+		playBackdrop,
+	);
 	const builtinMagenta = magentaShare(levelShot);
 	const errors = await a.page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error', errors.length === 0, errors);
@@ -952,6 +960,12 @@ try {
 	);
 	const alone = await lobbyCounting(l1, 1);
 	writeFileSync(join(out, 'lobby-waiting.png'), await l1.page.screenshot());
+	const lobbyBackdrop = (await l1.state()).arcade?.online?.screens?.backdrop;
+	verdict(
+		'while the room waits, Salmons’ own backdrop is drawn (in the slot sample’s background’s place)',
+		lobbyBackdrop?.shown === true,
+		lobbyBackdrop,
+	);
 	verdict(
 		'…which shows the room’s river with its one person and who the page plays, with no form: no name field, no Join River',
 		alone.note?.shown === true &&

@@ -6,8 +6,9 @@
  */
 import { ARCADE_LOOP_ACTIONS, ARCADE_VOCAB, type TemplateVocabulary } from 'engine-flow-v2';
 import { IsoWorld, registerProjectedWorld } from 'engine-layout/svelte';
+import { normalizeGameConfigDoc, usesSalmonsArt } from 'game-config';
 
-import { setRoomDocChange } from '../editor-scenes';
+import { bakedGameConfig, setRoomDocChange } from '../editor-scenes';
 import { withZoneArt } from '../game/zoneArt';
 
 // A world screen with `projection: 'isometric'` (P11.4) is drawn by the family's isometric world.
@@ -17,7 +18,13 @@ registerProjectedWorld(IsoWorld);
 setRoomDocChange(withZoneArt);
 
 export { default as ArcadeStage } from '../components/ArcadeStage.svelte';
+export { default as ArcadeBackdrop } from '../components/ArcadeBackdrop.svelte';
 export { joinOnlineRoom } from '../game/online';
+
+/** Whether this game's rooms draw their own backdrop (`ArcadeBackdrop.svelte`) in place of the slot
+ *  sample's background: a generator with art (Salmons, `game-config` `usesSalmonsArt`). */
+export const drawsOwnBackdrop = (): boolean =>
+	usesSalmonsArt(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
 
 /** The family's Flow vocabulary, keyed by `templateId` (`flowV2Runtime`'s registry). */
 export const flowVocabularies: Readonly<Record<string, TemplateVocabulary>> = {
