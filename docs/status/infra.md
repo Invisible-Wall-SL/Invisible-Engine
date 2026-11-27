@@ -146,7 +146,9 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   (pnpm would otherwise read the branch's `.npmrc`, `packageManager` and pnpmfile outside the
   sandbox), stages it, and runs Claude Code in `bug-fix.yml`'s sandbox, its steps copied word for
   word, only when conflicts are left and the budget is above 0. The model's prompt is
-  `scripts/merge-main/coordinator.md`. `pnpm check:merge-main-workflow` pins every rule with a
+  `scripts/merge-main/coordinator.md`; since #1990 it no longer asks the model for each side of a
+  hunk (the job reads both from git) and names the launcher's diff of what Accept changes, with the
+  refusals for new lines. `pnpm check:merge-main-workflow` pins every rule with a
   mutant and holds the copied steps to `bug-fix.yml`'s, so a one-line change to either side fails
   it. INFRA "Resolve conflict (merge-main.yml)".
 - 2026-11-18 — **Actions queue relief.** 178 runs were queued behind the free org plan's 20

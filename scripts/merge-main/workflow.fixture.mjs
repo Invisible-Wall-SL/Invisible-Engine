@@ -26,6 +26,7 @@ const FILES = {
 	bugFix: read('.github/workflows/bug-fix.yml'),
 	coordinator: read('scripts/merge-main/coordinator.md'),
 	collect: read('scripts/merge-main/collect.mjs'),
+	postResult: read('scripts/bug-fix/collect.mjs'),
 	merge: read('scripts/merge-main/merge.mjs'),
 	launcher: read('apps/launcher-api/src/lib/mergeMainRuns.ts'),
 	actions: read('apps/launcher-api/src/lib/server/pipelineMergeRunsActions.ts'),
@@ -167,10 +168,11 @@ const HEADINGS = [
 	'Also changed outside the conflict',
 	'Checks run',
 	'Risks',
+	'What Accept changes on this branch',
 ];
 const RESULT_KEYS = {
 	top: ['outcome', 'hunks', 'outside', 'checks', 'risks'],
-	hunk: ['path', 'index', 'main', 'change', 'takes', 'why', 'nowDoes', 'otherwise'],
+	hunk: ['path', 'index', 'takes', 'why', 'nowDoes', 'otherwise'],
 	outside: ['path', 'what'],
 	check: ['command', 'ok'],
 };
@@ -365,7 +367,8 @@ export function problems(files) {
 	rule(
 		'audience',
 		files.collect.includes("export const AUDIENCE = 'invisible-launcher-merge-main';") &&
-			files.collect.includes('const token = await oidcToken(AUDIENCE);') &&
+			/postResult\(\{[^}]*\baudience: AUDIENCE,/.test(files.collect) &&
+			files.postResult.includes('const token = await oidcToken(audience);') &&
 			files.launcher.includes("export const MERGE_RUN_AUDIENCE = 'invisible-launcher-merge-main';"),
 	);
 	// §10: the model only when stage leaves it work and the budget is above 0, capped by the input.
@@ -888,6 +891,13 @@ const MUTANTS = [
 		'launcher',
 		"MERGE_RUN_AUDIENCE = 'invisible-launcher-merge-main';",
 		"MERGE_RUN_AUDIENCE = 'invisible-launcher';",
+	],
+	['audience', 'collect', '\t\t\taudience: AUDIENCE,\n', "\t\t\taudience: 'invisible-launcher',\n"],
+	[
+		'coordinator-headings',
+		'coordinator',
+		'**What Accept changes on this branch**',
+		'What Accept changes on this branch',
 	],
 	[
 		'model-gated',

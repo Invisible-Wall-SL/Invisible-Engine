@@ -123,8 +123,6 @@ Write `{{RESULT}}` with the Write tool, as JSON:
 		{
 			"path": "a file in `files`, as the list names it",
 			"index": 0,
-			"main": "what main's side wanted, in one plain line",
-			"change": "what this change's side wanted, in one plain line",
 			"takes": "main | change | both | combined",
 			"why": "why the resolution takes that",
 			"nowDoes": "what the merged code now does, in plain words; required for combined, else null",
@@ -144,12 +142,15 @@ or, when a person is needed:
 ```
 
 - The person reads the proposal under these headings. **What conflicted**: the job writes it from
-  git, each file and the pull requests on main it met. **What each side wanted**: `main` and
-  `change`. **What the resolution takes**: `takes` and `why`. **What the merged code now does**:
+  git, each file and the pull requests on main it met. **What each side wanted**: the job shows
+  each side's real lines from git, and the lines your resolution holds there; you do not describe
+  them. **What the resolution takes**: `takes` and `why`. **What the merged code now does**:
   `nowDoes`. **What else was possible**: `otherwise`, when a hunk had another reasonable answer.
   **Also changed outside the conflict**: `outside`. **Checks run**: `checks`. **Risks**: `risks`.
+  **What Accept changes on this branch**: the launcher's own line diff of each file you resolved
+  against this change's version, so every line you add, move or remove is shown where it is.
 - Every hunk of every file in `files` needs exactly one entry, its `path` and `index` as the list
-  gives them, with `main`, `change`, `takes` and `why` filled in. `combined` needs `nowDoes`. Every
+  gives them, with `takes` and `why` filled in. `combined` needs `nowDoes`. Every
   file changed outside its hunks needs an `outside` entry. `checks` lists every gate you ran, and
   `risks` is never empty: "none found" is allowed. If anything is missing or empty the run ends with
   no proposal (the reason reads "The run did not explain its resolution."), however good the
@@ -159,3 +160,7 @@ or, when a person is needed:
   cut, and an explanation over the total is refused.
 - The files you resolved stay in this checkout as you left them. The job reads them, not the
   result, for the resolution itself.
+- A line you write that neither side has must hold no lone carriage return, no U+2028, U+2029 or
+  U+0085, no invisible format character and nothing that reads as a secret: any of these ends the
+  run with no proposal. So does a resolution that changes more lines than the proposal can show;
+  resolve only what conflicts.
