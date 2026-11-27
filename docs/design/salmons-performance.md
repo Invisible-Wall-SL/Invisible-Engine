@@ -97,6 +97,10 @@ after T4 merges to avoid `SpawnLayer.svelte` conflicts).
   133 ms interpolation delay.
 - **Bake ground chunks to textures** (`cacheAsTexture`) after T4: far fewer vertices, may shift
   sub-pixels.
+- **Salmons' own loading background** (found by T3): the loading / tap-to-start screen shows the
+  slot sample's purple-mine background (`foregroundAnimation` mm_bg rig, 2.9 MB GPU) behind the
+  loading text, because the arcade reference layout keeps the coded slot Background anchor. Give the
+  arcade reference its own loading art, then the coded slot Background and mm_bg can go too.
 - **WS permessage-deflate:** measure with `scripts/room-load.mjs` first.
 
 ## 6. Capture protocol (until T1 lands)
