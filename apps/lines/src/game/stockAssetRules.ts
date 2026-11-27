@@ -114,6 +114,17 @@ export const ALWAYS_KEPT: readonly StockKey[] = [
 	'progressBar',
 ];
 
+/**
+ * {@link ALWAYS_KEPT} on a boardless game (a play field or a card table), less `goldFont`: the
+ * `gold` face the code draws in is the board's (the win text, a symbol's label, a coin's value).
+ * The coded press stays: any overlay instance mounts it from a param, with no bind the walk sees.
+ */
+export const BOARDLESS_ALWAYS_KEPT: readonly StockKey[] = [
+	'sound',
+	'pressToContinueText',
+	'progressBar',
+];
+
 /** Sheets that pack the same frame (`totalwin.png`) into one flat texture map: kept together. */
 export const KEPT_TOGETHER: readonly (readonly StockKey[])[] = [['freeSpins', 'winSmall']];
 

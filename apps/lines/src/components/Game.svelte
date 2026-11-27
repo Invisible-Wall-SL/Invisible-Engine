@@ -339,6 +339,7 @@
 	import { ArcadeStage } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
 	import { gameMechanic } from '../game/mechanic';
+	import { playFieldPlaying } from '../game/playFieldPhase';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
@@ -1287,15 +1288,21 @@
 	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round
 	// plays draws fewer pixels (`pixi-svelte` `renderQuality`), switched only while no reel rolls:
 	// at idle in manual play; in autoplay, which is one long state and never idle, in the moments
-	// of a round with the reels stopped. A deterministic render and a `?render=` pin never adapt.
+	// of a round with the reels stopped. A play field's round is its field being played, and its
+	// quiet the menu, the lobby and the time between rounds (`playFieldPhase.ts`). A deterministic
+	// render and a `?render=` pin never adapt.
 	onDestroy(
 		configureRenderQuality({
 			adaptive: !globalThis.__IE_DETERMINISM__ && renderPin() === undefined,
-			measuring: () => context.stateXstateDerived.isPlaying(),
-			quiet: () =>
-				context.stateXstateDerived.isIdle() ||
-				(context.stateXstateDerived.isAutoBetting() &&
-					!stateGame.board.some((reel) => reel.reelState.rolling)),
+			measuring: mechanic.playField
+				? playFieldPlaying
+				: () => context.stateXstateDerived.isPlaying(),
+			quiet: mechanic.playField
+				? () => !playFieldPlaying()
+				: () =>
+						context.stateXstateDerived.isIdle() ||
+						(context.stateXstateDerived.isAutoBetting() &&
+							!stateGame.board.some((reel) => reel.reelState.rolling)),
 		}),
 	);
 

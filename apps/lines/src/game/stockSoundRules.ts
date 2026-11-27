@@ -21,7 +21,14 @@
  */
 export const STOCK_SOUND_RULES = ['always', 'slot', 'devFlow', 'declaration'] as const;
 export type StockSoundRule = (typeof STOCK_SOUND_RULES)[number];
-export type StockSoundConsumer = { file: string; rule: StockSoundRule; names: readonly string[] };
+export type StockSoundConsumer = {
+	file: string;
+	rule: StockSoundRule;
+	names: readonly string[];
+	/** An `always` row a boardless game's code plays too (a play field, a card table): the rest are
+	 *  the reels', the book's, the bet's and the win's, which such a game never has. */
+	boardless?: true;
+};
 
 const WIN_LEVEL_BEDS = [
 	'bgm_winlevel_big',
@@ -34,11 +41,15 @@ const ladder = (stem: string): string[] => [1, 2, 3, 4, 5].map((n) => `${stem}${
 
 /** Every runtime source that writes a stock sound's name, and why. Paths are repo-relative. */
 export const STOCK_SOUND_CONSUMERS: readonly StockSoundConsumer[] = [
+	// The presses: any game's menus and buttons raise them (`components-ui-html`, `components-ui-pixi`).
 	{
 		file: 'apps/lines/src/components/Sound.svelte',
 		rule: 'always',
-		names: ['sfx_btn_general', 'sfx_btn_spin', 'sfx_btn_stop', 'sfx_winlevel_end'],
+		names: ['sfx_btn_general', 'sfx_btn_spin', 'sfx_btn_stop'],
+		boardless: true,
 	},
+	// The super-spin bet mode's switch.
+	{ file: 'apps/lines/src/components/Sound.svelte', rule: 'always', names: ['sfx_winlevel_end'] },
 	{
 		file: 'apps/lines/src/game/anticipationPresentation.ts',
 		rule: 'always',
@@ -143,7 +154,13 @@ function declaredStockSounds(): string[] {
 	];
 }
 
+const codedSounds = (rows: readonly StockSoundConsumer[]): readonly string[] =>
+	[...new Set(rows.filter((c) => c.rule === 'always').flatMap((c) => c.names))].sort();
+
 /** The stock sounds the engine's own code plays whatever a game's data says: their banks always load. */
-export const CODED_STOCK_SOUNDS: readonly string[] = [
-	...new Set(STOCK_SOUND_CONSUMERS.filter((c) => c.rule === 'always').flatMap((c) => c.names)),
-].sort();
+export const CODED_STOCK_SOUNDS: readonly string[] = codedSounds(STOCK_SOUND_CONSUMERS);
+
+/** {@link CODED_STOCK_SOUNDS} on a boardless game: the rows marked `boardless`. */
+export const BOARDLESS_CODED_STOCK_SOUNDS: readonly string[] = codedSounds(
+	STOCK_SOUND_CONSUMERS.filter((c) => c.boardless),
+);
