@@ -961,6 +961,18 @@ const ORDER_BASE = [
 const putBase = (path: string, content: string, mode = '100644', type = 'blob') =>
 	gh.base.set(path, { mode, type, content });
 putBase(ORDER, ORDER_BASE);
+/** `count` distinct 80-byte lines (79 characters and a newline). */
+const lines80 = (tag: string, count: number, edit?: [number, string]) =>
+	Array.from(
+		{ length: count },
+		(_, i) => (edit && edit[0] === i ? edit[1] : `${tag} ${i} `.padEnd(79, '.')) + '\n',
+	).join('');
+const BIG_VIEW = 'apps/launcher-api/static/rigger/view.html';
+putBase(BIG_VIEW, lines80('view', 20_500));
+const SPREAD = ['docs/spread-a.md', 'docs/spread-b.md', 'docs/spread-c.md'];
+for (const path of SPREAD) putBase(path, lines80(path, 1_000));
+const OLD_BIG = 'docs/old-big.md';
+putBase(OLD_BIG, lines80('old', 6_500));
 putBase('apps/launcher-api/scripts/run.sh', '#!/bin/sh\n', '100755');
 putBase('apps/launcher-api/CLAUDE.md', '# launcher\n');
 putBase('apps/game/src/main.ts', 'export {};\n');
@@ -2233,11 +2245,6 @@ const planted: Planted[] = [
 		{ files: [file('docs/a.md', 'if (ok \u202E) {}')] },
 		'a file holds Unicode tag or bidi control characters (docs/a.md)',
 	],
-	[
-		'over 400 KB',
-		{ files: [file('docs/a.md', 'x'.repeat(250_000)), file('docs/b.md', 'y'.repeat(160_000))] },
-		'it adds more than 400 KB',
-	],
 	['an unknown scope', { scope: 'nope' }, 'the scope is not one commit subjects take'],
 	['a scope with detail', { scope: 'launcher(bugs)' }, 'the scope is not one commit subjects take'],
 	['a merge scope', { scope: 'merge' }, 'the scope is not one commit subjects take'],
@@ -2647,6 +2654,33 @@ const planted: Planted[] = [
 		] as [string, string][]
 	).map(([path, entry]) => refusedAs(entry)(path)),
 	[
+		'400 KB of changed lines spread over files',
+		{ files: SPREAD.map((path) => file(path, lines80(`${path} new`, 1_000))) },
+		'it changes more than 400 KB of lines',
+	],
+	[
+		'a new 500 KB file counts whole',
+		{ files: [file('docs/new-big.md', lines80('new', 6_500))] },
+		'it changes more than 400 KB of lines',
+	],
+	[
+		'deleting a 500 KB file counts its lines as removed',
+		{ files: [file(OLD_BIG, null)] },
+		'it changes more than 400 KB of lines',
+	],
+	[
+		'a secret on an added line of a big file',
+		{
+			files: [
+				file(
+					BIG_VIEW,
+					lines80('view', 20_500, [7, `const t = 'ghs_${'A'.repeat(36)}';`.padEnd(79)]),
+				),
+			],
+		},
+		'secret scan: GitHub token in a file',
+	],
+	[
 		'a path outside ASCII',
 		{ files: [file(`docs/caf${E_ACUTE}.md`)] },
 		'a path holds a character outside printable ASCII',
@@ -2696,6 +2730,17 @@ check(
 	'shared code beside a protected path is a fix a run may make: the bug store, env.ts and a .js or extensionless file beside it, the schema beside the migration runner, the Pipeline Changes page, a folder named like the pipeline modules',
 	taken,
 	nearMisses.map((path) => [path, ['pr_opened', null]]),
+);
+const oneLine = liveRun(7);
+const oneLineAnswer = await result(
+	oneLine.id,
+	oneLine.gh,
+	good({ files: [file(BIG_VIEW, lines80('view', 20_500, [7, 'fixed line'.padEnd(79, '.')]))] }),
+);
+check(
+	'a one-line change to a 1.6 MB file is a fix: its size counts by its lines, not whole',
+	[oneLineAnswer.body.status, runOf(oneLine.id).reason],
+	['pr_opened', null],
 );
 gh.truncated = true;
 const huge = liveRun(1);
@@ -2760,12 +2805,18 @@ check(
 	],
 );
 check(
-	"the base copies read are those of the modified files (a deletion's only for a package.json)",
+	'the base copies read are those of the modified and deleted files (a deletion counts by its lines)',
 	gh.calls
 		.filter((c) => c.path.includes('/git/blobs/blob-of-'))
 		.map((c) => c.path.split('blob-of-')[1].replace(/~/g, '/'))
 		.sort(),
-	[ORDER, 'apps/launcher-api/scripts/run.sh', 'package.json', 'svelte-check-baseline.json'].sort(),
+	[
+		ORDER,
+		'apps/launcher-api/scripts/run.sh',
+		'docs/old.md',
+		'package.json',
+		'svelte-check-baseline.json',
+	].sort(),
 );
 check(
 	'the tree sits on the base tree; a modified file keeps its base mode (the exec bit), a deletion is sha null; the commit is on base_sha; the branch bug-<n>-fix-<id>',
@@ -3375,11 +3426,11 @@ check(
 const bigRun = liveRun(1);
 const huge413 = await call(resultRoute.POST, {
 	params: { id: bigRun.id },
-	raw: gzipSync(JSON.stringify(good({ summary: 'q'.repeat(3 * 1024 * 1024) }))),
+	raw: gzipSync(JSON.stringify(good({ summary: 'q'.repeat(9 * 1024 * 1024) }))),
 	headers: { ...bearer(token({ run_id: String(bigRun.gh) })), 'content-encoding': 'gzip' },
 });
 check(
-	'a result that unpacks past 2 MB → 413, nothing claimed',
+	'a result that unpacks past 8 MB → 413, nothing claimed',
 	[huge413.status, runOf(bigRun.id).resultAt],
 	[413, null],
 );
