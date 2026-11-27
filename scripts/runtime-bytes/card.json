@@ -18,32 +18,32 @@
 			"sha256": "9640022d3dac1f8e958d516b08548062d6f4e16ea23be2f2c8ba613ced4b3716",
 			"gzip": 48529
 		},
-		"_app/immutable/bundle.6Ch5mSLf.js": {
-			"sha256": "f05544f76ac447437086d5196b39e9fb229b4772d82f7d3c624ebd03ffdcaee2",
-			"gzip": 744889
+		"_app/immutable/bundle.BtlQ_f3p.js": {
+			"sha256": "7c834601037929d53386d332e5cdc9560fe61bade9e601978e7dea6b82d26fc2",
+			"gzip": 745279
+		},
+		"_app/immutable/chunks/Bal90ES_.js": {
+			"sha256": "ff28d4b1cf7b39b97773a0d923620e601577c87e23a9875be9cc5be7bac2ee6d",
+			"gzip": 19027
 		},
 		"_app/immutable/chunks/BpvSowo9.js": {
 			"sha256": "01eb799309d82b6a9d3bcc8745be70232065c27fc214d0fb370228f87e0a217f",
 			"gzip": 280
 		},
-		"_app/immutable/chunks/CKf5gFWS.js": {
-			"sha256": "7d397e5ff7691bc8ea1c28589b6e77812236b17df7d1034196eb219aeebcefcb",
-			"gzip": 19027
-		},
-		"_app/immutable/chunks/CrR2T8mt.js": {
-			"sha256": "a771d1686eabe4219a055c6ecaf0e8ca747bc78adab5360c3cea86db9c825ef7",
-			"gzip": 1053
+		"_app/immutable/chunks/D1my54uo.js": {
+			"sha256": "183a87b31509193fbf27ebc4680c0aba60d2c41145e35fc7aa1cb6ffa689dddf",
+			"gzip": 6082
 		},
 		"_app/immutable/chunks/DP-9x1d6.js": {
 			"sha256": "6564863f61d29b12549d3db02a09eb2d81f908feafc7c54dbe88a19127bb7098",
 			"gzip": 30955
 		},
-		"_app/immutable/chunks/d-ooGqAd.js": {
-			"sha256": "3f08d692ef0c1cbc6b4fe5a4eab8102d1f333e01f7a4c4c89f113dba38758f64",
-			"gzip": 6084
+		"_app/immutable/chunks/DSUslFg3.js": {
+			"sha256": "75fed06b69c0f89e85c4c5690432b004818593ba782266852857bb8d95c402dc",
+			"gzip": 1053
 		},
 		"index.html": {
-			"sha256": "40122241dae48f27a94547f9b73040a233537dc0be05faede2184c23c4359653",
+			"sha256": "d852d1c315c4afd25942585e8a93bacd73df0e5f6ad43fb852e594f28581bf12",
 			"gzip": 4117
 		}
 	},
@@ -1056,6 +1056,6 @@
 	},
 	"total": {
 		"files": 11,
-		"gzip": 1178978
+		"gzip": 1179366
 	}
 }
