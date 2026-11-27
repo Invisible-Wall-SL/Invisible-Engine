@@ -1612,6 +1612,49 @@ mock.module('pixi-svelte', { namedExports: { getRigLoadScale: () => 1 } });
 	put(gameConfigDocKey(CLIENT, project), compiled.doc);
 	const shippedProps = await exportEditorArt(CLIENT, project);
 	ok('13. the export walks it with the rest (no art of its own to ship)', !!shippedProps);
+
+	// A pinned root's own pinned pieces ship at their versions, not at their latest: the project's
+	// slope, v1 placed by myBridge v2 while the slope's latest is v2.
+	const slope = (version: number, color: number) => ({
+		...structuredClone(BRIDGE_PROP_DEF),
+		id: 'mySlope',
+		version,
+		prop: undefined,
+		root: { id: 'mySlope-root', kind: 'container' as const, x: 0, y: 0, children: [], color },
+	});
+	put(projectComponentKey(project, 'mySlope'), slope(2, 2));
+	put(projectComponentVersionKey(project, 'mySlope', 1), slope(1, 1));
+	const pinnedSlope = {
+		...ramped,
+		root: {
+			...ramped.root,
+			children: [
+				...ramped.root.children,
+				{
+					id: 'myBridge-mySlope',
+					kind: 'componentInstance' as const,
+					x: 0,
+					y: 0,
+					componentId: 'mySlope',
+					componentVersion: 1,
+					propDepth: 'behind' as const,
+					propCell: -2,
+				},
+			],
+		},
+	};
+	put(projectComponentVersionKey(project, 'myBridge', 2), pinnedSlope);
+	const withPieces = await zoneArtPropSeeds(compiled.doc, (id, version) =>
+		loadComponentForGame(id, project, version),
+	);
+	ok(
+		'13. a piece the pinned root pins ships at that version beside the root (rule 8)',
+		withPieces.ids.includes('mySlope') &&
+			withPieces.pinned.some((d) => d.id === 'myBridge' && d.version === 2) &&
+			withPieces.pinned.some((d) => d.id === 'mySlope' && d.version === 1) &&
+			!withPieces.pinned.some((d) => d.id === 'mySlope' && d.version === 2),
+		JSON.stringify(withPieces.pinned.map((d) => `${d.id}@${d.version}`)),
+	);
 }
 
 console.log(`check:zone-art — ${passed} passed, ${failed} failed`);
