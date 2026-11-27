@@ -372,6 +372,7 @@ await esbuild.build({
 	stdin: {
 		contents: [
 			"export * from './server/rigTemplates.ts';",
+			"export * from './server/rigTemplateModules.ts';",
 			"export * from './server/rigTemplateFit.ts';",
 			"export * from './server/rigSheetFit.ts';",
 			"export * from './rigSheetMap.ts';",
@@ -620,11 +621,13 @@ const server = createServer(async (req, res) => {
 			const parsed = S.parseSheetMapping(body.sheet);
 			if ('problem' in parsed)
 				return json({ message: `bad sheet mapping: ${parsed.problem}` }, 400);
-			const fitted = S.sheetRig(S.HALF_BODY, REGIONS, parsed.mapping);
+			// As the route builds it: the template with the mapping's modules (rig-modules).
+			const t = S.templateWithModules(S.HALF_BODY, parsed.mapping.template.modules);
+			const fitted = S.sheetRig(t, REGIONS, parsed.mapping);
 			if (!fitted.ok) return json({ message: fitted.problem }, 400);
 			made = {
 				name: body.name,
-				rig: S.templateRig(S.HALF_BODY, REGIONS, fitted.value.fit, fitted.value.art),
+				rig: S.templateRig(t, REGIONS, fitted.value.fit, fitted.value.art),
 				fit: fitted.value.fit,
 			};
 			seen.kept = parsed.mapping;
@@ -1387,8 +1390,8 @@ try {
 		};
 	})()`);
 	ok(
-		'the rig opens: every body part drawn from its own region (the torso and the drawn face bend, every other part an image rigid on its bone), each prop on a bone of its own',
-		rig.parts.join() === 'torso,head' &&
+		'the rig opens: every body part drawn from its own region (the torso, the neck and the drawn face bend, every other part an image rigid on its bone), each prop on a bone of its own',
+		rig.parts.join() === 'torso,neck,head' &&
 			Object.entries(want).every(([p, r]) => rig.paths[p] === r) &&
 			rig.drawn.length === Object.keys(want).length &&
 			rig.props.length === TRUTH.props.length,
@@ -1992,6 +1995,64 @@ try {
 		reported.slice(0, 400),
 	);
 	await evaluate('closeAlert(); closeSheetToRig(); true');
+
+	// Rig modules (docs/design/rig-modules.md): Hands → None under the template in ＋ New rig reaches
+	// 🗺 From my sheet's parts and the create; the rig made has no hand.
+	await evaluate('openNewRigPanel(); true');
+	await waitFor(
+		`!!document.querySelector('#newRigApply option[value="template:half-body"]')`,
+		15000,
+	);
+	const modulesRow = await evaluate(`(() => {
+		const a = document.getElementById("newRigApply");
+		a.value = "template:half-body"; a.onchange();
+		const sel = document.querySelector('#newRigModules select[data-module="hands"]');
+		return { shown: document.getElementById("newRigModules").style.display !== "none", options: sel ? [...sel.options].map((o) => o.value) : null, value: sel && sel.value };
+	})()`);
+	ok(
+		'Modules: picking Half body shows Hands — with fingers (picked), simple, none',
+		modulesRow.shown &&
+			q(modulesRow.options) === q(['fingers', 'simple', 'none']) &&
+			modulesRow.value === 'fingers',
+		q(modulesRow),
+	);
+	await evaluate(`(() => {
+		const sel = document.querySelector('#newRigModules select[data-module="hands"]');
+		sel.value = "none";
+		document.getElementById("newRigAtlas").value = ${q(MANIFEST)};
+		document.getElementById("newRigName").value = "Handless";
+		document.getElementById("newRigFromSheet").click();
+		return true;
+	})()`);
+	await waitFor(
+		'document.getElementById("s2rModal").classList.contains("open") && !!s2r.sheet',
+		20000,
+	);
+	const handless = await evaluate(`({
+		parts: s2r.tpl.parts.filter((p) => /^hand_|^(thumb|index|middle|ring|pinky)_/.test(p.name)).map((p) => p.name),
+		rows: [...document.querySelectorAll("#s2rParts .s2rRow")].map((r) => r.dataset.part).filter((n) => /^hand_|^(thumb|index|middle|ring|pinky)_/.test(n)),
+		choice: s2r.tpl.choice,
+	})`);
+	ok(
+		'Modules: 🗺 From my sheet with no hands asks for no hand or finger part',
+		!handless.parts.length && !handless.rows.length && handless.choice?.hands === 'none',
+		q(handless),
+	);
+	const createsBefore = seen.creates.length;
+	await evaluate('document.getElementById("s2rCreate").click(); true');
+	await waitFor('!document.getElementById("s2rModal").classList.contains("open")', 30000);
+	const handlessCreate = seen.creates.at(-1);
+	ok(
+		'Modules: the create sends the mapping with Hands: none, and the rig made has no hand',
+		seen.creates.length === createsBefore + 1 &&
+			handlessCreate.sheet?.template?.modules?.hands === 'none' &&
+			!made.rig.skeleton.slots.some((s) =>
+				/^hand_|^(thumb|index|middle|ring|pinky)_/.test(s.name),
+			) &&
+			made.rig.skeleton.bones.some((b) => b.name === 'hand_l'),
+		q(handlessCreate?.sheet?.template),
+	);
+	await evaluate('closeAlert && closeAlert(); true');
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
 	ok('the page threw nothing', thrown.length === 0, thrown.join(' | '));

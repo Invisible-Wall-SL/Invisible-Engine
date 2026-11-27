@@ -141,7 +141,16 @@ async function insertRow(
 	const spin = phaseCols(s.phases.spinning);
 	const round = phaseCols(s.phases.round);
 	const arcadePhases =
-		s.phaseSet === 'arcade' ? { menu: s.phases.menu, play: s.phases.play } : null;
+		s.phaseSet === 'arcade'
+			? {
+					play: s.phases.play,
+					...Object.fromEntries(
+						(['menu', 'loading', 'lobby', 'spectate'] as const)
+							.filter((phase) => s.phases[phase])
+							.map((phase) => [phase, s.phases[phase]]),
+					),
+				}
+			: null;
 	const rows = await getDb()
 		.insert(perfReports)
 		.values({
@@ -369,8 +378,11 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		idle: phaseOf(r.idleFrames, r.idleFps, r.idleP50, r.idleP95, r.idleHitches),
 		spinning: phaseOf(r.spinFrames, r.spinFps, r.spinP50, r.spinP95, r.spinHitches),
 		round: phaseOf(r.roundFrames, r.roundFps, r.roundP50, r.roundP95, r.roundHitches),
+		loading: r.arcadePhases?.loading ?? null,
+		lobby: r.arcadePhases?.lobby ?? null,
 		menu: r.arcadePhases?.menu ?? null,
 		play: r.arcadePhases?.play ?? null,
+		spectate: r.arcadePhases?.spectate ?? null,
 		capped30: r.capped30,
 		drawsMean: r.drawsMean,
 		textureMb: r.textureMb,

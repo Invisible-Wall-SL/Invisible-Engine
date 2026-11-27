@@ -399,8 +399,8 @@ const MUTANTS = [
 		"the preview judging 🦴 Create rig's way, on the template's order, with a rig open",
 		[
 			UPD,
-			'sheetPreview(o.template, o.regions, o.mapping, { edit: true })',
-			'sheetPreview(o.template, o.regions, o.mapping)',
+			'sheetPreview(asMapped(o.template, o.mapping), o.regions, o.mapping, { edit: true })',
+			'sheetPreview(asMapped(o.template, o.mapping), o.regions, o.mapping)',
 		],
 		['placed'],
 	],

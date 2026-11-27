@@ -71,6 +71,8 @@
 	import { SYMBOL_FX_MAX, SYMBOL_FX_TRIGGER_TEXT, SYMBOL_FX_TRIGGERS } from '$lib/symbolFx';
 	import EditorElementFx from '../editor/EditorElementFx.svelte';
 	import FlightPreview from './FlightPreview.svelte';
+	import PaylinePreview from './PaylinePreview.svelte';
+	import { resolvePreviewLine } from './paylinePreview';
 	import SymbolFxPreview from './SymbolFxPreview.svelte';
 	import SymbolRigPreview from './SymbolRigPreview.svelte';
 	import SymbolRigStage from './SymbolRigStage.svelte';
@@ -2040,6 +2042,9 @@
 	const wlTaperWidth = $derived(wlLine.taper?.width ?? 1);
 	const wlTrailFx = $derived(wlLine.trailFx ?? []);
 	const wlAnimated = $derived(wlLine.animated ?? WL_DEFAULTS.animated);
+	/** The line the Payline style preview draws: the doc's, resolved as the game resolves it, with
+	 *  a tip still waiting for its asset drawn as no tip. */
+	const wlPreviewLine = $derived(resolvePreviewLine($state.snapshot(wlLine), winLineOn));
 
 	function setWinLineTip(tip: WinLineTip | undefined): void {
 		const valid = tip ? normalizeWinLineTip(tip) : undefined;
@@ -4541,6 +4546,14 @@
 								>
 							</div>
 
+							{#snippet paylineTipArt(size: number)}
+								{#if wlTip?.kind === 'sprite' || wlTip?.kind === 'flipbook'}
+									{@render layerThumb(
+										{ kind: wlTip.kind, assetKey: wlTip.assetKey, clipId: wlTip.clipId },
+										size,
+									)}
+								{/if}
+							{/snippet}
 							<SectionCard scope="symbols" id="winline-payline-style" title="Payline style">
 								{#snippet info()}
 									<p>
@@ -4558,6 +4571,21 @@
 										onclick={resetWinLinePaylineStyle}
 									/>
 								{/snippet}
+								<h3 class="wl-sub">
+									Preview <InfoTip
+										>A win on one of this project's paylines, drawn the way the game draws it — the
+										same strokes, head and draw time — with the tip and trail effects you pick
+										below. It replays whenever a line setting changes. A flipbook tip shows its
+										first frame.</InfoTip
+									>
+								</h3>
+								<PaylinePreview
+									line={wlPreviewLine}
+									board={data.paylineBoard}
+									tipArt={paylineTipArt}
+									auditions={data.soundAuditions}
+									projectKey={data.projectKey}
+								/>
 								<div class="wl-fields">
 									<div class="field">
 										<span class="label"

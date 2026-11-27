@@ -35,7 +35,7 @@
  *    `pr_opened` when GitHub has the PR — and deletes a stray branch; any error after the claim;
  *  - the backstop, Stop, the bug page's facts, the activity sentences, and the schema's lists.
  */
-import { createSign, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
@@ -201,6 +201,9 @@ const hooks = {
 const spendWindows: Date[] = [];
 const MAX_SPEND_MODELS = 10;
 
+// Resolve conflict runs have their own fixture (`check:merge-main-runs`); here none exist, and the
+// sync's merge-run backstop finds nothing working.
+fake('lib/server/pipelineMergeRunsStore.ts', { workingMergeRuns: async () => [] });
 fake('lib/server/bugFixRunsStore.ts', {
 	MAX_SPEND_MODELS,
 	getFixRun: async (id: string) => copy(runs.find((r) => r.id === id)),
@@ -399,10 +402,26 @@ fake('lib/server/bugFixRunsStore.ts', {
 
 // ── R2, settings, prices, grants, the Changes cache, the pixels ───────────────
 const objects = new Map<string, Uint8Array<ArrayBuffer>>();
+const r2Deleted: string[] = [];
+const r2Signed: { key: string; contentType: string; ttl: number; url: string }[] = [];
 fake('lib/server/r2.ts', {
 	getObjectBytes: async (key: string) => {
 		const body = objects.get(key);
 		return body ? { body, contentType: 'image/png', etag: 'e' } : null;
+	},
+	getObjectBytesBounded: async (key: string, maxBytes: number) => {
+		const body = objects.get(key);
+		if (!body) return null;
+		return body.byteLength > maxBytes ? 'large' : body;
+	},
+	deleteObject: async (key: string) => {
+		r2Deleted.push(key);
+		objects.delete(key);
+	},
+	presignPut: async (key: string, contentType: string, ttl: number) => {
+		const url = `https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/bucket/${key}?X-Amz-Signature=sig-${r2Signed.length + 1}`;
+		r2Signed.push({ key, contentType, ttl, url });
+		return url;
 	},
 });
 const settings = { budget: 15, diagnoseBudget: 5, monthly: 150, maxLive: 2 };
@@ -801,6 +820,7 @@ const shotRoute = await import(
 	src('routes/api/pipeline/fix-runs/[id]/screenshots/[sid]/+server.ts')
 );
 const resultRoute = await import(src('routes/api/pipeline/fix-runs/[id]/result/+server.ts'));
+const uploadRoute = await import(src('routes/api/pipeline/fix-runs/[id]/result-upload/+server.ts'));
 
 type Json = Record<string, unknown>;
 type Answer = { status: number; body: Json; type?: string | null };
@@ -1202,10 +1222,10 @@ const spent = (usd: number, agent = 'bug-fix') => ({
 	requestId: `old:${ledger.length}`,
 	at: new Date(clock),
 });
-ledger.push(spent(120), spent(30), spent(500, 'game-doctor'));
+ledger.push(spent(120), spent(30, 'merge-main'), spent(500, 'game-doctor'));
 const broke = await start(FIXER, 1);
 check(
-	"start: this month's fix spend at the ceiling → fix_budget_spent (other agents' spend does not count), from the month's first instant in UTC",
+	"start: this month's fix and Resolve conflict (merge-main) spend at the ceiling → fix_budget_spent (other agents' spend does not count), from the month's first instant in UTC",
 	[broke.status, broke.body.code, broke.body.error, spendWindows.at(-1)?.toISOString().slice(8)],
 	[
 		409,
@@ -3714,7 +3734,20 @@ gh.listed = [
 	ghRun(9700, unseen, { actor: { login: 'octocat' } }),
 	ghRun(9701, found, { created_at: new Date(bornAt + 5000).toISOString() }),
 ];
+objects.set(`_runs/fix/${done}/result.json.gz`, new Uint8Array(4));
+objects.set(`_runs/fix/${going}/result.json.gz`, new Uint8Array(4));
+r2Deleted.length = 0;
 await actions.backstopFixRuns(app, bornAt + 5 * MIN);
+check(
+	'backstop: a run it ends loses its leftover result object; a run still working keeps its own',
+	[
+		objects.has(`_runs/fix/${done}/result.json.gz`),
+		objects.has(`_runs/fix/${going}/result.json.gz`),
+		r2Deleted.includes(`_runs/fix/${done}/result.json.gz`),
+		r2Deleted.includes(`_runs/fix/${going}/result.json.gz`),
+	],
+	[false, true, true, false],
+);
 const states = () =>
 	[done, gone, going, cancelledOnGh, midCommit, unseen, found].map((id) => [
 		runOf(id).status,
@@ -5419,6 +5452,196 @@ check(
 			change.protectedEntry('apps/launcher-api/drizzle/0048_fix_run_diagnose.sql'),
 		],
 		['apps/launcher-api/src/routes/api/bugs/[number]/fix-runs', 'apps/launcher-api/drizzle'],
+	);
+}
+
+// ── A result too large for the request limit travels through R2 (ADR-0013 §4) ──
+{
+	const keyOf = (id: string) => `_runs/fix/${id}/result.json.gz`;
+	const ask = (id: string, t: string | null) =>
+		call(uploadRoute.POST, { params: { id }, headers: t === null ? {} : bearer(t) });
+	const live = liveRun(7);
+	const issued = await ask(live.id, token({ run_id: String(live.gh) }));
+	const again = await ask(live.id, token({ run_id: String(live.gh) }));
+	check(
+		'result-upload: a live run gets a presigned PUT for its one key, 15 minutes, gzip, 8 MB',
+		[
+			issued.status,
+			Object.keys(issued.body).sort(),
+			issued.body.key,
+			String(issued.body.url).includes(keyOf(live.id)),
+			Math.round((Date.parse(String(issued.body.expiresAt)) - Date.now()) / 60_000),
+			issued.body.maxBytes,
+			r2Signed.at(-2)?.contentType,
+			r2Signed.at(-2)?.ttl,
+		],
+		[
+			200,
+			['expiresAt', 'key', 'maxBytes', 'url'],
+			keyOf(live.id),
+			true,
+			15,
+			8 * 1024 * 1024,
+			'application/gzip',
+			900,
+		],
+	);
+	check(
+		'result-upload: a second call signs the same key afresh',
+		[again.status, again.body.key, again.body.url !== issued.body.url],
+		[200, keyOf(live.id), true],
+	);
+	const other = liveRun(7);
+	const ended = seedRun(7, { status: 'failed', ghRunId: 9810, finishedAt: tick() });
+	const refusals = [
+		await ask(live.id, null),
+		await ask(live.id, token({ run_id: String(other.gh) })),
+		await ask(live.id, token({ run_id: String(live.gh), actor: 'octocat' })),
+		await ask(ended.id, token({ run_id: String(ended.gh) })),
+		await ask('0000000000', token({ run_id: '1' })),
+	];
+	check(
+		'result-upload: no token 401; another run’s Actions run 403; a person’s run 403; an ended run 409; an unknown run 404',
+		refusals.map((a) => a.status),
+		[401, 403, 403, 409, 404],
+	);
+	check(
+		'result-upload: the refused calls signed nothing',
+		r2Signed.filter((s) => s.key === keyOf(ended.id) || s.key === keyOf(other.id)).length,
+		0,
+	);
+
+	const pointerFor = (id: string, gz: Uint8Array, over: Record<string, unknown> = {}) => ({
+		upload: {
+			key: keyOf(id),
+			sha256: createHash('sha256').update(gz).digest('hex'),
+			bytes: gz.byteLength,
+			...over,
+		},
+	});
+	const post = (run: { id: string; gh: number }, json: unknown) =>
+		call(resultRoute.POST, {
+			params: { id: run.id },
+			json,
+			headers: bearer(token({ run_id: String(run.gh) })),
+		});
+	const put = (id: string, gz: Uint8Array) => objects.set(keyOf(id), new Uint8Array(gz));
+
+	const inline = liveRun(7);
+	const inlineAnswer = await result(inline.id, inline.gh, good());
+	const viaR2 = liveRun(7);
+	const gz = gzipSync(JSON.stringify(good()));
+	put(viaR2.id, gz);
+	r2Deleted.length = 0;
+	const accepted = await post(viaR2, pointerFor(viaR2.id, gz));
+	check(
+		'a pointer result is accepted as the inline one is, and its object deleted',
+		[
+			accepted.status,
+			accepted.body.status,
+			accepted.body.status === inlineAnswer.body.status,
+			runOf(viaR2.id).resultAt !== null,
+			objects.has(keyOf(viaR2.id)),
+			r2Deleted,
+		],
+		[200, inlineAnswer.body.status, true, true, false, [keyOf(viaR2.id)]],
+	);
+
+	const refused = async (
+		label: string,
+		prep: (r: { id: string; gh: number }) => unknown,
+		sentence: RegExp,
+	) => {
+		const run = liveRun(7);
+		r2Deleted.length = 0;
+		const a = await post(run, prep(run));
+		check(
+			`a pointer result: ${label} → 400 naming the rule, nothing claimed, the object deleted`,
+			[
+				a.status,
+				sentence.test(String(a.body.error ?? a.body.message)),
+				runOf(run.id).resultAt,
+				runOf(run.id).status,
+				objects.has(keyOf(run.id)),
+				r2Deleted,
+			],
+			[400, true, null, 'running', false, [keyOf(run.id)]],
+		);
+	};
+	await refused(
+		'another run’s key',
+		(r) => {
+			put(r.id, gz);
+			return pointerFor(r.id, gz, { key: keyOf(inline.id) });
+		},
+		/not this run’s/,
+	);
+	await refused(
+		'a wrong hash',
+		(r) => {
+			put(r.id, gz);
+			return pointerFor(r.id, gz, { sha256: 'a'.repeat(64) });
+		},
+		/not the file it said/,
+	);
+	await refused(
+		'a wrong byte count',
+		(r) => {
+			put(r.id, gz);
+			return pointerFor(r.id, gz, { bytes: gz.byteLength + 1 });
+		},
+		/not the size it said/,
+	);
+	await refused('a missing object', (r) => pointerFor(r.id, gz), /not there/);
+	const huge = new Uint8Array(8 * 1024 * 1024 + 1);
+	await refused(
+		'an object over 8 MB, whatever the pointer says',
+		(r) => {
+			put(r.id, huge);
+			return pointerFor(r.id, gz, { bytes: gz.byteLength });
+		},
+		/at most 8 MB/,
+	);
+	await refused(
+		'a pointer that says it is over 8 MB',
+		(r) => pointerFor(r.id, gz, { bytes: huge.byteLength }),
+		/at most 8 MB/,
+	);
+	const bomb = gzipSync(Buffer.alloc(9 * 1024 * 1024));
+	await refused(
+		'a gzip that unpacks past 8 MB',
+		(r) => {
+			put(r.id, bomb);
+			return pointerFor(r.id, bomb);
+		},
+		/unpacks to at most 8 MB/,
+	);
+	const notGzip = Buffer.from('{"not":"gzip"}');
+	await refused(
+		'an object that is not gzip',
+		(r) => {
+			put(r.id, notGzip);
+			return pointerFor(r.id, notGzip);
+		},
+		/not gzip/,
+	);
+	await refused(
+		'a pointer with no hash',
+		(r) => {
+			put(r.id, gz);
+			return { upload: { key: keyOf(r.id), bytes: gz.byteLength } };
+		},
+		/no sha256/,
+	);
+	const strayPointer = liveRun(7);
+	const withPointerAndMore = await post(strayPointer, {
+		...pointerFor(strayPointer.id, gz),
+		usage: [],
+	});
+	check(
+		'a body that carries a pointer among other fields is an inline body, not a pointer (and is refused as one)',
+		[withPointerAndMore.status, objects.has(keyOf(strayPointer.id))],
+		[400, false],
 	);
 }
 

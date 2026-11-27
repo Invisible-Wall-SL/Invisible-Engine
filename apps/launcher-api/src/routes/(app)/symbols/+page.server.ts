@@ -17,6 +17,7 @@ import { symbolsPageConfig } from '$lib/server/symbolsPageConfig';
 import { loadSymbolsDocWithEtag } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { previewBoardOf } from './paylinePreview';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -115,5 +116,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** The one-shot sounds the win line can play: this project's library first, then the
 		 *  engine's own — the launcher's one sound-picker source. */
 		soundNames: soundOptionsFor(sounds).sfx,
+		/** The Payline style preview's board: the config's reels, rows and paylines. */
+		paylineBoard: previewBoardOf(config.doc),
+		/** The uploads the preview can play (name → stored file and level), streamed from Invisible
+		 *  Sound's file route — so only for a user who holds that tool. */
+		soundAuditions: tools.some((t) => t.id === 'sound')
+			? Object.fromEntries(
+					(sounds?.entries ?? []).map((e) => [e.name, { file: e.file, volume: e.volume }]),
+				)
+			: {},
 	};
 };

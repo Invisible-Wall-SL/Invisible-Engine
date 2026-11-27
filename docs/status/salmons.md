@@ -2720,6 +2720,17 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   **Not verified:** the workflow job on GitHub's runner (it was never run there); the numbers on a
   device.
 
+- 2026-11-27 — **Performance, T1: the Invisible Profiler can now say why an arcade game is slow**
+  (branch `claude/salmons-perf-t1-probe`, in review; plan `docs/design/salmons-performance.md` §2 and
+  track T1; the detail is in [status/profiler](profiler.md) "P10"). Reports `perf: 10`: busy time per
+  phase against the display's frame (judged instead of fps for an arcade game), hidden / throttled
+  time (a throttled reading is marked, not comparable), `lobby` / `loading` / `play` / `spectate`
+  with the room's phase as the spike state, a p95 per counter, a scene sample (nodes, drawn, culled,
+  draws / passes per render-group layer), GPU time where offered, and the room's bytes by kind with
+  sends per step. Probe and launcher only: no game looks or plays differently, no Game Config
+  value changed. The next Salmons readings should use the capture protocol of the plan §6 and be
+  read as busy ms against 16.7, not fps.
+
 - 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
   room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
   gone. The line now rests at `room / 1.15` there (including canvases that only just fit it), so the whole pop fits inside the margins

@@ -28,6 +28,7 @@ import {
 	CONSTRAINT_KINDS,
 	builtinControls,
 	builtinIk,
+	channelLimits,
 	pickerPair,
 	templateConstraintsProblem,
 	templateControlsProblem,
@@ -38,6 +39,12 @@ import {
 	type TemplateIk3d,
 } from './rigTemplateControls';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
+import {
+	parseModuleChoice,
+	takenBy,
+	type RigModuleChoice,
+	type RigTemplateModule,
+} from './rigTemplateModules';
 import {
 	boneWorld,
 	chainWeights,
@@ -72,6 +79,12 @@ export interface RigTemplateBone {
 	scaleY?: number;
 	/** Made only when a slot made rides it or a bone made hangs from it (a jointed mouth's teeth). */
 	optional?: true;
+	/**
+	 * A link a chain gained after rigs were made from the template (the neck's upper half): a rig
+	 * without it is given the template with it folded into its parent (`templateWithLinks`), and 🔄 Update
+	 * rig puts it in. It sits on its parent's line, unturned, so the bones below keep their places.
+	 */
+	link?: true;
 }
 
 export interface RigTemplateSlot {
@@ -255,6 +268,13 @@ export interface RigTemplate {
 	controls?: RigTemplateControls;
 	/** Native constraints its rigs start with (a template saved from a rig keeps the rig's). */
 	constraints?: RigTemplateConstraints;
+	/**
+	 * The pieces a rig may have one of several ways (docs/design/rig-modules.md): this definition is
+	 * every module at its default; `templateWithModules` takes away what another option names.
+	 */
+	modules?: RigTemplateModule[];
+	/** The modules this template was made with off their default (`templateWithModules` sets it). */
+	choice?: RigModuleChoice;
 }
 
 /**
@@ -326,6 +346,8 @@ export const TEMPLATE_SLOT_TIMELINES = [
 export interface RigTemplateRef {
 	id: string;
 	version: number;
+	/** Its modules off their default (docs/design/rig-modules.md); none = the definition. */
+	modules?: RigModuleChoice;
 }
 
 export const RIG_TEMPLATE_SIDECAR = 'template.json';
@@ -334,6 +356,31 @@ export { LIPSYNC_SHAPES };
 
 /** The face block on `head`: the head turn's parallax and a head up / down control (§5.4). */
 const FACE = faceBlock('head', { back: ['hair_back'], front: ['hair_front'] });
+
+/**
+ * The neck (§3.6): `neck` on the chest at the collar, `neck_upper` halfway up it, the head on that.
+ * A turn of the neck is shared by the two, so it bends rather than swinging stiff from the collar,
+ * and its drawing is skinned across both. `neck_upper` came later: a `link`.
+ */
+function neckChain(at: number, length: number): RigTemplateBone[] {
+	return [
+		{ name: 'neck', parent: 'chest', x: 0, y: at },
+		{ name: 'neck_upper', parent: 'neck', x: 0, y: length / 2, link: true },
+		{ name: 'head', parent: 'neck_upper', x: 0, y: length / 2 },
+	];
+}
+/** The neck's bones, base first: what a turn of the neck is shared by. */
+export const NECK_BONES = ['neck', 'neck_upper'] as const;
+/** The Head nod control: degrees, the neck's turn shared by its bones. */
+const HEAD_NOD: RigTemplateChannel = {
+	id: 'head_nod',
+	label: 'Head nod',
+	tip: 'Degrees, turned along the neck.',
+	min: -10,
+	max: 10,
+	rest: 0,
+	drives: NECK_BONES.map((bone) => ({ bone, prop: 'rotate' as const, per: 1 / NECK_BONES.length })),
+};
 
 /** The face block's motion map, kept to the controls `t` has. */
 function faceMotion(t: RigTemplate) {
@@ -474,8 +521,7 @@ export const BUST_FACE: RigTemplate = {
 		{ name: 'root', x: 0, y: 0 },
 		{ name: 'chest', parent: 'root', x: 0, y: 120 },
 		...sides((s, k) => [{ name: `shoulder_${s}`, parent: 'chest', x: 110 * k, y: 40 }]),
-		{ name: 'neck', parent: 'chest', x: 0, y: 110 },
-		{ name: 'head', parent: 'neck', x: 0, y: 40 },
+		...neckChain(110, 40),
 		{ name: 'head_image', parent: 'head', x: 0, y: 0 },
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
 		...FACE.bones,
@@ -503,15 +549,7 @@ export const BUST_FACE: RigTemplate = {
 	],
 	channels: [
 		...FACE.channels,
-		{
-			id: 'head_nod',
-			label: 'Head nod',
-			tip: 'Degrees, turned at the neck.',
-			min: -10,
-			max: 10,
-			rest: 0,
-			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
-		},
+		HEAD_NOD,
 		{
 			id: 'breath',
 			label: 'Breath',
@@ -704,8 +742,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		{ name: 'hip', parent: 'root', x: 0, y: 290 },
 		{ name: 'spine', parent: 'hip', x: 0, y: 30 },
 		{ name: 'chest', parent: 'spine', x: 0, y: 90 },
-		{ name: 'neck', parent: 'chest', x: 0, y: 90 },
-		{ name: 'head', parent: 'neck', x: 0, y: 30 },
+		...neckChain(90, 30),
 		...sides((s, k) => [
 			{ name: `upper_arm_${s}`, parent: 'chest', x: 70 * k, y: 70 },
 			{ name: `lower_arm_${s}`, parent: `upper_arm_${s}`, x: 0, y: -95 },
@@ -843,15 +880,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'head', prop: 'rotate', per: 1 }],
 		},
-		{
-			id: 'head_nod',
-			label: 'Head nod',
-			tip: 'Degrees, turned at the neck.',
-			min: -10,
-			max: 10,
-			rest: 0,
-			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
-		},
+		HEAD_NOD,
 		{
 			id: 'breath',
 			label: 'Breath',
@@ -1068,8 +1097,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		{ name: 'hip', parent: 'root', x: 0, y: 30 },
 		{ name: 'spine', parent: 'hip', x: 0, y: 40 },
 		{ name: 'chest', parent: 'spine', x: 0, y: 150 },
-		{ name: 'neck', parent: 'chest', x: 0, y: 130 },
-		{ name: 'head', parent: 'neck', x: 0, y: 40 },
+		...neckChain(130, 40),
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
 		...FACE.bones,
 		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
@@ -1156,15 +1184,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
 		},
-		{
-			id: 'head_nod',
-			label: 'Head nod',
-			tip: 'Degrees, turned at the neck.',
-			min: -10,
-			max: 10,
-			rest: 0,
-			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
-		},
+		HEAD_NOD,
 		...FACE.channels,
 		...sides<RigTemplateChannel>((s, k) => {
 			const side = SIDE[s];
@@ -1998,10 +2018,11 @@ const armReach = (s: 'l' | 'r'): FollowLimb[] => {
 };
 
 /**
- * How far the head's bone may shift onto the tracked face, rig units: about a third of the shoulders.
- * On NellyAnimTest the shift a turned, leaning head needed was 43 (median) and 73 at most.
+ * How far the neck may bend onto the tracked face, degrees in all (a person's neck bends about 45°
+ * to the side): on NellyAnimTest the head sat up to 73 rig units to one side of the shoulders'
+ * middle, about 30° at the eyes' height above the collar.
  */
-const HEAD_SHIFT = 90;
+const NECK_BEND = 35;
 
 /**
  * A hand's finger segments in a 3D import (§5.9): each along its two points of the hand Hand
@@ -2337,7 +2358,7 @@ HALF_BODY.motion = {
 				anchors: sides((s) => [{ point: { pose: POSE_SIDE[s].shoulder }, bone: `upper_arm_${s}` }]),
 			},
 			limbs: sides(armReach),
-			head: { bone: 'neck', marks: faceMarks(), limit: HEAD_SHIFT },
+			neck: { bones: [...NECK_BONES], marks: faceMarks(), limit: NECK_BEND },
 		},
 		replaces: [
 			'lean',
@@ -2398,11 +2419,12 @@ const fingersOf = (s: 'l' | 'r') =>
 
 BUST_FACE.channels = withFaceBoard(BUST_FACE.channels, FACE_BOARD);
 BUST_FACE.controls = builtinControls(BUST_FACE, {
-	rings: { chest: 70, shoulder_l: 36, shoulder_r: 36, neck: 28, head: 80 },
+	rings: { chest: 70, shoulder_l: 36, shoulder_r: 36, neck: 28, neck_upper: 24, head: 80 },
 	line: 'chest',
-	sets: { shoulders: ['shoulder_l', 'shoulder_r'], head: ['neck', 'head'] },
+	sets: { shoulders: ['shoulder_l', 'shoulder_r'], head: ['neck', 'neck_upper', 'head'] },
 	picker: [
 		['head', 0.5, 0.14, 'head'],
+		['neck_upper', 0.5, 0.3, 'upper neck'],
 		['neck', 0.5, 0.4, 'neck'],
 		['chest', 0.5, 0.64, 'chest'],
 		...pickerPair('shoulder', 0.18, 0.56, 'shoulder'),
@@ -2426,6 +2448,7 @@ const fullControls = builtinControls(FULL_BODY, {
 		spine: 40,
 		chest: 52,
 		neck: 20,
+		neck_upper: 17,
 		head: 46,
 		...Object.fromEntries(
 			sides((s) => [
@@ -2449,12 +2472,13 @@ const fullControls = builtinControls(FULL_BODY, {
 		),
 		arms: sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
 		legs: sides((s) => [`thigh_${s}`, `shin_${s}`, `foot_${s}`]),
-		torso: ['hip', 'spine', 'chest', 'neck', 'head'],
+		torso: ['hip', 'spine', 'chest', 'neck', 'neck_upper', 'head'],
 	},
 	picker: [
-		['head', 0.5, 0.05, 'head'],
-		['neck', 0.5, 0.11, 'neck'],
-		['chest', 0.5, 0.19, 'chest'],
+		['head', 0.5, 0.035, 'head'],
+		['neck_upper', 0.5, 0.09, 'upper neck'],
+		['neck', 0.5, 0.145, 'neck'],
+		['chest', 0.5, 0.2, 'chest'],
 		['spine', 0.5, 0.27, 'spine'],
 		['hip', 0.5, 0.35, 'hip'],
 		...pickerPair('upper_arm', 0.24, 0.16, 'arm'),
@@ -2486,6 +2510,7 @@ const halfControls = builtinControls(HALF_BODY, {
 		spine: 56,
 		chest: 76,
 		neck: 30,
+		neck_upper: 26,
 		head: 76,
 		...Object.fromEntries(
 			sides((s) => [
@@ -2506,11 +2531,12 @@ const halfControls = builtinControls(HALF_BODY, {
 			]),
 		),
 		arms: sides((s) => [`clavicle_${s}`, `upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
-		torso: ['hip', 'spine', 'chest', 'neck', 'head'],
+		torso: ['hip', 'spine', 'chest', 'neck', 'neck_upper', 'head'],
 	},
 	picker: [
-		['head', 0.5, 0.08, 'head'],
-		['neck', 0.5, 0.17, 'neck'],
+		['head', 0.5, 0.05, 'head'],
+		['neck_upper', 0.5, 0.11, 'upper neck'],
+		['neck', 0.5, 0.165, 'neck'],
 		['chest', 0.5, 0.3, 'chest'],
 		['spine', 0.5, 0.48, 'spine'],
 		['hip', 0.5, 0.6, 'hip'],
@@ -2527,6 +2553,33 @@ const halfControls = builtinControls(HALF_BODY, {
 	],
 });
 HALF_BODY.controls = withLimbs(halfControls, HALF_IK.limbs, { arm: [0.25, 0.75] });
+
+/**
+ * The hands (docs/design/rig-modules.md §3): with fingers, one bone with its drawn poses, or none —
+ * the arm ending at a bare wrist (its IK, its control there and the capture's reach to the tracked
+ * wrist keep it).
+ */
+function handsModule(fingers: boolean): RigTemplateModule {
+	const roots = fingers ? sides((s) => DIGITS.map((d) => bone(d, 1, s))) : [];
+	return {
+		id: 'hands',
+		label: 'Hands',
+		tip: 'How the hands are rigged. With fingers: a bone per finger joint, the curls and the hand tracker keying them. Simple: one bone and one image per hand (its drawn poses swap). None: no hand drawn or rigged; the arm ends at the wrist, where its IK control stays.',
+		default: fingers ? 'fingers' : 'simple',
+		options: [
+			...(fingers ? [{ id: 'fingers', label: 'With fingers' }] : []),
+			{ id: 'simple', label: 'Simple (one bone)', ...(roots.length ? { bones: roots } : {}) },
+			{
+				id: 'none',
+				label: 'None',
+				...(roots.length ? { bones: roots } : {}),
+				bare: sides((s) => [`hand_${s}`]),
+			},
+		],
+	};
+}
+HALF_BODY.modules = [handsModule(true)];
+FULL_BODY.modules = [handsModule(false)];
 
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
 
@@ -3202,9 +3255,9 @@ function bones3dProblem(t: RigTemplate, b3: RigMotion3d): string | null {
 
 /**
  * Why a template's positions map (§5.8) cannot place its rig, or null: the root has no parent and its
- * anchors and the head's marks hang from no limb (they are placed before a limb reaches), each
- * limb is a chain of two bones the map turns from its points, and the head's bone is a 2D bone above
- * its marks.
+ * anchors and the neck's marks hang from no limb (they are placed before a limb reaches), each
+ * limb is a chain of two bones the map turns from its points, and the neck is a chain of 2D bones
+ * above its marks.
  */
 function positionsProblem(
 	t: RigTemplate,
@@ -3247,16 +3300,22 @@ function positionsProblem(
 		if (!chain.has(l.pole) || l.pole === l.upper || inLimb(l.pole))
 			return `motion positions: "${l.upper}" needs a pole bone outside the limb`;
 	}
-	if (p.head) {
-		const h = p.head;
-		if (!chain.has(h.bone) || keyed.has(h.bone) || inLimb(h.bone))
-			return `motion positions: the head's bone "${h.bone}" must be a 2D bone outside the limbs`;
-		if (!(h.limit > 0)) return 'motion positions: the head shifts a limit above 0';
-		const hb = marks('head', h.marks);
+	if (p.neck) {
+		const nk = p.neck;
+		if (!nk.bones.length) return 'motion positions: the neck has no bones';
+		for (const [k, b] of nk.bones.entries()) {
+			if (!chain.has(b) || keyed.has(b) || inLimb(b))
+				return `motion positions: the neck's "${b}" must be a 2D bone outside the limbs`;
+			if (k && parentOf.get(b) !== nk.bones[k - 1])
+				return `motion positions: the neck's "${b}" does not hang from "${nk.bones[k - 1]}"`;
+		}
+		if (!(nk.limit > 0 && nk.limit <= 90))
+			return 'motion positions: the neck bends a limit above 0° and at most 90°';
+		const hb = marks('neck', nk.marks);
 		if (hb) return hb;
-		const off = h.marks.find((m) => !(chain.get(m.bone) ?? []).includes(h.bone));
-		if (off)
-			return `motion positions: the head's mark "${off.bone}" does not hang from "${h.bone}"`;
+		const top = nk.bones[nk.bones.length - 1];
+		const off = nk.marks.find((m) => !(chain.get(m.bone) ?? []).includes(top));
+		if (off) return `motion positions: the neck's mark "${off.bone}" does not hang from "${top}"`;
 	}
 	return null;
 }
@@ -3638,6 +3697,105 @@ export function templateFitProblem(t: RigTemplate, fit: RigFit): string | null {
 }
 
 /**
+ * Template `t` as a rig made before some of its links (`RigTemplateBone.link`) has it: each link the
+ * rig (its bones by name, `has`) lacks folded into its parent — the bones below it hung from the
+ * parent where they were, its drives moved onto the parent (a control's drives of one property on
+ * one bone summed), and it left out of the controls, the motion map and the 3D setup. So a Head nod
+ * keyed before `neck_upper` existed reads and keys on that rig's `neck` alone. A link is unturned and
+ * unscaled at setup, so its offset adds to its children's.
+ */
+export function templateWithLinks(t: RigTemplate, has: ReadonlySet<string>): RigTemplate {
+	const gone = new Set(t.bones.filter((b) => b.link && !has.has(b.name)).map((b) => b.name));
+	if (!gone.size) return t;
+	const byName = new Map(t.bones.map((b) => [b.name, b]));
+	const into = (n: string): string => {
+		let b = byName.get(n);
+		while (b && gone.has(b.name) && b.parent) b = byName.get(b.parent);
+		return b?.name ?? n;
+	};
+	const bones = t.bones
+		.filter((b) => !gone.has(b.name))
+		.map((b) => {
+			if (!b.parent || !gone.has(b.parent)) return b;
+			let [x, y] = [b.x, b.y];
+			for (let l = byName.get(b.parent); l && gone.has(l.name); l = byName.get(l.parent ?? '')) {
+				x += l.x;
+				y += l.y;
+			}
+			return { ...b, parent: into(b.parent), x: round4(x), y: round4(y) };
+		});
+	const channels = t.channels.map((c): RigTemplateChannel => {
+		if (!c.drives?.some((d) => gone.has(d.bone))) return c;
+		const drives: NonNullable<RigTemplateChannel['drives']> = [];
+		for (const d of c.drives) {
+			const bone = into(d.bone);
+			const same = drives.find((x) => x.bone === bone && x.prop === d.prop);
+			if (same) same.per = round4(same.per + d.per);
+			else drives.push({ ...d, bone });
+		}
+		return { ...c, drives };
+	});
+	const out: RigTemplate = {
+		...t,
+		bones,
+		slots: t.slots.map((s) => (gone.has(s.bone) ? { ...s, bone: into(s.bone) } : s)),
+		channels,
+	};
+	const c = t.controls;
+	if (c)
+		out.controls = {
+			...c,
+			...(c.bones
+				? {
+						bones: Object.fromEntries(
+							Object.entries(c.bones)
+								.filter(([b]) => !gone.has(b))
+								.map(([b, k]) => {
+									const bone = bones.find((x) => x.name === b);
+									const took = [...gone].some((g) => into(g) === b);
+									if (!took || !bone || !k.limits) return [b, k];
+									return [b, { ...k, limits: channelLimits(bone, k, channels) ?? k.limits }];
+								}),
+						),
+					}
+				: {}),
+			...(c.sets
+				? {
+						sets: Object.fromEntries(
+							Object.entries(c.sets).map(([k, v]) => [k, v.filter((b) => !gone.has(b))]),
+						),
+					}
+				: {}),
+			...(c.picker?.items
+				? {
+						picker: {
+							...c.picker,
+							items: c.picker.items.filter((i) => !(i.bone && gone.has(i.bone))),
+						},
+					}
+				: {}),
+		};
+	const neck = t.motion?.bones3d?.positions?.neck;
+	if (t.motion?.bones3d && neck)
+		out.motion = {
+			...t.motion,
+			bones3d: {
+				...t.motion.bones3d,
+				positions: {
+					...t.motion.bones3d.positions!,
+					neck: { ...neck, bones: neck.bones.filter((b) => !gone.has(b)) },
+				},
+			},
+		};
+	if (t.rig3d)
+		out.rig3d = {
+			...t.rig3d,
+			depths: Object.fromEntries(Object.entries(t.rig3d.depths).filter(([b]) => !gone.has(b))),
+		};
+	return out;
+}
+
+/**
  * Template `t` as a rig drawing in the slots `drawnIn` has it: an optional slot only when it is drawn
  * in, an optional bone only when a slot made rides it or a bone made hangs from it, so a rig drawing
  * none of them is the rig it was before they were added (a jointed mouth's lips, teeth and tongue).
@@ -3742,7 +3900,11 @@ export function templateRig(
 	};
 	return {
 		skeleton,
-		ref: { id: t.id, version: t.version },
+		ref: {
+			id: t.id,
+			version: t.version,
+			...(t.choice && Object.keys(t.choice).length ? { modules: { ...t.choice } } : {}),
+		},
 		missing,
 		missingRequired,
 		controls: ft.controls ? structuredClone(ft.controls) : null,
@@ -3777,9 +3939,36 @@ export function templateSidecar(made: TemplateRig): string {
 }
 
 /**
+ * Fit `fit` (a rig's `template.json`'s) on template `t`: one made before a link of `t` gave the
+ * link's child the whole length the link now shares (a frame rig's head, the drawn neck), so that
+ * length is split between the two as the template splits it. A fit with the link's own is as it is.
+ */
+export function fitWithLinks(t: RigTemplate, fit: RigFit): RigFit {
+	let bones = fit.bones;
+	for (const l of t.bones) {
+		const kid = l.link && t.bones.find((b) => b.parent === l.name);
+		const got = kid && bones[kid.name];
+		if (!kid || !got || bones[l.name]) continue;
+		const [a, b] = [Math.hypot(l.x, l.y), Math.hypot(kid.x, kid.y)];
+		const whole = Math.hypot(got.x, got.y);
+		const along = (x: RigTemplateBone, length: number) => {
+			const k = length / Math.max(1e-9, Math.hypot(x.x, x.y));
+			return { x: round4(x.x * k), y: round4(x.y * k) };
+		};
+		bones = {
+			...bones,
+			[l.name]: along(l, (whole * a) / (a + b)),
+			[kid.name]: along(kid, (whole * b) / (a + b)),
+		};
+	}
+	return bones === fit.bones ? fit : { ...fit, bones };
+}
+
+/**
  * Template `t` as the rig whose `template.json` is `text` was made from it: fitted when the sidecar
- * carries a fit, so the Controls section drives the fitted lengths. A fit that no longer reads or
- * fits leaves the template as it is (and says so in the log).
+ * carries a fit (one made before a link read as `fitWithLinks` reads it), so the Controls section
+ * drives the fitted lengths. A fit that no longer reads or fits leaves the template as it is (and
+ * says so in the log).
  */
 export function sidecarTemplate(t: RigTemplate, text: string | null): RigTemplate {
 	let raw: unknown;
@@ -3797,8 +3986,9 @@ export function sidecarTemplate(t: RigTemplate, text: string | null): RigTemplat
 	};
 	const parsed = parseRigFit(raw);
 	if ('problem' in parsed) return unfitted(parsed.problem);
-	const bad = templateFitProblem(t, parsed.fit);
-	return bad ? unfitted(bad) : fitTemplate(t, parsed.fit);
+	const fit = fitWithLinks(t, parsed.fit);
+	const bad = templateFitProblem(t, fit);
+	return bad ? unfitted(bad) : fitTemplate(t, fit);
 }
 
 /** Who saved a template made in the Rigger, and the head the author was shown. */
@@ -3832,6 +4022,18 @@ export interface RigTemplateSummary {
 	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
 	origin: 'builtin' | 'user';
 	saved?: RigTemplateSaved;
+	/**
+	 * Its modules (docs/design/rig-modules.md), each option with the parts and the bones it leaves out
+	 * (of this template's), and the options it was made with off their default.
+	 */
+	modules?: {
+		id: string;
+		label: string;
+		tip: string;
+		default: string;
+		options: { id: string; label: string; parts: string[]; bones: string[] }[];
+	}[];
+	choice?: RigModuleChoice;
 }
 
 export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): RigTemplateSummary {
@@ -3853,6 +4055,18 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 		rig3d: t.rig3d ?? null,
 		origin: saved ? 'user' : 'builtin',
 		...(saved ? { saved } : {}),
+		...(t.modules?.length
+			? {
+					modules: t.modules.map((m) => ({
+						id: m.id,
+						label: m.label,
+						tip: m.tip,
+						default: m.default,
+						options: m.options.map((o) => ({ id: o.id, label: o.label, ...takenBy(t, o) })),
+					})),
+				}
+			: {}),
+		...(t.choice && Object.keys(t.choice).length ? { choice: { ...t.choice } } : {}),
 	};
 }
 
@@ -3871,9 +4085,14 @@ export function parseTemplateRef(text: string | null): RigTemplateRef | null {
 		return null;
 	}
 	if (!ref || typeof ref !== 'object') return null;
-	const { id, version } = ref as { id?: unknown; version?: unknown };
+	const { id, version, modules } = ref as { id?: unknown; version?: unknown; modules?: unknown };
 	if (typeof id !== 'string' || !id) return null;
-	return { id, version: typeof version === 'number' && Number.isInteger(version) ? version : 1 };
+	const choice = parseModuleChoice(modules);
+	return {
+		id,
+		version: typeof version === 'number' && Number.isInteger(version) ? version : 1,
+		...(choice && Object.keys(choice).length ? { modules: choice } : {}),
+	};
 }
 
 /** The BUILT-IN template a `template.json` names, or null (`rigTemplateStore` resolves user ones). */

@@ -216,6 +216,9 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const PORT = server.address().port;
 
+/** Step 7's one call (encode a video, then read 73 frames back): longer than the 30 s default. */
+const VIDEO_STEP_MS = 120_000;
+
 const browser = await launchChrome({
 	name: 'motion-overlay',
 	url: `http://127.0.0.1:${PORT}/`,
@@ -654,11 +657,14 @@ try {
 		q({ reloaded, stored: Object.keys(stored.refs ?? {}) }),
 	);
 
-	// 7. A video: made in the page, picked as a file, never uploaded.
+	// 7. A video: made in the page, picked as a file, never uploaded. Encoding 78 noisy frames in
+	// software and seeking 73 times is CPU-bound: on a busy 2-core CI runner it went past the 30 s
+	// per-call limit twice (#1977), with every claim before it holding.
 	await evaluate(stubTracker);
 	// What the video holds at a time is still read back from it on its own first: the seeks are the
 	// browser's.
-	const made = await evaluate(`(async () => {
+	const made = await evaluate(
+		`(async () => {
 		const file = await ${webmTake};
 		const url = URL.createObjectURL(file);
 		// Its length, on an element of its own: the seek to the end puts frames up late.
@@ -688,7 +694,9 @@ try {
 		faceMotionFile = file; faceMotionSrc = "video";
 		setCurAnim("other"); animTime = 1; renderFacePanel();
 		return { size: file.size, truth, truthAt };
-	})()`);
+	})()`,
+		VIDEO_STEP_MS,
+	);
 	// From three frames before the video turns blue: what it reads from there differs from its start.
 	const FROM_AT = made.truth.indexOf('blue') - 3;
 	if (!(FROM_AT >= 3)) throw new Error(`the video holds ${q(made.truth)}`);

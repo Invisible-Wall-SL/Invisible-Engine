@@ -8,7 +8,8 @@
  * word leaves the budget adaptive at the tier's cap; nothing is off until a game configures the
  * budget (the tools never do). The render-quality ladder's cap (`capParticleBudget`): it lowers the
  * quality at once and holds an adaptive budget under it, lifting it lets the budget climb back,
- * never above the tier's cap, clamped to the floor; a pin and an unconfigured budget ignore it.
+ * never above the tier's cap, clamped to the floor; a pin and an unconfigured budget ignore it; a
+ * later configure keeps it until it is lifted.
  */
 
 import {
@@ -126,6 +127,18 @@ check('a ?particles= pin ignores the cap', particleQuality() === 0.75, String(pa
 boot('');
 configureParticleBudget({ tier: 'full' });
 check('configuring again starts uncapped', particleQuality() === 1);
+capParticleBudget(0.5);
+configureParticleBudget({ tier: 'full' });
+check(
+	'configuring again under a cap keeps it',
+	particleQuality() === 0.5,
+	String(particleQuality()),
+);
+fastFrames(60);
+check('…and the budget climbs no higher', particleQuality() === 0.5, String(particleQuality()));
+capParticleBudget(1);
+fastFrames(60);
+check('…until the ladder lifts it', particleQuality() === 1, String(particleQuality()));
 
 if (failures) throw new Error(`particleBudget.fixture: ${failures} FAILED`);
 console.log('\nparticleBudget.fixture: all ok');
