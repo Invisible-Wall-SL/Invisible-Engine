@@ -38,8 +38,8 @@
  *
  * THE SECOND CHANCE: one step down that did not help is not the end. Four slow windows in a row
  * after the revert (twice the evidence a first step needs) take it: past the level that did not
- * help, two levels down, or, from a level already at resolution 1, straight to the last level, the
- * effects one. It is a walk judged against those four windows: a level that helps is kept, one
+ * help, two levels down, never past the last level, the effects one (so from a level already at
+ * resolution 1 it lands there, with no rule of its own). It is a walk judged against those four windows: a level that helps is kept, one
  * that does not steps one more level down (`steppedOn` in its verdict), and at the last level that
  * does not help the walk goes back to where it started and stepping down stops for the session.
  * So a device slow at every resolution (a Mali-G57 phone, BUG-20) still reaches the effects level,
