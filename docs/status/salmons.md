@@ -30,7 +30,7 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
-    T6 net client — started · T4 river chunks — started · T5 filters → shaders — after T4.
+    T6 net client — draft PR #1970 · T4 river chunks — started · T5 filters → shaders — after T4.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
