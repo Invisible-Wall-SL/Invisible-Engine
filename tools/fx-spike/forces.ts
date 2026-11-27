@@ -484,6 +484,25 @@ assert(
 	'the Fountain / Fire / Smoke / Sparks presets launch UP (270°) in that convention',
 );
 assert(launchSin('rain') > 0.9, 'the Rain preset launches DOWN (90°)');
+assert(launchSin('embers') < -0.9, 'the Embers preset launches UP (270°)');
+const presetBehavior = (key: string, type: string) => {
+	const preset = FX_PRESETS.find((p) => p.key === key);
+	return preset ? behaviorsOf(preset.build()).find((b) => b.type === type) : undefined;
+};
+const emberAccel = presetBehavior('embers', 'moveAcceleration')?.config.accel as
+	{ y: number } | undefined;
+assert(!!emberAccel && emberAccel.y < 0, 'Embers keep rising (negative gravity)');
+const noteAccel = presetBehavior('banknotes', 'moveAcceleration')?.config.accel as
+	{ y: number } | undefined;
+const noteSpin = presetBehavior('banknotes', 'rotation')?.config;
+assert(
+	!!noteAccel &&
+		noteAccel.y > 0 &&
+		!!noteSpin &&
+		Number(noteSpin.minSpeed) < 0 &&
+		Number(noteSpin.maxSpeed) > 0,
+	'Banknotes fall under gravity and tumble both ways',
+);
 
 // ---------------------------------------------------------------------------
 console.log('');

@@ -389,7 +389,7 @@ export function sheetRig(
 	regions: readonly TemplateRegion[],
 	m: SheetMapping,
 	{ fitLayers = true }: { fitLayers?: boolean } = {},
-): Fitted<SheetRig> {
+): LayersFitted<SheetRig> {
 	const no = (problem: string): Fitted<never> => ({ ok: false, problem });
 	const bad = sheetMappingProblem(t, regions, m);
 	if (bad) return no(bad);
@@ -693,7 +693,7 @@ export function sheetRig(
 		...(m.layers && fitLayers ? { order: [...m.layers].reverse() } : {}),
 	};
 	const against = layersAgainstDepth(t, fit);
-	if (against) return no(against);
+	if (against) return layersRefused(against);
 	const mains = mapped.filter((x) => x.main).map((x) => x.part);
 	const posed = framePose(t, fit, mains);
 	if (!posed.ok) return posed;
@@ -742,6 +742,10 @@ export function sheetRig(
 	};
 }
 
+/** A fit, or why not: `layers` when it is the author's Layers a depth control cannot stand with. */
+export type LayersFitted<T> = Fitted<T> | { ok: false; problem: string; layers: true };
+const layersRefused = (problem: string) => ({ ok: false as const, problem, layers: true as const });
+
 /**
  * Why the author's layers (`RigFit.order`) cannot stand with the template's depth controls, or null:
  * a control such as Arm depth moves its limb from in front of a slot (the head, the torso) to just
@@ -761,7 +765,7 @@ function layersAgainstDepth(t: RigTemplate, fit: RigFit): string | null {
  * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged. A
  * slot outside the Layers list (`listed`, when given) was put there in Setup, and is worded so.
  */
-export function slotsAgainstDepth(
+function slotsAgainstDepth(
 	channels: readonly RigTemplateChannel[],
 	slots: readonly string[],
 	listed?: ReadonlySet<string>,
@@ -784,7 +788,7 @@ export function slotsAgainstDepth(
 }
 
 /** The slots mapping `m` draws in, back to front, as its Layers list orders them (`sheetLayerList`). */
-export function sheetLayerOrder(t: RigTemplate, m: SheetMapping): string[] {
+function sheetLayerOrder(t: RigTemplate, m: SheetMapping): string[] {
 	const slotOf = (part: string) => t.parts.find((p) => p.name === part)?.slot ?? part;
 	return sheetLayerList(
 		t.slots.map((s) => s.name),
@@ -799,7 +803,7 @@ export function sheetLayerOrder(t: RigTemplate, m: SheetMapping): string[] {
  * changed since and moves a slot the rig had, or draws a slot new to it that a depth control steps
  * (a prop worn on an arm). A prop worn elsewhere, the rig's own order otherwise, is not judged.
  */
-export function layersJudged(
+function layersJudged(
 	t: RigTemplate,
 	fit: RigFit,
 	m: SheetMapping,
@@ -812,6 +816,32 @@ export function layersJudged(
 	const have = new Set(had);
 	const stepped = new Set(fitTemplate(t, fit).channels.flatMap((c) => c.order?.slots ?? []));
 	return want.some((n) => !have.has(n) && stepped.has(n));
+}
+
+/**
+ * The draw order 🔄 Update rig gives the rig merged from mapping `m` (its slots `merged`, back to
+ * front, as the merge leaves them; `had` the open rig's, made from a mapping whose layers were `was`;
+ * `fit` is `m`'s): the Layers list's when the author changed it and it moves a slot, else null (the
+ * rig's own order stays, a Setup reorder too). Refused when held to the depth controls
+ * (`layersJudged`) and they cannot stand with it. The 🗺 Edit mapping preview warns by this too.
+ */
+export function sheetLayersApplied(
+	t: RigTemplate,
+	fit: RigFit,
+	m: SheetMapping,
+	was: readonly string[] | undefined,
+	had: readonly string[],
+	merged: readonly string[],
+): LayersFitted<string[] | null> {
+	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null))
+		return { ok: true, value: null };
+	const want = sheetLayerOrder(t, m);
+	const now = inDrawOrder(merged, want);
+	if (now.every((n, i) => n === merged[i])) return { ok: true, value: null };
+	const against =
+		layersJudged(t, fit, m, was, had) &&
+		slotsAgainstDepth(fitTemplate(t, fit).channels, now, new Set(want));
+	return against ? layersRefused(against) : { ok: true, value: now };
 }
 
 /** What the 🗺 dialog's ◧ Arranged view draws: the rig a sheet makes, as `sheetRig` places it. */
@@ -831,18 +861,17 @@ export interface SheetPreview {
 }
 
 /**
- * `sheetRig`'s placements, for the page to draw without fitting anything itself. With `rig` (🗺 Edit
- * mapping: the open rig's slots, back to front, and the kept mapping's layers) the layers are judged
- * as 🔄 Update rig judges them (`layersJudged`): on the rig's order with the list applied, and on
- * the list itself; otherwise the list is drawn unjudged, so the rig's own order warns of nothing.
+ * `sheetRig`'s placements, for the page to draw without fitting anything itself: the layers refused
+ * as 🦴 Create rig refuses them, or with `edit` (🗺 Edit mapping) drawn unjudged, for the caller to
+ * judge them as 🔄 Update rig does (`sheetEditPreview`).
  */
 export function sheetPreview(
 	t: RigTemplate,
 	regions: readonly TemplateRegion[],
 	m: SheetMapping,
-	{ rig }: { rig?: { slots: readonly string[]; layers?: readonly string[] } } = {},
-): Fitted<SheetPreview> {
-	const made = sheetRig(t, regions, m, { fitLayers: !rig });
+	{ edit = false }: { edit?: boolean } = {},
+): LayersFitted<SheetPreview> {
+	const made = sheetRig(t, regions, m, { fitLayers: !edit });
 	if (!made.ok) return made;
 	const { fit, art, scale, origin } = made.value;
 	const all = fitTemplate(t, fit);
@@ -850,16 +879,9 @@ export function sheetPreview(
 		all,
 		new Set(Object.keys(art).map((n) => all.parts.find((p) => p.name === n)?.slot ?? n)),
 	);
-	const want = sheetLayerOrder(t, m);
-	if (rig && layersJudged(t, fit, m, rig.layers, rig.slots)) {
-		const against =
-			slotsAgainstDepth(all.channels, inDrawOrder(rig.slots, want), new Set(want)) ??
-			layersAgainstDepth(t, { ...fit, order: want });
-		if (against) return { ok: false, problem: against };
-	}
 	const order = inDrawOrder(
 		ft.slots.map((s) => s.name),
-		m.layers ? want : [],
+		m.layers ? sheetLayerOrder(t, m) : [],
 	);
 	const slotAt = new Map(order.map((n, i) => [n, i]));
 	const slotOf = (name: string) => ft.parts.find((p) => p.name === name)?.slot ?? name;

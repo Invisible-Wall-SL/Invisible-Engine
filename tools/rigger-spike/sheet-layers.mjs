@@ -477,7 +477,7 @@ const MUTANTS = [
 		'an order the depth control cannot stand with refused without saying why',
 		[
 			FIT,
-			'\tconst against = layersAgainstDepth(t, fit);\n\tif (against) return no(against);\n',
+			'\tconst against = layersAgainstDepth(t, fit);\n\tif (against) return layersRefused(against);\n',
 			'',
 		],
 	],
