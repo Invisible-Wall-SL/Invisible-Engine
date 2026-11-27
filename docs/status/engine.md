@@ -736,8 +736,23 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   50 adversarial ones, `--fuzz=300` for more; about 1 s), red under each mutant: no refill;
   budget counted as a lifetime cap; refill not waiting for windows with no switch; the early
   trip unjudged; no early trip; no early second chance; held switches removed or cut to 1, for
-  steps down or up alone; no reserve. Restoring e4fbf84's `no room` branch as it was stays green:
-  with 2 switches held for a judged trip, it can no longer be reached.
+  steps down or up alone; no reserve.
+  **Then the held trip covers a step up from the effects level too** (re-review of 45d4133):
+  `stepRoom` exempted any step from the effects level, so a kept step up from L6 could leave the
+  device at L5 with 1 switch, and a later trip back waited for a refill (about half of the
+  reviewer's adv2 sessions, `… 6->5 headroom [1]`). Only a step down to the effects level is
+  exempt now; a step up from it needs the step, its revert and one more (kept, the trip needs 2;
+  reverted, it lands on L6): `room(3 + reserve())`. The early `effects` trip now waits for 4 slow
+  windows like the other non-ordinary steps (it took 2). The docblock says windows read as a
+  browser's 30 fps cap count toward the refill. `engine-3d`'s snapshot gains the `budget` key;
+  its behaviour is unchanged (the reviewer's 300-session differential against 048aba9: 0
+  differences). Guard: a per-switch property in every sim of `renderQuality.fixture.ts` (with
+  the second chance, above the effects level and not stopped, at least 2 switches are left after
+  every switch), checked on the seeded and adversarial sessions and the whole fixture, red under
+  45d4133's `stepRoom`; the low-budget trip case checks its 4 windows. Restoring e4fbf84's
+  `no room` branch (made to throw) is reached under 45d4133's `stepRoom` but in no session now
+  (`--fuzz=300` and 2 × 1,400 adv.ts sessions): reaching it needs fewer than 2 switches above
+  the effects level, which the property rules out, and the budget only grows between switches.
 
 - 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
   (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
