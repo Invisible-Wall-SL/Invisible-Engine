@@ -5,7 +5,8 @@
 // (`positionScale`: the finest power of two that covers the field), and its own as float32; a
 // device that does not ask — every runtime older than this — is sent float32 for everyone, as
 // before. Both kinds play in one room. Salmons ships 15 states a second, drawn two states' time
-// behind (`netcode.js` `interpolationDelayFor`); every other game draws as before.
+// behind (`interpolationDelayFor`), its lag compensation as much further back (`rewindMsFor`);
+// a game at 20 a second or faster draws and compensates as before.
 //
 // Pure: the scale, the packing, the device's fallback for a server older than packed places
 // (`placeOnWire`). Live: a real Colyseus room of Salmons' original map, a real SDK client of each
@@ -37,6 +38,7 @@ import {
 	positionScale,
 	unpackPosition,
 } from '../packages/engine-mechanics/src/online.js';
+import { REWIND_MS, rewindMsFor } from '../packages/engine-mechanics/src/onlineRules.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
@@ -93,7 +95,7 @@ await check('a device reads x / y wherever the room sent no packed place (an old
 });
 
 await check(
-	'Salmons sends 15 states a second, drawn two of them behind; every other game as before',
+	'Salmons sends 15 states a second, drawn two behind, compensated as much further back; 20+ as before',
 	() => {
 		const salmons = onlineGameOf(
 			normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED))),
@@ -103,6 +105,13 @@ await check(
 		assert.equal(ARCADE_ONLINE_DEFAULTS.patchHz, 20, 'the default is unchanged');
 		assert.equal(interpolationDelayFor(20), INTERPOLATION_DELAY_MS);
 		assert.equal(interpolationDelayFor(30), INTERPOLATION_DELAY_MS);
+		// The round trip a hit is compensated for is the same at 15 as at 20 a second.
+		const tickHz = salmons.online.tickHz;
+		const compensated = (patchHz) => rewindMsFor(patchHz) - interpolationDelayFor(patchHz);
+		assert.ok(Math.abs(compensated(15) - compensated(20)) < 1e-9);
+		assert.equal(rewindMsFor(20), REWIND_MS);
+		assert.equal(Math.floor((rewindMsFor(15) * tickHz) / 1000), 8, 'steps at 30 a second');
+		assert.equal(Math.floor((REWIND_MS * tickHz) / 1000), 7);
 	},
 );
 

@@ -428,6 +428,18 @@ export function characterBody(id, spec, at) {
 	return body;
 }
 
+/** How far behind the room everyone else is drawn, ms, in a room sending 20 states a second or
+ *  more (`netcode.js` `createSnapshotClock`). */
+export const INTERPOLATION_DELAY_MS = 100;
+
+/** The delay for a room sending `patchHz` states a second: two of its states' time, so the render
+ *  step always has a state on either side through one late or lost one, and never less than
+ *  {@link INTERPOLATION_DELAY_MS}: 20 a second and faster draw as before, 15 a second (Salmons)
+ *  133 ms, 10 a second 200 ms. The room widens its lag compensation by the same
+ *  (`onlineRules.js` `rewindMsFor`). */
+export const interpolationDelayFor = (patchHz) =>
+	Math.max(INTERPOLATION_DELAY_MS, patchHz > 0 ? 2000 / patchHz : INTERPOLATION_DELAY_MS);
+
 /**
  * PACKED PLACES (`docs/design/realtime-multiplayer.md` §5; owner, 2026-11-27). A device that joins
  * with `positions: PACKED_POSITIONS` is sent everyone else's place as two uint16 (`px`, `py`) in

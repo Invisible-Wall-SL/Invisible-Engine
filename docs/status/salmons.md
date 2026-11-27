@@ -2653,8 +2653,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     for everyone, a runtime on a server that does not pack reads `x` / `y` (`placeOnWire`), and
     both kinds share a room. A room with no nearby box, and the 3D wire, are unchanged. Salmons'
     config in code sends 15 states a second; everyone else is drawn two states' time behind
-    (`netcode.js` `interpolationDelayFor`: 133 ms; 100 ms at 20 and faster, so every other game
-    draws as before).
+    (`online.js` `interpolationDelayFor`: 133 ms; 100 ms at 20 and faster), and the room's lag
+    compensation reaches as much further back (`onlineRules.js` `rewindMsFor`: 283 ms, 8 steps, at
+    15; 250 ms at 20 and faster), so a phone's round trip is compensated as before (code review).
+    A game at 20 a second or faster draws and compensates as before; one configured slower (none in
+    the repo) is drawn two states behind instead of 100 ms.
   - **Measured, before → after, on this container.** `room-load.mjs --devices 20 --seconds 40
     --jump 0.02 --respawn` (Salmons, the generated river; main's checkout vs this branch): a device
     receives 14.39 → 8.82 KB/s on average (−39 %; max 17.49 → 11.27), 20 → 15.1 states a second,

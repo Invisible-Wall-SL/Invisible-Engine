@@ -28,7 +28,14 @@
  * both modes.
  */
 
-import { carriedInput, characterBody, onlineLevel, stepContext, stepPlayer } from './online.js';
+import {
+	INTERPOLATION_DELAY_MS,
+	carriedInput,
+	characterBody,
+	onlineLevel,
+	stepContext,
+	stepPlayer,
+} from './online.js';
 import { STATUS } from './onlineRules.js';
 
 /** A prediction this close to the room's place, px, is the same place. */
@@ -46,14 +53,7 @@ export const SNAP_PX = 128;
  *  states (a catch-up step moves twice as far) are never mistaken for a teleport. */
 export const snapFor = (speed, patchHz) => Math.max(SNAP_PX, (speed / patchHz) * 3);
 
-/** How far behind the room everyone else is drawn, ms. */
-export const INTERPOLATION_DELAY_MS = 100;
-
-/** The delay for a room sending `patchHz` states a second: two of its states' time, so the render
- *  step always has a state on either side through one late or lost one, and never less than
- *  {@link INTERPOLATION_DELAY_MS} (20 a second and faster draw as before; 15 a second, 133 ms). */
-export const interpolationDelayFor = (patchHz) =>
-	Math.max(INTERPOLATION_DELAY_MS, patchHz > 0 ? 2000 / patchHz : INTERPOLATION_DELAY_MS);
+export { INTERPOLATION_DELAY_MS, interpolationDelayFor } from './online.js';
 
 /** The most the render clock speeds up to catch up with its delay (0.25 = 25 % faster)… */
 export const MAX_RATE = 0.25;

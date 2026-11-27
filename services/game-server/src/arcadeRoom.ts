@@ -41,7 +41,6 @@ import {
 	RoomState,
 	Stain,
 	type InputFrame,
-	type NearbyPlayerData,
 	type RoomStateData,
 } from './schema.ts';
 
@@ -498,10 +497,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			if (!from || !to) return;
 			to.x = from.body.x;
 			to.y = from.body.y;
-			if (this.posScale > 0) {
-				const packed = to as unknown as NearbyPlayerData;
-				packed.px = packPosition(from.body.x, this.posScale);
-				packed.py = packPosition(from.body.y, this.posScale);
+			if (this.posScale > 0 && to instanceof NearbyPlayer) {
+				to.px = packPosition(from.body.x, this.posScale);
+				to.py = packPosition(from.body.y, this.posScale);
 			}
 			to.facing = from.facing;
 			to.moving = from.moving;

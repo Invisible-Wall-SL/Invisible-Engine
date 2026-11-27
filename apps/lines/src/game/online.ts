@@ -339,9 +339,10 @@ type PlayerState = {
 	name?: string;
 	character: string;
 	/** Float32, sent to every device for its own player, and for everyone to a device that did not
-	 *  ask for packed places; unset for the others on one that did ({@link placeOnWire}). */
-	x: number;
-	y: number;
+	 *  ask for packed places; unset for the others on one that did: read another's place through
+	 *  {@link placeOnWire}. */
+	x?: number;
+	y?: number;
 	/** Everyone else's place packed in `posScale` steps a px, to a device that asked for it. */
 	px?: number;
 	py?: number;
@@ -367,6 +368,8 @@ type PlayerState = {
 	 *  from an older server. */
 	heldBy?: string;
 };
+/** The own player as its device is sent it: always float32 `x` / `y` (`VIEW_TAG.exact`). */
+type OwnPlayerState = PlayerState & { x: number; y: number };
 type RoomState = {
 	step: number;
 	phase: string;
@@ -405,7 +408,7 @@ type Session = {
 	/** The own player, once the room has placed it (`netcode: 'engine'`). */
 	me: Predictor | undefined;
 	/** The SDK's prediction and its reconciler for the own player (`netcode: 'colyseus'`). */
-	sdk: { predict: Predict; me: Reconciler<PlayerState> | undefined } | undefined;
+	sdk: { predict: Predict; me: Reconciler<OwnPlayerState> | undefined } | undefined;
 	/** The render clock and tracks for everyone else. */
 	view: SnapshotClock;
 	others: Interpolator;
@@ -1406,7 +1409,7 @@ function bindServerVariables(current: Session, state: Partial<RoomState>) {
 }
 
 /** The own player's predictor, from its first place in the room. */
-function predictorOf(current: Session, player: PlayerState): Predictor | undefined {
+function predictorOf(current: Session, player: OwnPlayerState): Predictor | undefined {
 	const { game } = current;
 	const character = game.online.characters.find((c) => c.id === player.character);
 	if (!character) return undefined;
@@ -1431,8 +1434,8 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 function reconcilerOf(
 	current: Session,
 	predict: Predict,
-	player: PlayerState,
-): Reconciler<PlayerState> | undefined {
+	player: OwnPlayerState,
+): Reconciler<OwnPlayerState> | undefined {
 	const options = reconcilerOptions(current.game, current.room.sessionId, player);
 	return options && predict.reconciler(player, { input: current.room.input(), ...options });
 }
@@ -1473,7 +1476,7 @@ function applyState(current: Session) {
 	current.net.applied += 1;
 	bindServerVariables(current, state);
 	current.others.retain(new Set(players.keys()));
-	const player = players.get(current.room.sessionId);
+	const player = players.get(current.room.sessionId) as OwnPlayerState | undefined;
 	if (!player) return;
 	// A respawn as another character: its own body, speed and abilities from now on.
 	if (current.character !== player.character) {
@@ -3065,8 +3068,8 @@ export function onlineProbe() {
 	const everyone = state?.players;
 	const scale = state?.posScale ?? 0;
 	everyone?.forEach((p, id) => {
-		const at = id === current?.room.sessionId ? p : placeOnWire(p, scale);
-		bodies.push({ id, x: at.x, y: at.y, vx: 0, vy: 0, tags: [] });
+		const place = placeOnWire(p, scale);
+		bodies.push({ id, x: place.x, y: place.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
 		else if (current) {
 			const at = carriedPlace(current, everyone, p) ?? placeOf(current, id, p);

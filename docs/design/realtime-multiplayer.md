@@ -287,8 +287,11 @@ screen shows, and a room that opts in sends it the players there as well as the 
   untouched. `scripts/playtest/salmons-wire-play.mjs` plays both orders against main's server.
 - **Salmons sends 15 states a second** (`salmons.js` `patchHz: 15`; owner, 2026-11-27): a quarter
   fewer messages and bytes than the default 20. Everyone else is drawn two states' time behind the
-  room (`netcode.js` `interpolationDelayFor`: 133 ms at 15, the fixed 100 ms at 20 and faster, so
-  every other game draws as before).
+  room (`online.js` `interpolationDelayFor`: 133 ms at 15, the fixed 100 ms at 20 and faster), and
+  the room's lag compensation reaches as much further back (`onlineRules.js` `rewindMsFor`: 283 ms
+  at 15, 250 ms at 20 and faster), so the same round trip is compensated. A game at 20 states a
+  second or faster (every config in the repo but Salmons') draws and compensates as before; one
+  configured slower (5–19, `arcade.online.patchHz`) now draws two states behind instead of 100 ms.
 - **Not built: sending a device less than the box** (a phone shows a third of Salmons' box). It
   needs a reciprocal rule first, `sees(other, me)`, so that whoever can act on a player is still
   sent to it: an open owner decision in [status/salmons.md](../status/salmons.md).

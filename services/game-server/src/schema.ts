@@ -175,7 +175,6 @@ export const NearbyRoomState = schema({
 	 *  older than packed places, so a device that asked for them reads `x` / `y`. */
 	posScale: t.uint8(),
 });
-export type NearbyPlayerData = SchemaType<typeof NearbyPlayer>;
 
 /**
  * THE 3D WIRE (`docs/design/3d/gameplay-evaluation.md` §3), used only by the 3D room
