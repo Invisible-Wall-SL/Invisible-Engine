@@ -272,7 +272,7 @@ Each step is one PR, usable on its own.
 - **P9 — Network.** The `network` block (§8): `perf: 9`, per-file sizes and load stages, RGS and
   room traffic; the Transfer MB column and a reading's files, transfer per build and in Compare,
   the transfer budgets, the five network rules.
-- **P10 — Probe accuracy** (`docs/design/salmons-performance.md` track T1, on the coordinator branch until merged). `perf: 10`: busy time
+- **P10 — Probe accuracy** ([salmons-performance](salmons-performance.md) track T1). `perf: 10`: busy time
   (the main thread's work in a frame) as p50 / p95 per phase against the display's frame period,
   judged instead of fps for an arcade game; hidden and throttled time, and a reading the page spent
   in the background marked "not comparable"; `refreshHz` split into the achieved and the display
