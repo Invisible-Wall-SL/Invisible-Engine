@@ -1,4 +1,5 @@
 import { isHttpError } from '@sveltejs/kit';
+import { RUNTIMES } from 'constants-shared/runtimes';
 import { ENV } from './env';
 import { githubApp, GithubAppError, type GithubApp } from './githubApp';
 import { forgetChanges, isOnHold, openPulls, repo } from './pipelineChanges';
@@ -17,24 +18,34 @@ import {
  * they are re-recorded. So when the ONLY paths both sides changed since the merge base are manifests,
  * the launcher builds the merge itself from three trees (as `revertCommit` does): a path one side
  * changed takes that side's entry, a manifest both changed takes `main`'s. The commit's parents are
- * `[head, main]`, and the branch moves by fast-forward only. Any other path both sides changed is a
+ * `[head, main]`, and the branch moves by fast-forward only. Any other path both sides changed is
  * refused with its name: a text merge is never attempted here, so two edits git would combine in
  * one file are refused too. One merge base is used, the one `compare` names; with criss-cross
  * history git would merge against a virtual base instead, which squash-merged `main` does not make.
  *
  * Main's manifests are then wrong for the merged code, which is the point: CI's `runtime-bytes`
  * fails on the new head and uploads the manifests it built, and the watch below commits them
- * (`rerecordRuntimeBytes`) without anyone clicking. The label `rerecord-runtime-bytes` is the
- * record on GitHub that the launcher owes the change that re-record; it comes off when the check
- * passes, or when the launcher gives the case back to a person.
+ * (`rerecordRuntimeBytes`) without anyone clicking. That is a re-record nobody approved, so it is
+ * bounded to the merge a person asked for: only while the head IS the App's own merge commit, only
+ * the runtimes that merge took from `main`, and only when the branch was green on runtime-bytes
+ * before it. A later push, a label put on by hand, or a runtime already red goes to a person. The
+ * label `rerecord-runtime-bytes` is the record on GitHub that the launcher owes the change that
+ * re-record; it comes off when the check passes, or when the launcher gives the case back.
+ *
+ * Unproven: a merge that brings in `main`'s change to `.github/workflows/` is a ref move by an App
+ * without the `workflows` permission. `update-branch` was accepted there (ADR-0015 15A spike); this
+ * Git Data path was not tried live, and its refusal is named `workflow_refused` like the other's.
  */
 
 const MANIFEST_DIR = 'scripts/runtime-bytes/';
-/** The runtime id of a manifest path, or null: the very name the re-record accepts. */
-export const manifestIdOf = (path: string): string | null =>
-	path.startsWith(MANIFEST_DIR)
-		? (MANIFEST_NAME.exec(path.slice(MANIFEST_DIR.length))?.[1] ?? null)
-		: null;
+const RUNTIME_IDS: readonly string[] = RUNTIMES.map((r) => r.id);
+/** The runtime id of a manifest path, or null: the very names the re-record accepts, a listed
+ *  runtime's only. Any other file there is an ordinary file, so a conflict. */
+export function manifestIdOf(path: string): string | null {
+	if (!path.startsWith(MANIFEST_DIR)) return null;
+	const id = MANIFEST_NAME.exec(path.slice(MANIFEST_DIR.length))?.[1];
+	return id && RUNTIME_IDS.includes(id) ? id : null;
+}
 export const RERECORD_LABEL = 'rerecord-runtime-bytes';
 const LABEL_COLOR = '5319e7';
 const LABEL_DESCRIPTION =
@@ -43,8 +54,20 @@ const LABEL_DESCRIPTION =
 /** The paths both sides changed, in a sentence, at most this many named. */
 const NAMED_PATHS = 5;
 
+const mergePrefix = (number: number): string =>
+	`ci: merge main into #${number}, taking main's runtime-bytes manifests (`;
 export const manifestMergeMessage = (number: number, ids: string[]): string =>
-	`ci: merge main into #${number}, taking main's runtime-bytes manifests (${ids.join(', ')})`;
+	`${mergePrefix(number)}${ids.join(', ')})`;
+
+/** The runtimes a launcher merge on change `number` took from main, read off its subject; null when
+ *  the message is not one. */
+export function mergedIdsOf(message: string, number: number): string[] | null {
+	const subject = message.split('\n')[0];
+	const prefix = mergePrefix(number);
+	if (!subject.startsWith(prefix) || !subject.endsWith(')')) return null;
+	const ids = subject.slice(prefix.length, -1).split(', ');
+	return ids.every((id) => RUNTIME_IDS.includes(id)) ? ids : null;
+}
 
 type TreeWrite = Omit<GhTreeEntry, 'sha'> & { sha: string | null };
 
@@ -110,9 +133,9 @@ export function threeWay(
 				}
 				merged.set(path, ours);
 				writes.push({ path, mode: ours.mode, type: ours.type, sha: ours.sha });
-			} else {
+			} else if (was) {
 				merged.delete(path);
-				writes.push({ path, mode: was!.mode, type: was!.type, sha: null });
+				writes.push({ path, mode: was.mode, type: was.type, sha: null });
 			}
 			continue;
 		}
@@ -133,7 +156,20 @@ export interface ManifestMerge {
 	commit: string;
 	mainSha: string;
 	runtimes: string[];
+	/** Whether the label went on: without it the watch never re-records, and a person must. */
+	labelled: boolean;
 }
+
+type Runs = Parameters<typeof runtimeBytesRunOf>[0];
+const runtimeBytesRun = async (app: GithubApp, sha: string) =>
+	runtimeBytesRunOf(
+		(
+			await app.json<{ workflow_runs: Runs }>(
+				`/repos/${repo()}/actions/runs?head_sha=${sha}&per_page=100`,
+			)
+		).workflow_runs,
+		sha,
+	);
 
 /** Why the merge cannot be built here; the update refuses with it as a `conflict`. */
 export class ManifestMergeRefusal extends Error {
@@ -154,6 +190,12 @@ export async function mergeOverManifests(
 ): Promise<ManifestMerge | { refused: Response }> {
 	const r = repo();
 	const { number, headSha, branch } = input;
+	const before = await runtimeBytesRun(app, headSha);
+	if (before?.status === 'completed' && before.conclusion !== 'success') {
+		throw new ManifestMergeRefusal(
+			'runtime-bytes already fails on this branch: re-record or fix it before main is merged in.',
+		);
+	}
 	const mainSha = (await app.json<{ object: { sha: string } }>(`/repos/${r}/git/ref/heads/main`))
 		.object.sha;
 	const compared = await app.json<{ merge_base_commit?: { sha?: unknown } }>(
@@ -215,14 +257,14 @@ export async function mergeOverManifests(
 	);
 	if (!moved.ok) return { refused: moved };
 	forgetChanges();
-	await labelForRerecord(app, number);
-	return { commit: made.sha, mainSha, runtimes: manifests };
+	const labelled = await labelForRerecord(app, number);
+	return { commit: made.sha, mainSha, runtimes: manifests, labelled };
 }
 
 /** The PR carries `rerecord-runtime-bytes`, the label made the first time it is needed. A label the
  *  App may not make is not a failure of the merge: the watch then never sees the change, and the
  *  Re-record button stays a person's. */
-async function labelForRerecord(app: GithubApp, number: number): Promise<void> {
+async function labelForRerecord(app: GithubApp, number: number): Promise<boolean> {
 	const r = repo();
 	const add = () =>
 		app.fetch(`/repos/${r}/issues/${number}/labels`, {
@@ -242,15 +284,15 @@ async function labelForRerecord(app: GithubApp, number: number): Promise<void> {
 			});
 			res = await add();
 		}
-		if (!res.ok) {
-			console.warn(`[pipeline] #${number}: GitHub ${res.status} labelling ${RERECORD_LABEL}.`);
-		}
+		if (res.ok) return true;
+		console.warn(`[pipeline] #${number}: GitHub ${res.status} labelling ${RERECORD_LABEL}.`);
 	} catch (err) {
 		console.warn(
 			`[pipeline] #${number}: labelling ${RERECORD_LABEL} failed:`,
 			err instanceof Error ? err.message : err,
 		);
 	}
+	return false;
 }
 
 async function unlabel(app: GithubApp, number: number): Promise<void> {
@@ -272,12 +314,21 @@ export const WATCH_ACTOR = { name: 'Pipeline Changes (automatic)', email: 'pipel
 
 export type WatchOutcome = 'waiting' | 'passed' | 'rerecorded' | 'gave_up' | 'on_hold';
 
+interface RestCommit {
+	author?: { login?: string } | null;
+	commit: { message: string; committer?: { date?: string } | null };
+	parents: { sha: string }[];
+}
+
 /**
- * One look at one labelled change. Waits while its head has no finished `runtime-bytes` run, for
- * six hours at most. A pass takes the label off. A failure re-records once from that run's
- * artifact. A failure on a head that is already a re-record, a re-record refused for any reason but
- * "no run yet", "head moved" or GitHub failing (5xx), or a head left without a run, gives the change
- * back to a person: the label comes off and the Re-record button stays.
+ * One look at one labelled change. A pass on its head takes the label off. Otherwise it acts only
+ * on the App's own commits: its merge (two parents, the merge subject for this change) or its
+ * re-record of that merge. On the merge it waits for the branch's run before the merge and the run
+ * on the merge; when the first passed and the second failed, it re-records the runtimes the merge
+ * took from main, and those only. A failed re-record, a head that is not the App's (a later push, a
+ * label put on by hand), a branch already red before the merge, a refused re-record (but for "no
+ * run yet", "head moved" or GitHub failing) or six hours without a run give the change back: the
+ * label comes off and the Re-record button stays a person's.
  */
 export async function watchOne(
 	app: GithubApp,
@@ -287,37 +338,40 @@ export async function watchOne(
 	const { number } = pull;
 	const headSha = pull.head.sha;
 	if (isOnHold(pull)) return 'on_hold';
-	const { workflow_runs } = await app.json<{
-		workflow_runs: Parameters<typeof runtimeBytesRunOf>[0];
-	}>(`/repos/${repo()}/actions/runs?head_sha=${headSha}&per_page=100`);
-	const run = runtimeBytesRunOf(workflow_runs, headSha);
+	const giveUp = async (): Promise<WatchOutcome> => {
+		await unlabel(app, number);
+		return 'gave_up';
+	};
+	const run = await runtimeBytesRun(app, headSha);
 	if (run?.status === 'completed' && run.conclusion === 'success') {
 		await unlabel(app, number);
 		return 'passed';
 	}
-	const head = await app.json<{ message: string; committer?: { date?: string } }>(
-		`/repos/${repo()}/git/commits/${headSha}`,
-	);
-	if (!run) {
-		const made = Date.parse(head.committer?.date ?? '');
-		if (Number.isNaN(made) || nowMs - made < NO_RUN_GIVE_UP_MS) return 'waiting';
-		await unlabel(app, number);
-		return 'gave_up';
-	}
-	if (run.status !== 'completed') return 'waiting';
-	if (head.message.startsWith(rerecordMessage(number))) {
-		await unlabel(app, number);
-		return 'gave_up';
-	}
+	const head = await app.json<RestCommit>(`/repos/${repo()}/commits/${headSha}`);
+	if (head.author?.login !== `${await app.slug()}[bot]`) return giveUp();
+	const pending = async (): Promise<WatchOutcome | null> => {
+		if (run?.status === 'completed') return null;
+		if (run) return 'waiting';
+		const made = Date.parse(head.commit.committer?.date ?? '');
+		return Number.isNaN(made) || nowMs - made < NO_RUN_GIVE_UP_MS ? 'waiting' : giveUp();
+	};
+	if (head.commit.message.startsWith(rerecordMessage(number))) return (await pending()) ?? giveUp();
+	const ids = mergedIdsOf(head.commit.message, number);
+	if (!ids || head.parents.length !== 2) return giveUp();
+	const before = await runtimeBytesRun(app, head.parents[0].sha);
+	if (!before) return giveUp();
+	if (before.status !== 'completed') return 'waiting';
+	if (before.conclusion !== 'success') return giveUp();
+	const waiting = await pending();
+	if (waiting) return waiting;
 	try {
-		await rerecordRuntimeBytes({ number, headSha, user: WATCH_ACTOR }, app);
+		await rerecordRuntimeBytes({ number, headSha, user: WATCH_ACTOR, only: ids }, app);
 		return 'rerecorded';
 	} catch (err) {
 		if (!isHttpError(err)) throw err;
 		const code = (err.body as { code?: unknown }).code;
 		if (code === 'no_run' || code === 'head_moved' || err.status >= 500) return 'waiting';
-		await unlabel(app, number);
-		return 'gave_up';
+		return giveUp();
 	}
 }
 

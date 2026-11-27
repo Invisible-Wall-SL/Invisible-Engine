@@ -232,7 +232,13 @@ const recording = createKeyedMutex();
  * this call is never overwritten. The caller has passed the `pipelineMerge` gate.
  */
 export async function rerecordRuntimeBytes(
-	input: { number: number; headSha: string; user: Parameters<typeof approverName>[0] },
+	input: {
+		number: number;
+		headSha: string;
+		user: Parameters<typeof approverName>[0];
+		/** Only these runtimes' manifests are taken (the watch's merge); all of them when absent. */
+		only?: readonly string[];
+	},
 	app: GithubApp = githubApp,
 ): Promise<RerecordResult> {
 	const { number, headSha } = input;
@@ -293,7 +299,10 @@ export async function rerecordRuntimeBytes(
 			`/repos/${r}/contents/${MANIFEST_DIR}?ref=${headSha}`,
 		);
 		const current = new Map(listing.map((f) => [f.name, f.sha]));
-		const changed = manifests.filter(([id, text]) => current.get(`${id}.json`) !== blobSha(text));
+		const changed = manifests.filter(
+			([id, text]) =>
+				(!input.only || input.only.includes(id)) && current.get(`${id}.json`) !== blobSha(text),
+		);
 		if (!changed.length) {
 			refuse(
 				'nothing_to_change',

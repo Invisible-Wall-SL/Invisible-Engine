@@ -296,6 +296,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
     the update; GitHub 5xx is a wait; a head with no run for 6 hours is given back; fork PRs are
     skipped; the watch runs only where `PIPELINE_RERECORD_WATCH` allows (production by default).
     One merge base is used (`compare`'s), which squash-merged `main` makes safe.
+  - After the merge sweep's review: the watch re-records only while the head is the App's own merge
+    commit (author `<slug>[bot]`, the merge subject for that change, two parents), only the ids
+    the merge took (`rerecordRuntimeBytes({ only })`), and only when the branch's run before the
+    merge passed; the merge itself is refused on a branch whose runtime-bytes already fails. A
+    later push, a hand-put label or an already-red branch is given back. A label GitHub refuses
+    switches the page's sentence to "re-record by hand". The workflow-refusal ref move has a
+    fixture with GitHub's wording but is unproven live.
   - `check:pipeline-changes` covers the three-way rules, the merge commit and tree, the refusals
     and every watch outcome.
   - Not done: a text merge of other files both sides changed (that is 15B1/15C's Resolve).

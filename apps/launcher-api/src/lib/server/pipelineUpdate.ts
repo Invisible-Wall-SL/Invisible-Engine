@@ -23,8 +23,10 @@ export const GITHUB_MESSAGE_CAP = 300;
 
 export const HEAD_MOVED_TEXT = 'The branch moved; reload';
 export const CONFLICT_TEXT = 'GitHub could not merge main in: this branch conflicts with main.';
-export const MANIFESTS_MERGED_TEXT = (runtimes: string[]): string =>
-	`Main merged in. Only the runtime-bytes manifests conflicted (${runtimes.join(', ')}): main's are kept, and the pipeline re-records them from CI's build when its runtime-bytes check fails.`;
+export const MANIFESTS_MERGED_TEXT = (runtimes: string[], labelled = true): string =>
+	labelled
+		? `Main merged in. Only the runtime-bytes manifests conflicted (${runtimes.join(', ')}): main's are kept, and the pipeline re-records them from CI's build when its runtime-bytes check fails.`
+		: `Main merged in. Only the runtime-bytes manifests conflicted (${runtimes.join(', ')}): main's are kept. GitHub would not label the change, so re-record them with Re-record runtime bytes once its runtime-bytes check fails.`;
 export const WORKFLOW_REFUSED_TEXT =
 	"GitHub won't let the pipeline's App push a merge that brings in main's workflow change. Open the pull request on GitHub and click its own Update branch, which acts as you.";
 
@@ -164,7 +166,7 @@ async function overManifests(
 		number,
 		headSha,
 		how: 'manifests',
-		githubMessage: MANIFESTS_MERGED_TEXT(merged.runtimes),
+		githubMessage: MANIFESTS_MERGED_TEXT(merged.runtimes, merged.labelled),
 		commit: merged.commit,
 		runtimes: merged.runtimes,
 	};

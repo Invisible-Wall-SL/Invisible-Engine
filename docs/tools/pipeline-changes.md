@@ -120,12 +120,17 @@ its record of each merge made from here (who merged, the approvals that counted,
      sentence links to the pull request, where GitHub's own **Update branch** acts as you.
      Behind-ness is read for the open change only, never per row of the list.
    - **Automatic re-record** — every two minutes the launcher looks at each open change labelled
-     `rerecord-runtime-bytes`. When its `runtime-bytes` check passes, the label comes off. When it
-     fails, the launcher does what **Re-record runtime bytes** does, as "Pipeline Changes
-     (automatic)", and keeps the label until the next head passes. If a re-recorded head still
-     fails, or there is nothing to re-record (no artifact, a held change is skipped), the label
-     comes off and the button is a person's again. GitHub makes the label the first time it is
-     used.
+     `rerecord-runtime-bytes`. When its `runtime-bytes` check passes, the label comes off. It
+     re-records on its own only the merge a person asked for: while the change's head is the App's
+     own merge commit, only the runtimes that merge took from `main`, and only when the branch was
+     green on runtime-bytes before the merge (Update from main refuses a branch already failing
+     it). That is what **Re-record runtime bytes** does, signed "Pipeline Changes (automatic)". A
+     push after the merge, a label put on by hand, a re-record that still fails, nothing to take
+     (no artifact) or six hours without a run take the label off, and the button is a person's
+     again. A held change is skipped. GitHub makes the label the first time it is used; if it will
+     not, the page says to re-record by hand. A merge that brings in `main`'s workflow change has
+     not been tried live through this path; GitHub's refusal would read as the workflow refusal
+     above.
    - **On hold and Resume** — **Put on hold** (people with Merge pipeline changes) takes an
      optional note of up to 500 characters, adds the `on-hold` label to the pull request and posts
      one comment: "Put on hold by <name> via Pipeline Changes: <note>" (name only, `@` and

@@ -552,9 +552,11 @@ export interface UpdateBar {
  * repository only. Null: nothing to offer.
  */
 export function updateBar(
-	detail: Pick<ChangeDetail, 'state' | 'merged' | 'mergeable' | 'headSha' | 'behindBy'> & {
+	detail: Pick<
+		ChangeDetail,
+		'state' | 'merged' | 'mergeable' | 'mergeableState' | 'headSha' | 'behindBy'
+	> & {
 		onHold?: boolean;
-		mergeableState?: string | null;
 	},
 	canMerge: boolean,
 ): UpdateBar | null {

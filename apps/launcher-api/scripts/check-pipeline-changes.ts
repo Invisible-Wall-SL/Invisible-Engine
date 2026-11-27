@@ -305,6 +305,10 @@ const git = {
 	beforePull: null as (() => void) | null,
 	/** Every `PATCH git/refs/heads/<branch>` asked for, with its body, moved or refused. */
 	patches: [] as { name: string; body: Json }[],
+	/** GitHub's answer to the next ref update instead of making it (a workflow refusal). */
+	patchAnswer: null as { status: number; message: string } | null,
+	/** The commits the App made: GitHub names its bot as their author. */
+	botCommits: new Set<string>(),
 	/** Runs once, just before the next ref update: a push to the branch landing first. */
 	beforePatch: null as (() => void) | null,
 };
@@ -660,9 +664,14 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	}
 	if (rest[0] === 'commits' && rest.length === 2 && method === 'GET') {
 		const date = gh.commitDates.get(rest[1]);
-		return date
-			? jsonResponse(200, { sha: rest[1], commit: { committer: { date } } })
-			: jsonResponse(404, { message: 'Not Found' });
+		const c = git.commits.get(rest[1]);
+		if (!c && !date) return jsonResponse(404, { message: 'Not Found' });
+		return jsonResponse(200, {
+			sha: rest[1],
+			author: { login: git.botCommits.has(rest[1]) ? BOT.login : 'dev' },
+			commit: { message: c?.message ?? '', ...(date ? { committer: { date } } : {}) },
+			parents: (c?.parents ?? []).map((sha) => ({ sha })),
+		});
 	}
 	if (rest[0] === 'issues' && rest[2] === 'events' && method === 'GET') {
 		return jsonResponse(200, gh.events.get(Number(rest[1])) ?? []);
@@ -935,6 +944,9 @@ function gitRoutes(
 		const hook = git.beforePatch;
 		git.beforePatch = null;
 		hook?.();
+		const answer = git.patchAnswer;
+		git.patchAnswer = null;
+		if (answer) return jsonResponse(answer.status, { message: answer.message });
 		const current = git.refs.get(name);
 		if (!current) return notFound();
 		if (!git.commits.has(body.sha)) return invalid('the sha is not a commit');
@@ -996,6 +1008,7 @@ function gitRoutes(
 			return invalid('the tree or a parent does not exist');
 		}
 		const id = putCommit(treeSha, parents, message);
+		git.botCommits.add(id);
 		git.writes.push({ kind: 'commit' });
 		if (git.moveMain !== 'never') {
 			advanceMain();
@@ -9319,14 +9332,15 @@ check(
 		[{ path: 'p', mode: '100644', type: 'blob', sha: 'abc' }],
 	);
 	check(
-		'manifestIdOf: the runtime id the re-record accepts, else null',
+		'manifestIdOf: a listed runtime’s id, as the re-record accepts it; any other file is null',
 		[
 			mm.manifestIdOf('scripts/runtime-bytes/lines.json'),
 			mm.manifestIdOf('scripts/runtime-bytes/a-b.json'),
+			mm.manifestIdOf('scripts/runtime-bytes/foo.json'),
 			mm.manifestIdOf('scripts/runtime-bytes/x/y.json'),
 			mm.manifestIdOf('docs/lines.json'),
 		],
-		['lines', null, null, null],
+		['lines', null, null, null, null],
 	);
 	check(
 		'namedPaths: five named, then a count',
@@ -9381,6 +9395,16 @@ check(
 		});
 		changes.forgetChanges();
 		return { number, branch, headSha, mainSha };
+	};
+
+	const runOn = (sha: string, conclusion: string | null) => {
+		const h = head(sha, [
+			[
+				'runtime-bytes',
+				[{ name: 'runtime-bytes', ...(conclusion ? { conclusion } : { status: 'in_progress' }) }],
+			],
+		]);
+		return h.workflowRuns.find((r) => r.path === '.github/workflows/runtime-bytes.yml') as Json;
 	};
 
 	gh.labels.delete(mm.RERECORD_LABEL);
@@ -9438,6 +9462,48 @@ check(
 		[update.MANIFESTS_MERGED_TEXT(ids), null],
 	);
 
+	const redBefore = conflicted();
+	runOn(redBefore.headSha, 'failure');
+	const wr = git.gitWrites.length;
+	const redRes = await doUpdate(redBefore.number, redBefore.headSha);
+	check(
+		'update over a manifests conflict on a branch whose runtime-bytes already fails: 409 conflict, nothing written',
+		[
+			redRes.status,
+			redRes.body.code,
+			/already fails/.test(String(redRes.body.error)),
+			git.gitWrites.length - wr,
+		],
+		[409, 'conflict', true, 0],
+	);
+
+	const unlabelled = conflicted();
+	gh.labelForbidden = true;
+	const unlabelledRes = await doUpdate(unlabelled.number, unlabelled.headSha);
+	gh.labelForbidden = false;
+	check(
+		'update over a manifests conflict that GitHub will not label: merged, and the page says to re-record by hand',
+		[
+			unlabelledRes.status,
+			unlabelledRes.body.githubMessage,
+			gh.pulls.get(unlabelled.number)?.labels.length,
+		],
+		[200, update.MANIFESTS_MERGED_TEXT(ids, false), 0],
+	);
+
+	const wfMerge = conflicted();
+	git.patchAnswer = {
+		status: 422,
+		message:
+			'refusing to allow a GitHub App to create or update workflow `.github/workflows/bug-fix.yml` without `workflows` permission',
+	};
+	const wfRes = await doUpdate(wfMerge.number, wfMerge.headSha);
+	check(
+		'update over a manifests conflict that brings in main’s workflow change, refused by GitHub: 409 workflow_refused with the PR’s link, no label',
+		[wfRes.status, wfRes.body.code, wfRes.body.url, gh.pulls.get(wfMerge.number)?.labels.length],
+		[409, 'workflow_refused', `https://github.com/${REPO}/pull/${wfMerge.number}`, 0],
+	);
+
 	const writes = git.gitWrites.length;
 	const code = conflicted({
 		head: { 'packages/q.ts': file('head too\n') },
@@ -9471,62 +9537,31 @@ check(
 	);
 
 	// The watch.
-	const runOn = (headSha: string, conclusion: string | null) => {
-		const h = head(headSha, [
-			[
-				'runtime-bytes',
-				[{ name: 'runtime-bytes', ...(conclusion ? { conclusion } : { status: 'in_progress' }) }],
-			],
-		]);
-		return h.workflowRuns.find((r) => r.path === '.github/workflows/runtime-bytes.yml') as Json;
-	};
-	const labelled = (sha: string) => {
+	const plainTree = tree({ ...filesAt(mainTip()), ...manifests('main') });
+	/** A labelled change whose head is the App's merge taking `ids` from main, over a branch whose
+	 *  runtime-bytes was `before`. */
+	const watched = (
+		opts: { ids?: string[]; before?: string | null; bot?: boolean; message?: string } = {},
+	) => {
 		const number = ++n;
 		const branch = `feat/watch-${number}`;
+		const prior = putCommit(plainTree, [mainTip()], `engine: work on ${number}`);
+		if (opts.before !== null) runOn(prior, opts.before ?? 'success');
+		const sha = putCommit(
+			plainTree,
+			[prior, mainTip()],
+			opts.message ?? mm.manifestMergeMessage(number, opts.ids ?? ['card', 'lines']),
+		);
+		if (opts.bot !== false) git.botCommits.add(sha);
 		git.refs.set(`heads/${branch}`, sha);
 		pull(number, `engine: watched ${number}`, {
 			sha,
 			labels: [mm.RERECORD_LABEL],
 			head: { sha, ref: branch, repo: { full_name: REPO } },
 		});
-		return { number, branch };
+		return { number, branch, sha, pull: gh.pulls.get(number) as Pull };
 	};
-	const plain = putCommit(
-		tree({ ...filesAt(mainTip()), ...manifests('main') }),
-		[mainTip()],
-		'ci: merge main into #1',
-	);
-
-	const waiting = labelled(plain);
-	runOn(plain, null);
-	check(
-		'watch: a run still going → waiting, label kept',
-		[
-			await mm.watchOne(githubApp, gh.pulls.get(waiting.number)),
-			gh.pulls.get(waiting.number)?.labels.length,
-		],
-		['waiting', 1],
-	);
-
-	const greenSha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #2');
-	const green = labelled(greenSha);
-	runOn(greenSha, 'success');
-	check(
-		'watch: a passed check → label off',
-		[
-			await mm.watchOne(githubApp, gh.pulls.get(green.number)),
-			gh.pulls.get(green.number)?.labels.length,
-		],
-		['passed', 0],
-	);
-
-	const redSha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #3');
-	const red = labelled(redSha);
-	const run = runOn(redSha, 'failure');
-	const zipId = 9900 + red.number;
-	gh.artifacts.set(run.id as number, [
-		{ id: zipId, name: 'runtime-bytes', expired: false, expires_at: null, size_in_bytes: 1000 },
-	]);
+	const watch = (w: { pull: Pull }, now?: number) => mm.watchOne(githubApp, w.pull, now);
 	const built = Object.fromEntries(
 		RUNTIMES.map((r) => {
 			const m: Json = {
@@ -9542,99 +9577,143 @@ check(
 			return [`${r.id}.json`, `${JSON.stringify(m, null, '\t')}\n`];
 		}),
 	);
-	gh.zips.set(zipId, zipOf(built));
-	const outcome = await mm.watchOne(githubApp, gh.pulls.get(red.number));
+	/** A failed run on `sha` with CI's manifests for every runtime. */
+	const redWithArtifact = (sha: string) => {
+		const run = runOn(sha, 'failure');
+		const id = 9800 + ++n;
+		gh.artifacts.set(run.id as number, [
+			{ id, name: 'runtime-bytes', expired: false, expires_at: null, size_in_bytes: 1000 },
+		]);
+		gh.zips.set(id, zipOf(built));
+		return id;
+	};
+
+	check(
+		'mergedIdsOf: the runtimes of this change’s merge subject; null for another change, another message or an unknown runtime',
+		[
+			mm.mergedIdsOf(`${mm.manifestMergeMessage(5, ['card', 'lines'])}\n\nbody`, 5),
+			mm.mergedIdsOf(mm.manifestMergeMessage(5, ['card']), 6),
+			mm.mergedIdsOf('ci: merge main into #5', 5),
+			mm.mergedIdsOf(mm.manifestMergeMessage(5, ['nope']), 5),
+		],
+		[['card', 'lines'], null, null, null],
+	);
+
+	const waiting = watched();
+	runOn(waiting.sha, null);
+	check(
+		'watch: the merge’s run still going → waiting, label kept',
+		[await watch(waiting), waiting.pull.labels.length],
+		['waiting', 1],
+	);
+
+	const green = watched();
+	runOn(green.sha, 'success');
+	check(
+		'watch: a passed check → label off',
+		[await watch(green), green.pull.labels.length],
+		['passed', 0],
+	);
+
+	const red = watched({ ids: ['card', 'lines'] });
+	redWithArtifact(red.sha);
+	const outcome = await watch(red);
 	const rerecorded = git.refs.get(`heads/${red.branch}`) as string;
 	const msg = (git.commits.get(rerecorded) as { message: string }).message;
 	check(
-		'watch: a failed check → the CI manifests are committed by the launcher itself, label kept until the next head passes',
+		'watch: the App’s merge failing after a green branch → only the runtimes the merge took are re-recorded, by the launcher, label kept',
 		[
 			outcome,
-			rerecorded !== redSha,
+			changedPaths(treeOf(red.sha), treeOf(rerecorded)),
 			msg.split('\n')[0],
 			msg.includes('Pipeline Changes (automatic)'),
-			gh.pulls.get(red.number)?.labels.length,
+			red.pull.labels.length,
 		],
 		[
 			'rerecorded',
-			true,
+			[M('card'), M('lines')],
 			`ci: re-record runtime bytes from CI's Linux build (#${red.number})`,
 			true,
 			1,
 		],
 	);
-	const again = gh.pulls.get(red.number) as Pull;
-	again.head.sha = rerecorded;
+	red.pull.head.sha = rerecorded;
 	runOn(rerecorded, 'failure');
 	check(
-		'watch: a re-record that still fails → given back to a person, label off, nothing written',
-		[
-			await mm.watchOne(githubApp, again),
-			again.labels.length,
-			git.refs.get(`heads/${red.branch}`) === rerecorded,
-		],
+		'watch: the re-record still failing (another runtime moved too) → given back, label off, nothing written',
+		[await watch(red), red.pull.labels.length, git.refs.get(`heads/${red.branch}`) === rerecorded],
 		['gave_up', 0, true],
 	);
 
-	const noArtSha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #4');
-	const noArt = labelled(noArtSha);
-	runOn(noArtSha, 'failure');
+	const pushed = watched();
+	const later = putCommit(plainTree, [pushed.sha], 'engine: more runtime code');
+	git.refs.set(`heads/${pushed.branch}`, later);
+	pushed.pull.head.sha = later;
+	redWithArtifact(later);
+	const w0 = git.gitWrites.length;
+	check(
+		'watch: a push after the merge failing runtime-bytes → never re-recorded, given back, nothing written',
+		[await watch(pushed), pushed.pull.labels.length, git.gitWrites.length - w0],
+		['gave_up', 0, 0],
+	);
+
+	const forged = watched({ bot: false });
+	redWithArtifact(forged.sha);
+	const w1 = git.gitWrites.length;
+	check(
+		'watch: the label put by hand on a commit that only says it is the merge (not the App’s) → given back, nothing written',
+		[await watch(forged), forged.pull.labels.length, git.gitWrites.length - w1],
+		['gave_up', 0, 0],
+	);
+
+	const wasRed = watched({ before: 'failure' });
+	redWithArtifact(wasRed.sha);
+	const w2 = git.gitWrites.length;
+	check(
+		'watch: a branch already red on runtime-bytes before the merge → never cleared automatically, given back',
+		[await watch(wasRed), wasRed.pull.labels.length, git.gitWrites.length - w2],
+		['gave_up', 0, 0],
+	);
+
+	const noArt = watched();
+	runOn(noArt.sha, 'failure');
 	check(
 		'watch: a failure with no artifact → given back, label off',
-		[
-			await mm.watchOne(githubApp, gh.pulls.get(noArt.number)),
-			gh.pulls.get(noArt.number)?.labels.length,
-		],
+		[await watch(noArt), noArt.pull.labels.length],
 		['gave_up', 0],
 	);
 
-	const heldSha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #5');
-	const held = labelled(heldSha);
-	gh.pulls.get(held.number)?.labels.push({ name: 'on-hold' });
-	check(
-		'watch: a held change is left alone',
-		await mm.watchOne(githubApp, gh.pulls.get(held.number)),
-		'on_hold',
-	);
+	const held = watched();
+	held.pull.labels.push({ name: 'on-hold' });
+	check('watch: a held change is left alone', await watch(held), 'on_hold');
 
-	const quietSha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #6');
-	const quiet = labelled(quietSha);
-	head(quietSha, []);
-	gh.commitDates.set(quietSha, '2026-11-27T00:00:00Z');
-	const quietPull = gh.pulls.get(quiet.number) as Pull;
+	const quiet = watched();
+	gh.commitDates.set(quiet.sha, '2026-11-27T00:00:00Z');
 	check(
-		'watch: a head with no runtime-bytes run waits six hours, then is given back',
+		'watch: a merge with no runtime-bytes run waits six hours, then is given back',
 		[
-			await mm.watchOne(githubApp, quietPull, Date.parse('2026-11-27T05:59:00Z')),
-			quietPull.labels.length,
-			await mm.watchOne(githubApp, quietPull, Date.parse('2026-11-27T06:01:00Z')),
-			quietPull.labels.length,
+			await watch(quiet, Date.parse('2026-11-27T05:59:00Z')),
+			quiet.pull.labels.length,
+			await watch(quiet, Date.parse('2026-11-27T06:01:00Z')),
+			quiet.pull.labels.length,
 		],
 		['waiting', 1, 'gave_up', 0],
 	);
 
-	const flakySha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #7');
-	const flaky = labelled(flakySha);
-	const flakyRun = runOn(flakySha, 'failure');
-	gh.artifacts.set(flakyRun.id as number, [
-		{ id: 9990, name: 'runtime-bytes', expired: false, expires_at: null, size_in_bytes: 1000 },
-	]);
-	gh.failing.set('/artifacts/9990/zip', 503);
+	const flaky = watched();
+	const flakyZip = redWithArtifact(flaky.sha);
+	gh.failing.set(`/artifacts/${flakyZip}/zip`, 503);
 	check(
 		'watch: GitHub failing (5xx) on the way is a wait, not a give-up',
-		[
-			await mm.watchOne(githubApp, gh.pulls.get(flaky.number)),
-			gh.pulls.get(flaky.number)?.labels.length,
-		],
+		[await watch(flaky), flaky.pull.labels.length],
 		['waiting', 1],
 	);
-	gh.failing.delete('/artifacts/9990/zip');
-	(gh.pulls.get(flaky.number) as Pull).labels = [];
-	(gh.pulls.get(quiet.number) as Pull).state = 'closed';
+	gh.failing.delete(`/artifacts/${flakyZip}/zip`);
+	flaky.pull.labels = [];
+	quiet.pull.state = 'closed';
 
-	const forkSha = putCommit(treeIdOf(plain), [plain], 'a fork');
-	labelled(forkSha);
-	(gh.pulls.get(n) as Pull).head.repo = { full_name: 'other/engine' };
+	const fork = watched();
+	fork.pull.head.repo = { full_name: 'other/engine' };
 	const pass = await mm.watchRuntimeBytes(githubApp);
 	check(
 		'watch: the pass looks only at open changes of this repository carrying the label',

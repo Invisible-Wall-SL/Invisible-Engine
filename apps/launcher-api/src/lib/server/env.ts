@@ -326,10 +326,6 @@ export const ENV = {
 	get TEST_SERVER_SECRET() {
 		return env.TEST_SERVER_SECRET ?? '';
 	},
-	/** Bearer token for the read-only `GET /api/pipeline/games` the current-games CI harness lists
-	 *  games from (`docs/director/DECISIONS/0004-current-games-regression-harness.md`). Secret: no
-	 *  code default; trimmed, so a pasted trailing newline cannot 401 every run. Unset ⇒ the
-	 *  endpoint answers 503, never an open list. */
 	/** Pipeline Changes' runtime-bytes watch (`pipelineManifestMerge.ts`) commits onto real pull
 	 *  requests, so it runs only where asked: `1`/`0`, else on Railway's production environment. */
 	get PIPELINE_RERECORD_WATCH() {
@@ -337,6 +333,10 @@ export const ENV = {
 		if (set === '1' || set === '0') return set === '1';
 		return env.RAILWAY_ENVIRONMENT_NAME === 'production';
 	},
+	/** Bearer token for the read-only `GET /api/pipeline/games` the current-games CI harness lists
+	 *  games from (`docs/director/DECISIONS/0004-current-games-regression-harness.md`). Secret: no
+	 *  code default; trimmed, so a pasted trailing newline cannot 401 every run. Unset ⇒ the
+	 *  endpoint answers 503, never an open list. */
 	get PIPELINE_CI_TOKEN() {
 		return (env.PIPELINE_CI_TOKEN ?? '').trim();
 	},
