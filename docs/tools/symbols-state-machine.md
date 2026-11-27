@@ -705,7 +705,8 @@ and **Pays** picks how many reels the win covers (the rest shows with **Show ful
 It replays by itself a moment after you change any line setting, and the ↻ button replays it on
 demand. **Sound** (off by default) plays the draw and impact sounds when they are your project's
 uploads and you can open Invisible Sound; an engine sound is heard in game only, and the caption
-says so. The preview is close, not exact: the board is a plain grid (no column gaps or
+says so. A trail, tip or burst effect that no longer exists (deleted, or never saved) is named in
+the caption as missing. The preview is close, not exact: the board is a plain grid (no column gaps or
 perspective), particles sit over the board rather than blending into it, a flipbook tip shows its
 first frame, an effect tip that turns with the line turns only its new particles, and it shows one
 ordinary payline (not the bars of a ways or cluster win). Play a round to check the final look.
