@@ -1,7 +1,7 @@
 # Invisible Profiler — how a published game performs, on which devices, and what to cut
 
 **Status:** design registered 2026-11-16; owner decisions recorded the same day. P1 built 2026-11-16; current
-state in [status/profiler](../status/profiler.md). Build plan below (P1–P9).
+state in [status/profiler](../status/profiler.md). Build plan below (P1–P10).
 **Owner ask:** "a tool to control and optimize games, to see what is going on and how it performs
 on different devices, understand problems so a plan to solve them can be created. It should work
 on final builds, to monitor if the build is efficient, and say where things can be saved to reach
@@ -272,6 +272,14 @@ Each step is one PR, usable on its own.
 - **P9 — Network.** The `network` block (§8): `perf: 9`, per-file sizes and load stages, RGS and
   room traffic; the Transfer MB column and a reading's files, transfer per build and in Compare,
   the transfer budgets, the five network rules.
+- **P10 — Probe accuracy** (`docs/design/salmons-performance.md` track T1, on the coordinator branch until merged). `perf: 10`: busy time
+  (the main thread's work in a frame) as p50 / p95 per phase against the display's frame period,
+  judged instead of fps for an arcade game; hidden and throttled time, and a reading the page spent
+  in the background marked "not comparable"; `refreshHz` split into the achieved and the display
+  rate; a p95 beside every per-frame mean; an arcade game's phases split into `loading`, `lobby`,
+  `play`, `spectate` with the room's phase as the spike state; a scene sample (nodes, drawn, culled,
+  per-layer draws and passes), GPU time where the browser offers a timer query, and the room's
+  bytes by kind of message with sends per fixed step.
 
 ## Decisions (owner, 2026-11-16)
 
