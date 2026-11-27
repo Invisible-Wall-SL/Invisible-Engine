@@ -87,8 +87,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   (past the one that did not help), then one level at a time, kept at the first level that helps
   and back to its start when none does; 15 windows in a row under 1% slow while it waits give it
   back unused. Until it is taken, the last 2 of the 12 switches are held for its step to the
-  effects level and that step's revert. The
-  `?perf=1` HUD's quality line shows post FX, the particle cap and the second chance.
+  effects level and that step's revert. **A step up that went slow** is stepped back and tried
+  again only after twice as many good windows as the last try waited (30, then 60, 120, 240), so
+  a warm spell no longer pins a device at the effects level for the session; worst case, a device
+  always too slow one level up flaps once per doubling (after 2, 4, 8 minutes of good round
+  play), within the cap. `engine-3d` (no second chance) still never retries it. The `?perf=1`
+  HUD's quality line shows post FX, the particle cap, the second chance and that retry's wait.
   `?render=full` pins full, `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
   never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout per frame: verified with
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
@@ -649,6 +653,23 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `particleBudget.fixture.ts`; every rule mutated in turn fails it. **Not verified:** any real
   phone; a Profiler reading on the BUG-20 phone is still owed. Lesson:
   `docs/knowledge/lessons/engine.md`.
+  **Same PR, a failed step up is no longer permanent** (#1930's review finding 1, the `upFailed`
+  pin): one slow window in the L6 → L5 climb added L5 to `upFailed` and kept the game at the
+  effects level for the session; the review's fuzz found about 40% of random sessions stuck at
+  L6 after a full recovery. The game's controller now counts failed tries per level
+  (`upFailures`) and tries a level again after `goodWindows × 2^failures` windows under 1% slow
+  in a row (60, 120, 240…), still behind `room(2 + reserve())`, so the second chance's 2
+  switches stay intact. Worst-case flap for a device always too slow one level up: one 1–2
+  window visit per doubling, i.e. after 1, then 2, 4 and 8 more minutes of good round play (a
+  window is 2 s of round frames at 60 fps), at most 4 tries on a 2-level ladder before the cap
+  (12) ends them; after the walk to the effects level (7 switches) there is room for 2. A level
+  kept after a retry keeps its count, so a periodically warm device waits longer each time.
+  `engine-3d`'s single-try controller is unchanged (never again; `stepUp.goodWindows` is
+  `Infinity` there). The snapshot's `stepUp` (level, wait, run so far, failures) is on the HUD.
+  Guard: `renderQuality.fixture.ts` (a warm spell's failed climb, then cool: ends at L4 with post
+  FX on; always slow one level up: 4 tries, each gap ≥ 1.8× the last, within the cap; the exact
+  wait of 60 windows; engine-3d never retries), each red under its mutant (never expires; no
+  backoff; linear backoff; engine-3d retrying; the reserve ignored).
 
 - 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
   (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
@@ -2583,7 +2604,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (14 → 30 fps keeps a step though every frame is still slow; the same day's follow-up, above,
     dropped "or fell under 10%"); otherwise it is
     reverted and stepping down stops for the session. Thirty windows under 1% slow try one level
-    up; slow within two windows, it steps back and that level is not tried again. At most 6
+    up; slow within two windows, it steps back and that level is not tried again (since
+    2026-11-27 retried after a doubling wait, Recent changes). At most 6
     switches, and a step that starts a trial is taken only while its revert still fits.
   - **What memory still decides:** only texture residency (`textureResidency.ts`
     `lowMemoryDevice`). A device reporting ≤ 4 GB leaves its textures to Pixi's GC rather than

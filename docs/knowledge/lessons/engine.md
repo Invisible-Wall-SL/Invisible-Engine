@@ -6,6 +6,18 @@ Format and rules: [README](../README.md). Current state lives in
 `PerfHud`: [engine-shell.md](engine-shell.md). Traps that hit every game in play:
 [current-games.md](current-games.md).
 
+### One slow window in a climb kept the game at the effects level for the session
+
+- **Symptom:** #1930's review fuzz: ~40% of random sessions stayed at L6 (no post FX, fewer
+  particles) after a full recovery.
+- **Cause:** `renderQuality.ts` added a step up that went slow to `upFailed`, a set never cleared,
+  so a warm spell's one failed L6 → L5 try pinned the device below it for good.
+- **Fix:** failed tries are counted per level and retried after `30 × 2^failures` good windows,
+  still behind `room(2 + reserve())`; `engine-3d` keeps never.
+- **Guard:** `renderQuality.fixture.ts`: warm-then-cool climbs back with post FX on; always slow
+  one level up retries at most once per doubling within the cap; mutants red.
+- **PR:** #1960 (2026-11-27), branch `bug-20-ladder-review-fixes`
+
 ### A budget phone spun at 28 fps, and the first fix sent slightly slow phones to the floor
 
 - **Symptom:** BUG-20: a lines game spun at 28.5 fps on a Mali-G57 MC2 phone (budget 50). #1930's
