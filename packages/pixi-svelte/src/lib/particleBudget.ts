@@ -14,6 +14,10 @@
  * effect off ({@link particlesOff}: none updates or draws) while everything else plays, for an A/B
  * read of what particles cost.
  *
+ * The render-quality ladder's last step (`renderQuality.ts`) lowers the cap further
+ * ({@link capParticleBudget}) on a device that cannot hold its frame rate, and lifts it again when
+ * the level rises. Without the ladder the cap is the tier's.
+ *
  * At 1 an emitter is left exactly as authored (`ParticleEmitter`), so a device that keeps up draws
  * every particle it always did.
  */
@@ -34,6 +38,10 @@ export const PARTICLE_BUDGET_MIN_SCALED = 8;
 
 let quality = 1;
 let ceiling = 1;
+/** The tier's cap: {@link capParticleBudget} never lifts the cap above it. */
+let tierCeiling = 1;
+let configured = false;
+let pinned = false;
 let adaptive = false;
 let off = false;
 let windowMs = 0;
@@ -62,15 +70,33 @@ export function configureParticleBudget({
 	tier = renderTier(),
 	adaptive: follow = true,
 }: { tier?: RenderTier; adaptive?: boolean } = {}): void {
-	ceiling = tier === 'reduced' ? REDUCED_TIER_QUALITY : 1;
-	const pinned = pinnedParticles();
-	off = pinned === 'off';
-	quality = typeof pinned === 'number' ? pinned : ceiling;
-	adaptive = pinned === undefined && follow;
+	tierCeiling = tier === 'reduced' ? REDUCED_TIER_QUALITY : 1;
+	ceiling = tierCeiling;
+	configured = true;
+	const pin = pinnedParticles();
+	pinned = pin !== undefined;
+	off = pin === 'off';
+	quality = typeof pin === 'number' ? pin : ceiling;
+	adaptive = !pinned && follow;
 	windowMs = 0;
 	windowFrames = 0;
 	fastWindows = 0;
 	lastFrame = undefined;
+}
+
+/**
+ * Cap the budget at `cap` (clamped to the floor..1, never above the tier's cap), or lift the cap
+ * back with 1. Lowering it lowers the quality at once; lifting it lets an adaptive budget climb back
+ * at its own pace. A pinned `?particles=` and a budget no game configured are left alone: before
+ * {@link configureParticleBudget} it does nothing (the cap is not kept for later), and a later
+ * configure starts again from the tier's cap, dropping any cap set before it.
+ */
+export function capParticleBudget(cap: number): void {
+	if (!configured || pinned) return;
+	const clamped = Number.isFinite(cap) ? Math.min(1, Math.max(PARTICLE_BUDGET_FLOOR, cap)) : 1;
+	ceiling = Math.min(tierCeiling, clamped);
+	quality = adaptive ? Math.min(quality, ceiling) : ceiling;
+	fastWindows = 0;
 }
 
 /** The factor emitters scale by now: 1 while the budget is off. */
