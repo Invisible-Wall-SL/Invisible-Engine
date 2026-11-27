@@ -77,8 +77,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	return json({
 		ok: true,
 		skeleton: made.value.doc,
-		sheet: { ...mapping, template: { id: template.id, version: template.version } },
+		sheet: {
+			...mapping,
+			template: {
+				id: template.id,
+				version: template.version,
+				...(mapping.template.modules ? { modules: mapping.template.modules } : {}),
+			},
+		},
 		depths: made.value.depths,
+		...(made.value.controls ? { controls: made.value.controls } : {}),
 		report: made.value.report,
 	});
 };

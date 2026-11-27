@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { PHASE_LABELS, phasesOf, type PerfPhase, type PerfReportListItem } from '$lib/profiler';
+	import {
+		PHASE_LABELS,
+		phasesOf,
+		readingThrottled,
+		type PerfPhase,
+		type PerfReportListItem,
+	} from '$lib/profiler';
 	import {
 		deviceGroups,
 		readingsByBuild,
@@ -29,6 +35,13 @@
 	);
 	let openId = $state<string | null>(null);
 	const open = $derived(groups.find((g) => g.id === openId) ?? null);
+	/** A busy-time column per phase once any group has judged busy time (`perf: 10` readings). */
+	const showBusy = $derived(groups.some((g) => g.metrics.some((m) => m.metric === 'busy')));
+	const phaseCols = $derived(showBusy ? 4 : 3);
+	/** Readings in the groups' list left out of their timing: throttled or hidden pages. */
+	const throttled = $derived(
+		groups.reduce((n, g) => n + g.readings.filter((r) => readingThrottled(r)).length, 0),
+	);
 	const groupPhases = $derived(phasesOf(groups.flatMap((g) => g.readings)));
 	const openPhases = $derived(open ? phasesOf(open.readings) : []);
 
@@ -62,6 +75,10 @@
 		<td class="num v-{fps?.verdict}" title={cellTitle(fps)}>{fmt(fps?.value)}</td>
 		<td class="num v-{p95?.verdict}" title={cellTitle(p95)}>{fmt(p95?.value)}</td>
 		<td class="num">{hitches(rs, phase)}</td>
+		{#if showBusy}
+			{@const busy = metric(ms, 'busy', phase)}
+			<td class="num v-{busy?.verdict}" title={cellTitle(busy)}>{fmt(busy?.value)}</td>
+		{/if}
 	{/each}
 	{@const gpu = metric(ms, 'gpuMb')}
 	{@const draws = metric(ms, 'draws')}
@@ -80,7 +97,7 @@
 			<th rowspan="2" class="num">Readings</th>
 			<th rowspan="2">Verdict</th>
 			{#each phases as phase (phase)}
-				<th colspan="3" class="group">{PHASE_LABELS[phase]}</th>
+				<th colspan={phaseCols} class="group">{PHASE_LABELS[phase]}</th>
 			{/each}
 			<th
 				rowspan="2"
@@ -104,6 +121,13 @@
 				<th class="num" title="Frames a second (median over the readings)">fps</th>
 				<th class="num" title="95th-percentile frame time, ms (median over the readings)">p95</th>
 				<th class="num" title="Frames over 33 ms, summed over the readings">&gt;33</th>
+				{#if showBusy}
+					<th
+						class="num"
+						title="95th-percentile busy time a frame, ms: the main thread's work in it, judged against the display's frame (median over the readings). An arcade game is judged on this, not fps."
+						>busy</th
+					>
+				{/if}
 			{/each}
 		</tr>
 	</thead>
@@ -116,10 +140,11 @@
 			median over the group's readings — a phase counts only from readings with at least
 			{MIN_PHASE_FRAMES} frames in it, otherwise it says "not enough data", never pass. A cell is coloured
 			by this project's budget (Budgets tab); hover it for the lines. The phases are the readings' own:
-			idle, spinning and round for a slot, menu and play for an arcade game. Readings taken with a test
-			switch (particles off, …) measure a feature's cost, and lab runs' fps is a shared runner's, so both
-			are left out here; a reading at a browser's 30 fps cap counts for draws and GPU MB, never for fps
-			or p95. Click a device to see its readings build by build.
+			idle, spinning and round for a slot, loading, lobby, play and spectate for an arcade game (menu
+			and play for an older reading), whose busy time — not its fps — is judged. Readings taken with a
+			test switch (particles off, …) measure a feature's cost, and lab runs' fps is a shared runner's,
+			so both are left out here; a reading at a browser's 30 fps cap counts for draws and GPU MB, never
+			for fps or p95. Click a device to see its readings build by build.
 		</p>
 	{/snippet}
 	{#if !groups.length}
@@ -161,6 +186,12 @@
 	{#if capped > 0}
 		<p class="sub">
 			{capped} reading{capped === 1 ? '' : 's'} at a browser's 30 fps cap: fps and p95 not judged.
+		</p>
+	{/if}
+	{#if throttled > 0}
+		<p class="sub">
+			{throttled} reading{throttled === 1 ? '' : 's'} throttled or hidden (a background tab): not comparable,
+			left out of every timing; draws and GPU MB still count.
 		</p>
 	{/if}
 </SectionCard>

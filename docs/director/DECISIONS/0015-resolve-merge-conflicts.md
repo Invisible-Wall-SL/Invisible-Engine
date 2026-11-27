@@ -113,12 +113,13 @@ The App dispatches the workflow on `main` with four inputs: the run id, the PR n
 and `main`'s SHA. All four are public, so there is no brief endpoint. The run is named
 `Merge main <id>`, and the launcher binds it by that name, as it does fix runs.
 
-- **Job `merge` holds no secrets** (`contents: read`, no `id-token`). It merges `main` into the head
-  at the two pinned SHAs. It applies the mechanical rules (§3) and the refusals (§4) from `main`'s
-  copy of `scripts/merge-main/`. For every path both sides changed, it records git's clean merge or
-  the file with its markers, as the artifact `merge`. It runs the branch's own code (the builds
-  that re-record runtime bytes), so its output is trusted no more than the branch is. The launcher
-  takes from it only what §5 allows, and CI proves that again.
+- **Job `merge` holds no secrets and runs no branch code** (`contents: read`, no `id-token`). It
+  merges `main` into the head at the two pinned SHAs. It applies the mechanical rules (§3) and the
+  refusals (§4) from `main`'s copy of `scripts/merge-main/`. For every path both sides changed, it
+  records git's clean merge or the file with its markers, as the artifact `merge`. It never runs
+  `pnpm install`, a build or a ratchet: it runs in `main`'s context, and branch code that built
+  there could poison the shared Actions cache that `main`'s other workflows restore, some of which
+  hold secrets. The launcher takes from the record only what §5 allows, and CI proves the rest.
 - **Job `propose` always runs, and only it posts.** It uses the `bug-fix` environment and the same
   key. Its sandbox steps are copied from `bug-fix.yml`, and a fixture proves them identical step for
   step, so `prove-cli.mjs`'s proof covers it too. Before the model starts, only `main`'s scripts
@@ -132,10 +133,15 @@ and `main`'s SHA. All four are public, so there is no brief endpoint. The run is
 
 | File | Rule | Proof |
 |---|---|---|
-| `scripts/runtime-bytes/*.json` | Take `main`'s, then `pnpm check:runtime-bytes --update --only <ids>` on the merged tree (Linux, as CI records) | CI's required `runtime-bytes` check on the pushed head |
-| Vendored launcher bundles | Take `main`'s, then `pnpm --filter launcher-api build:<name>` | `check:vendored-bundles` |
+| `scripts/runtime-bytes/*.json` | Take `main`'s, pending | After Accept, CI's required `runtime-bytes` check fails; click **Re-record runtime bytes** on the change (#1936) |
+| Vendored launcher bundles | Take `main`'s, pending | After Accept, rebuild with `pnpm --filter launcher-api build:<name>` in the change's session; `check:vendored-bundles` proves it |
 | A docs hunk where both sides only added lines | Keep both: this change's lines above `main`'s, since it lands later and these files are newest first (`docs/status/README.md`) | The hunk had no base lines, so no line is lost; the proposal shows it |
-| `svelte-check-baseline.json`, `eslint-suppressions.json` | Take `main`'s and run the ratchet on the merged tree. If it passes, lower the baseline with the ratchet's own update. If it fails, the merge adds errors, and a person decides | `check:svelte`, `pnpm lint` |
+| `svelte-check-baseline.json`, `eslint-suppressions.json` | Take `main`'s, pending | After Accept, lower the baseline in the change's session if `check:svelte` or lint fails |
+
+- **Pending means `main`'s file, never built.** The three build rules run nothing in the job (§2).
+  The record marks the file `pending` with the command a person or CI runs afterwards. The proposal
+  and the "Main merged in" card say what follows Accept in plain words, so nobody finds out from a
+  red check.
 
 - **A docs hunk that edited existing lines** is a real conflict, and goes to the model (§4).
 - **The lockfile, a migration number used on both sides, and binaries** go to a person (§4).
@@ -192,8 +198,8 @@ and `main`'s SHA. All four are public, so there is no brief endpoint. The run is
   anything newer on `main` gets its own Update or Resolve.
 - **The launcher builds the merge itself**, from three trees as `revertCommit` does: the merge
   base, the head, and `main` at the run's SHA. A path only one side changed takes that side's
-  entry, as git would. Only paths both sides changed, and the regenerated files, take the run's
-  content, so a run cannot change anything else. The commit's parents are `[head, main SHA]`; its
+  entry, as git would. Only paths both sides changed take the run's content (a build rule's
+  file is one of them, with `main`'s entry), so a run cannot change anything else. The commit's parents are `[head, main SHA]`; its
   message lists each file's choice, then "Accepted by `<person>` in Pipeline Changes (merge run
   `<id>`)", with no CI-skip token. `PATCH /git/refs/heads/<branch>` with `force: false` moves the
   branch: a fast-forward or nothing.
@@ -266,6 +272,74 @@ partial unique index on (pr_number) where status in ('dispatched','running','pro
 **Order:** 15A first. Then 15B1 and 15C in parallel. 15B2 is the only card that waits on the
 owner's hands, and it holds only the YAML.
 
+### 10. The contract between the job and the launcher (fixed before 15B1 and 15C start)
+
+15B1 writes the job's side, and 15C writes the launcher's. Each pins this section in its fixtures,
+and the last of the two to land adds a cross-check that feeds 15B1's `collect` output to 15C's
+parser.
+
+**Dispatch** (the App, on `main`): `merge-main.yml` with the inputs `merge_run` (10 lower-case hex),
+`pr` (digits), `head_sha` and `main_sha` (40 lower-case hex), and `budget_usd` (a decimal, at most
+two places, from 0 to the run cap). The launcher sets `budget_usd` to the smaller of
+`PIPELINE_MERGE_MAIN_BUDGET_USD` and what is left of `PIPELINE_FIX_MONTHLY_USD`, and to `0` when the
+month is spent. The job passes it to the CLI's budget flag, and with `0` it skips the model step: it
+still does the mechanical part, and any real conflict ends `needs_person`. The run is named
+`Merge main <merge_run>`. The launcher stores the run's `base_sha` from the result, and Accept
+treats a merge base other than the stored one as `stale`. (Amended 2026-11-27, from 15C's review:
+without the input the job could not know the cap, and without `base_sha` Accept could not tell
+that the run's hunks were cut against another base.)
+
+**A result may arrive as a pointer** (amended 2026-11-27, ADR-0013 §4's "option B"). A result whose
+gzip is past 400 KB (a Resolve-conflict result can be several MB) is not posted: `collect` asks
+`POST /api/pipeline/merge-runs/<merge_run>/result-upload` (same token and run binding as the result;
+a working run only), PUTs the gzipped result to the presigned R2 URL it returns for
+`_runs/merge/<merge_run>/result.json.gz`, and posts `{ "upload": { "key", "sha256", "bytes" } }`
+to the result endpoint instead. The launcher reads that object (8 MB unpacked at most, size and
+sha256 checked), parses it exactly as an inline body, and deletes it whatever happened. Everything
+below describes the body, inline or uploaded.
+
+**The result**, posted once by job `propose`'s `collect` to
+`POST /api/pipeline/merge-runs/<merge_run>/result` with a GitHub OIDC token (audience
+`invisible-launcher-merge-main`), as JSON:
+
+```
+{
+  "mergeRun": "<id>", "headSha": "<40 hex>", "mainSha": "<40 hex>", "baseSha": "<40 hex>",
+  "outcome": "proposed" | "needs_person" | "harness_conflict" | "protected_conflict"
+           | "too_large" | "no_proposal",
+  "failure": "<sentence>",            // instead of outcome, when the job itself broke
+  "reason": "<sentence naming the file or files>",   // every outcome but proposed
+  "files": [ { "path": "...", "choice": "main" | "change" | "both" | "combined",
+               "rule": "runtime-bytes" | "vendored-bundle" | "docs-append" | "ratchet" | null,
+               "content": "<text>" | null, "mode": "100644" | "100755" } ],
+  "explanation": {
+    "conflicted": [ { "path": "...", "met": [ { "pr": 1234 | null, "title": "..." } ] } ],
+    "hunks": [ { "path": "...", "index": 0, "main": "...", "change": "...",
+                 "takes": "main" | "change" | "both" | "combined", "why": "...",
+                 "nowDoes": "..." | null, "otherwise": "..." | null } ],
+    "outside": [ { "path": "...", "what": "..." } ],
+    "checks": [ { "command": "...", "ok": true } ],
+    "risks": "..."
+  },
+  "usage": [ /* as a fix run's result: per model, tokens and the CLI's cost */ ]
+}
+```
+
+- **`files`** holds only the paths both sides changed. Content is UTF-8 text with no NUL (a binary
+  is `needs_person`). `null` content means deleted. The launcher refuses any other path (§5).
+- **The pending form.** A build rule's file (`runtime-bytes`, `vendored-bundle`, `ratchet`) has
+  `rule` set, `choice` `main`, and `main`'s own content, with no regenerated content. The job never
+  builds, so `regenerated` is not a choice any more. The launcher refuses a rule file that is any
+  other choice, or not at the rule's own path. Its follow-up (above, §3) is not in the body: the
+  launcher derives it from the rule and path.
+- **`explanation`** is required when `outcome` is `proposed`, mechanical-only included. For a
+  mechanical-only run, `collect` fills it from the rules: each hunk's `takes` and `why` come from
+  the rule, and `checks` lists the text-only checks. A pending build rule adds what follows Accept
+  to `risks`. `risks` is never empty: "none found" is allowed. Missing or empty fields end the run `no_proposal`.
+- **Caps:** at most 10 files for the model plus the pending rule files; 2 MB a file and 4 MB in all;
+  each text field 3,000 characters; 16,000 for `explanation` in all. Everything is untrusted text,
+  cleaned and scanned like a fix run's summary (ADR-0013 §5).
+
 ## Consequences
 
 - **About half the conflicts clear with one click and no spend.** The rest cost about $1–3 and a
@@ -314,6 +388,9 @@ owner's hands, and it holds only the YAML.
 Approved: items 1–12 of "Needs owner approval", each at its default, as written. The open
 questions take their suggested defaults. 15A starts. Item 12 is the owner's to do: create the
 label `on-hold` once.
+
+- **2026-11-27:** never build branch code in job `merge`. Runtime bytes, vendored bundles and the
+  ratchets take `main`'s file, pending, and the proposal names what follows Accept (§2, §3, §10).
 
 ## Open questions
 

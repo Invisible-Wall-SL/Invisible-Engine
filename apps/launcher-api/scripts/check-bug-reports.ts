@@ -413,6 +413,9 @@ fake('lib/server/userToolAccess.ts', {
 });
 // Fix runs have their own fixture (`check:bug-fix-runs`); here none exist, and the sync's backstop
 // finds nothing live.
+// Resolve conflict runs have their own fixture (`check:merge-main-runs`); here none exist, and the
+// sync's merge-run backstop finds nothing working.
+fake('lib/server/pipelineMergeRunsStore.ts', { workingMergeRuns: async () => [] });
 fake('lib/server/bugFixRunsStore.ts', {
 	fixRunsOfBug: async () => [],
 	liveFixRuns: async () => [],

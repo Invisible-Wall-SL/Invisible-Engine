@@ -12,6 +12,7 @@ import type { Actor } from './bugReportsStore';
 import { bindFixRun, liveFixRuns, settleFixRun, type BugFixRun } from './bugFixRunsStore';
 import { ENV } from './env';
 import { GithubAppError, type GithubApp } from './githubApp';
+import { forgetResultObject } from './pipelineRunResultUpload';
 
 /**
  * The GitHub Actions side of fix runs (ADR-0013 §3, §5): dispatching `bug-fix.yml` through the
@@ -192,8 +193,14 @@ export async function backstopFixRuns(app: GithubApp, nowMs = Date.now()): Promi
 	const runs = await liveFixRuns();
 	if (!runs.length) return;
 	const age = (at: Date) => nowMs - at.getTime();
-	const end = (run: BugFixRun, ending: Ending, extra: Record<string, unknown> = {}) =>
-		settleFixRun(run.id, ending, fixRunActor(run.id), { withoutResult: true, extra });
+	const end = async (run: BugFixRun, ending: Ending, extra: Record<string, unknown> = {}) => {
+		const ended = await settleFixRun(run.id, ending, fixRunActor(run.id), {
+			withoutResult: true,
+			extra,
+		});
+		if (ended) await forgetResultObject('fix', run.id);
+		return ended;
+	};
 	const unbound: BugFixRun[] = [];
 	const bound: (BugFixRun & { ghRunId: number })[] = [];
 	for (const run of runs) {
@@ -295,7 +302,7 @@ async function endMidCommit(app: GithubApp, run: BugFixRun): Promise<void> {
 	} catch {
 		return;
 	}
-	await settleFixRun(
+	const ended = await settleFixRun(
 		run.id,
 		pr === null
 			? { status: 'failed', reason: FIX_RUN_REASONS.stoppedMidPr }
@@ -303,4 +310,5 @@ async function endMidCommit(app: GithubApp, run: BugFixRun): Promise<void> {
 		fixRunActor(run.id),
 		{ heldAt: run.resultAt ?? undefined },
 	);
+	if (ended) await forgetResultObject('fix', run.id);
 }

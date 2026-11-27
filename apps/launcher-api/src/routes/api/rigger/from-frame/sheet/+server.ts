@@ -26,7 +26,14 @@ import {
 } from '$lib/server/rigFrameSourceStore';
 import { irigTarget } from '$lib/server/riggerIrigWrite';
 import { rigBundleNameTaken } from '$lib/server/rigIndex';
-import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
+import { requestModules } from '$lib/server/riggerNewRig';
+import {
+	drawnInto,
+	moduleChoiceProblem,
+	offDefault,
+	templateWithModules,
+} from '$lib/server/rigTemplateModules';
+import { bundleModules, rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { toolHandoff } from '$lib/server/toolLaunch';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -43,7 +50,8 @@ const TIMEOUT_MS = 120_000;
  * shows (a cut re-run or touched up elsewhere since is a 409), `name` the rig's. The template is
  * fitted to the cut's joints (`rigFrameFit.ts`) and atlas-tool makes each part whole, fills what it
  * hides on the CPU, turns it to its bone's rest and packs the sheet `<name>_parts` into this
- * project. The answer is what ＋ New rig takes (`manifestKey`, `templateId`, `fit`) with the parts'
+ * project. `modules` is the rig's module set (docs/design/rig-modules.md §5): a part it leaves out is
+ * drawn into the part above it (a hand into its forearm). The answer is what ＋ New rig takes (`manifestKey`, `templateId`, `fit`) with the parts'
  * report (and the frame each part taken from another frame came from: `frames`); the page then
  * creates the rig through `/api/rigger/new`. Gated by `rigger`.
  *
@@ -107,8 +115,15 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const cut = JSON.parse(read.text) as StoredCut;
 	const trackText = await getObjectText(`${root}/track.json`);
 	if (!trackText) throw error(404, "That cut's joints are gone: cut the frame again.");
-	const template = await rigTemplateForNewRig(cut.template);
-	if (!template) throw error(404, `The cut's template "${cut.template}" is gone.`);
+	const whole = await rigTemplateForNewRig(cut.template);
+	if (!whole) throw error(404, `The cut's template "${cut.template}" is gone.`);
+	// The module set (docs/design/rig-modules.md §5): the page's (＋ New rig's, or ✂ Edit cut's for an
+	// update), else an updated rig's own. A part it leaves out is drawn into another (a hand: its forearm).
+	const modules =
+		requestModules(body.modules) ?? (rig ? await bundleModules(bundlePrefixOf(rig)) : {});
+	const unchosen = moduleChoiceProblem(whole, modules);
+	if (unchosen) throw error(400, unchosen);
+	const template = templateWithModules(whole, modules);
 	// Each taken prop hangs from a bone of its own at its pivot, read off the label map.
 	const labelsPng = await getObjectBytes(`${root}/labels.png`);
 	if (!labelsPng) throw error(404, "That cut's label map is gone: cut the frame again.");
@@ -137,6 +152,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			JSON.parse(trackText) as TrackFrame,
 			propPivots(labels.data, labels.width, cut),
 			sources,
+			drawnInto(whole, template),
 		),
 	);
 	if (!planned.ok) throw error(422, `The rig cannot be fitted to this cut: ${planned.problem}.`);
@@ -151,7 +167,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		via: 'header',
 		withPublish: false,
 	});
-	const { fit, scale, origin, parts, order, foreshortened, face } = planned.value;
+	const { fit, scale, origin, parts, order, foreshortened, face, merge } = planned.value;
 	let res: Response;
 	try {
 		res = await fetch(`${base}/rig-from-frame/parts`, {
@@ -164,6 +180,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 				origin,
 				parts,
 				order,
+				...(merge ? { merge } : {}),
 				fill: 'cpu',
 				...(rig ? { replace: true, replace_etag: replaceEtag } : {}),
 			}),
@@ -185,6 +202,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	return json({
 		manifestKey: out.manifestKey,
 		templateId: template.id,
+		modules: offDefault(whole, modules),
 		fit,
 		fill: out.fill,
 		parts: out.parts,

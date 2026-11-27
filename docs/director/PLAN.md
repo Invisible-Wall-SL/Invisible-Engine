@@ -165,7 +165,12 @@ Update from main when GitHub can merge cleanly; Resolve conflict otherwise: mech
 rules in code, real conflicts proposed by Claude Code, nothing lands until a person accepts. Cards
 15A–15D are in the ADR's phasing. **15A done** (#1938, live 2026-11-26): Update from main, On hold and
 Resume; the `on-hold` label exists; the spike (#1940) showed `update-branch` as the App is accepted
-over a workflow change. Next: 15B1 and 15C in parallel (15C proves the Git Data Accept path).
+over a workflow change. **15B1 built** (2026-11-27, branch `merge-main-15b1`, not pushed):
+`scripts/merge-main/` (`merge.mjs` for job `merge`, `collect.mjs` `stage` and `result` for job
+`propose`), `pnpm check:merge-main`, and the ADR §9 replay: 106 of the window's 212 conflicted
+merges are mechanical-only, and 81 equal what the person committed (manifests aside). Next: 15C
+(in parallel, proves the Git Data Accept path) and 15B2 (the YAML, wired from
+`scripts/merge-main/README.md`).
 
 ## Phase 6 — Pilot
 

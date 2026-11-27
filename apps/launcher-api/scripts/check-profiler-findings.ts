@@ -930,6 +930,41 @@ test('15. GPU- or CPU-bound: the Salmons reading is CPU-bound against a 60 Hz fr
 	);
 });
 
+test('15. GPU- or CPU-bound: an arcade reading with busy time is judged on that, not on fps', () => {
+	const busy = arcadeItem('busy', {
+		gpu: 'Adreno 750',
+		menu: null,
+		play: phase(1800, 30),
+		counts: busyCounts(19),
+	});
+	const plain = arcadeItem('plain', { gpu: 'Adreno 610', play: phase(1800, 30) });
+	const ctx = ctxOf({
+		gameKind: 'arcade',
+		readings: [busy, plain],
+		readingFacts: new Map([
+			['busy', facts({ timing: { play: timing(1800, 19, 6, 15) } })],
+			['plain', facts({ timing: { play: timing(1800, 19, 6, 15) } })],
+		]),
+	});
+	const check = (rule: Rule) => {
+		const fs = rule(ctx);
+		assert.deepEqual(
+			fs.map((f) => (f.id.includes('Adreno 610') ? 'plain' : 'busy')),
+			['plain'],
+			'only the reading with no busy time is judged on its 30 fps; busy time is fpsBelowBudget’s',
+		);
+	};
+	const ignoresBusy: Rule = (c) =>
+		RULES.gpuCpuBound({
+			...c,
+			readings: c.readings.map((r) => ({
+				...r,
+				counts: r.counts && { ...r.counts, timing: undefined },
+			})),
+		});
+	holds('gpuCpuBound', check, RULES.gpuCpuBound, ignoresBusy);
+});
+
 test('15. fps below budget: an arcade game’s play line, owned by its kind’s agent', () => {
 	const fs = RULES.fpsBelowBudget(
 		ctxOf({ gameKind: 'arcade', readings: [arcadeItem('s', { play: phase(1800, 40) })] }),
@@ -937,6 +972,161 @@ test('15. fps below budget: an arcade game’s play line, owned by its kind’s 
 	assert.deepEqual(
 		fs.map((f) => [f.id.split(':').at(-1), f.severity, f.owner.id]),
 		[['play', 'high', 'arcade-games']],
+	);
+});
+
+const busyCounts = (p95: number, over: Partial<PerfCounts> = {}): PerfCounts => ({
+	idle: null,
+	spinning: null,
+	textureMb: null,
+	timing: {
+		budgetMs: 16.7,
+		achievedHz: 30,
+		displayHz: 60,
+		hiddenMs: 0,
+		hiddenFrames: 0,
+		throttledFrames: 0,
+		visibilityState: 'visible',
+		gpuTimer: 'n/a',
+		busy: { play: { frames: 1800, p50: p95 - 3, p95, max: p95 * 2 } },
+	},
+	...over,
+});
+
+test('15. fps below budget: an arcade reading is judged on busy time, never a throttled one', () => {
+	const check = (rule: Rule) => {
+		const slow = (id: string, over: Partial<PerfReportListItem> = {}) =>
+			arcadeItem(id, {
+				menu: null,
+				lobby: null,
+				// 30 fps would fail an fps line; the busy time is what is judged.
+				play: phase(1800, 30),
+				counts: busyCounts(19),
+				...over,
+			});
+		const fs = rule(
+			ctxOf({
+				gameKind: 'arcade',
+				readings: [
+					slow('a'),
+					slow('b'),
+					slow('hidden', {
+						gpu: 'Adreno 740',
+						counts: busyCounts(40, { throttled: 'median frame 1004 ms' }),
+					}),
+					slow('fine', { gpu: 'Adreno 750', counts: busyCounts(9) }),
+				],
+			}),
+		);
+		assert.deepEqual(
+			fs.map((f) => [f.id.split(':').slice(-2).join(':'), f.severity, f.owner.id]),
+			[['busy:play', 'high', 'arcade-games']],
+			'the slow phone only: not the throttled one, not the light one, no fps finding',
+		);
+		assert.match(fs[0].title, /play busy 19 ms \(p95\)/);
+		assert.deepEqual(fs[0].estimate, {
+			value: 5,
+			unit: 'ms',
+			basis: 'ms of busy time over the warn line',
+		});
+		assert.deepEqual(fs[0].evidence.map((e) => e.id).sort(), ['a', 'b']);
+	};
+	const throttledAsFine: Rule = (ctx) =>
+		RULES.fpsBelowBudget({
+			...ctx,
+			readings: ctx.readings.map((r) => ({
+				...r,
+				counts: r.counts && { ...r.counts, throttled: undefined },
+			})),
+		});
+	holds('fpsBelowBudget', check, RULES.fpsBelowBudget, throttledAsFine);
+});
+
+test('14. a perf: 10 report: busy time, the achieved and display rates, the scene, the split phases', () => {
+	const f = reportFacts({
+		perf: 10,
+		kind: 'arcade',
+		achievedHz: 30,
+		displayHz: 60,
+		budgetMs: 16.7,
+		loading: { frames: 90, fps: 20, p50: 40, p95: 90 },
+		lobby: { frames: 300, fps: 60, p50: 16.7, p95: 17 },
+		play: { frames: 1800, fps: 30, p50: 33, p95: 40 },
+		busy: { play: { frames: 1800, p50: 12, p95: 15.5, max: 40 } },
+		gpuMs: { play: { count: 40, p50: 6, p95: 9, max: 12 } },
+		work: {
+			play: {
+				frames: 1800,
+				perFrame: { tickMs: { mean: 10, p95: 14, max: 30 }, simMs: { mean: 2, max: 5 } },
+			},
+		},
+		arcade: { online: true, fixedHz: 30, patchHz: 20, lateMs: {} },
+		spikes: [
+			{ at: 1, ms: 200, loading: true, cause: 'first use', why: 'a mount' },
+			{ at: 2, ms: 90, spectate: true, cause: 'state patch', why: 'x' },
+			{ at: 3, ms: 80, cause: 'mixed', why: 'y' },
+		],
+		scene: {
+			samples: 4,
+			latest: {},
+			mean: { nodes: 48000, renderables: 47000, visible: 2000, culled: 45000, walkMs: 2.1 },
+			layers: [
+				{
+					label: 'river',
+					nodes: 47000,
+					renderables: 46000,
+					visible: 1500,
+					culled: 44500,
+					renderGroup: true,
+					draws: 6,
+					passes: 1,
+					filterPasses: 0,
+				},
+				{
+					label: 'bodies',
+					nodes: 300,
+					renderables: 300,
+					visible: 200,
+					culled: 100,
+					renderGroup: false,
+				},
+			],
+			rest: { draws: 9, passes: 3, filterPasses: 8, targetSwitches: 4 },
+		},
+	});
+	assert.equal(f.refreshHz, 30, 'the achieved rate');
+	assert.deepEqual([f.displayHz, f.budgetMs], [60, 16.7]);
+	assert.deepEqual(Object.keys(f.timing), ['loading', 'lobby', 'play', 'spectate']);
+	assert.deepEqual([f.timing.play?.busyP50, f.timing.play?.busyP95], [12, 15.5]);
+	assert.deepEqual([f.timing.play?.gpuP50, f.timing.play?.gpuP95], [6, 9]);
+	assert.equal(f.timing.lobby?.busyP95, undefined, 'no busy time reported, none invented');
+	assert.deepEqual(
+		f.spikes.map((s) => s.phase).sort(),
+		['lobby', 'loading', 'spectate'].sort(),
+		'a record names its phase; none is the lobby',
+	);
+	assert.equal(f.arcade?.menu, null);
+	assert.equal(f.arcade?.lobby?.work.simMs, null);
+	assert.deepEqual(
+		[
+			f.scene?.samples,
+			f.scene?.nodes,
+			f.scene?.layers[0].label,
+			f.scene?.layers[0].draws,
+			f.scene?.layers[1].draws,
+		],
+		[4, 48000, 'river', 6, null],
+	);
+	assert.equal(f.scene?.rest.filterPasses, 8);
+	assert.equal(
+		reportFacts({ ...{ perf: 9, kind: 'arcade' }, menu: { frames: 5 }, refreshHz: 60 }).refreshHz,
+		60,
+	);
+	assert.equal(
+		reportFacts({ perf: 8, kind: 'arcade', spikes: [{ at: 1, ms: 80, cause: 'x', why: '' }] })
+			.spikes[0].phase,
+		'menu',
+		'a perf: 8 record with no flag is the menu',
 	);
 });
 
