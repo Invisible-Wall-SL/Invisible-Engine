@@ -72,7 +72,7 @@ export type EvidenceRef =
  */
 export interface Estimate {
 	value: number;
-	unit: 'fps' | 'draws' | 'MB' | 'GPU MB' | 'spikes';
+	unit: 'fps' | 'ms' | 'draws' | 'MB' | 'GPU MB' | 'spikes';
 	/** What the number is, in words ("fps a phone gains with particles off"). */
 	basis: string;
 }
@@ -184,6 +184,8 @@ export const buildRef = (b: PerfBuildListItem): EvidenceRef => ({
  */
 const RANK_SCALE: Record<Estimate['unit'], number> = {
 	fps: 60,
+	// Busy time over its line, against the 60 Hz frame it must fit.
+	ms: 16.7,
 	'GPU MB': 150,
 	MB: 25,
 	draws: 100,
