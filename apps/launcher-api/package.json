@@ -50,6 +50,8 @@
 		"check:bug-reports": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bug-reports.ts",
 		"check:bug-fix-runs": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bug-fix-runs.ts",
 		"check:pipeline-changes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pipeline-changes.ts",
+		"check:merge-main-runs": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-merge-main-runs.ts",
+		"check:merge-main-join": "tsx --tsconfig tsconfig.scripts.json scripts/check-merge-main-join.ts",
 		"list:project-folder-aliases": "tsx --tsconfig tsconfig.scripts.json scripts/list-project-folder-aliases.ts",
 		"check:project-create": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-create.ts",
 		"check:project-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scope.ts",

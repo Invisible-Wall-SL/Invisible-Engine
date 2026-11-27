@@ -100,6 +100,7 @@ const PROTECTED = [
 	'scripts/git-hooks/**',
 	'scripts/check-secrets.mjs',
 	'scripts/bug-fix/**',
+	'scripts/merge-main/**',
 	'scripts/current-games/**',
 	'services/director-worker/agents/**',
 	'services/director-worker/families/**',
@@ -1786,8 +1787,8 @@ const MUTANTS = [
 	[
 		'coordinator-refusals',
 		'change',
-		'\nfunction pathProblem(path: string): string | null {',
-		"\nfunction nameProblem(path: string): string | null {\n\treturn path.endsWith('~') ? 'a name ends in a tilde' : null;\n}\n\nfunction pathProblem(path: string): string | null {",
+		'\nexport function pathProblem(path: string): string | null {',
+		"\nfunction nameProblem(path: string): string | null {\n\treturn path.endsWith('~') ? 'a name ends in a tilde' : null;\n}\n\nexport function pathProblem(path: string): string | null {",
 	],
 	['coordinator-refusals', 'change', 'function pathProblem(', 'function pathCheck('],
 	['coordinator-refusals', 'coordinator', ', or with a name ending in a dot or a space;', ';'],

@@ -980,7 +980,7 @@ function relinkFx(){
   // a .webp sharing a stem) bound BOTH as the glow child of the same base — export
   // then renamed both to `<base>_glow` and the server rejected the duplicate name.
   // Demoting (rather than dropping) keeps the stray cell visible + deletable.
-  const claimed={}, slot=(baseSrc,mode)=>baseSrc+' '+mode;
+  const claimed={}, slot=(baseSrc,mode)=>baseSrc+'\u0000'+mode;
   const claim=(r,baseSrc,mode)=>{
     const k=slot(baseSrc,mode);
     if(claimed[k]){ r.fx_of=''; r.fx_mode=''; return false; }

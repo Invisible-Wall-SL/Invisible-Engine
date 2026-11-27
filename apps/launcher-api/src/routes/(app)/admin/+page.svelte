@@ -2402,6 +2402,26 @@
 					</label>
 					<button type="submit">Save diagnose run budget</button>
 				</form>
+				<InfoTip label="Resolve conflict budget">
+					A Resolve conflict run merges main into a change and proposes how to settle what
+					conflicts; nothing is pushed until a person accepts. It stops at its own cap, and its
+					spend counts toward the monthly ceiling. Default
+					<strong>${data.pipelineFix.mergeMainBudgetDefaultUsd}</strong>.
+				</InfoTip>
+				<form method="POST" action="?/setPipelineMergeMainBudget" use:enhance class="runpod-idle">
+					<label class="minutes">
+						Resolve conflict budget (USD)
+						<input
+							name="budgetUsd"
+							type="number"
+							min={data.director.budgetMinUsd}
+							max={data.director.budgetMaxUsd}
+							step="0.01"
+							value={data.pipelineFix.mergeMainBudgetUsd}
+						/>
+					</label>
+					<button type="submit">Save resolve conflict budget</button>
+				</form>
 				<InfoTip label="Monthly ceiling">
 					Once this calendar month's fix runs have spent the ceiling, new ones are refused; a run
 					already going is never stopped. Default
