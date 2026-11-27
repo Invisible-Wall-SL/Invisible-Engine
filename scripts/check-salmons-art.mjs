@@ -95,9 +95,16 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PIXI_CJS = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve(
 	'pixi.js',
 );
-const { Container, FilterSystem, Matrix, Rectangle, RendererType, Texture } = await import(
-	pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href
-);
+const {
+	ColorMatrixFilter,
+	colorMatrixFilterFrag,
+	Container,
+	FilterSystem,
+	Matrix,
+	Rectangle,
+	RendererType,
+	Texture,
+} = await import(pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href);
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
 const SHEETS = join(ART, 'sheets');
 
@@ -773,7 +780,9 @@ check(
 		assert.equal(into.filters, undefined, 'never touched on land');
 		assert.equal(into.filterArea, undefined);
 		assert.equal(made.length, 0, 'no filter is made for a bear that never wades');
-		assert.deepEqual(wading.drawn(), { b: { depth: 0, tint: null, line: null, filtered: false } });
+		assert.deepEqual(wading.drawn(), {
+			b: { depth: 0, tint: null, line: null, drawnUnder: false, pass: false },
+		});
 
 		// Into the water: the line rises from the feet to its level over 250 ms.
 		const levels = [];
@@ -793,7 +802,8 @@ check(
 		const wet = wading.drawn().b;
 		assert.equal(wet.depth, 1);
 		assert.equal(wet.tint, 0x0ea5e9);
-		assert.equal(wet.filtered, true);
+		assert.equal(wet.drawnUnder, true);
+		assert.equal(wet.pass, true, 'a look that does not draw its own water: through the pass');
 		assert.deepEqual(wet.line, waterlineOf(1, { middle: 54, width: 75, bottom: 0 }, at));
 		const { uLine, uUnder } = uniformsOf(surface.filter);
 		assert.deepEqual(
@@ -823,7 +833,13 @@ check(
 		step(WADE_PLACES.bank);
 		assert.deepEqual(filtersOf(into), [], 'no filter on land');
 		assert.equal(into.filterArea, undefined);
-		assert.deepEqual(wading.drawn().b, { depth: 0, tint: null, line: null, filtered: false });
+		assert.deepEqual(wading.drawn().b, {
+			depth: 0,
+			tint: null,
+			line: null,
+			drawnUnder: false,
+			pass: false,
+		});
 		assert.equal(destroyed(surface.filter), false, 'kept for the next time it wades');
 		step(WADE_PLACES.water);
 		assert.deepEqual(filtersOf(into), [surface.filter]);
@@ -977,7 +993,7 @@ check(
 				);
 			assert.equal(into.filters, undefined, 'a refused pass is never put on a look');
 			assert.deepEqual(refused.made, [undefined], 'asked once a player');
-			assert.deepEqual(refused.wading.drawn().b.filtered, false);
+			assert.deepEqual(refused.wading.drawn().b.drawnUnder, false);
 			assert.equal(warned.length, 1);
 			assert.match(warned[0], /wading pass did not compile/);
 		} finally {
@@ -990,6 +1006,80 @@ check(
 		assert.match(
 			readFileSync(join(ART, 'index.ts'), 'utf8'),
 			/river: \(into, app\) => \{[\s\S]*?\n\t\t\twarmWade\(app\);\n/,
+		);
+	},
+);
+
+check(
+	'wading: a look that draws its own water never takes the pass: it is told the line, and on land nothing',
+	() => {
+		const kit = wadeKit();
+		const told = [];
+		let drawsIt = true;
+		const look = wadeLook();
+		const mount = Object.assign(look.mount, {
+			water: (under) => {
+				told.push(under);
+				return drawsIt;
+			},
+		});
+		let into = kit.publish(
+			'b',
+			kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 0)),
+		);
+		into = kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 16)));
+		assert.equal(into.filters, undefined, 'no filter on its container, ever');
+		assert.equal(kit.made.length, 0, 'no pass is made for it');
+		const last = told.at(-1);
+		assert.ok(last && last.line.sag > 0, 'it is told the waterline');
+		assert.deepEqual(last.under, underTint(0x0ea5e9, TINT_ALPHA), 'and the water’s colour matrix');
+		assert.deepEqual(
+			{ drawnUnder: kit.wading.drawn().b.drawnUnder, pass: kit.wading.drawn().b.pass },
+			{ drawnUnder: true, pass: false },
+		);
+		for (let t = 32; t < 600; t += 16)
+			kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.bank, t)));
+		assert.equal(told.at(-1), undefined, 'stepped out: told it is on land');
+		assert.equal(into.filters, undefined);
+		// A look whose GPU refused its programs is drawn through the pass instead.
+		drawsIt = false;
+		for (let t = 600; t < 1200; t += 16)
+			kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, t)));
+		assert.deepEqual(filtersOf(into), [kit.made[0].filter], 'refused: the pass draws it');
+		assert.equal(kit.wading.drawn().b.pass, true);
+		kit.wading.destroy();
+	},
+);
+
+const { packedAlpha } = await import('../packages/engine-layout/src/lib/salmonsArt/bodyShaders.ts');
+check(
+	'body shaders: the salmon’s step is ColorMatrixFilter’s fragment, and a mesh’s alpha packed as Pixi packs it',
+	() => {
+		assert.ok(new ColorMatrixFilter().resolution === 1, 'the pass it replaces ran at resolution 1');
+		const source = readFileSync(join(ART, 'bodyShaders.ts'), 'utf8');
+		const lines = colorMatrixFilterFrag
+			.split('\n')
+			.map((l) => l.trim())
+			.filter((l) =>
+				/^(result\.[rgba] [+]?= |if \(color\.a > 0\.0\) \{|color\.rgb \/= color\.a;|rgb \*= result\.a;|finalColor = vec4\(rgb, result\.a\);)/.test(
+					l,
+				),
+			);
+		assert.equal(
+			lines.length,
+			24,
+			'the matrix, the un-premultiply and the premultiply of Pixi’s pass',
+		);
+		for (const line of lines) assert.ok(source.includes(line), `the step has \`${line}\``);
+		assert.match(colorMatrixFilterFrag, /vec3 rgb = mix\(color\.rgb, result\.rgb, uAlpha\);/);
+		assert.match(source, /vec3 rgb = mix\(color\.rgb, result\.rgb, uMatrixAlpha\);/);
+		assert.equal(packedAlpha(0.5), 127 / 255);
+		assert.equal(packedAlpha(1.2), 1, 'clamped to 1, as a group alpha is');
+		assert.equal(packedAlpha(-0.1), 0);
+		assert.match(
+			readFileSync(join(ART, 'index.ts'), 'utf8'),
+			/river: \(into, app\) => \{[\s\S]*?\n\t\t\twarmBodyShaders\(app\);\n/,
+			'the driver is asked for the programs as the river mounts',
 		);
 	},
 );

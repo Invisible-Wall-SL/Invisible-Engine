@@ -1,4 +1,15 @@
-import { ColorMatrixFilter, Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
+import {
+	Container,
+	Graphics,
+	Matrix,
+	Mesh,
+	MeshGeometry,
+	MeshRope,
+	Point,
+	RopeGeometry,
+	Texture,
+	type Application,
+} from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
 import {
@@ -14,7 +25,15 @@ import {
 	underwater,
 } from './leap';
 import { BLOOD, createRedness, type Blood } from './blood';
+import {
+	bodyShadersLink,
+	salmonUnder,
+	wadeGraphicsUnder,
+	wadeMeshUnder,
+	type WadeUnder,
+} from './bodyShaders';
 import type { SalmonsTextures } from './load';
+import type { OwnWater, WadingMount } from './wade';
 
 /**
  * SALMONS' CHARACTERS IN THEIR ORIGINAL ART, animated in code as the old client
@@ -24,7 +43,8 @@ import type { SalmonsTextures } from './load';
  *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up while it
  *   climbs a waterfall (the room holds it) with a pulse each tap; swimming in open water it is
  *   drawn under the water's tint with a white glint flashing along its spine, and breaks the surface
- *   (crisp, no glint) in the air, climbing or on sand or a rock; the golden one drawn with its own
+ *   (crisp, no glint) in the air, climbing or on sand or a rock (both in its rope's own program,
+ *   `bodyShaders.ts`: no pass of its own); the golden one drawn with its own
  *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`); caught
  *   into a fisherman's hands it is drawn there, out of the water, its tail flapping, and thrown it
  *   tumbles through the air as high as the room says ({@link CARRIED});
@@ -115,10 +135,12 @@ function createMotion() {
 	};
 }
 
-/** A look's container mounted into the place `<SpawnLayer>` gives it, and taken out again. */
+/** A look's container mounted into the place `<SpawnLayer>` gives it, and taken out again;
+ *  `shade` is told the app it is drawn by, to put its programs on (`bodyShaders.ts`). */
 const mountOf =
-	(view: Container): ArtMount =>
-	(into) => {
+	(view: Container, shade?: (app: Application) => void): ArtMount =>
+	(into, app) => {
+		shade?.(app);
 		into.addChild(view);
 		return () => {
 			into.removeChild(view);
@@ -190,17 +212,16 @@ function salmonLook(
 	);
 	const rope = new MeshRope({ texture: pink, points });
 	ropeBox.addChild(rope);
-	const glintBox = new Container();
-	glintBox.scale.set(m);
+	// The glint is not a mesh of its own: the rope's program draws it (`bodyShaders.ts`), from the
+	// strip a 7-point rope `GLINT_HALF` long each way would have, `m` the size of its px.
 	const glintPoints = Array.from(
 		{ length: GLINT_POINTS },
 		(_, i) => new Point(-GLINT_HALF + (i / (GLINT_POINTS - 1)) * 2 * GLINT_HALF, 0),
 	);
-	const highlight = new MeshRope({ texture: glint, points: glintPoints });
-	highlight.blendMode = 'add';
-	highlight.alpha = 0;
-	glintBox.addChild(highlight);
-	body.addChild(ropeBox, glintBox);
+	const glintStrip = new RopeGeometry({ width: glint.height, points: glintPoints });
+	const glintToRope = m / (bodyW / texW);
+	const shader = salmonUnder(pink, glint);
+	body.addChild(ropeBox);
 
 	const motion = createMotion();
 	// The original faced a new salmon upstream (`sprite.scale.set(-1, 1)`): its texture faces right.
@@ -217,25 +238,22 @@ function salmonLook(
 	let under = false;
 	let inHands = false;
 	let inAir = false;
-	let tintFilter: ColorMatrixFilter | undefined;
 	let tinted: number | undefined;
 	const redness = createRedness();
 	let red = false;
-	/** Draw the body under `tint` (the water's), or crisp with none. */
+	/** Draw the body under `tint` (the water's), or crisp with none: a uniform, not a pass. */
 	const tintUnder = (tint: number | undefined) => {
 		if (tint === tinted) return;
 		tinted = tint;
-		if (tint === undefined) {
-			body.filters = [];
-			return;
-		}
-		tintFilter ??= new ColorMatrixFilter();
-		tintFilter.matrix = underTint(tint, tintAlpha) as ColorMatrixFilter['matrix'];
-		body.filters = [tintFilter];
+		shader.under(tint === undefined ? undefined : underTint(tint, tintAlpha));
 	};
 
 	return {
-		mount: mountOf(view),
+		mount: mountOf(view, (app) => {
+			if (rope.shader || !bodyShadersLink(app)) return;
+			shader.shader.texture = rope.texture;
+			rope.shader = shader.shader;
+		}),
 		hand: undefined,
 		middle: drawnH / 2,
 		drawn: () => ({
@@ -326,11 +344,12 @@ function salmonLook(
 				rope.tint = red ? BLOOD.red : 0xffffff;
 			}
 			if (blooded.shed) blood.shed(f.x, f.y, now);
-			highlight.visible = open;
+			let glintAlpha = 0;
 			if (open) {
 				glintPoints.forEach((p, i) => {
 					p.y = (points[GLINT_FROM + i].y * OLD_SALMON) / texW;
 				});
+				glintStrip.updateVertices();
 				if (now >= flash.next)
 					flash = {
 						at: now,
@@ -339,17 +358,34 @@ function salmonLook(
 					};
 				const k = (now - flash.at) / flash.ms;
 				const bell = k >= 0 && k <= 1 ? Math.sin(k * Math.PI) : 0;
-				highlight.alpha = bell * bell * 1.2;
-			} else highlight.alpha = 0;
+				glintAlpha = bell * bell * 1.2;
+			}
+			shader.glint(glintStrip, glintToRope, glintAlpha);
 		},
 		destroy: () => {
 			view.destroy({ children: true });
-			tintFilter?.destroy();
+			glintStrip.destroy();
+			shader.destroy();
 		},
 	};
 }
 
 const SWIPE_MS = 300;
+
+/** A quad drawing `texture` as a `Sprite` anchored at `anchor` draws it (Pixi's `updateQuadBounds`),
+ *  its UVs the frame's own (the program takes them to the page). */
+function quadOf(texture: Texture, anchor: number): MeshGeometry {
+	const { orig, trim } = texture;
+	const w = trim ? trim.width : orig.width;
+	const h = trim ? trim.height : orig.height;
+	const x0 = (trim ? trim.x : 0) - anchor * orig.width;
+	const y0 = (trim ? trim.y : 0) - anchor * orig.height;
+	return new MeshGeometry({
+		positions: new Float32Array([x0, y0, x0 + w, y0, x0 + w, y0 + h, x0, y0 + h]),
+		uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+		indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+	});
+}
 
 function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 	const texture = art.region('bear');
@@ -359,18 +395,53 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 	const centre = new Container();
 	centre.y = -drawnH / 2;
 	view.addChild(centre);
-	const sprite = new Sprite(texture);
-	sprite.anchor.set(0.5);
+	// A mesh and not a `Sprite`, so its program can draw the water it wades in (`wade.ts`).
+	const sprite = new Mesh({ geometry: quadOf(texture, 0.5), texture });
 	sprite.scale.set(bodyW / texture.width);
 	const claw = new Graphics().ellipse(-18, 0, 22, 4).fill(0x664422);
 	claw.scale.set(k);
 	claw.visible = false;
 	centre.addChild(sprite, claw);
+	const pictureWater = wadeMeshUnder(texture);
+	const clawWater = wadeGraphicsUnder();
+	let app: Application | undefined;
+	let shaded = false;
+	const feet = new Matrix();
+	/** A part's transform into the container the look is mounted in. */
+	const feetOf = (part: Container) => {
+		for (const c of [view, centre, part]) c.updateLocalTransform();
+		return feet
+			.copyFrom(view.localTransform)
+			.append(centre.localTransform)
+			.append(part.localTransform);
+	};
+	const wade = (part: Container, water: Pick<WadeUnder, 'water'>, under: Parameters<OwnWater>[0]) =>
+		water.water(
+			under && app
+				? { ...under, feet: feetOf(part), resolution: app.renderer.resolution }
+				: undefined,
+		);
+	const water: OwnWater = (under) => {
+		if (!shaded) return false;
+		wade(sprite, pictureWater, under);
+		wade(claw, clawWater, under);
+		return true;
+	};
+	const mount: WadingMount = Object.assign(
+		mountOf(view, (drawnBy) => {
+			app = drawnBy;
+			if (shaded || !bodyShadersLink(drawnBy)) return;
+			sprite.shader = pictureWater.shader;
+			claw.context.customShader = clawWater.shader;
+			shaded = true;
+		}),
+		{ water },
+	);
 	const motion = createMotion();
 	let heading = 0;
 	let swipe = { at: -Infinity, side: -1, aim: 0 };
 	return {
-		mount: mountOf(view),
+		mount,
 		hand: undefined,
 		middle: drawnH / 2,
 		drawn: () => ({ kind: 'sprite', region: 'bear', swiping: claw.visible }),
@@ -389,7 +460,11 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 			claw.rotation = angle;
 			claw.alpha = 1 - t;
 		},
-		destroy: () => view.destroy({ children: true }),
+		destroy: () => {
+			view.destroy({ children: true });
+			pictureWater.destroy();
+			clawWater.destroy();
+		},
 	};
 }
 

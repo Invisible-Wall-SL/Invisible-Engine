@@ -17,6 +17,7 @@ import {
 	type SalmonsScreens,
 } from './screens';
 import { createWading, type WadeDrawn, type WadeFrame } from './wade';
+import { warmBodyShaders } from './bodyShaders';
 import { wadeSurface, warmWade } from './wadeFilter';
 import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';
@@ -28,7 +29,8 @@ import type { RiverZoneArt, SalmonsZoneArt } from './zoneArt';
  * lazily by the online runtime (`apps/lines` `game/online.ts`) only for a room whose config names
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
  * One thing here is not the old client's: the bear wades (`wade.ts`, `wadeFilter.ts`), drawn half
- * under the water it stands in whatever draws it.
+ * under the water it stands in whatever draws it. The water a code look is drawn under is in its
+ * own programs (`bodyShaders.ts`), with no pass per body.
  */
 
 export type {
@@ -95,7 +97,7 @@ export type SalmonsArt = {
 	/** How many stains and trail puffs are drawn (the probe's). */
 	blood: () => { stains: number; trail: number };
 	/** Each wading character whose look is mounted, by player: how deep, under which tint, at
-	 *  which waterline, and whether through the filter (the probe's). */
+	 *  which waterline, and whether drawn under, by a pass or its own programs (the probe's). */
 	wading: () => Record<string, WadeDrawn>;
 	destroy: () => void;
 };
@@ -147,6 +149,7 @@ export async function loadSalmonsArt(
 			);
 			const stains = blood.mount(into, app);
 			warmWade(app);
+			warmBodyShaders(app);
 			// The swimming salmon, and the trail and the stains on the water over it: over the tinted
 			// ground, under the bridges' reflections and every upright piece of the river.
 			art.aboveWater();
