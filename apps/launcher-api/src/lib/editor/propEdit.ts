@@ -307,6 +307,14 @@ export function setNodePropZOffset(node: LayoutNode, value: number | undefined):
 /** Whether a node takes a `propCell`: a component instance at a prop's root (a piece of its own). */
 export const propCellApplies = (def: ComponentDef, node: LayoutNode): boolean =>
 	!!def.prop && node.kind === 'componentInstance' && def.root.children.includes(node);
+/** Stand a root component instance at a ramp's foot (`near` / `far`, its `run` the ramp's), or
+ *  back at its cell (`undefined`). */
+export function setNodePropRamp(node: LayoutNode, ramp: 'near' | 'far' | undefined): boolean {
+	if (node.propRamp === ramp) return false;
+	if (ramp) node.propRamp = ramp;
+	else delete node.propRamp;
+	return true;
+}
 export function setNodePropCell(node: LayoutNode, cell: PropLength | undefined): boolean {
 	if (JSON.stringify(node.propCell) === JSON.stringify(cell)) return false;
 	if (cell === undefined) delete node.propCell;

@@ -163,6 +163,13 @@ interface BaseNode {
 	 * far slope's land cell is `{ param: 'length', plus: 1 }`). Absent ⇒ cell 0.
 	 */
 	propCell?: PropLength;
+	/**
+	 * A prop's root-level component instance that draws a RAMP (the seed's slopes): it stands at
+	 * the foot of the collider's `near` or `far` ramp, and its `run` param is that ramp's length in
+	 * cells toward the deck (+ near, − far), so the art follows the collider. Wins over `propCell`.
+	 * Absent ⇒ its `propCell`.
+	 */
+	propRamp?: 'near' | 'far';
 	overrides?: Partial<Record<LayoutType, NodeOverride>>;
 	visibleFor?: LayoutType[];
 	/**

@@ -566,8 +566,12 @@ Select a node to set its **Depth** card:
 - **Band**: *On the water*, *Behind characters*, *Sorted with characters* or *Over characters*.
   Empty takes the parent's band.
 - **Z offset**: for *Behind* and *Sorted*. Empty is 1100 sorted (the deck's) or 0 behind.
-- **Cell**: for a component instance at the root. A number (`-2`), or a param plus cells
-  (`length+1`).
+- **Stands at**: for a component instance at the root, *its cell*, *the near ramp's foot* or
+  *the far ramp's foot*. A piece at a ramp's foot gets the ramp's length as its `run` param, so it
+  follows the collider: drag the near ramp to 3 and the seed's near slope draws 3 cells long, in
+  the game and in the prop view. The seed's two slopes stand at their ramps' feet.
+- **Cell**: for a component instance at the root that stands at its cell. A number (`-2`), or a
+  param plus cells (`length+1`).
 
 The Outline shows each node's band as a chip. The chip is dim when the band is inherited.
 
@@ -811,9 +815,7 @@ where the instance is placed, not on the board.
 
 ## Known limitations / TODOs
 
-- **A prop's art does not follow its collider.** The seed's slopes are drawn `run` ±2 cells (a
-  param on each slope piece). Make a ramp 3 cells long and its slope still draws 2. Change the
-  slope piece's `run` too. The collider overlay is drawn on the ground, under the raised deck.
+- **The collider overlay is drawn on the ground,** under the raised deck.
 - **The prop view previews Salmons only:** its mirrored projection, its 48 px cell and a fisherman
   stand-in. A prop of another zone kind would need its own.
 

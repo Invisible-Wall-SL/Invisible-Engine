@@ -7,7 +7,9 @@ import type { ComponentDef, LayoutNode, PropDepth, PropLength, SmLayer, SmState 
  * - a count-mode repeater: one piece per cell of the zone, its `first` / `middle` / `last` variant
  *   (one cell ⇒ `first`), with the cell's `index` (1-based) and `count` as params and as held
  *   inputs, as the repeater hands a segment them;
- * - a component instance: one piece at its `propCell`, with its own params.
+ * - a component instance: one piece at its `propCell`, with its own params; one with a `propRamp`
+ *   stands at that ramp's foot instead, its `run` param the ramp's length toward the deck (+ near,
+ *   − far), so a ramp's art follows the collider.
  * Each piece takes the prop's zone params (`fromZone.length` / `height`, and the param the def is
  * scoped by: the zone's id), so a piece def reads the deck's height and hears its own zone's
  * triggers. A child's band is its `propDepth` (else the root's, else `sorted`) and its depth offset
@@ -48,6 +50,10 @@ export function propPieces(def: ComponentDef, zone: PropZone, cell: number): Pro
 	if (prop.fromZone.height && height !== undefined) shared[prop.fromZone.height] = height;
 	if (def.signalScope) shared[def.signalScope] = zone.id;
 	const row = zone.y + zone.h / 2;
+	/** A ramp's length in cells, as the compile reads it: a number, or its param's default. */
+	const defaults = Object.fromEntries((def.params ?? []).map((p) => [p.key, p.default]));
+	const rampOf = (end: 'near' | 'far'): number =>
+		propCellOf(prop.collider.ramps[end].length, { ...defaults, ...shared });
 	const out: PropPiece[] = [];
 	for (const child of def.root.children) {
 		const band: PropDepth = child.propDepth ?? def.root.propDepth ?? 'sorted';
@@ -72,8 +78,14 @@ export function propPieces(def: ComponentDef, zone: PropZone, cell: number): Pro
 				});
 			}
 		} else if (child.kind === 'componentInstance') {
-			const c = propCellOf(child.propCell, shared);
-			out.push(piece(c, child.componentId, { ...(child.params ?? {}) }));
+			const params = { ...(child.params ?? {}) };
+			let c = propCellOf(child.propCell, shared);
+			if (child.propRamp) {
+				const run = rampOf(child.propRamp);
+				c = child.propRamp === 'near' ? -run : length - 1 + run;
+				params.run = child.propRamp === 'near' ? run : -run;
+			}
+			out.push(piece(c, child.componentId, params));
 		}
 	}
 	return out;

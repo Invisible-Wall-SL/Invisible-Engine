@@ -110,6 +110,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-27 — **Prop components: a ramp's art follows the collider** (PR #1929;
+  [arcade-prop-components](../design/arcade-prop-components.md) §7 "As built (painted art)").
+  - A root piece with `propRamp` (Depth → **Stands at**) stands at that ramp's foot, with `run`
+    set to the ramp's length. The seed's slopes use it, so a longer ramp draws a longer slope, in
+    the game and in the prop view.
+  - Today's 2/2 bridge is unchanged: `check:prop-depth` 30 (a near ramp of 3 drawn as the rule
+    plays it), `check:salmons-art` 50, `check:salmons-levels` 28, `check:component-prop-editor`
+    59.
+  - The seed `bridgeProp`'s pin in `test-hold-and-win-template` was re-pinned.
 - 2026-11-27 — **Prop components: painted art in every band** (PR #1929; [arcade-prop-components](../design/arcade-prop-components.md)
   §7 "As built (painted art)").
   - The river now draws a prop piece's `sprite` and `flipbook` nodes in the water and behind bands,

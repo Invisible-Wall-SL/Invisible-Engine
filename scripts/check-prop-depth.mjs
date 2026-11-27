@@ -17,6 +17,8 @@
 //   clip in place of the seed's drawing, is drawn by the river in the same layers, places and
 //   order: each sprite with its node's anchor, size, rotation, alpha and tint, the clip played,
 //   a hidden node left out, the seed's drawing of the copy's own `PropGraphic` nodes unchanged;
+// - the slopes follow the collider: a near ramp of 3 (a number, or its `nearRamp` param) stands the
+//   near slope's foot 3 cells out, where the rule's ramp starts, and runs it to the deck's end;
 // - a character on the deck (`z > 0`) sorts over the deck cell it stands on, and under an `over`
 //   piece anywhere on that cell; one under the deck (`z` 0) sorts under the cell when behind it.
 //
@@ -45,6 +47,10 @@ import {
 import { drawPropGraphic, propScalar } from '../packages/engine-layout/src/lib/propGraphic.ts';
 import { riverElevation } from '../packages/engine-layout/src/lib/referenceLayouts/salmonsElevation.ts';
 import { placeSalmonsProp } from '../packages/engine-layout/src/lib/salmonsArt/propPlacement.ts';
+import { compilePropShape } from '../packages/engine-mechanics/src/propShape.js';
+import { bridgeDecks } from '../packages/engine-mechanics/src/salmonsRules.js';
+import { salmonsGeometry as geometryOf } from '../packages/engine-mechanics/src/salmons.js';
+import { resolvePropGraphic } from '../packages/engine-layout/src/lib/propGraphic.ts';
 import { aloftDepth, deckLift } from '../packages/engine-layout/src/lib/salmonsArt/bridge.ts';
 import { CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
 
@@ -451,6 +457,68 @@ check(
 		);
 		mounted.teardown();
 		unregister();
+	},
+);
+
+check(
+	'the slopes follow the collider: a near ramp of 3 stands its foot 3 cells out, as the rule',
+	() => {
+		const [, river] = RIVERS[0];
+		const bridge = river.bridges[0];
+		const zone = { id: 'bridge0', ...bridge };
+		const lift = riverElevation(river.waterfalls).at(bridge.y + CELL / 2);
+		const asNumber = structuredClone(BRIDGE_PROP_DEF);
+		asNumber.prop.collider.ramps.near = { length: 3 };
+		const asParam = structuredClone(BRIDGE_PROP_DEF);
+		asParam.params.push({ key: 'nearRamp', kind: 'number', default: 3 });
+		asParam.prop.collider.ramps.near = { length: { param: 'nearRamp' } };
+		for (const [label, def] of [
+			['a number', asNumber],
+			['its param', asParam],
+		]) {
+			const shape = compilePropShape(def);
+			assert.deepEqual(shape.ramp, { near: 3, far: 2 }, `${label}: the rule's ramps`);
+			const geometry = geometryOf(river, { 'bridge#': shape });
+			const deck = bridgeDecks({
+				zones: geometry.zones,
+				online: { rules: { zones: geometry.zoneRules } },
+			}).find((d) => d.id === 'bridge0');
+			const ruleFoot = deck.x + CELL / 2 - deck.ramp.near * CELL;
+			const pieces = placeSalmonsProp(def, zone, 0, lift);
+			const near = pieces.find((p) => p.id === 'bridge0:bridgeProp-nearSlope:-3');
+			const far = pieces.find((p) => p.id.startsWith('bridge0:bridgeProp-farSlope:'));
+			assert.ok(near, `${label}: the near slope stands at cell −3`);
+			assert.equal(near.params.run, 3, `${label}: and runs 3 cells`);
+			assert.equal(near.x, ruleFoot, `${label}: its foot is where the rule's ramp starts`);
+			assert.equal(far.params.run, -2, `${label}: the far slope keeps 2`);
+			const slope = defOf('bridgePropSlope');
+			const params = Object.fromEntries(slope.params.map((p) => [p.key, p.default]));
+			Object.assign(params, near.params);
+			const [shapeDrawn] = resolvePropGraphic(slope.root.children[0].bind.props.ops, {
+				project: ISO_PROJECTOR.project,
+				param: (k) => params[k],
+			});
+			const top = ISO_PROJECTOR.project(3 * CELL, 0);
+			assert.deepEqual(
+				shapeDrawn.points.slice(4, 6).map(round),
+				[
+					round(top.x + ISO_PROJECTOR.project(0, CELL / 2).x),
+					round(top.y + ISO_PROJECTOR.project(0, CELL / 2).y - deckLift(6)),
+				],
+				`${label}: its top is the deck's first cell, 3 cells along, at the deck's height`,
+			);
+		}
+		const seedPieces = placeSalmonsProp(BRIDGE_PROP_DEF, zone, 0, lift);
+		assert.deepEqual(
+			seedPieces
+				.filter((p) => p.componentId === 'bridgePropSlope')
+				.map((p) => [p.cell, p.params.run]),
+			[
+				[-2, 2],
+				[Math.round(bridge.w / CELL) + 1, -2],
+			],
+			'today’s bridge: the slopes as they were',
+		);
 	},
 );
 

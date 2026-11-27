@@ -12,6 +12,7 @@
 		propBandOf,
 		propCellApplies,
 		setNodePropCell,
+		setNodePropRamp,
 		setNodePropDepth,
 		setNodePropZOffset,
 	} from '$lib/editor/propEdit';
@@ -35,6 +36,7 @@
 			band: propBandOf(def.root, node.id) ?? 'sorted',
 			z: node.propZOffset,
 			cell: node.propCell,
+			ramp: node.propRamp,
 		};
 	});
 	function edit(fn: () => boolean): void {
@@ -105,6 +107,28 @@
 			</label>
 		{/if}
 		{#if propCellApplies(def, node)}
+			<label class="field">
+				<span
+					>Stands at <InfoTip
+						>A ramp’s foot: it stands where the collider’s ramp meets the bank, and its run param is
+						the ramp’s length, so the art follows a ramp you change. Else the cell below.</InfoTip
+					></span
+				>
+				<select
+					value={view.ramp ?? ''}
+					disabled={readOnly}
+					onchange={(e) => {
+						const v = e.currentTarget.value;
+						edit(() => setNodePropRamp(node, v === 'near' || v === 'far' ? v : undefined));
+					}}
+				>
+					<option value="">its cell</option>
+					<option value="near">the near ramp’s foot</option>
+					<option value="far">the far ramp’s foot</option>
+				</select>
+			</label>
+		{/if}
+		{#if propCellApplies(def, node) && !view.ramp}
 			<label class="field">
 				<span
 					>Cell <InfoTip

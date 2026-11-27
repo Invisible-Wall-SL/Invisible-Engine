@@ -52,6 +52,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	propDepth: true,
 	propZOffset: true,
 	propCell: true,
+	propRamp: true,
 	overrides: true,
 	visibleFor: true,
 	slotId: true,

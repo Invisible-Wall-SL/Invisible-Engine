@@ -28,7 +28,7 @@ import { bridgeDeckAt, bridgeDecks, bridgeOccupancy } from 'engine-mechanics/src
 
 import { PROP_MAX_SOLIDS } from 'engine-mechanics/src/propShape.js';
 
-import { normalizeProp } from '../src/lib/server/componentProp';
+import { normalizeProp, normalizePropDepths } from '../src/lib/server/componentProp';
 import {
 	PROP_CELL,
 	addPropSolid,
@@ -43,6 +43,7 @@ import {
 	propLengthValue,
 	removePropSolid,
 	setNodePropCell,
+	setNodePropRamp,
 	setNodePropDepth,
 	setNodePropZOffset,
 	setPropPreview,
@@ -55,7 +56,7 @@ import {
 	unmakeProp,
 } from '../src/lib/editor/propEdit';
 import { propStageItems } from '../src/lib/editor/propStage';
-import { BUILTIN_LIBRARY_COMPONENTS, BUILTIN_LIBRARY_TIMELINES } from 'engine-layout';
+import { BUILTIN_LIBRARY_COMPONENTS, BUILTIN_LIBRARY_TIMELINES, propPieces } from 'engine-layout';
 
 let passed = 0;
 let failed = 0;
@@ -403,6 +404,43 @@ const blank = (): ComponentDef => ({
 			.slice(under.findIndex((i) => 'kind' in i) + 1)
 			.some((i) => !('kind' in i) && i.band === 'sorted'),
 		true,
+	);
+}
+
+// ---- 10. a ramp piece follows the collider -------------------------------------------------------
+{
+	const def = blank();
+	makeProp(def);
+	const piece = def.root.children.find((n) => n.id === 'piece')!;
+	eq(
+		'a root instance stands at a ramp’s foot',
+		[setNodePropRamp(piece, 'near'), piece.propRamp],
+		[true, 'near'],
+	);
+	dragColliderHandle(def, 'near', { x: CELL / 2 - 4 * CELL, y: CELL / 2 });
+	const zone = { id: 'z', x: 0, y: 0, w: 6 * CELL, h: CELL, height: 4 };
+	const stands = propPieces(def, zone, CELL).find((p) => p.id.startsWith('z:piece:'));
+	eq(
+		'…a near ramp dragged to 4: its cell −4 and its run 4',
+		[stands?.cell, stands?.params.run],
+		[-4, 4],
+	);
+	eq(
+		'…kept by the save, a bad one dropped',
+		[
+			normalizePropDepths({ ...def.root }).children.find((n) => n.id === 'piece')?.propRamp,
+			'propRamp' in
+				(normalizePropDepths({
+					...def.root,
+					children: [{ ...piece, propRamp: 'middle' as never }],
+				}).children[0] ?? {}),
+		],
+		['near', false],
+	);
+	eq(
+		'…and back to its cell',
+		[setNodePropRamp(piece, undefined), 'propRamp' in piece],
+		[true, false],
 	);
 }
 

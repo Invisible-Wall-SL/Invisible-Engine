@@ -632,6 +632,18 @@ the 2-cell near slope) has merged.
      - Proof: `check:prop-depth` (a painted water copy and pillar copy: places, transforms,
        the clip's frames, the pillar cells only, at the band's Z) and
        `check:component-prop-editor` §9.
+   - **The slopes follow the collider's ramps.**
+     - A root component instance takes `propRamp: 'near' | 'far'`, a new `BaseNode` field that
+       the launcher keeps and the Depth card's **Stands at** sets. `propPieces` stands that piece
+       at the ramp's foot (cell `−near`, or `length − 1 + far`). It sets the piece's `run` param
+       to the ramp's length toward the deck: the collider's number, or its param's default
+       (`nearRamp` / `farRamp`), read as the compile reads it.
+     - The seed's slopes use it in place of a fixed `propCell` and `run` of ±2. A 2/2 bridge
+       stands and draws exactly as before (`check:prop-depth`, `check:salmons-art` unchanged;
+       `check:salmons-levels` reads the slopes through `propPieces`).
+     - A near ramp of 3, as a number or as its param, stands the near slope's foot where the
+       rule's ramp starts and runs it 3 cells to the deck (`check:prop-depth`). The editor's prop
+       view follows a dragged ramp (`check:component-prop-editor` §10).
 8. **P8 — live.** Publish Salmons with a project bridge. The owner changes a ramp and the art in the
    component window. The room plays the new ramp, and the device draws it.
    *Proof:* the published link in headless Chromium and the owner's look, by the checklist in
