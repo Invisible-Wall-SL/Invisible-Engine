@@ -20,7 +20,7 @@
  * not); texture data under first use's line while the camera moved is `tilemap/upload` (camera
  * still, not); room messages over 40% of the interval counted by the frame itself are a `state
  * patch` (counted by the frame before, not); a slot frame is classified as before; records keep the
- * arcade counts; an arcade recorder counts `menu` and `play` and flags a play record.
+ * arcade counts; an arcade recorder counts `loading`, `lobby`, `play` and `spectate` and flags a record of each.
  */
 
 import {
@@ -478,15 +478,23 @@ console.log('arcade causes');
 	rec.work(light);
 	rec.frame(2000, 70, 41.7, 'play', undefined, 1);
 	rec.work(light);
-	rec.frame(2100, 70, 41.7, 'menu', undefined, 2);
+	rec.frame(2100, 70, 41.7, 'lobby', 'countdown', 2);
+	rec.work(light);
+	rec.frame(2200, 70, 41.7, 'loading', undefined, 3);
+	rec.work(light);
+	rec.frame(2300, 70, 41.7, 'spectate', 'running', 4);
 	rec.work(light);
 	const s = rec.snapshot(41.7);
 	check(
-		'an arcade recorder counts menu and play, and a play record says so',
-		JSON.stringify(Object.keys(s.causes)) === '["menu","play"]' &&
+		'an arcade recorder counts loading, lobby, play and spectate, and a record says which',
+		JSON.stringify(Object.keys(s.causes)) === '["loading","lobby","play","spectate"]' &&
 			s.causes.play?.['outside the game'] === 1 &&
 			s.records[0].play === true &&
-			!s.records[1].play,
+			!s.records[1].play &&
+			!s.records[1].loading &&
+			s.records[1].state === 'countdown' &&
+			s.records[2].loading === true &&
+			s.records[3].spectate === true,
 		JSON.stringify(s),
 	);
 }

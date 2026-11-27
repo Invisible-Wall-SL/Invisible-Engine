@@ -8,10 +8,14 @@
  * a round, a moving reel in a round is spinning); churn counted per frame like the rest; the reel
  * step error is 0 for a value drawn at interval × speed (through a relayout jump)
  * and shows a value drawn a frame late; a hidden page's gap is not a frame; Reset clears.
- * Arcade phases: a slot feed's snapshot is byte-for-byte the one recorded before they existed (a
- * hash) and holds nothing arcade; an arcade feed splits into menu and play only, its sim, bodies
- * and room counts land in play, the room states' lateness is kept per phase. The cap: a steady
- * 30 fps of light frames is one, a steady 30 fps of frames busier than a 60 Hz frame is not.
+ * Arcade phases: a slot feed's snapshot, less what `perf: 10` added (busy time, hidden time, a
+ * p95 beside each mean), is byte-for-byte the one recorded before they existed (a hash) and holds
+ * nothing arcade; an arcade feed splits into loading, lobby, play and spectate only, its sim,
+ * bodies and room counts land in play, the room states' lateness is kept per phase. The cap: a
+ * steady 30 fps of light frames is one, a steady 30 fps of frames busier than a 60 Hz frame is not.
+ * `perf: 10`: busy time as p50 / p95 per phase against the display's frame period; hidden frames
+ * and a throttled page's 1000 ms frames; a p95 beside every work counter's mean; the display's
+ * rate from a side loop; GPU time and scene samples summarised.
  */
 
 import { ARCADE_WORK_KEYS } from './arcadePerf.ts';
@@ -76,7 +80,7 @@ const drive = (
 	const s = drive(frames(33.3, 120, 0.4), () => false).snapshot();
 	check(
 		'30 fps steady is flagged as a 30 fps cap',
-		s.capped30 && s.refreshHz === 30,
+		s.capped30 && s.achievedHz === 30,
 		JSON.stringify(s),
 	);
 	const t = drive(frames(16.67, 120, 0.3), () => false).snapshot();
@@ -141,13 +145,25 @@ const drive = (
 {
 	let now = 0;
 	const stats = createPerfStats(() => now);
+	now = 1000;
 	stats.frame(1000, false, []);
 	stats.frame(1008, false, []);
 	stats.pause();
+	// Frames a hidden page still gets (a throttled background tab) are not frames.
+	now = 1008;
+	stats.frame(2008, false, []);
+	stats.frame(3008, false, []);
+	now = 9000;
+	stats.resume();
 	stats.frame(9000, false, []);
 	stats.frame(9008, false, []);
 	const s = stats.snapshot();
-	check('a hidden page’s gap is not counted as a frame', s.idle.frames === 2 && s.idle.max === 8);
+	check(
+		'a hidden page’s gap and its throttled frames are not counted as frames',
+		s.idle.frames === 2 && s.idle.max === 8 && s.hiddenFrames === 2 && s.hiddenMs === 8000,
+		JSON.stringify([s.idle, s.hiddenFrames, s.hiddenMs]),
+	);
+	check('…and no visible frame was throttled', s.throttledFrames === 0);
 	stats.reset();
 	check('Reset clears every count', stats.snapshot().idle.frames === 0);
 }
@@ -334,7 +350,17 @@ console.log('a slot reading is what it was before arcade phases');
 		stats.work(w);
 		if (i === 120) stats.longTask(t - 60, 80);
 	}
-	const { set, ...rest } = stats.snapshot();
+	const { set, ...full } = stats.snapshot();
+	// What `perf: 10` added is stripped, and the achieved rate is `refreshHz` again: the rest must be
+	// what was recorded.
+	const NEW_KEYS = ['displayHz', 'budgetMs', 'hiddenMs', 'hiddenFrames', 'throttledFrames', 'busy'];
+	const rest = Object.fromEntries(
+		Object.entries(full)
+			.filter(([key]) => !NEW_KEYS.includes(key))
+			.map(([key, value]) => [key === 'achievedHz' ? 'refreshHz' : key, value]),
+	) as unknown as Omit<typeof full, 'achievedHz'> & { work: Record<string, { perFrame: object }> };
+	for (const phase of Object.values(rest.work))
+		for (const entry of Object.values(phase.perFrame) as { p95?: number }[]) delete entry.p95;
 	const json = JSON.stringify(rest);
 	const hash = hash53(json);
 	check(
@@ -356,15 +382,15 @@ console.log('arcade phases');
 	let now = 0;
 	const stats = createPerfStats(() => now, 'arcade');
 	let t = 1000;
-	stats.arcadeFrame(t, 'menu');
-	// 100 menu frames at 60 Hz, then 200 in play: two bodies spawned, a step a frame, a frame of
+	stats.arcadeFrame(t, 'lobby');
+	// 100 lobby frames at 60 Hz, then 200 in play: two bodies spawned, a step a frame, a frame of
 	// three steps after a long one, the room's states 0–20 ms late.
 	for (let i = 0; i < 300; i++) {
 		const play = i >= 100;
 		const long = i === 200;
 		t += long ? 50 : 16.67;
 		now = t;
-		stats.arcadeFrame(t, play ? 'play' : 'menu');
+		stats.arcadeFrame(t, play ? 'play' : 'lobby');
 		const steps = !play ? 0 : i === 201 ? 3 : 1;
 		stats.work(
 			fullWork(
@@ -386,14 +412,17 @@ console.log('arcade phases');
 	}
 	const s = stats.snapshot();
 	check(
-		'an arcade reading is split into menu and play, no slot phase',
+		'an arcade reading is split into loading, lobby, play and spectate, no slot phase',
 		s.set === 'arcade' &&
-			s.menu.frames === 100 &&
+			s.lobby.frames === 100 &&
 			s.play.frames === 200 &&
+			s.loading.frames === 0 &&
+			s.spectate.frames === 0 &&
+			!('menu' in s) &&
 			!('idle' in s) &&
 			!('spinning' in s) &&
 			!('reel' in s),
-		JSON.stringify({ menu: s.menu, play: s.play }),
+		JSON.stringify({ lobby: s.lobby, play: s.play }),
 	);
 	const play = s.work.play.perFrame;
 	check(
@@ -403,15 +432,257 @@ console.log('arcade phases');
 			play.bodies?.mean === 2 &&
 			play.spawns?.max === 2 &&
 			play.patchBytes?.max === 120 &&
-			s.work.menu.perFrame.bodies?.max === 0,
+			s.work.lobby.perFrame.bodies?.max === 0,
 		JSON.stringify(play),
 	);
 	check(
 		'how late the room states came is kept per phase',
-		s.lateMs.play.count === 66 && s.lateMs.play.max === 17 && s.lateMs.menu.count === 0,
+		s.lateMs.play.count === 66 && s.lateMs.play.max === 17 && s.lateMs.lobby.count === 0,
 		JSON.stringify(s.lateMs),
 	);
 	check('the 50 ms frame counts in play', s.play.max === 50 && s.play.hitches[33] === 1);
+	check('no scene or GPU time was given, none is reported', !('scene' in s) && !('gpuMs' in s));
+
+	let n = 0;
+	const phasesSeen = createPerfStats(() => n, 'arcade');
+	let u = 0;
+	for (const phase of ['loading', 'lobby', 'play', 'spectate'] as const) {
+		for (let i = 0; i < 3; i++) {
+			u += 16.67;
+			n = u;
+			phasesSeen.arcadeFrame(u, phase, phase === 'spectate' ? 'running' : undefined);
+			phasesSeen.work(fullWork());
+		}
+	}
+	const seen = phasesSeen.snapshot();
+	check(
+		'a frame counts in the phase it was given, loading and spectate included',
+		seen.loading.frames === 2 &&
+			seen.lobby.frames === 3 &&
+			seen.play.frames === 3 &&
+			seen.spectate.frames === 3,
+		JSON.stringify([
+			seen.loading.frames,
+			seen.lobby.frames,
+			seen.play.frames,
+			seen.spectate.frames,
+		]),
+	);
+}
+
+console.log('busy time, not fps');
+{
+	// 600 frames: busy 8 ms for most, 15 for one in five, 40 for one in a hundred, at 60 Hz.
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 600; i++) {
+		t += 16.67;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		const busyMs = i % 100 === 0 ? 40 : i % 5 === 0 ? 15 : 8;
+		stats.work(fullWork({ lateMs: 0, tickMs: busyMs - 1, afterMs: 1 }));
+	}
+	const s = stats.snapshot();
+	const near = (a: number, b: number) => Math.abs(a - b) <= 0.03 * b + 0.05;
+	check(
+		'busy is p50 / p95 / max per phase over late + tick + after',
+		s.busy.play.frames === 600 &&
+			near(s.busy.play.p50, 8) &&
+			near(s.busy.play.p95, 15) &&
+			s.busy.play.max === 40 &&
+			s.busy.lobby.frames === 0,
+		JSON.stringify(s.busy),
+	);
+	check('the budget is the 60 Hz frame', s.budgetMs === 16.7, String(s.budgetMs));
+	const tick = s.work.play.perFrame.tickMs;
+	check(
+		'every work counter has a p95 over the whole reading beside its mean and max',
+		!!tick && near(tick.p95, 14) && tick.max === 39 && tick.mean > 6 && tick.mean < 9,
+		JSON.stringify(tick),
+	);
+}
+{
+	// The reading's p95 is over every frame, not the last window's.
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 3000; i++) {
+		t += 16.67;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork({ lateMs: 0, tickMs: i < 1000 ? 30 : 5, afterMs: 0 }));
+	}
+	const busy = stats.snapshot().busy.play;
+	check(
+		'busy p95 covers the whole reading, past the percentile window',
+		busy.frames === 3000 && busy.p95 > 25,
+		JSON.stringify(busy),
+	);
+}
+
+console.log('display rate, hidden and throttled frames');
+{
+	// A game that runs at 30 on a 60 Hz display: the achieved rate is 30, the side loop reads 60.
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 200; i++) {
+		t += 33.33;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork({ tickMs: 20, lateMs: 0, afterMs: 2 }));
+	}
+	let d = 0;
+	for (let i = 0; i < 120; i++) {
+		d += i % 10 === 0 ? 33.3 : 16.67;
+		stats.displayFrame(d);
+	}
+	const s = stats.snapshot();
+	check(
+		'the achieved rate and the display rate are told apart',
+		s.achievedHz === 30 && s.displayHz === 60 && s.budgetMs === 16.7,
+		JSON.stringify([s.achievedHz, s.displayHz, s.budgetMs]),
+	);
+	stats.reset();
+	check(
+		'Reset keeps the display rate',
+		stats.snapshot().displayHz === 60 && stats.snapshot().play.frames === 0,
+	);
+}
+{
+	// A throttled background tab: 1000 ms frames. They are bucketed (the page was visible) and counted.
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 40; i++) {
+		t += 1004;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork({ tickMs: 1, lateMs: 0, afterMs: 0 }));
+	}
+	const s = stats.snapshot();
+	check(
+		'a page throttled to 1 s frames reads p50 ~1000 ms and counts them',
+		s.play.p50 > 900 && s.throttledFrames === 40 && s.hiddenMs === 0,
+		JSON.stringify([s.play.p50, s.throttledFrames, s.hiddenMs]),
+	);
+}
+{
+	// Hidden for 10 s with frames still ticking: not in any bucket or work.
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 10; i++) {
+		t += 16.67;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork());
+	}
+	stats.pause();
+	for (let i = 0; i < 10; i++) {
+		t += 1000;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork({ tickMs: 500 }));
+	}
+	stats.resume();
+	for (let i = 0; i < 10; i++) {
+		t += 16.67;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork());
+	}
+	const s = stats.snapshot();
+	check(
+		'frames while hidden are in no bucket, no work and no busy time',
+		s.play.frames === 19 &&
+			s.work.play.frames === 20 &&
+			s.busy.play.max < 20 &&
+			s.hiddenFrames === 10 &&
+			s.hiddenMs > 9900 &&
+			s.throttledFrames === 0,
+		JSON.stringify([
+			s.play.frames,
+			s.work.play.frames,
+			s.busy.play.max,
+			s.hiddenFrames,
+			s.hiddenMs,
+		]),
+	);
+}
+
+console.log('GPU time and scene samples');
+{
+	let now = 0;
+	const stats = createPerfStats(() => now, 'arcade');
+	let t = 1000;
+	stats.arcadeFrame(t, 'play');
+	for (let i = 0; i < 70; i++) {
+		t += 16.67;
+		now = t;
+		stats.arcadeFrame(t, 'play');
+		stats.work(fullWork());
+		if (i > 3) stats.gpuTime(10 + (i % 5));
+		if (i % 30 === 0)
+			stats.scene({
+				nodes: 1000 + i,
+				renderables: 900,
+				visible: 100,
+				culled: 800,
+				renderGroups: 2,
+				walkMs: 0.5,
+				layers: [
+					{
+						label: 'river',
+						nodes: 900,
+						renderables: 800,
+						visible: 40,
+						culled: 760,
+						filters: 0,
+						renderGroup: true,
+						cost: { draws: 6, passes: 1, filterPasses: 0, targetSwitches: 1 },
+					},
+					{
+						label: 'bodies',
+						nodes: 100,
+						renderables: 100,
+						visible: 60,
+						culled: 40,
+						filters: 5,
+						renderGroup: false,
+					},
+				],
+				rest: { draws: 4, passes: 2, filterPasses: 8, targetSwitches: 3 },
+			});
+	}
+	const s = stats.snapshot();
+	check(
+		'GPU time is a spread per phase where a timer query gave it',
+		s.gpuMs?.play.count === 66 && s.gpuMs.play.max === 14 && s.gpuMs.lobby.count === 0,
+		JSON.stringify(s.gpuMs),
+	);
+	const river = s.scene?.layers.find((l) => l.label === 'river');
+	check(
+		'scene samples are kept as means by layer, with the render-group layers’ own cost',
+		s.scene?.samples === 3 &&
+			s.scene.latest.nodes === 1060 &&
+			river?.draws === 6 &&
+			river.renderGroup &&
+			s.scene.layers.find((l) => l.label === 'bodies')?.draws === undefined &&
+			s.scene.rest.filterPasses === 8,
+		JSON.stringify(s.scene),
+	);
+	stats.reset();
+	check(
+		'Reset clears the scene samples and GPU time',
+		!stats.snapshot().scene && !stats.snapshot().gpuMs,
+	);
 }
 
 console.log('a 30 fps cap is the browser only when the frames could have run faster');

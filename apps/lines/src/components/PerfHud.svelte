@@ -33,8 +33,11 @@
 	import {
 		WORK_KEYS,
 		createPerfStats,
+		THROTTLED_MS,
+		type BusySnapshot,
 		type PerfBucketSnapshot,
 		type PerfSnapshot,
+		type SceneLayerSummary,
 		type WorkKey,
 		type WorkSnapshot,
 	} from '../game/perfStats';
@@ -82,8 +85,9 @@
 	const arcade = kind === 'arcade';
 	const phases: readonly PerfPhase[] = PHASE_SETS[arcade ? 'arcade' : 'slot'];
 	const stats = createPerfStats(undefined, arcade ? 'arcade' : 'slot');
-	/** The phase the last arcade tick was in: the next frame's interval counts there. */
-	let arcadePhase: ArcadePhase = 'menu';
+	/** The phase the last arcade tick was in, and the room's phase: the next frame counts there. */
+	let arcadePhase: ArcadePhase = 'lobby';
+	let arcadeState: string | undefined;
 	let snapshot = $state<PerfSnapshot>();
 	const top = $derived(snapshot && topCause(snapshot.spikes.causes));
 	let quality = $state<RenderQualitySnapshot>();
@@ -177,9 +181,21 @@
 		if (v) viewportOffset = { x: v.offsetLeft, y: v.offsetTop };
 	};
 	const onVisibility = () => {
-		if (document.visibilityState !== 'hidden') return;
+		if (document.visibilityState !== 'hidden') {
+			stats.resume();
+			return;
+		}
 		void send('leaving');
 		stats.pause();
+	};
+	/**
+	 * A side rAF loop that only hands its timestamp to the stats: the fastest rate it ever ran at is
+	 * the display's (the game's own frames may be slower than the display).
+	 */
+	let displayRaf = 0;
+	const displayLoop = (time: number) => {
+		stats.displayFrame(time);
+		displayRaf = requestAnimationFrame(displayLoop);
 	};
 
 	/** The renderer exists once `<App>` has initialised it, which can be after this mounts. */
@@ -189,6 +205,8 @@
 		probe = instrumentApp(app, {
 			onFrame: arcade ? arcadeWork : (work) => stats.work(work),
 			waitForGpu,
+			onGpuTime: (ms) => stats.gpuTime(ms),
+			scene: arcade,
 		});
 		info = probe.info();
 	};
@@ -196,8 +214,10 @@
 	const arcadeWork = (work: FrameWork) => {
 		const frame = takeArcadeFrame();
 		arcadePhase = frame.phase;
+		arcadeState = frame.state;
 		stats.work({ ...work, ...frame.work });
 		stats.lates(frame.lates);
+		if (work.scene) stats.scene(work.scene);
 	};
 	let tick = 0;
 	const refresh = () => {
@@ -220,10 +240,12 @@
 		watchNetwork();
 		setFrameProbe((time, moving) => {
 			if (!booted) noteLoad();
-			if (arcade) stats.arcadeFrame(time, arcadePhase, gameState());
+			if (arcade) stats.arcadeFrame(time, arcadePhase, arcadeState);
 			else stats.frame(time, spinning(), moving, gameState());
 		});
 		document.addEventListener('visibilitychange', onVisibility);
+		if (document.visibilityState === 'hidden') stats.pause();
+		displayRaf = requestAnimationFrame(displayLoop);
 		followViewport();
 		window.visualViewport?.addEventListener('resize', followViewport);
 		window.visualViewport?.addEventListener('scroll', followViewport);
@@ -250,6 +272,7 @@
 		setFrameProbe(undefined);
 		arcadePerf.on = false;
 		document.removeEventListener('visibilitychange', onVisibility);
+		cancelAnimationFrame(displayRaf);
 		window.visualViewport?.removeEventListener('resize', followViewport);
 		window.visualViewport?.removeEventListener('scroll', followViewport);
 		observer?.disconnect();
@@ -270,7 +293,7 @@
 
 	const framesOf = (s: PerfSnapshot) =>
 		s.set === 'arcade'
-			? s.menu.frames + s.play.frames
+			? s.loading.frames + s.lobby.frames + s.play.frames + s.spectate.frames
 			: s.idle.frames + s.spinning.frames + s.round.frames;
 
 	/**
@@ -369,8 +392,10 @@
 		const phased =
 			s.set === 'arcade'
 				? {
-						menu: bucket(s.menu),
+						loading: bucket(s.loading),
+						lobby: bucket(s.lobby),
 						play: bucket(s.play),
+						spectate: bucket(s.spectate),
 						arcade: { ...arcadePerf.info, lateMs: s.lateMs },
 					}
 				: {
@@ -380,7 +405,7 @@
 						reelStepErrorPx: s.reel,
 					};
 		return {
-			perf: 9,
+			perf: 10,
 			kind,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
@@ -397,11 +422,21 @@
 			textures,
 			textureList: probe?.textureList(),
 			ktx2Fallbacks: ktx2Fallbacks(),
-			refreshHz: s.refreshHz,
+			achievedHz: s.achievedHz,
+			displayHz: s.displayHz,
+			budgetMs: s.budgetMs,
 			capped30: s.capped30,
 			seconds: s.seconds,
+			hiddenMs: s.hiddenMs,
+			hiddenFrames: s.hiddenFrames,
+			throttledFrames: s.throttledFrames,
+			visibilityState: document.visibilityState,
 			...phased,
 			work: s.work,
+			busy: s.busy,
+			gpuTimer: probe?.gpuTimer() ?? 'n/a',
+			...(s.gpuMs ? { gpuMs: s.gpuMs } : {}),
+			...(s.set === 'arcade' && s.scene ? { scene: s.scene } : {}),
 			churnApis: { builds: perfProbe.countsBuilds },
 			spikeOverMs: s.spikes.overMs,
 			spikeApis: { longtask: longTasks, heap: heapReported },
@@ -449,6 +484,21 @@
 
 	const line = (b: PerfBucketSnapshot) =>
 		b.frames ? `${b.fps} fps · p50 ${b.p50} · p95 ${b.p95} · max ${b.max} ms` : 'no frames yet';
+	/** A phase's busy time against the frame budget: what the game costs, whatever the display does. */
+	const busyLine = (s: PerfSnapshot, phase: PerfPhase) => {
+		const busy = (s.busy as Partial<Record<PerfPhase, BusySnapshot>>)[phase];
+		return busy?.frames
+			? `busy p50 ${busy.p50} · p95 ${busy.p95} / ${s.budgetMs} ms`
+			: 'no busy time yet';
+	};
+	/** The reading is not comparable: the page was hidden or throttled for much of it. */
+	const throttled = (s: PerfSnapshot) => {
+		const frames = framesOf(s);
+		const slow = phases.some((p) => (bucketOf(s, p)?.p50 ?? 0) > THROTTLED_MS);
+		return (
+			slow || s.hiddenMs > 0.05 * Math.max(1, s.seconds) * 1000 || s.throttledFrames > 0.5 * frames
+		);
+	};
 
 	const ROWS: readonly WorkKey[] = [...WORK_KEYS, ...ARCADE_WORK_KEYS];
 	const LABELS: Record<WorkKey, string> = {
@@ -519,7 +569,7 @@
 	};
 	const cell = (w: WorkSnapshot | undefined, key: WorkKey) => {
 		const v = w?.perFrame[key];
-		return v ? `${v.mean} / ${v.max}` : '–';
+		return v ? `${v.mean} / ${v.p95} / ${v.max}` : '–';
 	};
 	const workOf = (s: PerfSnapshot, phase: PerfPhase): WorkSnapshot | undefined =>
 		(s.work as Partial<Record<PerfPhase, WorkSnapshot>>)[phase];
@@ -536,8 +586,10 @@
 		idle: 'idle',
 		spinning: 'spin',
 		round: 'round',
-		menu: 'menu',
+		loading: 'loading',
+		lobby: 'lobby',
 		play: 'play',
+		spectate: 'spectate',
 	};
 	const spikesLine = (s: PerfSnapshot) => {
 		const parts = phases.flatMap((phase) => {
@@ -560,8 +612,39 @@
 	/** The header's phase: spinning for a slot, play for an arcade game. */
 	const headPhase = (s: PerfSnapshot) =>
 		s.set === 'arcade'
-			? `play ${s.play.fps} fps p95 ${s.play.p95}`
-			: `spin ${s.spinning.fps} fps p95 ${s.spinning.p95} · reel ${s.reel.p95} px`;
+			? `play busy p95 ${s.busy.play.p95} / ${s.budgetMs} ms · ${s.play.fps} fps`
+			: `spin busy p95 ${s.busy.spinning.p95} / ${s.budgetMs} ms · ${s.spinning.fps} fps · reel ${s.reel.p95} px`;
+	/** The scene sample as lines: the totals, then the heaviest layers. */
+	const sceneLines = (s: PerfSnapshot) => {
+		const scene = s.set === 'arcade' ? s.scene : undefined;
+		if (!scene) return [];
+		const cost = (l: SceneLayerSummary) =>
+			l.draws === undefined
+				? ''
+				: ` · ${l.draws} draws · ${l.passes} passes · ${l.filterPasses} filter passes`;
+		return [
+			`${scene.mean.nodes} nodes · ${scene.mean.renderables} renderables · ${scene.mean.visible} drawn · ${scene.mean.culled} culled · walk ${scene.mean.walkMs} ms (${scene.samples} samples)`,
+			...[...scene.layers]
+				.sort((a, b) => b.renderables - a.renderables)
+				.slice(0, 6)
+				.map(
+					(l) =>
+						`${l.label}${l.renderGroup ? ' (group)' : ''}: ${l.nodes} nodes · ${l.renderables} renderables · ${l.visible} drawn${cost(l)}`,
+				),
+			`stage's own: ${scene.rest.draws} draws · ${scene.rest.passes} passes · ${scene.rest.filterPasses} filter passes`,
+		];
+	};
+	/** The GPU time of a tick, where the browser's timer query gave it. */
+	const gpuLine = (s: PerfSnapshot) => {
+		const g = s.gpuMs as
+			Partial<Record<PerfPhase, { count: number; p50: number; p95: number }>> | undefined;
+		if (!g)
+			return `GPU time n/a (${probe?.gpuTimer() === 'on' ? 'no samples yet' : 'no timer query'})`;
+		return phases
+			.filter((p) => g[p]?.count)
+			.map((p) => `${PHASE_NAMES[p]} p50 ${g[p]?.p50} · p95 ${g[p]?.p95} ms`)
+			.join(' · ');
+	};
 	const attrs = (i: RendererInfo) => {
 		const a = i.attributes;
 		return a
@@ -581,7 +664,10 @@
 			: undefined}
 	>
 		<button type="button" class="ie-perf-head" onclick={() => (open = !open)}>
-			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · {headPhase(snapshot)}
+			{(snapshot.displayHz ?? snapshot.achievedHz)
+				? `${snapshot.displayHz ?? snapshot.achievedHz} Hz`
+				: '… Hz'} · {headPhase(snapshot)}
+			{#if throttled(snapshot)}<b class="warn"> · throttled — not comparable</b>{/if}
 			{#if snapshot.capped30}<b class="warn"> · 30 fps cap (Low Power Mode?)</b>{/if}
 			{#if quality?.level.index}<b class="warn"> · quality L{quality.level.index}</b>{/if}
 			{#if top}<b class="warn"> · spikes: {top[0]} ({top[1]})</b>{/if}
@@ -590,11 +676,21 @@
 		</button>
 		{#if open}
 			<div class="ie-perf-body">
-				<div>display ~{snapshot.refreshHz ?? '?'} Hz · {snapshot.seconds} s</div>
+				<div>
+					display ~{snapshot.displayHz ?? '?'} Hz · achieved ~{snapshot.achievedHz ?? '?'} Hz · {snapshot.seconds}
+					s · budget {snapshot.budgetMs} ms
+				</div>
+				{#if snapshot.hiddenMs || snapshot.throttledFrames}
+					<div class:warn={throttled(snapshot)}>
+						hidden {Math.round(snapshot.hiddenMs / 100) / 10} s ({snapshot.hiddenFrames} frames) · {snapshot.throttledFrames}
+						frames over {THROTTLED_MS} ms{throttled(snapshot) ? ' — throttled, not comparable' : ''}
+					</div>
+				{/if}
 				{#each phases as phase (phase)}
 					{@const b = bucketOf(snapshot, phase)}
 					{#if b}
 						<div><b>{PHASE_NAMES[phase]}</b> {line(b)}</div>
+						<div>{busyLine(snapshot, phase)}</div>
 						<div>hitches &gt;33/50/100 ms: {b.hitches[33]}/{b.hitches[50]}/{b.hitches[100]}</div>
 					{/if}
 				{/each}
@@ -607,6 +703,13 @@
 					<div><b>arcade</b> {arcadeLine(snapshot)}</div>
 				{/if}
 				<div><b>spikes</b> {spikesLine(snapshot)}</div>
+				{#each sceneLines(snapshot) as text, i (i)}
+					<div>
+						{#if i === 0}<b>scene</b>{/if}
+						{text}
+					</div>
+				{/each}
+				<div><b>gpu time</b> {gpuLine(snapshot)}</div>
 				{#each net as text, i (i)}
 					<div>
 						{#if i === 0}<b>net</b>{/if}
@@ -631,7 +734,7 @@
 				<table>
 					<thead>
 						<tr>
-							<th>per frame, mean / max</th>
+							<th>per frame, mean / p95 / max</th>
 							{#each phases as phase (phase)}<th>{PHASE_NAMES[phase]}</th>{/each}
 						</tr>
 					</thead>
