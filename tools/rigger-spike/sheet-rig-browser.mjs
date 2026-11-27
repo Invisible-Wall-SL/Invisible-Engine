@@ -48,8 +48,9 @@
 //    ⋮⋮ drags a sheet's prop as the slot it is; 🗺 Edit mapping opens the rig's own order, Ctrl+] in
 //    the dialog never moves the rig's slots behind it, and 🔄 Update rig keeps Setup's order; on a
 //    rig whose Setup drew the arm behind the head the preview draws that order unjudged (no depth
-//    warning) until a change there moves a slot, as 🔄 Update rig judges it (a finger Setup drew
-//    behind the head is worded for Setup's slots);
+//    warning), nor once a forearm prop is worn anew there and left where the list puts it, until a
+//    change there moves a slot, as 🔄 Update rig judges it (a finger Setup drew behind the head is
+//    worded for Setup's slots);
 //  - a jointed mouth: the Face group lists the lips, teeth and tongue, each matched by name (Teeth
 //    alone the upper row), its tooltip saying the shapes win; ＋🦴 makes a custom part (named from its
 //    region, its own list, in Layers, sent as custom); the launcher draws them all; the report names
@@ -291,6 +292,16 @@ const PAGE_MUTANTS = [
 		'body: JSON.stringify({ sheet: s2rMapping() }),',
 	],
 	[
+		"🗺 Layers: a Layers refusal not read off the preview's answer",
+		'err.layers = !!(no && no.layers);',
+		'err.layers = false;',
+	],
+	[
+		"🗺 Layers: Edit mapping's preview not sending the mapping the rig keeps",
+		'skins, kept: sheetSrc.doc } };',
+		'skins } };',
+	],
+	[
 		"🗺 Layers: Edit mapping's preview sending the rig's slots front to back",
 		'return { rig: { slots: rawDoc.slots.map((s) => s.name),',
 		'return { rig: { slots: rawDoc.slots.map((s) => s.name).reverse(),',
@@ -300,11 +311,7 @@ const PAGE_MUTANTS = [
 		'body: JSON.stringify({ sheet: s2rMapping(),',
 		'body: JSON.stringify({ sheet: { ...s2rMapping(), layers: undefined },',
 	],
-	[
-		"🗺 Layers: the launcher's word on an order not shown",
-		'if (/the Layers/.test(s2r.previewProblem)){',
-		'if (false){',
-	],
+	["🗺 Layers: the launcher's word on an order not shown", 'if (s2r.previewLayers){', 'if (false){'],
 	[
 		'🗺 Layers: ◧ Arranged drawing in the last preview’s order, not the list’s',
 		'    add(slot);\n    for (const p of s2r.tpl.parts) if (p.slot === slot) add(p.name);',
@@ -368,7 +375,7 @@ await esbuild.build({
 			"export * from './server/rigTemplateFit.ts';",
 			"export * from './server/rigSheetFit.ts';",
 			"export * from './rigSheetMap.ts';",
-			"export { updateSheetRig } from './server/rigSheetUpdate.ts';",
+			"export { sheetEditPreview, updateSheetRig } from './server/rigSheetUpdate.ts';",
 		].join('\n'),
 		resolveDir: join(APP, 'src/lib'),
 		loader: 'ts',
@@ -589,13 +596,21 @@ const server = createServer(async (req, res) => {
 				parsed.mapping.manifestKey === MOUTH_MANIFEST
 					? [...REGIONS, ...MOUTH_REGIONS.map(([name], i) => ({ name, w: 40 + i, h: 20 }))]
 					: REGIONS;
-			const pv = S.sheetPreview(
-				S.HALF_BODY,
-				regions,
-				parsed.mapping,
-				body.rig ? { rig: body.rig } : {},
-			);
-			return pv.ok ? json(pv.value) : json({ message: pv.problem }, 400);
+			const kept = body.rig ? S.parseSheetMapping(body.rig.kept) : null;
+			if (kept && 'problem' in kept)
+				return json({ message: `unreadable kept mapping: ${kept.problem}` }, 400);
+			const pv = kept
+				? S.sheetEditPreview({
+						template: S.HALF_BODY,
+						regions,
+						was: kept.mapping,
+						mapping: parsed.mapping,
+						rig: body.rig,
+					})
+				: S.sheetPreview(S.HALF_BODY, regions, parsed.mapping);
+			return pv.ok
+				? json(pv.value)
+				: json({ message: pv.problem, ...(pv.layers ? { layers: true } : {}) }, 400);
 		}
 		if (p === '/api/rigger/new') {
 			const body = await readBody(req);
@@ -1568,9 +1583,10 @@ try {
 		'window.settled = async () => { for (let i = 0; i < 5; i++) { const g = s2r.pgen; await s2rPreview(); if (s2r.pgen === g + 1) return true; } throw new Error("the preview kept being overtaken"); }; true',
 	);
 	const frontSwapped = [editRows[1], editRows[0], ...editRows.slice(2)];
-	const armRig = async (list, setupBehindHead = 'upper_arm_l') => {
+	const armRig = async (list, setupBehindHead = 'upper_arm_l', forearmProp = false) => {
 		await evaluate(`(() => {
-			window.__armWas = { layers: s2r.layers, slots: rawDoc.slots };
+			window.__armWas = { layers: s2r.layers, slots: rawDoc.slots, props: [...s2r.props], sel: s2r.sel };
+			if (${forearmProp}) s2rAddProp("bg_glow", "lower_arm_l");
 			const slots = [...rawDoc.slots], at = slots.findIndex((s) => s.name === ${q(setupBehindHead)});
 			const [arm] = slots.splice(at, 1);
 			slots.splice(slots.findIndex((s) => s.name === "head"), 0, arm);
@@ -1584,12 +1600,15 @@ try {
 			warn: await evaluate('document.querySelector("#s2rLayers .s2rLayerWarn")?.textContent ?? ""'),
 			art: await evaluate('s2r.preview ? s2r.preview.art.map((a) => a.name) : null'),
 		};
-		await evaluate('s2r.layers = __armWas.layers; rawDoc.slots = __armWas.slots; true');
+		await evaluate(
+			's2r.layers = __armWas.layers; rawDoc.slots = __armWas.slots; s2r.props = __armWas.props; s2r.sel = __armWas.sel; true',
+		);
 		return got;
 	};
 	const openedArm = await armRig(armBack);
 	const changedArm = await armRig(armMoved);
 	const fingerArm = await armRig(frontSwapped, 'pinky_1_l');
+	const propArm = await armRig(armBack, 'upper_arm_l', true);
 	ok(
 		'🗺 Edit mapping on a rig Setup drew with the arm behind the head: the preview, sent the open rig, draws that order unjudged (no warning); a change that moves a slot is judged (and warns)',
 		q(openedArm.sent) === q(armBack) &&
@@ -1600,6 +1619,13 @@ try {
 			changedArm.rig &&
 			/the Layers draw "upper_arm_l" behind "head"/.test(changedArm.warn),
 		q({ openedArm, changedArm }),
+	);
+	ok(
+		'… and a forearm prop worn anew there, left where the list puts it: no warning (🔄 Update rig accepts it), the prop drawn',
+		!propArm.warn &&
+			propArm.sent?.some((n) => /bg_glow/.test(n)) &&
+			propArm.art?.some((n) => /bg_glow/.test(n)),
+		q(propArm),
 	);
 	ok(
 		"… a finger Setup drew behind the head, the list changed: the word is for Setup's slots",

@@ -12340,7 +12340,7 @@ const S2R_FINGER = /^(thumb|index|middle|ring|pinky)_\d_[lr]$/;
 const s2r = {
   tpl: null, sheetKey: "", sheet: null, map: {}, props: [], sel: null, drag: null, gen: 0,
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
-  view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
+  view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false, pgen: 0, ptimer: 0,
   aview: null, adrag: null, swap: false,
   // layers: the author's Layers list, slot names front to back (null: the template's order, `sheetLayerList`).
   layers: null, ldrag: null,
@@ -12451,7 +12451,7 @@ function s2rStartOver(){
   if (!s2r.sheet || !s2r.tpl) return;
   if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props, the arrangement and the Layers go back to the first guess.\n\n↶ brings them back.")) return;
   s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
-  Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false });
   // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
   ++s2r.gen;
   s2rSuggest();
@@ -12461,7 +12461,7 @@ function s2rUndoStartOver(){
   const u = s2r.undo;
   if (!u) return;
   if (s2r.dirty && !confirm("↶ brings back the mapping from before ↺ Start over, dropping what you changed since. Go on?")) return;
-  Object.assign(s2r, u, { undo: null, aview: null, preview: null, previewKey: "", previewProblem: "" });
+  Object.assign(s2r, u, { undo: null, aview: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false });
   ++s2r.gen;
   // A face being found when ↺ Start over came is looked for again.
   for (const [part, f] of Object.entries(s2r.faces)) if (f === "busy") s2rTrackFace(part);
@@ -12614,7 +12614,7 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false, aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
   s2rSwapUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
@@ -13162,7 +13162,7 @@ function s2rRenderLayers(){
     box.appendChild(d);
   }
   // The launcher's word on this order (a depth control it cannot stand with), when it has one.
-  if (/the Layers/.test(s2r.previewProblem)){
+  if (s2r.previewLayers){
     const w = document.createElement("div");
     w.className = "pill s2rLayerWarn"; w.textContent = "⚠ " + s2r.previewProblem;
     box.appendChild(w);
@@ -13378,12 +13378,18 @@ function s2rArrangeItems(){
 }
 const s2rIsSel = (it) => !!s2r.sel && (it.part ? s2r.sel.part === it.part : s2r.sel.prop === it.prop);
 
-// 🗺 Edit mapping: the open rig, so the launcher judges the Layers as 🔄 Update rig will
-// (rigSheetFit.ts layersJudged): Setup's own order warns of nothing a change here does not touch.
+// 🗺 Edit mapping: the open rig (its slots, its skin's attachment names, the mapping it keeps), so
+// the launcher judges the Layers as 🔄 Update rig will (rigSheetUpdate.ts sheetEditPreview): Setup's
+// own order warns of nothing a change here does not touch.
 function s2rPreviewRig(){
-  if (!s2r.edit || !rawDoc) return {};
-  const layers = sheetSrc.doc && sheetSrc.doc.layers;
-  return { rig: { slots: rawDoc.slots.map((s) => s.name), ...(layers ? { layers } : {}) } };
+  if (!s2r.edit || !rawDoc || !sheetSrc.doc) return {};
+  // The one skin the launcher reads (rigFrameUpdate.ts madeParts): `default`, else the first.
+  const all = Array.isArray(rawDoc.skins) ? rawDoc.skins : [];
+  const skins = [all.find((k) => k.name === "default") || all[0]].filter(Boolean).map((k) => ({
+    name: k.name,
+    attachments: Object.fromEntries(Object.entries(k.attachments || {}).map(([slot, by]) => [slot, Object.keys(by || {})])),
+  }));
+  return { rig: { slots: rawDoc.slots.map((s) => s.name), skins, kept: sheetSrc.doc } };
 }
 // The rig as the launcher fits it, again once the mapping has changed (a beat after the last change).
 function s2rRequestPreview(){
@@ -13397,13 +13403,19 @@ async function s2rPreview(){
     const r = await fetch("/api/rigger/from-sheet/preview", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping(), ...s2rPreviewRig() }),
     });
-    if (!r.ok) throw new Error(await respErr(r));
+    if (!r.ok){
+      const no = await r.clone().json().catch(() => null);
+      const err = new Error(await respErr(r));
+      err.layers = !!(no && no.layers);
+      throw err;
+    }
     const p = await r.json();
     if (gen !== s2r.pgen) return;
-    s2r.preview = p; s2r.previewProblem = "";
+    s2r.preview = p; s2r.previewProblem = ""; s2r.previewLayers = false;
   } catch (e){
     if (gen !== s2r.pgen) return;
     s2r.previewProblem = e && e.message ? e.message : String(e);
+    s2r.previewLayers = !!(e && e.layers);
   }
   if (s2r.view === "arranged") s2rDraw();
   s2rRenderLayers();

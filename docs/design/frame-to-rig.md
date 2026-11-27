@@ -1688,8 +1688,10 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
   rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
   worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
   slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
-  survives an update that does not touch the list; its preview sends the open rig (`rig`) and is
-  judged by the same `layersJudged`, else draws the list unjudged.
+  survives an update that does not touch the list; its preview sends the open rig (`rig`: its
+  slots, its skins' attachment names, the mapping it keeps) and is judged by the update's own rule
+  (`sheetLayersApplied`) on the slots the update's merge leaves (`mergedSlots`); without a rig it
+  refuses what 🦴 Create rig refuses.
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
 
@@ -1780,7 +1782,9 @@ white under pupil under lids under the glasses, the glasses under the front hair
 the page's list the same, and the list may still put the glasses behind the eyes; 2 mutants);
 `sheet-rig.mjs` `draworder` (the head's props over the face, under the front hair). `sheet-rig-update.mjs` `layers`
 (a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
-every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-rig-browser.mjs` (the list
+every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-layers-preview.mjs`, a gate of
+its own for `check:all`'s five minutes (🗺 Edit mapping's preview judges the slots 🔄 Update rig's merge
+leaves and warns exactly when it refuses, in its words; without a rig, as 🦴 Create rig). `sheet-rig-browser.mjs` (the list
 as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,
 Ctrl+Shift+] / [; ◧ Arranged in the new order before the launcher answers; the depth control's word
 under the list; sent with the create and the rig drawn so; ↺ Reuse brings it back; Setup's ⋮⋮ drags a

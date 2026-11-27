@@ -1771,6 +1771,36 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[200, ['lower_arm_l', 'upper_arm_l'], 'number', 'object', false, true, 403, 400, 400, 0],
 	);
+	// 🗺 Edit mapping's preview, sent the open rig: judged as 🔄 Update rig judges it; a rig that is
+	// not one, or whose kept mapping is unreadable, refused.
+	const outline = {
+		slots: ['upper_arm_l', 'lower_arm_l'],
+		skins: [{ name: 'default', attachments: { upper_arm_l: ['upper_arm_l'] } }],
+	};
+	const edited = await call(preview.POST, { sheet: mapping, rig: { ...outline, kept: mapping } });
+	const notARig = await call(preview.POST, { sheet: mapping, rig: { slots: outline.slots } });
+	const unkept = await call(preview.POST, { sheet: mapping, rig: { ...outline, kept: {} } });
+	const twoSkins = await call(preview.POST, {
+		sheet: mapping,
+		rig: { ...outline, skins: [...outline.skins, { name: 'b', attachments: {} }], kept: mapping },
+	});
+	const longName = await call(preview.POST, {
+		sheet: mapping,
+		rig: { ...outline, slots: [...outline.slots, 'x'.repeat(257)], kept: mapping },
+	});
+	check(
+		'sheet: the preview with the open rig places the drawings; a rig without its skin, with two, with a name too long, or whose kept mapping is unreadable, refused',
+		[
+			edited.status,
+			(edited.body.art as { name: string }[] | undefined)?.map((a) => a.name).sort(),
+			notARig.status,
+			twoSkins.status,
+			longName.status,
+			unkept.status,
+			/kept mapping is unreadable/.test(String(unkept.body.message)),
+		],
+		[200, ['lower_arm_l', 'upper_arm_l'], 400, 400, 400, 400, true],
+	);
 	// 🗺 Edit mapping → 🔄 Update rig (§13.1b): the update merges a re-mapped part into the open rig and
 	// writes nothing; another template or sheet is refused; the mapping is then PUT on its ETag.
 	const update = await import(`${routes}/rigger/from-sheet/update/+server.ts`);

@@ -183,6 +183,35 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-26 — **🗺 Edit mapping's Layers preview agrees with 🔄 Update rig (the #1942 review).**
+  The preview judged the list without the update's "the merged order moves" condition, on the open
+  rig's slots (so a prop worn anew was missing) and then again on the template's order: a rig whose
+  Setup drew `upper_arm_l` behind `head`, with a forearm prop worn anew left where the list puts it,
+  warned under the list while 🔄 Update rig accepted it. Now ONE rule decides: `sheetLayersApplied`
+  (`rigSheetFit.ts`) — the list changed since the kept mapping, moves a slot of the merged rig, and
+  is held to the depth controls as `layersJudged` says — returns the order 🔄 Update rig applies or
+  the refusal. `updateSheetRig` calls it on `frameRigUpdate`'s result; the preview
+  (`sheetEditPreview`, `rigSheetUpdate.ts`) calls it on `mergedSlots`, the merge's own slot step
+  (`rigFrameUpdate.ts`: props taken off dropped, new props placed by the same `newSlotPlaces` the
+  merge splices with), over the same `merging` inputs the update builds. The page's preview sends
+  `rig: { slots, skins, kept }` (`skins`: only the one `madeParts` reads, `default` else the first,
+  its attachment names by slot; the route refuses more, and names over 256) (was `{ slots, layers }`); without a rig
+  the preview refuses exactly what 🦴 Create rig refuses (`sheetRig`'s own check, unchanged). A
+  Layers refusal is tagged (`LayersFitted`, `layers: true`): the endpoint answers
+  `{ message, layers: true }` and the page shows the pill from `s2r.previewLayers`, not by matching
+  `/the Layers/`. `layersJudged`, `slotsAgainstDepth` and `sheetLayerOrder` are module-private now.
+  Guards: a new gate `sheet-layers-preview.mjs` 38/38, 74 s (its `preview` guard: 7 edits each
+  asserting the slots the preview judges equal `frameRigUpdate`'s merged slots and its verdict and
+  words the update's, 3 creates equal 🦴 Create rig's; the reviewer's case failed on `main` — preview
+  warned, update accepted — and passes now; 7 mutants red, each run on the cases it targets, 2 of
+  them changing only the merge's slot handling and caught only by the slots check). Its own gate
+  because with it `sheet-rig-update.mjs` ran 440 s and timed out in CI; that file is 76/76 in 79 s
+  now, its `layers` mutants each run on the phases they target (the moved
+  `layers` mutants re-anchored), `sheet-layers.mjs` 126/126, `sheet-rig.mjs` 3418/3418,
+  `frame-rig-update.mjs` 125/125 (a mutant re-anchored on `newSlotPlaces`),
+  `frame-rig-update-browser.mjs` 22/22, `sheet-rig-browser.mjs` 76/76 (the forearm-prop case, no
+  warning), its 16 Layers page mutants red (2 new), `check:rigger-writes` 265 (the preview's `rig`
+  parsed and refused). ⏳ Not live-verified.
 - 2026-11-26 — **Timeline tree, selection shortcuts, snapping; |◀ ▶| on slot keys and Properties
   that follow the keys (owner's list).** The overview dopesheet nests its rows by the bone hierarchy
   (`treeTracks` / `foldTracks` in `view.html`; **tree** toggles it, kept per browser): keyless
