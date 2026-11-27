@@ -334,7 +334,7 @@ export function arms(d: ArmDims) {
 								kind: 'bone' as const,
 								channel: `shrug_${s}`,
 								bone: `clavicle_${s}`,
-								from: [11, 12] as [number, number],
+								from: SHOULDERS,
 								to: p.shoulder,
 								minSpan: 0.3,
 							},
