@@ -20,11 +20,18 @@ import type {
 	WinTextDoc,
 	CinematicDoc,
 	FlightsConfig,
+	WinLineBlend,
+	WinLineStyleFields,
+	WinLineTip,
 } from 'engine-layout';
 import {
 	collectPlacedEffectIds,
 	editorArtNamespace,
 	normalizeHudScenes,
+	normalizeWinLineColor,
+	normalizeWinLineTaper,
+	normalizeWinLineTip,
+	normalizeWinLineTrailFx,
 	registerComponentDefaults,
 	registerGameTimelines,
 	registerComponents,
@@ -486,7 +493,8 @@ type BakedBundle = {
 		jackpotCoinArt?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
-			line?: {
+			/** The styled-payline fields (`engine-layout` `winLineStyle.ts`) ride `line` too. */
+			line?: WinLineStyleFields & {
 				color?: string;
 				width?: number;
 				glow?: boolean;
@@ -1281,6 +1289,21 @@ export type ResolvedWinLine = {
 		allAtOnce: boolean;
 		/** The beat between two lines appearing in all-at-once mode, in SECONDS. */
 		allAtOnceDelay: number;
+		/** The styled payline (`engine-layout` `winLineStyle.ts`). The hot inner core's colour, or
+		 * undefined for none. */
+		coreColor: string | undefined;
+		/** The glow halo's blend. */
+		blend: WinLineBlend;
+		/** The tail fade: the line's alpha and width at its start, as a fraction of the tip's. */
+		taper: { alpha: number; width: number };
+		/** The asset riding the moving tip (normalized: it has its kind's asset), or none. */
+		tip: WinLineTip | undefined;
+		/** Invisible FX effect ids trailing the tip while the line draws. */
+		trailFx: string[];
+		/** The sound an animated path plays as it starts drawing, or none. */
+		drawSound: string | undefined;
+		/** The sound a line plays as it is drawn complete, or none. */
+		endSound: string | undefined;
 	};
 	text: {
 		/** Whether the win amount is stamped. Defaults to the LINE's switch, so a doc authored
@@ -1321,6 +1344,7 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 	const color = w?.line?.color ?? '#ffcc00';
 	const lineEnabled = w?.enabled ?? true;
 	const textEnabled = w?.text?.enabled ?? lineEnabled;
+	const taper = normalizeWinLineTaper(w?.line?.taper);
 	return {
 		enabled: lineEnabled || textEnabled,
 		line: {
@@ -1336,6 +1360,13 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			useConfigColor: w?.line?.useConfigColor ?? true,
 			allAtOnce: w?.line?.allAtOnce ?? false,
 			allAtOnceDelay: w?.line?.allAtOnceDelay ?? 0.12,
+			coreColor: normalizeWinLineColor(w?.line?.coreColor),
+			blend: w?.line?.blend === 'add' ? 'add' : 'normal',
+			taper: { alpha: taper?.alpha ?? 1, width: taper?.width ?? 1 },
+			tip: normalizeWinLineTip(w?.line?.tip),
+			trailFx: normalizeWinLineTrailFx(w?.line?.trailFx) ?? [],
+			drawSound: w?.line?.drawSound?.trim() || undefined,
+			endSound: w?.line?.endSound?.trim() || undefined,
 		},
 		text: {
 			enabled: textEnabled,
@@ -1648,6 +1679,17 @@ export function bakedFlightAssets(): Record<string, SymbolAssetEntry> {
 		}
 	}
 	return heads.length ? layerAssets(heads) : {};
+}
+
+/**
+ * The same guarantee for the styled win line's sprite TIP ({@link bakedWinLineConfig}): it reaches
+ * `symbols.index` through the exporter's `addLayerRefs`, so this too returns nothing in practice. A
+ * flipbook tip's clip registers with the project's clips, an effect tip with the effects. Empty when
+ * un-baked / no sprite tip (parity).
+ */
+export function bakedWinLineAssets(): Record<string, SymbolAssetEntry> {
+	const tip = bakedWinLineConfig().line.tip;
+	return tip?.kind === 'sprite' ? layerAssets([{ kind: 'sprite', assetKey: tip.assetKey }]) : {};
 }
 
 /** What {@link layerAssets} needs of a kind-tagged layer — a book-VFX layer or the transition. */

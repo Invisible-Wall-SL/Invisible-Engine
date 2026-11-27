@@ -1771,6 +1771,36 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[200, ['lower_arm_l', 'upper_arm_l'], 'number', 'object', false, true, 403, 400, 400, 0],
 	);
+	// 🗺 Edit mapping's preview, sent the open rig: judged as 🔄 Update rig judges it; a rig that is
+	// not one, or whose kept mapping is unreadable, refused.
+	const outline = {
+		slots: ['upper_arm_l', 'lower_arm_l'],
+		skins: [{ name: 'default', attachments: { upper_arm_l: ['upper_arm_l'] } }],
+	};
+	const edited = await call(preview.POST, { sheet: mapping, rig: { ...outline, kept: mapping } });
+	const notARig = await call(preview.POST, { sheet: mapping, rig: { slots: outline.slots } });
+	const unkept = await call(preview.POST, { sheet: mapping, rig: { ...outline, kept: {} } });
+	const twoSkins = await call(preview.POST, {
+		sheet: mapping,
+		rig: { ...outline, skins: [...outline.skins, { name: 'b', attachments: {} }], kept: mapping },
+	});
+	const longName = await call(preview.POST, {
+		sheet: mapping,
+		rig: { ...outline, slots: [...outline.slots, 'x'.repeat(257)], kept: mapping },
+	});
+	check(
+		'sheet: the preview with the open rig places the drawings; a rig without its skin, with two, with a name too long, or whose kept mapping is unreadable, refused',
+		[
+			edited.status,
+			(edited.body.art as { name: string }[] | undefined)?.map((a) => a.name).sort(),
+			notARig.status,
+			twoSkins.status,
+			longName.status,
+			unkept.status,
+			/kept mapping is unreadable/.test(String(unkept.body.message)),
+		],
+		[200, ['lower_arm_l', 'upper_arm_l'], 400, 400, 400, 400, true],
+	);
 	// 🗺 Edit mapping → 🔄 Update rig (§13.1b): the update merges a re-mapped part into the open rig and
 	// writes nothing; another template or sheet is refused; the mapping is then PUT on its ETag.
 	const update = await import(`${routes}/rigger/from-sheet/update/+server.ts`);
@@ -2379,6 +2409,39 @@ for (const hold of ['before', 'after'] as const) {
 		'rig3d: turning 3D off on a stale sidecar etag is a 409 conflict, removing nothing',
 		[staleOff.status, staleOff.body.error, text(SIDE) !== null],
 		[409, 'conflict', true],
+	);
+
+	// ↕ Depth order off (rig-2p5d §4.5): the bake keys no draw order, so a draw order keyed by hand in a
+	// 3D clip is the author's: it saves as keyed. On, the same edit is the bake's and is refused.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), { ...sidecar, depthOrder: false });
+	const handOrder = opened();
+	const slotNames = (handOrder.slots as { name: string }[]).map((s) => s.name);
+	const keyedOrder = [
+		{ time: 0.5, offsets: [{ slot: slotNames[0], offset: slotNames.length - 1 }] },
+	];
+	(handOrder.animations.reach as Record<string, unknown>).drawOrder = keyedOrder;
+	const handSaved = await save2d(handOrder);
+	check(
+		'rig3d: with depth order off, a draw order keyed by hand in a 3D clip saves as keyed',
+		[
+			handSaved.status,
+			JSON.stringify((stored(IRIG).animations.reach as Record<string, unknown>).drawOrder),
+		],
+		[200, JSON.stringify(keyedOrder)],
+	);
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const onOrder = opened();
+	(onOrder.animations.reach as Record<string, unknown>).drawOrder = keyedOrder;
+	const onSaved = await save2d(onOrder);
+	check(
+		'rig3d: …with it on, the same edit is refused: the bake owns the draw order',
+		[
+			onSaved.status,
+			(onSaved.body.clips as { parts: string[] }[] | undefined)?.[0]?.parts.includes('draw order'),
+		],
+		[409, true],
 	);
 
 	// A tab that keeps the rig open after its own save re-baked it: it still holds the earlier bake.

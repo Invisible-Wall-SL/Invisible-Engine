@@ -27,6 +27,7 @@ import {
 } from '../src/lib/profilerFindings/bug.ts';
 import {
 	agent,
+	areaOwner,
 	BUILD_CHANGES,
 	FINDING_RULES,
 	kindOwner,
@@ -51,6 +52,8 @@ import {
 import { withFindingDraft } from '../src/routes/(app)/bugs/view.ts';
 
 const ARCADE_RULES = ['simCatchUp', 'spawnChurn', 'bodyCost', 'patchStutter'] as const;
+/** How the game is delivered: the server's caching and compression, its boot, its API traffic. */
+const DELIVERY_RULES = ['uncompressedText', 'notCached', 'firstFrame', 'netTraffic'] as const;
 
 const OWNERS: OwnerMap = JSON.parse(
 	readFileSync(new URL('../../../docs/knowledge/owners.json', import.meta.url), 'utf8'),
@@ -178,6 +181,36 @@ const CASES: [string, Finding, FindingBugTarget][] = [
 		finding(rule, `${rule}:k:3`, kindOwner(OWNERS, 'arcade')),
 		{ kind: 'pipeline', area: 'engine' },
 	]),
+	[
+		'a heavy art file → the game’s loading',
+		finding('heavyTransfer', 'heavyTransfer:files:k|phone:12', areaOwner(OWNERS, 'assets', 'x')),
+		{ kind: 'game', area: 'loading' },
+	],
+	[
+		'the runtime’s own heavy code → the engine',
+		finding('heavyTransfer', 'heavyTransfer:files:k|phone:13', agent('engine-pixi-svelte')),
+		{ kind: 'pipeline', area: 'engine' },
+	],
+	[
+		'uncompressed text → the engine (delivery: the infra agent owns no tool)',
+		finding('uncompressedText', 'uncompressedText:k:12', areaOwner(OWNERS, 'delivery', 'x')),
+		{ kind: 'pipeline', area: 'engine' },
+	],
+	[
+		'downloaded again → the engine (delivery)',
+		finding('notCached', 'notCached:loads:k:12', areaOwner(OWNERS, 'delivery', 'x')),
+		{ kind: 'pipeline', area: 'engine' },
+	],
+	[
+		'before the first frame → the engine',
+		finding('firstFrame', 'firstFrame:k|phone:12', agent('engine-pixi-svelte')),
+		{ kind: 'pipeline', area: 'engine' },
+	],
+	[
+		'room traffic → the engine (the game server, the arcade kind’s agent)',
+		finding('netTraffic', 'netTraffic:socket:k:12', areaOwner(OWNERS, 'gameServer', 'x')),
+		{ kind: 'pipeline', area: 'engine' },
+	],
 ];
 
 type Target = (f: Finding, o: OwnerMap) => FindingBugTarget;
@@ -219,10 +252,16 @@ test('17. every rule and variant is filed in its list, against an area Bug Repor
 		(ARCADE_RULES as readonly FindingRule[]).includes(f.rule)
 			? { kind: 'game', area: 'art' }
 			: findingBugTarget(f, o);
+	// …and the delivery findings (the server's caching and compression) filed as the game's loading.
+	const deliveryAsGame: Target = (f, o) =>
+		(DELIVERY_RULES as readonly FindingRule[]).includes(f.rule)
+			? { kind: 'game', area: 'loading' }
+			: findingBugTarget(f, o);
 	for (const [name, mutant] of [
 		['first tool', firstTool],
 		['all art', allArt],
 		['arcade as game', arcadeAsGame],
+		['delivery as game', deliveryAsGame],
 	] as const) {
 		assert.throws(() => checkTable(mutant), assert.AssertionError, `${name}: must be caught`);
 	}

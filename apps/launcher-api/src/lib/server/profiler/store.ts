@@ -12,6 +12,7 @@ import {
 	type PerfReportSummary,
 } from '$lib/profiler';
 import { reportFacts, type ReportFacts } from '$lib/profilerFindings/facts';
+import { redactReportText } from '$lib/profilerNetwork';
 import { getDb } from '../db';
 import { getGame, isOnlineRuntimeGameUrl } from '../games';
 import { currentPointer } from '../publishedRuntime';
@@ -188,6 +189,9 @@ async function insertRow(
 			drawsMean: s.drawsMean,
 			jsMs: s.jsMs,
 			textureMb: s.textureMb,
+			transferMb: s.network?.transferMb ?? null,
+			firstFrameMs: s.network?.firstFrameMs ?? null,
+			network: s.network,
 		})
 		.onConflictDoNothing({ target: perfReports.id })
 		.returning({ id: perfReports.id });
@@ -219,9 +223,12 @@ async function dropUnregistered(id: string, key: string): Promise<void> {
 }
 
 /** Keeps a report sent in the request body. Returns its id. */
-export async function saveReport(origin: ReportOrigin, text: string): Promise<string> {
+export async function saveReport(origin: ReportOrigin, sent: string): Promise<string> {
+	if (Buffer.byteLength(sent) > PERF_REPORT_MAX_BYTES) {
+		throw new ReportRefused(413, 'The report is too large.');
+	}
+	const text = redactReportText(sent);
 	const bytes = Buffer.byteLength(text);
-	if (bytes > PERF_REPORT_MAX_BYTES) throw new ReportRefused(413, 'The report is too large.');
 	const summary = parseReport(text);
 	await refuseFullSession(origin);
 	const id = randomUUID();
@@ -292,12 +299,13 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 		return new ReportRefused(413, 'The report is too large.');
 	};
 	if (head.size > PERF_REPORT_MAX_BYTES) throw await tooLarge();
-	const text = await getObjectTextBounded(staged, PERF_REPORT_MAX_BYTES, head.etag ?? undefined);
-	if (text === null) return missing();
-	if (text === 'large') throw await tooLarge();
-	if (text === 'changed') {
+	const read = await getObjectTextBounded(staged, PERF_REPORT_MAX_BYTES, head.etag ?? undefined);
+	if (read === null) return missing();
+	if (read === 'large') throw await tooLarge();
+	if (read === 'changed') {
 		throw new ReportRefused(409, 'The upload changed while it was read — send it again.');
 	}
+	const text = redactReportText(read);
 	let summary: ParsedReport;
 	try {
 		summary = parseReport(text);
@@ -367,6 +375,7 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		drawsMean: r.drawsMean,
 		textureMb: r.textureMb,
 		counts: r.counts,
+		network: r.network,
 		keep: r.keep,
 		expiresAt: r.keep ? null : new Date(r.capturedAt.getTime() + PERF_RETENTION_MS).toISOString(),
 	};

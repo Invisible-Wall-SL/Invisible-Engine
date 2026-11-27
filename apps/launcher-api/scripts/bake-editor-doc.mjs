@@ -45,6 +45,7 @@ import { BAKE_EXPORTS } from './lib/bakeExports.mjs';
 import { writeBuildReport } from './lib/buildReportDir.mjs';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
 import { bakeSymbolFx } from './lib/bakeSymbolFx.mjs';
+import { bakedWinLineEffectIds, bakeWinLine } from './lib/bakeWinLine.mjs';
 import {
 	describePublishCheck,
 	lifts,
@@ -593,20 +594,11 @@ async function main() {
 								: {}),
 						}
 					: undefined;
-			// The global win-line config — pure config (no asset): on/off + line + text
-			// style. The exporter already forwards it sparse (only authored, non-default
-			// fields), so embed it verbatim, keeping it sparse so an untouched project ships
-			// no `winLine` and renders byte-identical. The game applies coded defaults for
-			// every field the bundle omits.
-			const winLine = (() => {
-				const w = s?.winLine;
-				if (!w || typeof w !== 'object') return undefined;
-				const out = {};
-				if (w.enabled === false) out.enabled = false;
-				if (w.line && typeof w.line === 'object' && Object.keys(w.line).length) out.line = w.line;
-				if (w.text && typeof w.text === 'object' && Object.keys(w.text).length) out.text = w.text;
-				return Object.keys(out).length ? out : undefined;
-			})();
+			// The global win-line config: on/off + line + text style, embedded verbatim and sparse so
+			// an untouched project ships no `winLine`. Its styled payline's tip and trail name assets
+			// that ship on their own paths (a sprite tip through the symbol refs, a flipbook tip's clip
+			// through the clip walk, its effects through the keep-set below). See `lib/bakeWinLine.mjs`.
+			const winLine = bakeWinLine(s?.winLine);
 			// The resting-board win-symbol replay — assetless config, sparse, forwarded verbatim like
 			// `winLine`. It was MISSING from this whitelist while the runtime-bundle path carried it, so
 			// a `/symbols` project that turned the replay off or retuned its delay silently shipped the
@@ -1250,6 +1242,9 @@ async function main() {
 		// …and a Hold and Win flight's trail / arrival effect, the fourth source — mirrors
 		// `flightEffectIds` in runtimeBundle.ts (`check:flights` proves the two keep the same ids).
 		for (const id of bakedFlightEffectIds(symbols.flights)) symbolDocBound.add(id);
+		// …and the styled win line's tip / burst / trail effects, the fifth — mirrors
+		// `winLineEffectIds` in runtimeBundle.ts (`check:win-line-style` proves the same ids).
+		for (const id of bakedWinLineEffectIds(symbols.winLine)) symbolDocBound.add(id);
 		const isEventReachable = (d) =>
 			Array.isArray(d.layers) &&
 			d.layers.some((l) => l.trigger?.on === 'event' && !!l.trigger?.eventType);

@@ -609,7 +609,7 @@ export const winsOnThisBoard = (
  */
 export const showAllWinLines = async (
 	wins: WinLineWin[],
-	{ stamp = true }: { stamp?: boolean } = {},
+	{ stamp = true, replay = false }: { stamp?: boolean; replay?: boolean } = {},
 ): Promise<boolean> => {
 	const { allAtOnceDelay } = bakedWinLineConfig().line;
 	let drew = false;
@@ -638,6 +638,8 @@ export const showAllWinLines = async (
 						line: win.meta?.lineIndex,
 					})
 				: { amount: '', message: '' }),
+			// The resting cycle's re-send of a set the round already drew: no sounds again.
+			...(replay ? { replay: true } : {}),
 		});
 	}
 	return drew;

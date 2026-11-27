@@ -28,27 +28,35 @@
  * The mapping is kept in the bundle's `sheet.json` (`SHEET_SIDECAR`), so it opens again and a rig can
  * be made from it again.
  */
-import { armTail, PROP_NAME } from './rigCutEdits';
+import { PROP_NAME } from './rigCutEdits';
 import { apartFace, faceNote, frameFace } from './rigFrameFace';
+import { HEAD_TURN_DEFAULT, HEAD_TURN_MAX, headTurn } from './rigHeadTurn';
 import { fitFromJoints, framePose, skinBends, turnedAtSetup, type Fitted } from './rigFrameFit';
 import {
 	boneWorld,
 	controlTarget,
+	faceBones,
 	fitTemplate,
 	frameWorld,
+	MAX_LAYERS,
 	type Affine,
 	type RigFit,
 	type RigFitProp,
 } from './rigTemplateFit';
 import {
 	templateFitProblem,
+	templateMade,
 	type RigTemplate,
+	type RigTemplateChannel,
 	type TemplateArt,
 	type TemplateRegion,
 } from './rigTemplates';
 import {
+	CUSTOM_NAME,
 	SHEET_JOINTS,
 	sheetKind,
+	sheetLayerList,
+	sheetPropPlaces,
 	sheetSide,
 	type P,
 	type SheetKind,
@@ -57,6 +65,7 @@ import {
 	type SheetPlace,
 	type SheetProp,
 } from '../rigSheetMap';
+import { inDrawOrder } from '../rigSlotOrder';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
@@ -68,6 +77,8 @@ const NAME = /^[^\0/\\]{1,200}$/;
 /** The face mesh the tracker finds (468, or 478 with the irises). */
 const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
+/** The slot the template's mouth shapes swap in. */
+const MOUTH_SLOT = 'mouth';
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
 const MAX_PX = 100_000;
 /** A turn on the arrange canvas, degrees either way. */
@@ -86,6 +97,8 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		'scale',
 		'arrange',
 		'swapSides',
+		'layers',
+		'turn',
 	]);
 	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
 	if (raw.swapSides !== undefined && typeof raw.swapSides !== 'boolean')
@@ -102,6 +115,8 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		return no('it names its template as { id, version }');
 	if (raw.scale !== undefined && !(finite(raw.scale) && raw.scale > 0 && raw.scale < 1000))
 		return no('its scale is a number above 0');
+	if (raw.turn !== undefined && !(finite(raw.turn) && raw.turn >= 0 && raw.turn <= HEAD_TURN_MAX))
+		return no(`its head turn is a strength from 0 (off) to ${HEAD_TURN_MAX}`);
 	const px = (p: unknown): p is P => point(p) && p.every((v) => Math.abs(v) <= MAX_PX);
 	if (!isRecord(raw.parts)) return no('`parts` is { part: { region, joints, face? } }');
 	const parts: Record<string, SheetPartMap> = {};
@@ -134,16 +149,19 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 	for (const p of raw.props) {
 		if (
 			!isRecord(p) ||
-			extraKey(p, ['name', 'region', 'host', 'bone', 'at', 'turn']) !== undefined ||
+			extraKey(p, ['name', 'region', 'host', 'bone', 'at', 'turn', 'custom']) !== undefined ||
 			typeof p.name !== 'string' ||
 			typeof p.region !== 'string' ||
 			!NAME.test(p.region) ||
 			typeof p.host !== 'string' ||
 			typeof p.bone !== 'string' ||
 			!px(p.at) ||
-			(p.turn !== undefined && !turn(p.turn))
+			(p.turn !== undefined && !turn(p.turn)) ||
+			(p.custom !== undefined && p.custom !== true)
 		)
-			return no('a prop is { name, region, host, bone, at: [x, y], turn?: degrees }');
+			return no(
+				'a prop is { name, region, host, bone, at: [x, y], turn?: degrees, custom?: true }',
+			);
 		props.push({
 			name: p.name,
 			region: p.region,
@@ -151,6 +169,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 			bone: p.bone,
 			at: [p.at[0], p.at[1]],
 			...(p.turn !== undefined ? { turn: p.turn as number } : {}),
+			...(p.custom === true ? { custom: true as const } : {}),
 		});
 	}
 	let arrange: Record<string, SheetPlace> | undefined;
@@ -163,6 +182,17 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 			arrange[part] = { at: [o.at[0], o.at[1]], turn: o.turn };
 		}
 	}
+	let layers: string[] | undefined;
+	if (raw.layers !== undefined) {
+		if (
+			!Array.isArray(raw.layers) ||
+			raw.layers.length > MAX_LAYERS ||
+			!raw.layers.every((n) => typeof n === 'string' && NAME.test(n)) ||
+			new Set(raw.layers).size !== raw.layers.length
+		)
+			return no(`\`layers\` is a list of up to ${MAX_LAYERS} slot names, front to back, each once`);
+		layers = [...(raw.layers as string[])];
+	}
 	const mapping: SheetMapping = {
 		sheet: 1,
 		manifestKey: raw.manifestKey,
@@ -172,52 +202,10 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),
 		...(arrange ? { arrange } : {}),
 		...(raw.swapSides === true ? { swapSides: true as const } : {}),
+		...(layers ? { layers } : {}),
+		...(raw.turn !== undefined ? { turn: raw.turn as number } : {}),
 	};
 	return { mapping };
-}
-
-/**
- * The layer a region was exported from by Photoshop's Export Layers (`<file>_0002s_0003s_0001_Lid`:
- * the third set's fourth set's second layer), each index counted from the top of the layers panel,
- * so a lower one is drawn in front. Sets (`0002s`) and layers (`0002`) are counted apart, so only
- * two layers of one set compare; null for a name that is not one.
- */
-export function psdLayer(name: string): string[] | null {
-	const m = /(?:^|_)((?:\d{4}s_)*\d{4})_./.exec(name);
-	return m ? m[1].split('_') : null;
-}
-
-/**
- * Whether the artist's file draws region `a` behind region `b`: known only for two layers of one
- * set (or both at the top), whose indices are counted together; null otherwise.
- */
-export function psdBehind(a: string, b: string): boolean | null {
-	const [pa, pb] = [psdLayer(a), psdLayer(b)];
-	if (!pa || !pb || pa.length !== pb.length || pa.join() === pb.join()) return null;
-	const last = pa.length - 1;
-	if (pa.slice(0, last).join() !== pb.slice(0, last).join()) return null;
-	return parseInt(pa[last], 10) > parseInt(pb[last], 10);
-}
-
-/**
- * `list` with the layers of each set put back to front among the places they hold (`psdBehind`);
- * anything the file does not order keeps its place.
- */
-function psdOrdered<T>(list: readonly T[], region: (x: T) => string): T[] {
-	const out = [...list];
-	const sets = new Map<string, number[]>();
-	list.forEach((x, i) => {
-		const layer = psdLayer(region(x));
-		if (!layer) return;
-		const set = `${layer.length}:${layer.slice(0, -1).join('_')}`;
-		sets.set(set, [...(sets.get(set) ?? []), i]);
-	});
-	const index = (x: T) => parseInt(psdLayer(region(x))!.at(-1)!, 10);
-	for (const at of sets.values()) {
-		const backToFront = at.map((i) => list[i]).sort((a, b) => index(b) - index(a));
-		at.forEach((i, k) => (out[i] = backToFront[k]));
-	}
-	return out;
 }
 
 /** A part's kind, side and the bones its joints sit on, by its slot. */
@@ -260,7 +248,9 @@ export function sheetMappingProblem(
 	const bones = new Set(t.bones.map((b) => b.name));
 	const taken = new Set([...t.slots.map((s) => s.name), ...t.parts.map((p) => p.name), ...bones]);
 	for (const p of m.props) {
-		if (!PROP_NAME.test(p.name))
+		if (p.custom && !CUSTOM_NAME.test(p.name))
+			return `a custom part is named with a lowercase letter, then up to 40 lowercase letters, digits or _ (${p.name})`;
+		if (!p.custom && !PROP_NAME.test(p.name))
 			return `a prop is named prop_ and up to 40 lowercase letters, digits or _ (${p.name})`;
 		if (taken.has(p.name))
 			return `the prop ${p.name} is named twice, or like a part of the template`;
@@ -269,6 +259,13 @@ export function sheetMappingProblem(
 		if (!m.parts[p.host]) return `the prop ${p.name} sits on "${p.host}", which is not mapped`;
 		if (!bones.has(p.bone) || controlTarget(p.bone))
 			return `the prop ${p.name} hangs from a bone the template has (not a control)`;
+	}
+	if (m.layers) {
+		const slotOf = (part: string) => partOf(t, part).slot.name;
+		const drawn = new Set([...parts.map(slotOf), ...m.props.map((p) => p.name)]);
+		const stray = m.layers.find((n) => !drawn.has(n));
+		if (stray !== undefined)
+			return `the layers list "${stray}", which no mapped part or prop is drawn in`;
 	}
 	return null;
 }
@@ -286,6 +283,8 @@ export interface SheetRig {
 	 * up): where an arrangement puts the rig, else (0, 0).
 	 */
 	origin: P;
+	/** Jointed mouth parts made with their slots empty: mouth shapes are mapped too, and win. */
+	hidden: string[];
 }
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -332,6 +331,9 @@ function inkBox(r: TemplateRegion): P[] {
 		[x0, y0 + r.h],
 	];
 }
+/** The create report's line on the head turn: how far a 25° turn slides the face across the head. */
+const headTurnNote = (depth: number) =>
+	`The head turns round: a 25° turn or nod slides its face ${Math.round(depth * Math.sin((25 * Math.PI) / 180))} units across it and the head's round part-way, its outline staying; what the head wears turns with it, at its depth.`;
 /** The create report's line on a head drawn without its face. */
 const APART_FACE =
 	'The head’s middle turns and nods with the face, its outline staying where it is: the face is drawn apart, each feature on its own bone.';
@@ -379,13 +381,15 @@ const NECK_SHOULDERS = 0.2;
 /**
  * The fit and the art of sheet mapping `m` (checked by `sheetMappingProblem`) on template `t`, over
  * the sheet's `regions`. Refused, with the reason, when the joints do not span a part or the fitted
- * template does not hold.
+ * template does not hold. `fitLayers: false` checks the layers' names but fits in the template's
+ * order, leaving the depth controls to the caller (🔄 Update rig, the 🗺 Edit mapping preview).
  */
 export function sheetRig(
 	t: RigTemplate,
 	regions: readonly TemplateRegion[],
 	m: SheetMapping,
-): Fitted<SheetRig> {
+	{ fitLayers = true }: { fitLayers?: boolean } = {},
+): LayersFitted<SheetRig> {
 	const no = (problem: string): Fitted<never> => ({ ok: false, problem });
 	const bad = sheetMappingProblem(t, regions, m);
 	if (bad) return no(bad);
@@ -563,6 +567,11 @@ export function sheetRig(
 				: rest.get(x.part)!);
 		art[x.part] = { region: x.map.region, matrix };
 	}
+	// A mouth drawn both as shapes and as its parts: the shapes win (the Mouth control swaps them),
+	// and the jointed parts (the template's optional mouth slots) are made with their slots empty.
+	const shapes = mapped.some((x) => x.slot.name === MOUTH_SLOT);
+	const hidden = shapes ? mapped.filter((x) => x.slot.optional).map((x) => x.part) : [];
+	for (const part of hidden) art[part].hidden = true;
 
 	// The face on a drawn head, where the tracker found it; else the head's middle on the face.
 	const drawnHead = mapped.find((x) => x.kind === 'head' && x.main);
@@ -571,7 +580,12 @@ export function sheetRig(
 		? head.map.face!.map((p) => apply(art[head.part].matrix, imagePoint(head.r, p)))
 		: null;
 	const lengthened: RigFit = { bones, ...(frame ? { frame } : {}) };
-	const found = faceWorld ? frameFace(t, lengthened, faceWorld) : null;
+	// The optional bones the mapped parts ride (a jointed mouth's upper teeth) are placed with the face.
+	const ridden = new Set(mapped.map((x) => x.slot.bone));
+	const optional = new Set(
+		t.bones.filter((b) => b.optional && ridden.has(b.name)).map((b) => b.name),
+	);
+	const found = faceWorld ? frameFace(t, lengthened, faceWorld, optional) : null;
 	const drawn =
 		found ??
 		(drawnHead
@@ -579,43 +593,77 @@ export function sheetRig(
 					t,
 					lengthened,
 					inkBox(drawnHead.r).map((p) => apply(art[drawnHead.part].matrix, p)),
+					optional,
 				)
 			: null);
 
-	// Props: a bone of their own where they sit on their host's drawing, drawn just over it (on the
-	// skeleton with the face's bones where the drawn face has them), turned against it as they say.
-	// Where the artist's file orders a prop against its part (`psdBehind`), one drawn behind it there
-	// is drawn just behind it, and the props on one part keep the file's order among themselves.
-	const Wf = drawn
-		? frameWorld(fitTemplate(t, { bones, features: drawn.features }).bones, frame)
-		: posedW;
+	// The head turn (§13.1g): the drawn head weighted in a dome about the face, its face, its ring and
+	// what it wears at depths, so a 3D turn or nod and the head controls turn it round.
+	const onFace = faceBones(t.bones, true);
+	const turned =
+		drawn && drawnHead
+			? headTurn({
+					t,
+					fit: { ...lengthened, features: drawn.features },
+					outline: inkBox(drawnHead.r).map((p) => apply(art[drawnHead.part].matrix, p)),
+					spots: drawn.spots,
+					apart: !found,
+					features: mapped
+						.filter((x) => onFace.has(x.slot.bone))
+						.flatMap((x) => inkBox(x.r).map((p) => apply(art[x.part].matrix, p))),
+					strength: m.turn ?? HEAD_TURN_DEFAULT,
+				})
+			: null;
+	const features =
+		drawn && turned
+			? { ...drawn.features, scale: { ...drawn.features.scale, face: turned.face } }
+			: drawn?.features;
+
+	// Props: a bone of their own where they sit on their host's drawing (on the skeleton with the
+	// face's bones where the drawn face has them), turned against it as they say, their slots where
+	// `sheetPropPlaces` draws them; the author's layers then order every slot the mapping draws. One
+	// worn on the head's drawing hangs from the head itself at its depth when the head turns.
+	const Wf = features ? frameWorld(fitTemplate(t, { bones, features }).bones, frame) : posedW;
 	const slots = t.slots.map((s) => s.name);
-	const behind = (p: SheetProp) =>
-		psdBehind(p.region, mapped.find((x) => x.part === p.host)!.map.region) === true;
-	const backToFront = psdOrdered(m.props, (p) => p.region);
-	const after = new Map<string, string>();
+	const hostOf = (part: string) => {
+		const x = mapped.find((y) => y.part === part)!;
+		return { slot: x.slot.name, region: x.map.region };
+	};
 	const props: RigFitProp[] = [];
-	for (const p of [
-		...backToFront.filter((q) => !behind(q)),
-		...backToFront.filter(behind).reverse(),
-	]) {
+	const propDepths: Record<string, number> = {};
+	const behind = new Map<string, boolean>();
+	const layers = m.layers ?? [];
+	for (const { prop: p, before, after } of sheetPropPlaces(slots, m.props, hostOf)) {
 		const host = mapped.find((x) => x.part === p.host)!;
 		const pivot = imagePoint(host.r, p.at);
 		const where = apply(art[host.part].matrix, pivot);
-		const bw = Wf.get(p.bone)!;
-		const det = bw[0] * bw[3] - bw[1] * bw[2];
-		const [dx, dy] = [where[0] - bw[4], where[1] - bw[5]];
-		const local: P = [(bw[3] * dx - bw[1] * dy) / det, (bw[0] * dy - bw[2] * dx) / det];
-		const side = /^(hand|lower_arm)_([lr])$/.exec(host.slot.name)?.[2];
-		const beside = side ? armTail(slots, side) : host.slot.name;
-		const at: P = [Math.round(local[0] * 1e4) / 1e4, Math.round(local[1] * 1e4) / 1e4];
-		if (behind(p)) {
-			const key = `-${host.slot.name}`;
-			props.push({ name: p.name, bone: p.bone, before: after.get(key) ?? host.slot.name, at });
-			after.set(key, p.name);
+		const next = (before ?? after)!;
+		const headSlot = drawnHead?.slot.name;
+		const back =
+			headSlot !== undefined && layers.includes(p.name) && layers.includes(headSlot)
+				? layers.indexOf(p.name) > layers.indexOf(headSlot)
+				: (behind.get(next) ??
+					(headSlot !== undefined &&
+						(before !== undefined
+							? slots.indexOf(next) <= slots.indexOf(headSlot)
+							: slots.indexOf(next) < slots.indexOf(headSlot))));
+		behind.set(p.name, back);
+		if (turned && p.host === drawnHead?.part && p.bone === drawnHead.slot.bone) {
+			const worn = turned.propAt(where, back);
+			props.push({
+				name: p.name,
+				bone: turned.head,
+				...(before ? { before } : { after: after! }),
+				at: worn.at,
+			});
+			propDepths[p.name] = worn.depth;
 		} else {
-			props.push({ name: p.name, bone: p.bone, after: after.get(beside) ?? beside, at });
-			after.set(beside, p.name);
+			const bw = Wf.get(p.bone)!;
+			const det = bw[0] * bw[3] - bw[1] * bw[2];
+			const [dx, dy] = [where[0] - bw[4], where[1] - bw[5]];
+			const local: P = [(bw[3] * dx - bw[1] * dy) / det, (bw[0] * dy - bw[2] * dx) / det];
+			const at: P = [Math.round(local[0] * 1e4) / 1e4, Math.round(local[1] * 1e4) / 1e4];
+			props.push({ name: p.name, bone: p.bone, ...(before ? { before } : { after: after! }), at });
 		}
 		art[p.name] = {
 			region: p.region,
@@ -628,19 +676,39 @@ export function sheetRig(
 
 	// Every body part skinned across its joints with the parts beside it, posed as the frame (at rest
 	// without an arrangement).
+	const turnDepths = { ...turned?.turn.depths, ...propDepths };
 	const fit: RigFit = {
 		bones,
 		...(frame ? { frame } : {}),
-		...(drawn ? { features: drawn.features } : {}),
+		...(features ? { features } : {}),
 		...(props.length ? { props } : {}),
+		...(turned
+			? {
+					turn: {
+						bones: turned.turn.bones,
+						...(Object.keys(turnDepths).length ? { depths: turnDepths } : {}),
+					},
+				}
+			: {}),
+		...(m.layers && fitLayers ? { order: [...m.layers].reverse() } : {}),
 	};
+	const against = layersAgainstDepth(t, fit);
+	if (against) return layersRefused(against);
 	const mains = mapped.filter((x) => x.main).map((x) => x.part);
 	const posed = framePose(t, fit, mains);
 	if (!posed.ok) return posed;
 	const sw = tplShoulders ? len(tplShoulders) : 0;
 	const jaw = faceWorld && faceWorld.length >= 468 ? len(sub(faceWorld[397], faceWorld[172])) : 0;
 	const neckWidth = 2 * Math.max(NECK_WIDTH * jaw, NECK_SHOULDERS * sw);
-	const bends = skinBends(t, posed.value.skel, {}, mains, neckWidth, drawn?.spots, true);
+	const bends = skinBends(
+		t,
+		posed.value.skel,
+		{},
+		mains,
+		neckWidth,
+		turned?.spots ?? drawn?.spots,
+		true,
+	);
 	// A drawing by angle or a hand pose bends as its slot's main drawing does; a drawing lying down
 	// takes its grid's lines along its length.
 	for (const x of mapped) {
@@ -662,10 +730,118 @@ export function sheetRig(
 			fit,
 			art,
 			scale: k,
-			face: found ? faceNote(found.moves) : drawn ? APART_FACE : '',
+			face: [
+				found ? faceNote(found.moves) : drawn ? APART_FACE : '',
+				turned ? headTurnNote(turned.depth) : '',
+			]
+				.filter(Boolean)
+				.join(' '),
 			origin,
+			hidden,
 		},
 	};
+}
+
+/** A fit, or why not: `layers` when it is the author's Layers a depth control cannot stand with. */
+export type LayersFitted<T> = Fitted<T> | { ok: false; problem: string; layers: true };
+const layersRefused = (problem: string) => ({ ok: false as const, problem, layers: true as const });
+
+/**
+ * Why the author's layers (`RigFit.order`) cannot stand with the template's depth controls, or null:
+ * a control such as Arm depth moves its limb from in front of a slot (the head, the torso) to just
+ * behind it, so the limb must be drawn in front of that slot at setup.
+ */
+function layersAgainstDepth(t: RigTemplate, fit: RigFit): string | null {
+	if (!fit.order) return null;
+	const ft = fitTemplate(t, fit);
+	return slotsAgainstDepth(
+		ft.channels,
+		ft.slots.map((s) => s.name),
+	);
+}
+
+/**
+ * Why a draw order (`slots`, back to front: a fitted template's, or a rig's) cannot stand with the
+ * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged. A
+ * slot outside the Layers list (`listed`, when given) was put there in Setup, and is worded so.
+ */
+function slotsAgainstDepth(
+	channels: readonly RigTemplateChannel[],
+	slots: readonly string[],
+	listed?: ReadonlySet<string>,
+): string | null {
+	const at = new Map(slots.map((n, i) => [n, i]));
+	for (const c of channels) {
+		if (!c.order) continue;
+		const own = c.order.slots.filter((n) => at.has(n));
+		if (!own.length) continue;
+		const back = own.reduce((a, b) => (at.get(b)! < at.get(a)! ? b : a));
+		for (const st of c.order.steps) {
+			if (!at.has(st.behind) || at.get(st.behind)! < at.get(back)!) continue;
+			const moves = `the control "${c.label}" moves it from in front of "${st.behind}" to behind it`;
+			return listed && !listed.has(back)
+				? `Setup's slots draw "${back}" behind "${st.behind}", but ${moves}: fix the order in Setup's slots, or leave the Layers as opened`
+				: `the Layers draw "${back}" behind "${st.behind}", but ${moves}: keep ${back} in front of ${st.behind}`;
+		}
+	}
+	return null;
+}
+
+/** The slots mapping `m` draws in, back to front, as its Layers list orders them (`sheetLayerList`). */
+function sheetLayerOrder(t: RigTemplate, m: SheetMapping): string[] {
+	const slotOf = (part: string) => t.parts.find((p) => p.name === part)?.slot ?? part;
+	return sheetLayerList(
+		t.slots.map((s) => s.name),
+		slotOf,
+		m,
+	).reverse();
+}
+
+/**
+ * Whether 🔄 Update rig holds mapping `m`'s Layers to the depth controls on the open rig (its slots
+ * `had`, back to front, made from a mapping whose layers were `was`; `fit` is `m`'s): when the list
+ * changed since and moves a slot the rig had, or draws a slot new to it that a depth control steps
+ * (a prop worn on an arm). A prop worn elsewhere, the rig's own order otherwise, is not judged.
+ */
+function layersJudged(
+	t: RigTemplate,
+	fit: RigFit,
+	m: SheetMapping,
+	was: readonly string[] | undefined,
+	had: readonly string[],
+): boolean {
+	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null)) return false;
+	const want = sheetLayerOrder(t, m);
+	if (inDrawOrder(had, want).some((n, i) => n !== had[i])) return true;
+	const have = new Set(had);
+	const stepped = new Set(fitTemplate(t, fit).channels.flatMap((c) => c.order?.slots ?? []));
+	return want.some((n) => !have.has(n) && stepped.has(n));
+}
+
+/**
+ * The draw order 🔄 Update rig gives the rig merged from mapping `m` (its slots `merged`, back to
+ * front, as the merge leaves them; `had` the open rig's, made from a mapping whose layers were `was`;
+ * `fit` is `m`'s): the Layers list's when the author changed it and it moves a slot, else null (the
+ * rig's own order stays, a Setup reorder too). Refused when held to the depth controls
+ * (`layersJudged`) and they cannot stand with it. The 🗺 Edit mapping preview warns by this too.
+ */
+export function sheetLayersApplied(
+	t: RigTemplate,
+	fit: RigFit,
+	m: SheetMapping,
+	was: readonly string[] | undefined,
+	had: readonly string[],
+	merged: readonly string[],
+): LayersFitted<string[] | null> {
+	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null))
+		return { ok: true, value: null };
+	const want = sheetLayerOrder(t, m);
+	const now = inDrawOrder(merged, want);
+	if (now.every((n, i) => n === merged[i])) return { ok: true, value: null };
+	const against =
+		layersJudged(t, fit, m, was, had) &&
+		slotsAgainstDepth(fitTemplate(t, fit).channels, now, new Set(want));
+	return against ? layersRefused(against) : { ok: true, value: now };
 }
 
 /** What the 🗺 dialog's ◧ Arranged view draws: the rig a sheet makes, as `sheetRig` places it. */
@@ -684,17 +860,30 @@ export interface SheetPreview {
 	frame: boolean;
 }
 
-/** `sheetRig`'s placements, for the page to draw without fitting anything itself. */
+/**
+ * `sheetRig`'s placements, for the page to draw without fitting anything itself: the layers refused
+ * as 🦴 Create rig refuses them, or with `edit` (🗺 Edit mapping) drawn unjudged, for the caller to
+ * judge them as 🔄 Update rig does (`sheetEditPreview`).
+ */
 export function sheetPreview(
 	t: RigTemplate,
 	regions: readonly TemplateRegion[],
 	m: SheetMapping,
-): Fitted<SheetPreview> {
-	const made = sheetRig(t, regions, m);
+	{ edit = false }: { edit?: boolean } = {},
+): LayersFitted<SheetPreview> {
+	const made = sheetRig(t, regions, m, { fitLayers: !edit });
 	if (!made.ok) return made;
 	const { fit, art, scale, origin } = made.value;
-	const ft = fitTemplate(t, fit);
-	const slotAt = new Map(ft.slots.map((s, i) => [s.name, i]));
+	const all = fitTemplate(t, fit);
+	const ft = templateMade(
+		all,
+		new Set(Object.keys(art).map((n) => all.parts.find((p) => p.name === n)?.slot ?? n)),
+	);
+	const order = inDrawOrder(
+		ft.slots.map((s) => s.name),
+		m.layers ? sheetLayerOrder(t, m) : [],
+	);
+	const slotAt = new Map(order.map((n, i) => [n, i]));
 	const slotOf = (name: string) => ft.parts.find((p) => p.name === name)?.slot ?? name;
 	const W = frameWorld(ft.bones, fit.frame);
 	return {

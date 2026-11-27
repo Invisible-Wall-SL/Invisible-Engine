@@ -17,7 +17,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 - **Image sequences** — declare a numbered atlas run as a rig `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because rig's loader throws on it and the rig would no longer open.
 - **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
 - **Weights** — bind-to-bone, per-vertex numeric editing, weight brush + heatmap, and **Auto-weight to chain** (inverse-square distance to the chain's length-bearing bone segments, ≤4 influences).
-- **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor (every key read as the runtime reads it: a time or value the file leaves at its default is filled in when the rig opens, `normalizeKeys`), slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
+- **Animation** — keyframing (◆ Key children keys a bone and everything under it), dopesheet (a **foldable tree of the bone hierarchy** whose folded rows carry their rows' keys, multi-select, marquee, column / same-time / parents / children selection — Shift-click the ruler, **T**, **P**, **C** —, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**, snapping to keys and a playhead that snaps to them), graph editor (every key read as the runtime reads it: a time or value the file leaves at its default is filled in when the rig opens, `normalizeKeys`), slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredRigBox`) by `/symbols`, the Scene Editor and the game (`<RigProvider anchor={0.5}>`: a rig's anchor is a point of this frame). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
 - **Origin** — a rig placed on a screen sits by its skeleton origin (the Scene Editor and the game put it on the node's x/y); fitting into a box (a symbol cell) is what reads the Bounds frame. The origin is the amber ⊕ on the stage with Bones or Bounds on, and **⊕ Centre origin** moves the root bone(s) so the frame's centre is the origin (`centreRigOrigin`), naming the root on an FX / clip binding with no bone or slot so the game keeps drawing it where the Rigger did.
@@ -182,6 +182,128 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-26 — **🗺 Edit mapping's Layers preview agrees with 🔄 Update rig (the #1942 review).**
+  The preview judged the list without the update's "the merged order moves" condition, on the open
+  rig's slots (so a prop worn anew was missing) and then again on the template's order: a rig whose
+  Setup drew `upper_arm_l` behind `head`, with a forearm prop worn anew left where the list puts it,
+  warned under the list while 🔄 Update rig accepted it. Now ONE rule decides: `sheetLayersApplied`
+  (`rigSheetFit.ts`) — the list changed since the kept mapping, moves a slot of the merged rig, and
+  is held to the depth controls as `layersJudged` says — returns the order 🔄 Update rig applies or
+  the refusal. `updateSheetRig` calls it on `frameRigUpdate`'s result; the preview
+  (`sheetEditPreview`, `rigSheetUpdate.ts`) calls it on `mergedSlots`, the merge's own slot step
+  (`rigFrameUpdate.ts`: props taken off dropped, new props placed by the same `newSlotPlaces` the
+  merge splices with), over the same `merging` inputs the update builds. The page's preview sends
+  `rig: { slots, skins, kept }` (`skins`: only the one `madeParts` reads, `default` else the first,
+  its attachment names by slot; the route refuses more, and names over 256) (was `{ slots, layers }`); without a rig
+  the preview refuses exactly what 🦴 Create rig refuses (`sheetRig`'s own check, unchanged). A
+  Layers refusal is tagged (`LayersFitted`, `layers: true`): the endpoint answers
+  `{ message, layers: true }` and the page shows the pill from `s2r.previewLayers`, not by matching
+  `/the Layers/`. `layersJudged`, `slotsAgainstDepth` and `sheetLayerOrder` are module-private now.
+  Guards: a new gate `sheet-layers-preview.mjs` 38/38, 74 s (its `preview` guard: 7 edits each
+  asserting the slots the preview judges equal `frameRigUpdate`'s merged slots and its verdict and
+  words the update's, 3 creates equal 🦴 Create rig's; the reviewer's case failed on `main` — preview
+  warned, update accepted — and passes now; 7 mutants red, each run on the cases it targets, 2 of
+  them changing only the merge's slot handling and caught only by the slots check). Its own gate
+  because with it `sheet-rig-update.mjs` ran 440 s and timed out in CI; that file is 76/76 in 79 s
+  now, its `layers` mutants each run on the phases they target (the moved
+  `layers` mutants re-anchored), `sheet-layers.mjs` 126/126, `sheet-rig.mjs` 3418/3418,
+  `frame-rig-update.mjs` 125/125 (a mutant re-anchored on `newSlotPlaces`),
+  `frame-rig-update-browser.mjs` 22/22, `sheet-rig-browser.mjs` 76/76 (the forearm-prop case, no
+  warning), its 16 Layers page mutants red (2 new), `check:rigger-writes` 265 (the preview's `rig`
+  parsed and refused). ⏳ Not live-verified.
+- 2026-11-26 — **Timeline tree, selection shortcuts, snapping; |◀ ▶| on slot keys and Properties
+  that follow the keys (owner's list).** The overview dopesheet nests its rows by the bone hierarchy
+  (`treeTracks` / `foldTracks` in `view.html`; **tree** toggles it, kept per browser): keyless
+  parents get a `bare` row, a slot sits under its bone, a mesh's deform / sequence rows under their
+  slot; ▾ folds (Alt: a whole branch, `tlFolded`, this tab only) and picking a bone unfolds the rows
+  above it once (`revealSelectedRows`). Folded rows stay tracks (`dopeTrackById`), so a selection,
+  Delete and T / P / C reach their keys; the folded row draws them as `foldedKeyDot`s that select,
+  drag, duplicate, ease and delete every key at that time. Shift/Ctrl-click on the ruler selects a
+  column (`selectColumnKeys`); **T** adds the selection's columns, **P** / **C** the parents' /
+  children's keys at the same times (`selectRelatedKeys`; C includes the slots on the bone and under
+  it). **◆ Key children** (`keyWithChildren`). Snap: a dragged key and a stretch grip snap to the
+  other keys' times too (the ⇥ tooltip already promised it, `dopeSnapKeys`), the scrubbed playhead
+  lands on a key within 7 px (Alt: free). **🧲 Snap to bone** (mode bar, on by default, Alt flips it
+  for a drag): a dragged bone's origin lands on another bone's origin or tip within 10 px
+  (`snapBoneLocal`), solved from where the bone measurably lands so a constrained bone is exact. The
+  names column is resizable (`tlGutter`, 180 px by default). Fixes: **|◀ ▶| ignored a selected slot's
+  keys whenever a bone was also selected** (`selectSlot` keeps `selBone`) and slot, event, draw-order,
+  sequence and constraint keys with nothing selected — it now steps through `selectionKeyTimes`, else
+  `allKeyTimes`. **Properties did not refresh** on a pause (the bone / slot panels kept the time they
+  were drawn at), a moved sequence key (its inspector lost the key) or a click on a bone / slot key
+  (nothing happened): `syncKeyPanels` redraws them when the playhead or `rigEditRev` (bumped by
+  `markDirty` and undo) moved, never under a held pointer or a field being typed in; the constraint
+  panel's stamp carries the revision too, so a key edit elsewhere redraws it; a click on a key seeks to
+  it and selects its owner after the click (`dopeClickKey`, so the double-click still deletes). Guards: new
+  `tools/rigger-spike/timeline-tree-browser.mjs` (46 checks, 22 page mutants); `pen-drag-browser.mjs`
+  and `rig-limbs-browser.mjs` turn the bone snap off (their drags measure raw distances; W's sparks
+  share one origin), and `pen-drag-browser.mjs` frames the rig again on entering Animate (the mode
+  bar, a button wider, covered the bone it had picked in Setup, so the press never reached the
+  stage); `cinematic-timeline.golden.json` re-recorded for the four Tweak-mode steps whose
+  dopesheet is now the tree. Red on `main` before this change too, in this container:
+  `rig-control-shapes-browser.mjs` (the ring drag held to a limit) and `rig-3d-stage-browser.mjs`
+  (the Local ring's 30° turn, 29.56°). ⏳ Not yet tried on the authed page.
+
+- 2026-11-26 — **🔄 Update rig no longer refused by Setup's own order (the #1942 review).** Live on
+  `main` since #1948 (which stacked on #1942's Layers code) and fixed by #1942: a rig whose Setup
+  drew `upper_arm_l` behind `head` could not be updated after any 🗺 Edit mapping change:
+  the Layers list opens from the rig's slots, goes out as `layers`, and the edited mapping's build
+  held it to the Arm depth control. `updateSheetRig` now builds both mappings in the template's order
+  (`sheetRig` `fitLayers: false`), applies the list to the merged rig only when it changed since the
+  kept mapping AND moves a slot, and holds the order it applies to the depth controls
+  (`slotsAgainstDepth`, on the merged order, so a finger Setup drew behind the head counts) as
+  `layersJudged` says: when the list moves a slot the open rig had, or draws a slot new to it that a
+  depth control steps (a prop worn anew on an arm, refused behind the head as 🦴 Create rig refuses
+  it); a prop worn elsewhere (a badge on the torso) is not judged — so the server keeps the rig's
+  order for any client, and a changed list still meets the control. A slot drawn wrong that the
+  list does not name is worded for Setup's slots ("fix the order in Setup's slots, or leave the
+  Layers as opened"). The dialog's preview sends the open rig (`rig: { slots, layers }`) and
+  `sheetPreview` judges with the same `layersJudged` (on the rig's order with the list applied, then
+  the list itself), else draws the list unjudged in its order, so ◧ Arranged draws what the rig
+  draws and warns of what the update would refuse. Also: one `MAX_LAYERS` (256,
+  `rigTemplateFit.ts`) for `parseRigFit` and `parseSheetMapping`; ↺ Start over's confirm names the
+  Layers; ✕ mid-drag ends the Layers drag (`s2rLayerDragEnd`); the Layers tooltip and the guide say a
+  clip's draw-order keys still draw what they drew, so a new order shows at setup and in clips that
+  key none. `sheet-rig-browser.mjs` gave Setup's ⋮⋮ drag room: the rig panel left the slot list's
+  scroller 9 px tall, so the grip sat in the drag's auto-scroll edge and the drop landed rows off
+  (65/67 every run); it now drags in a 2000 px-tall viewport and checks both points clear the edge
+  first. Guards: `sheet-rig-update.mjs` 163/163 (5 checks, 7 mutants new; each check failed on the
+  code before), `sheet-rig.mjs` 3530/3530, `sheet-rig-browser.mjs` 75/75, 59/59 page mutants (3
+  new; 2 Layers mutants re-anchored on `s2rMapping(st)`'s text, where #1941 had left them
+  unplanted). ⏳ Not live-verified.
+
+- 2026-11-26 — **🗺 From my sheet: a Layers list (#1942; on `main` first with #1948, stacked on
+  it).** The owner could not set which added
+  shape sits in front of which at setup. The dialog's side panel lists every slot the mapping draws
+  in (each mapped part's, each prop's), front at the top: the template's order, each prop over its
+  part (or behind it where the Photoshop layer names say); ⋮⋮ drags a row (mouse, pen, finger),
+  Ctrl+] / [ steps the picked one, Shift all the way; ◧ Arranged draws the new order at once. Kept as
+  `SheetMapping.layers` (sent only while it differs from the template's), carried as `RigFit.order`
+  (`inDrawOrder` in `rigSlotOrder.ts`, ridden by `template.json`); 3D draw-order layers keep their
+  longest run together (`layersTogether`); an order against a depth control (an arm behind the head
+  or the torso) is refused, naming it, and shown under the list. The page and the launcher share one
+  order (`rigSheetMap.ts` `sheetSlotOrder` / `sheetPropPlaces` / `sheetLayerList`, bundled in
+  `vendor/rigger-motion.js`). 🗺 Edit mapping opens the list from the rig's slots; 🔄 Update rig
+  applies it only when changed, through `keepDrawOrders`. A sheet's prop is a real slot, so Setup's ⋮⋮
+  drags it. Design [frame-to-rig §13.1e](../design/frame-to-rig.md). Guards: `sheet-rig.mjs`
+  `layers`, `sheet-rig-update.mjs` `layers`, `sheet-rig-browser.mjs`. ⏳ Not live-verified.
+
+- 2026-11-26 — **＋ New rig starts from scratch (#1927), and its review fixes (#1941, merged).**
+  (#1927) 🗺 From my sheet and 🎞 From a Flipbook frame open on the first guess, not the open rig's
+  `sheet.json`, the dialog's last state or the clip's newest kept cut; ⇄ Swap sides is no longer
+  remembered per sheet. **↺ Reuse** offers the open rig's mapping, the mapping left in the dialog or
+  a kept cut of the clip; **↺ Start over** (icon) puts the first guess back as one step **↶** takes
+  back, asking over hand edits not kept. (#1941, the #1927 review) Frame: ＋ New rig → 🎞 again resets
+  as an undoable step (`f2rSnapshot`), so dragged joints, a part's frame picked by hand and the cuts
+  made here come back with ↶; a pending ↶ survives a close, not a change of template (nor mid-cut);
+  after ↶, ↺ Reuse no longer offers the cut that is open. Opened while a cut runs, the dialog is
+  left alone. Sheet: closed right after ↺ Start over, the mapping it replaced is left for ↺ Reuse
+  what you left (`s2rMapping(st)`); Start over and ↶ move `s2r.gen` on, so a face track lands on
+  neither, and a head restored mid-track is tracked again. Only one left mapping is remembered
+  (`s2r.left`). Guards: `frame-rig-browser.mjs` 45/45, 16 page mutants; `sheet-rig-browser.mjs`
+  56/56, 40 page mutants (4 new); `rig-workspace-browser.mjs` 57/57 with #1934/#1935 merged in. ⏳
+  Not yet tried on the authed page against R2.
 
 - 2026-11-26 — **Review fixes for folders (#1925).** (1) A step with a free slot and a folder's
   middle slot selected (`w,x,a,b,c,d`, folder `a,b,c`, `{x,b}`, Ctrl+]) took unselected `a` out of

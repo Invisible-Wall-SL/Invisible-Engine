@@ -8,6 +8,7 @@ import type {
 	RigTemplate3d,
 	RigTemplateTimelines,
 } from './rigTemplates';
+import { inDrawOrder, layersTogether } from '../rigSlotOrder';
 
 /**
  * A rig template fitted to one character (docs/design/frame-to-rig.md §4.6, §4.7): the template's
@@ -26,6 +27,11 @@ export interface RigFit {
 	frame?: Record<string, { rotate: number; scaleY?: number; x?: number; y?: number }>;
 	/** Worn things (§4.3a), each a slot of its own drawn just before or after the slot it names. */
 	props?: RigFitProp[];
+	/**
+	 * Slots drawn in this order (back to front) in the places they hold between them, props
+	 * included (`inDrawOrder`): the author's layers (frame-to-rig §13.1e). Every other slot stays.
+	 */
+	order?: string[];
 	/** Parts drawn as one bending piece, by part name (§4.7). */
 	bends?: Record<string, RigFitBend>;
 	/**
@@ -44,7 +50,32 @@ export interface RigFit {
 		at: Record<string, { x: number; y: number }>;
 		scale: Record<string, [number, number]>;
 	};
+	/** The head turn (frame-to-rig §13.1g, `rigHeadTurn.ts`). */
+	turn?: RigFitTurn;
 }
+
+/**
+ * The head turn: the ring of bones (`HEAD_TURN_BONES`) the head's drawing is weighted to round the
+ * face, each a child of the face's parent (the head) at `at` (its setup offset) and `depth` (z toward
+ * the viewer, rig units), so a 3D turn or nod carries the head's middle with the face and its round
+ * part-way, its outline staying; `depths` the depth of bones the template or the fit already has (a
+ * prop worn on the head, the lips), z in their parent's frame. The Head turn and Head up / down
+ * controls slide each by its depth, as they slide the face by its own.
+ */
+export interface RigFitTurn {
+	bones: { name: string; at: [number, number]; depth: number }[];
+	depths?: Record<string, number>;
+}
+
+/** The head turn's ring: to the face's left, right, below and above. */
+export const HEAD_TURN_BONES = [
+	'head_turn_l',
+	'head_turn_r',
+	'head_turn_d',
+	'head_turn_u',
+] as const;
+/** The deepest a head turn's bone may sit either way, rig units. */
+const MAX_TURN_DEPTH = 10_000;
 
 /**
  * A prop: its slot drawn just before or after the slot it names. With `at` it hangs from a bone of
@@ -106,7 +137,9 @@ export interface RigSkinJoint {
  * left), from a line `run` long each way along `dir` (a brow, a lip; none: a point), its share whole
  * within `core` of the way to its edge, then falling linearly to 0 there. Linear, so a move of the
  * region by less than (1 − core) × its reach that way never folds the skin it squeezes. `then`
- * splits its share along it (a brow from its outer end to its inner one).
+ * splits its share along it (a brow from its outer end to its inner one). `split` instead hands its
+ * share to four bones by the way from `at` (left, right, below, above: the head turn's ring), the
+ * square of each way's reach-scaled distance its weight.
  */
 export interface RigSkinSpot {
 	bone: string;
@@ -116,6 +149,7 @@ export interface RigSkinSpot {
 	core: number;
 	run?: number;
 	then?: RigSkin[];
+	split?: [string, string, string, string];
 }
 
 export const isSpot = (j: RigSkin): j is RigSkinSpot => 'extent' in j;
@@ -159,9 +193,30 @@ export function skinShares(
 		const inner = j.then?.length ? skinShares(j.then, x, y) : [];
 		const passed = inner.reduce((sum, k) => sum + k.share, 0);
 		out.push(...inner.map((k) => ({ bone: k.bone, share: w * k.share })));
-		out.push({ bone: j.bone, share: w * (1 - passed) });
+		if (isSpot(j) && j.split)
+			out.push(
+				...splitShares(j, x, y).map((k) => ({ bone: k.bone, share: w * (1 - passed) * k.share })),
+			);
+		else out.push({ bone: j.bone, share: w * (1 - passed) });
 	}
 	return out;
+}
+
+/** A split region's share at (x, y) across its four bones, by the way from its middle (`split`). */
+function splitShares(j: RigSkinSpot, x: number, y: number): { bone: string; share: number }[] {
+	const l = Math.hypot(j.dir[0], j.dir[1]);
+	const [ex, ey] = [j.dir[0] / l, j.dir[1] / l];
+	const [dx, dy] = [x - j.at[0], y - j.at[1]];
+	const u = dx * ex + dy * ey;
+	const v = dy * ex - dx * ey;
+	const cu = (u / j.extent[u < 0 ? 0 : 1]) ** 2;
+	const cv = (v / j.extent[v < 0 ? 2 : 3]) ** 2;
+	const [h, s] = cu + cv > 0 ? [cu / (cu + cv), cv / (cu + cv)] : [0.5, 0.5];
+	const [left, right, down, up] = j.split!;
+	return [
+		{ bone: u < 0 ? left : right, share: h },
+		{ bone: v < 0 ? down : up, share: s },
+	];
 }
 
 /** A bone's world transform `[a, b, c, d, x, y]`: (u, v) in its frame lands at (a u + b v + x, c u + d v + y). */
@@ -216,6 +271,8 @@ export const FIT_BEND_GRID: [number, number] = [3, 32];
 /** A prop's placeholder size, until its art is attached. */
 const PROP_SIZE: [number, number] = [64, 64];
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/** The slots a fit's `order` (a sheet mapping's layers) may list: every template slot and prop. */
+export const MAX_LAYERS = 256;
 /** How far a fitted bone may turn off its template direction (float noise, not a turn). */
 const TURN_EPS = 2e-4;
 /** The longest a fitted bone may be (px): past it the world sums overflow to Infinity. */
@@ -241,11 +298,18 @@ export function controlTarget(name: string): string | null {
 	return `${at}_${m[2]}`;
 }
 
-/** The template's `face` bone and every bone under it (the face block, rig-templates §4). */
-export function faceBones(bones: readonly RigTemplateBone[]): Set<string> {
+/**
+ * The template's `face` bone and every bone under it (the face block, rig-templates §4): an optional
+ * one (a jointed mouth's upper teeth) only when `optional` names it, or is true for every one.
+ */
+export function faceBones(
+	bones: readonly RigTemplateBone[],
+	optional: ReadonlySet<string> | true = new Set(),
+): Set<string> {
 	const out = new Set<string>();
 	for (const b of bones)
-		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent))) out.add(b.name);
+		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent)))
+			if (!b.optional || optional === true || optional.has(b.name)) out.add(b.name);
 	return out;
 }
 
@@ -272,7 +336,16 @@ const extraKey = (o: Record<string, unknown>, keys: readonly string[]) =>
 export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string } {
 	const no = (problem: string) => ({ problem });
 	if (!isRecord(raw)) return no('a fit is an object');
-	const extra = extraKey(raw, ['bones', 'frame', 'props', 'bends', 'fingers', 'features']);
+	const extra = extraKey(raw, [
+		'bones',
+		'frame',
+		'props',
+		'order',
+		'bends',
+		'fingers',
+		'features',
+		'turn',
+	]);
 	if (extra !== undefined) return no(`a fit has no field "${extra}"`);
 	if (!isRecord(raw.bones)) return no('a fit needs `bones`: { name: { x, y } }');
 	const offsets = (o: Record<string, unknown>, what: string) => {
@@ -307,6 +380,33 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 			scale[name] = [v[0], v[1]];
 		}
 		fit.features = { at, scale };
+	}
+	if (raw.turn !== undefined) {
+		const shape =
+			'`turn` is { bones: [{ name, at: [x, y], depth }], depths?: { bone: depth } }, finite numbers';
+		const o = raw.turn;
+		if (!isRecord(o) || extraKey(o, ['bones', 'depths']) !== undefined || !Array.isArray(o.bones))
+			return no(shape);
+		const turnBones: RigFitTurn['bones'] = [];
+		for (const b of o.bones) {
+			if (
+				!isRecord(b) ||
+				extraKey(b, ['name', 'at', 'depth']) !== undefined ||
+				typeof b.name !== 'string' ||
+				!Array.isArray(b.at) ||
+				b.at.length !== 2 ||
+				!b.at.every(finite) ||
+				!finite(b.depth)
+			)
+				return no(shape);
+			turnBones.push({ name: b.name, at: [b.at[0], b.at[1]], depth: b.depth });
+		}
+		const turn: RigFitTurn = { bones: turnBones };
+		if (o.depths !== undefined) {
+			if (!isRecord(o.depths) || !Object.values(o.depths).every(finite)) return no(shape);
+			turn.depths = { ...(o.depths as Record<string, number>) };
+		}
+		fit.turn = turn;
 	}
 	if (raw.frame !== undefined) {
 		if (!isRecord(raw.frame)) return no('`frame` is { bone: { rotate, scaleY?, x?, y? } }');
@@ -357,6 +457,16 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 			});
 		}
 		fit.props = props;
+	}
+	if (raw.order !== undefined) {
+		if (
+			!Array.isArray(raw.order) ||
+			raw.order.length > MAX_LAYERS ||
+			!raw.order.every((n) => typeof n === 'string' && NAME.test(n)) ||
+			new Set(raw.order).size !== raw.order.length
+		)
+			return no(`\`order\` is a list of up to ${MAX_LAYERS} slot names, back to front, each once`);
+		fit.order = [...(raw.order as string[])];
 	}
 	if (raw.bends !== undefined) {
 		if (!isRecord(raw.bends))
@@ -434,14 +544,20 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 						if (inner === null) return null;
 						if (j.extent !== undefined) {
 							const extent = j.extent;
+							const split = j.split;
 							if (
-								extraKey(j, ['bone', 'at', 'dir', 'extent', 'core', 'run', ...nest]) !==
+								extraKey(j, ['bone', 'at', 'dir', 'extent', 'core', 'run', 'split', ...nest]) !==
 									undefined ||
 								!Array.isArray(extent) ||
 								extent.length !== 4 ||
 								!extent.every(finite) ||
 								!finite(j.core) ||
-								(j.run !== undefined && !finite(j.run))
+								(j.run !== undefined && !finite(j.run)) ||
+								(split !== undefined &&
+									(!Array.isArray(split) ||
+										split.length !== 4 ||
+										!split.every((n) => typeof n === 'string') ||
+										inner !== undefined))
 							)
 								return null;
 							out.push({
@@ -452,6 +568,9 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 								core: j.core,
 								...(j.run !== undefined ? { run: j.run as number } : {}),
 								...(inner ? { then: inner } : {}),
+								...(split
+									? { split: [...(split as string[])] as [string, string, string, string] }
+									: {}),
 							});
 							continue;
 						}
@@ -524,7 +643,7 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 			return `it places "${name}" at no length, or past ${MAX_FIT_LENGTH} px`;
 	}
 	if (fit.features) {
-		const under = faceBones(t.bones);
+		const under = faceBones(t.bones, true);
 		for (const [name, f] of Object.entries(fit.features.at)) {
 			if (!under.has(name) || name === 'face')
 				return `it places a feature "${name}" that is not a bone under the template's face`;
@@ -538,6 +657,25 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 			if (!k.every((v) => finite(v) && v >= 0 && v <= MAX_FEATURE_SCALE))
 				return `it scales "${name}" by ${k.join(', ')}, not factors from 0 to ${MAX_FEATURE_SCALE}`;
 		}
+	}
+	if (fit.turn) {
+		if (!bones.get('face')?.parent) return 'it turns a head, but the template has no face on one';
+		const ring: readonly string[] = HEAD_TURN_BONES;
+		const seen = new Set<string>();
+		for (const b of fit.turn.bones) {
+			if (!ring.includes(b.name) || seen.has(b.name))
+				return `it turns the head on a bone "${b.name}", not one of ${HEAD_TURN_BONES.join(', ')} once`;
+			if (bones.has(b.name)) return `the template already has a bone "${b.name}"`;
+			seen.add(b.name);
+			if (!(Math.hypot(...b.at) <= MAX_FIT_LENGTH) || !(Math.abs(b.depth) <= MAX_TURN_DEPTH))
+				return `it places "${b.name}" past ${MAX_FIT_LENGTH} px or ${MAX_TURN_DEPTH} deep`;
+		}
+		const props = new Set((fit.props ?? []).filter((p) => p.at).map((p) => p.name));
+		for (const [name, z] of Object.entries(fit.turn.depths ?? {}))
+			if ((!bones.has(name) && !props.has(name)) || seen.has(name) || name === 'face')
+				return `it sets the depth of "${name}", which is not a bone of the template or a prop's`;
+			else if (!(Math.abs(z) <= MAX_TURN_DEPTH))
+				return `it sets "${name}" ${z} deep, past ${MAX_TURN_DEPTH}`;
 	}
 	for (const [name, p] of Object.entries(fit.frame ?? {})) {
 		if (!bones.has(name)) return `the frame turns a bone "${name}" the template does not have`;
@@ -573,6 +711,8 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 		slots.add(p.name);
 		parts.add(p.name);
 	}
+	const stray = fit.order?.find((n) => !slots.has(n));
+	if (stray !== undefined) return `it orders a slot "${stray}" the rig does not have`;
 	// The bend itself (its grid, bones, ramp and covers) is the template's contract, checked on the
 	// fitted template: here only that it names a part to bend.
 	for (const part of Object.keys(fit.bends ?? {}))
@@ -797,7 +937,36 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 			);
 	}
 
-	const rig3d = lengthened.rig3d && { ...lengthened.rig3d, ...(layers ? { layers } : {}) };
+	let depths = lengthened.rig3d?.depths;
+	if (fit.turn) {
+		const head = t.bones.find((b) => b.name === 'face')!.parent!;
+		for (const b of fit.turn.bones)
+			bones.push({ name: b.name, parent: head, x: round4(b.at[0]), y: round4(b.at[1]) });
+		const deep = [
+			...fit.turn.bones.map((b): [string, number] => [b.name, b.depth]),
+			...Object.entries(fit.turn.depths ?? {}),
+		];
+		if (depths) depths = { ...depths, ...Object.fromEntries(deep) };
+		withProps = withProps.map((c) => slidByDepth(t, c, deep));
+	}
+
+	if (fit.order) {
+		const byName = new Map(slots.map((s) => [s.name, s]));
+		slots = inDrawOrder(
+			slots.map((s) => s.name),
+			fit.order,
+		).map((n) => byName.get(n)!);
+		if (layers)
+			layers = layersTogether(
+				layers,
+				slots.map((s) => s.name),
+			);
+	}
+	const rig3d = lengthened.rig3d && {
+		...lengthened.rig3d,
+		...(depths ? { depths } : {}),
+		...(layers ? { layers } : {}),
+	};
 	return {
 		...t,
 		bones,
@@ -806,6 +975,42 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 		channels: withProps,
 		clips,
 		...(rig3d ? { rig3d } : {}),
+	};
+}
+
+/** The controls that slide the face by its depth, and the way each slides it. */
+const DEPTH_SLIDES: Record<string, 'x' | 'y'> = { head_turn: 'x', head_pitch: 'y' };
+
+/**
+ * Control `c` (of template `t`) with `deep`'s bones ([bone, depth]) slid by their depths, as it
+ * slides the template's face by its own (the Head turn and Head up / down controls): unchanged for
+ * any other control, or a template whose face has no depth or no such drive. A bone another control
+ * moves that way (the jaw sideways, a lip up) keeps its depth in 3D alone: a move has one control.
+ */
+function slidByDepth(
+	t: RigTemplate,
+	c: RigTemplateChannel,
+	deep: readonly [string, number][],
+): RigTemplateChannel {
+	const prop = DEPTH_SLIDES[c.id];
+	const face = t.channels
+		.find((x) => x.id === c.id)
+		?.drives?.find((d) => d.bone === 'face' && d.prop === prop);
+	const z = t.rig3d?.depths.face;
+	if (!prop || !face || !z) return c;
+	const taken = new Set(
+		t.channels
+			.filter((x) => x.id !== c.id)
+			.flatMap((x) => (x.drives ?? []).filter((d) => d.prop === prop).map((d) => d.bone)),
+	);
+	const slid = deep.filter(([bone]) => !taken.has(bone));
+	const own = new Set(slid.map(([b]) => b));
+	return {
+		...c,
+		drives: [
+			...(c.drives ?? []).filter((d) => !(own.has(d.bone) && d.prop === prop)),
+			...slid.map(([bone, depth]) => ({ bone, prop, per: round4((depth * face.per) / z) })),
+		],
 	};
 }
 

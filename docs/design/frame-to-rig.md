@@ -749,10 +749,11 @@ The dialog now ends in **🦴 Create rig** (§6 steps 3–4, the GPU 🎨 Fill a
   `framePartsRequest`), and asks atlas-tool for the sheet `<name>_parts`. The page then creates the
   rig through `/api/rigger/new` with `{manifestKey, templateId, fit}`, as any template create:
   claim, `.atlas`, `template.json` with the fit, `controls.json`, reindex, the missing-parts report.
-  A taken rig name is refused before anything is made. `GET /api/rigger/from-frame?clipId=` lists the
-  clip's kept cuts (the newest per frame): ↺ Reuse opens one at once, before the track, so a kept cut
-  goes straight to Create rig — offered, never opened by itself on a new rig (§13.1d). A cut now names its clip and
-  frame (`cut.json` `clip`); one made before is matched by the page and region it was cut from.
+  A taken rig name is refused before anything is made. `GET /api/rigger/from-frame?clipId=` lists
+  the clip's kept cuts (the newest per frame): ↺ Reuse opens one at once, before the track, so a
+  kept cut goes straight to Create rig — offered, never opened by itself on a new rig (§13.1d). A
+  cut now names its clip and frame (`cut.json` `clip`); one made before is matched by the page and
+  region it was cut from.
 - **The fit** (§4.6, as `proof.py fit()`): the scale is the template's shoulder width over the
   frame's, the origin the hips' middle; the chest sits on the shoulder line, the head on the eyes'
   line (each eye's centre, not its corner), each limb aims at its next joint and takes its length
@@ -1455,8 +1456,8 @@ attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/
   own there (`RigFitProp.at`), drawn over the part (over the arm's last slot on an arm), turned and
   scaled with it. Where the artist's Photoshop layers order a prop against its part (Export Layers
   names, `psdBehind`: only two layers of one group compare), one drawn behind it there is drawn just
-  behind it, and a part's props keep the layers' order among themselves. Mapped parts always keep the
-  template's order.
+  behind it, and a part's props keep the layers' order among themselves. Mapped parts keep the
+  template's order unless the author's Layers say otherwise (§13.1e).
 - **Names** are read as words (`rigSheetMap.ts` `canonicalWords`: camelCase, digits, separators,
   a few Spanish words, `arm 1` / `arm 2` as the segments), each region given to the part it fits best,
   one each; an exact name wins. A region named like a worn thing is suggested as a prop.
@@ -1616,14 +1617,24 @@ reachable, offered and never applied by itself:
   - The listing still shows each frame's newest cut, so a fresh cut of a frame shadows the old one
     the next time the dialog opens. A rig made from the old one still reaches it through ✂ Edit
     cut, by job.
-- **↺ Start over** (an icon button) puts the dialog back to that first guess as one step, which **↶**
-  takes back. It asks first when there is a hand edit not kept anywhere:
+- **↺ Start over** (an icon button) puts the dialog back to that first guess as one step, which
+  **↶** takes back. It asks first when there is a hand edit not kept anywhere:
   - Sheet: anything changed since the suggestion or the reuse (`s2r.dirty`, which the suggestion now
     clears). Start over reads the names as ⇄ Swap sides is set.
   - Frame: touch-ups not 💾 kept, dragged joints, a part's frame picked by hand. The open cut stays
     kept, for ↺ Reuse; ✂ Cut then makes a fresh one.
 - 🗺 Edit mapping and ✂ Edit cut still open the rig's own mapping or cut. Start over works there too;
   Reuse is for new rigs only (the sheet dialog shows none while editing).
+- **Closing and opening again loses nothing** (the #1927 review):
+  - Frame: ＋ New rig → 🎞 puts the dialog back to the first guess the way ↺ Start over does, as one
+    step **↶** takes back, so dragged joints, a part's frame picked by hand and an open cut come
+    back with it. A ↶ pending from a Start over stays when nothing changed since. Opened while a cut
+    is running, the dialog is left as it is, so the cut lands.
+  - Sheet: closed after ↺ Start over with nothing changed since, the mapping Start over replaced is
+    what is left for ↺ Reuse what you left. Start over and ↶ each move `s2r.gen` on, so a face
+    track started before lands on neither; a head whose track ↶ cut short is tracked again.
+  - Only one left mapping is remembered (`s2r.left`, the last one closed), offered only on its own
+    sheet and template.
 
 **Gates:**
 - `sheet-rig-browser.mjs` (53 checks, 11 new page mutants):
@@ -1642,6 +1653,116 @@ reachable, offered and never applied by itself:
   - ↺ Reuse still opens the kept cut, touch-ups and all;
   - ↺ Start over (asked, the best frame, the cut offered) and ↶ (the cut, its labels, sources and
     the touch-up not yet kept, back).
+
+### 13.1e Layers — the author's draw order (2026-11-26)
+
+The owner, on `S_NellyAnimTest`: "I am also not able to set at which layer some of the added shapes
+are sitting, and I can't control that at setup phase. This is still a 2D rig in the end."
+
+- **One order, read by the page and the launcher.** `rigSheetMap.ts` `sheetSlotOrder`: the
+  template's slots, each prop's slot where `sheetPropPlaces` puts it (over its host, after an arm's
+  last slot on an arm, behind it where `psdBehind` says; moved there from `rigSheetFit.ts` so the
+  page bundles it), then the author's `layers`. A prop on the head goes just before `hair_front`:
+  over every face part — the owner's eyes drawn as parts, each eye white under its pupil under its
+  lids, all under the glasses — and under the front hair; one named like a hat (`OVER_HAIR`) over
+  the hair. `sheetLayerList` is the dialog's **Layers** list:
+  the slots the mapping draws in, front first. The page's list is the launcher's order by
+  construction, not by a copy (`vendor/rigger-motion.js` bundles it).
+- **Kept as `SheetMapping.layers`** (front to back, each slot once, only slots the mapping draws in:
+  a stray one is refused), sent only while it differs from the template's order. The fit carries it
+  as `RigFit.order` (back to front), which `fitTemplate` applies with `rigSlotOrder.ts` `inDrawOrder`:
+  the listed slots take the places they hold between them, every other slot stays. It rides
+  `template.json`'s fit (`parseRigFit` reads it), so the reopened template draws as the rig does.
+- **3D layers stay together** (`layersTogether`): a slot the author draws apart from its draw-order
+  layer (a hand moved away from its fingers) leaves it, keeping the layer's longest run, so the bake
+  never pulls it back and the fitted template's layers stay contiguous.
+- **The depth controls win.** Arm depth moves an arm from in front of the head and the torso to just
+  behind them, so an order drawing the arm behind either at setup is refused, naming the control
+  (`layersAgainstDepth`); the page shows the launcher's word under the list.
+- **🔄 Update rig** applies the list only when it changed since the kept mapping and moves a slot
+  of the merged rig (`updateSheetRig`, report `layered`), through `frameRigUpdate`'s
+  `keepDrawOrders`, so every draw-order key keeps drawing what it drew. The edited mapping is built
+  in the template's order and the list applied to the merged rig, so a rig whose Setup drew an arm
+  behind the head (which the list could not ask for) still updates. The order applied is held to the
+  depth controls (`slotsAgainstDepth`) as `layersJudged` says: when the list moves a slot the open
+  rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
+  worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
+  slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
+  survives an update that does not touch the list; its preview sends the open rig (`rig`: its
+  slots, its skins' attachment names, the mapping it keeps) and is judged by the update's own rule
+  (`sheetLayersApplied`) on the slots the update's merge leaves (`mergedSlots`); without a rig it
+  refuses what 🦴 Create rig refuses.
+- **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
+  so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
+
+### 13.1f A jointed mouth and ＋ Custom part (2026-11-26)
+
+The owner: "In our sheet we have specific facial bones that don't exist in our template: the teeth,
+the lower lip and the upper lip, instead of different mouth shapes."
+
+- **The template's optional mouth parts** (rig-templates §3.2 "A jointed mouth"): `lip_upper`,
+  `lip_lower`, `teeth_upper`, `teeth_lower`, `tongue` in the face block, each a one-pivot part here
+  (`sheetKind` → `pivot`), the lips bent on the corners and their own bones. `templateMade` drops the
+  optional slots and the `teeth_upper` bone a rig does not draw, before any mesh is weighted (weighted
+  vertices name bones by index), and `sheetPreview` reports the same bones. The face's features
+  (`frameFace` / `apartFace`) place an optional bone only when a mapped part rides it
+  (`faceBones(…, optional)`), so a frame-made rig's fit — and the request it sends atlas-tool — is as
+  it was.
+- **The owner's names** (2026-11-26, "you should see all of the differences from the regions naming
+  on our sheet"): the dialog's first guess is one pure function, `suggestSheet` (parts by name, worn
+  things as props, the rest offered as ＋ Custom parts), so the gate reads what the page suggests.
+  `under` reads as `lower` (`UnderEyelidL` is `lid_lower_l`, not the half-closed `eyelid_l_half` it
+  went to), an eye named alone is its white, a hood is worn on the torso (a hoodie's), and a prop is
+  named past the Photoshop file's prefix (`layerName`). Blink lowers a drawn upper lid and Look moves
+  drawn pupils, as on any rig of the template.
+- **Names** (`rigSheetMap.ts`): `lip`, `teeth` and `tongue` are kinds of part and meaningful words;
+  `labio`, `tooth` / `diente(s)`, `lengua`, `superior` / `inferior`, `arriba` / `abajo` read as
+  theirs; `teeth` with no row is the upper row. `lips` stays the whole mouth (a mouth shape).
+- **Shapes win**: a mapping drawing both a part in the `mouth` slot and a jointed part makes the
+  jointed parts with empty slots (`TemplateArt.hidden`, `SheetRig.hidden`, the create's report).
+- **＋ Custom part** is a prop by another name (`SheetProp.custom`, `CUSTOM_NAME`, `customName`): a
+  new bone of its own under the template bone the author picks, placed on a part's drawing as a prop
+  is, in Layers. 🔄 Update rig treats a custom part as the prop it is (`frameRigUpdate` takes the
+  props the input names, not only `prop_…`).
+
+### 13.1g ↻ Head turn — the drawn head turns round (2026-11-26)
+
+The owner, on a 3D capture of `NellyAnimTest`: "my head is still not rotating … I guess I need some
+extra bones on the head to give the impression that is rotating, cause the facial bones are working
+perfectly". Diagnosed on their region names (`sheet-head.mjs`): a capture's roll already turns the
+whole head; a yaw or a nod slid the features over a still head (its one drawing square to the
+viewer), the glasses (on `head_image`) not at all, and a face found on the head not even its face
+(`roomScales` left it no room).
+
+- **The 2D cut-out turn** (`rigHeadTurn.ts`, from `sheetRig` for a drawn head): the head's mesh is
+  weighted in a dome about the face — a **plateau** whole on `face` over the features (their regions
+  where found, their drawings where apart; 0.45–0.55 of the way to the outline, 0.8 found), falling to
+  a **ring** of four bones under the head (`head_turn_l/r/d/u`, `HEAD_TURN_BONES`, one `RigSkinSpot`
+  `split` by side) at 0.45 of the face's depth, falling to the **outline** on `head_image`. Below the
+  face the ring is whole down to the drawing's edge (the chin and jaw line turn over the neck); the
+  ring is drawn in until the drawing's edges above the chin lie on or past it (a sheet's drawing sits
+  at a slant to the face).
+- **Depths, not new machinery**: the ring, the lips and jaw (a little in front of the eyes) and each
+  prop worn on the head's drawing (re-hung on `head` at the dome's depth there, in front; half the
+  head's width behind it when the Layers draw it behind) are ordinary bones at a depth
+  (`RigFit.turn` → the fitted template's `rig3d.depths`, so `rig3d.json`); the face's own depth is set
+  by the head turn (`features.scale.face`). A 3D clip bakes them into plain keys as it bakes the
+  face's parallax; the Head turn / Head up-down controls slide each by its depth as they slide the
+  face (`slidByDepth`; a bone another control moves that way keeps its depth in 3D alone).
+- **Never folds at 1×**: the face's depth is the template's round head at the drawing's half-width,
+  cut until a 40° turn or a 25° nod squeezes no skin past 0.9 — measured on a lattice with the head
+  card's own narrowing by the cosine. On the owner's shape (drawn apart) a 25° turn slides the face 20
+  rig units (15.9 before), the round part-way, the outline 0; found on the head, 5.3 (0 before).
+- **↻ Head turn** in the dialog's top row (`SheetMapping.turn`, 0 off … 2, none = 1): the strength
+  scales the fold-safe depth (past 1× a turn folds the skin sooner: 2× past about 20°). 🔄 Update rig
+  gives a rig made before it the head turn: its ring appended after the rig's bones, the head
+  rebuilt, the props re-hung (`frameRigUpdate` `turned`), the old rig's as-made build without one (no
+  false hand edit), and the update's `depths` (the face's, the ring's, the props') written into the
+  rig's `rig3d.json`; the mapping's save writes the fit into `template.json` so the Controls drive it.
+- **Reuse**: 🎞 Frame to rig's head and a template rig take it by setting `RigFit.turn` and the
+  head's skin from `headTurn` (not wired: a frame-made head is the cut's whole face, found, and turns
+  as the found case does). Ears drawn on the head move as the head card narrows; drawn apart they
+  stay on `head` (no bone of their own yet).
 
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
@@ -1687,8 +1808,52 @@ dragged, ◧ Arranged (every part drawn where the preview puts it, sampled pixel
 dragged carrying its hand, snapped, turned about its elbow; the next preview agreeing to 0.02 px; a
 prop dragged and turned), the create's body with the arrangement, the rig opened with its `frame`
 clip, the report, a new rig on the first guess and ↺ Reuse of the mapping and its arrangement, ↺
-Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:rigger-writes`: the preview route places as the create would, writes nothing, and
-refuses another client's sheet and a misfit.
+Start over and ↶, ⤺; `--mutants` runs every page mutant, each red. `check:rigger-writes`: the
+preview route places as the create would, writes nothing, and refuses another client's sheet and a
+misfit.
+
+Layers (§13.1e): `sheet-layers.mjs`, a gate of its own so `sheet-rig.mjs` stays inside `check:all`'s
+five minutes: `layers` (the page's list is the order the rig is made in; the author's order is the
+rig's, engine-rig's and the reopened `template.json` fit's; every other slot in place; the 3D layers
+together, the hand moved away out of its own; the arm behind the head refused naming the depth
+control; bad and stray layers refused; 10 mutants) and `eyes` (the owner's eyes drawn as parts:
+white under pupil under lids under the glasses, the glasses under the front hair and a hat over it,
+the page's list the same, and the list may still put the glasses behind the eyes; 2 mutants);
+`sheet-rig.mjs` `draworder` (the head's props over the face, under the front hair). `sheet-rig-update.mjs` `layers`
+(a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
+every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-layers-preview.mjs`, a gate of
+its own for `check:all`'s five minutes (🗺 Edit mapping's preview judges the slots 🔄 Update rig's merge
+leaves and warns exactly when it refuses, in its words; without a rig, as 🦴 Create rig). `sheet-rig-browser.mjs` (the list
+as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,
+Ctrl+Shift+] / [; ◧ Arranged in the new order before the launcher answers; the depth control's word
+under the list; sent with the create and the rig drawn so; ↺ Reuse brings it back; Setup's ⋮⋮ drags a
+sheet's prop slot; 🗺 Edit mapping opens the rig's own order; Ctrl+] in the dialog never moves the
+rig's slots; 🔄 Update rig keeps Setup's order; 12 page mutants).
+
+Jointed mouth and custom parts (§13.1f): `sheet-mouth.mjs` `mouth` (the names; no jointed slot or
+`teeth_upper` bone on a rig without them; each part on its region and slot; the lips meshes; Jaw open
+drops the lower lip's middle, the lower teeth and the tongue by the jaw's move and the upper ones not
+at all; Smile left lifts both lips at that corner only; a face capture's jawOpen opens it as 🎥
+Motion keys it; shapes and parts both mapped, the parts' slots empty; the upper teeth's bone placed
+with the drawn face only where drawn; Layers order; 11 mutants) and `custom` (read back, its own bone
+under the bone picked, in Layers, its name, bad names refused; 3 mutants) — a gate of its own, so
+`sheet-rig.mjs` stays inside `check:all`'s five minutes; `sheet-rig-update.mjs` `custom` (🔄 Update rig gives a custom part its bone and slot; 1
+mutant); `check:rig-templates` keys each control over the made rig's own slots;
+`sheet-mouth.mjs` `names` (a fixture of the owner's own region names — arms, hands, pupils, upper and
+under lids, nose, lips, teeth, neck, torso, head, glasses, earring, chain, watch, hood — each where a
+rigger puts it, none left over, a decoy offered as a custom part; 5 mutants) and `eyes` (Blink and
+Look on the drawn lids and pupils; 2 mutants);
+`sheet-rig-browser.mjs` (the Face group's jointed rows and tooltip, ＋🦴, the launcher drawing them,
+the report; 5 page mutants, `--only-mutants` to run a subset).
+
+The head (§13.1g), on the owner's region names (`owner-sheet.mjs`): `sheet-head.mjs` `roll` (a 3D
+capture's roll turns the head's drawing whole, the features and glasses round it; 3 mutants) and
+`gain` (the import's Head gain scales a 3D head turn; 2 mutants); `sheet-head-turn.mjs` `yaw` / `found`
+(a 25° turn: the face's slide past the turn-off rig's, the skin under its middle with it, the round
+part-way, the outline still, the near side squashed and the far stretched, each ring bone on its side,
+the glasses ≥ the eyes, the nose and lips >, the earring <, a prop behind the head the other way),
+`nod` (the middle and the chin with the face, the skull's top still), `fold` (1× at 40° and 25°, 2× at
+20°: no triangle flips or keeps under 5%), `controls`, `strength` and `update`; 11 mutants.
 
 ### 13.4 Owed
 
@@ -1700,7 +1865,11 @@ refuses another client's sheet and a misfit.
   the wrist only); Full body's legs (rigid on their bones: `skinBends` knows the arms only).
 - Face tracking on a stylised head may find no face; the head then turns its middle with the face
   (`apartFace`, §13.1c), not its own drawn features.
-- A head turn on a face drawn apart moves the face at about half the template's (the room a 3D
-  import's 40° turn leaves the head's skin); a ¾ or profile head is still its drawing by angle.
+- A head turn (§13.1g) moves the face at about 0.6 of the template's round head's on the owner's
+  shape (the room a 40° turn leaves a pinned outline), and little where a found face fills its drawing
+  (5 units at 25°); a ¾ or profile head is still its drawing by angle.
 - Not reproduced on the owner's real `S_NellyAnimTest` (production reads refused in auto mode): on
   their shape only.
+- A capture's clipping (2026-11-26) was the 2.5D bake's draw order, not the sheet's meshes: fixed in
+  [rig-2p5d §4.5 "As built for captures"](rig-2p5d.md) (the body's depth, the hysteresis at the
+  rig's scale, locks, ↕ as keyed). A joint's overlap is the artist's drawing: nothing tears there.

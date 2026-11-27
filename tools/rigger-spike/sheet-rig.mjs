@@ -55,7 +55,8 @@
 //      folding at a 3D import's farthest slide, a roll on top turning it whole (trimmed too); a face
 //      found on the head does not slide off it;
 //    - draworder: the mapped slots in the template's order, a prop behind its part where the layers
-//      put it there, a part's props in the layers' order;
+//      put it there, a part's props in the layers' order, the head's props over its face, under the
+//      front hair (🗺 Layers: sheet-layers.mjs);
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--mutants <guard>] [--write]
 //   (--mutants: only that guard's mutants.)
@@ -85,7 +86,7 @@ const tmp = mkdtempSync(join(tmpdir(), 'sheet-rig-'));
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 let bundles = 0;
 const SHIPPED =
-	/[\\/](rigSheetMap|rigSheetFit|rigFrameFit|rigFrameFace|rigTemplates|rigTemplateFit|rigCutEdits|rigIndex)\.ts$/;
+	/[\\/](rigSheetMap|rigSlotOrder|rigSheetFit|rigFrameFit|rigFrameFace|rigTemplates|rigTemplateFit|rigCutEdits|rigIndex)\.ts$/;
 /** The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first. */
 async function load(mutate = []) {
 	const out = join(tmp, `m${bundles++}.mjs`);
@@ -2096,7 +2097,10 @@ const GUARDS = {
 		return good;
 	},
 
-	/** Each prop on a bone of its own where it sits on its host, drawn just over it. */
+	/**
+	 * Each prop on a bone of its own where it sits on its host, drawn just over it (on the head, over
+	 * every face part and just under the front hair).
+	 */
 	props(M, log) {
 		let good = true;
 		const rig = made(M);
@@ -2104,8 +2108,14 @@ const GUARDS = {
 		const order = skel.drawOrder.map((s) => s.data.name);
 		for (const p of rig.mapping.props) {
 			const bone = skel.findBone(p.name);
+			// One worn on the head's drawing hangs from the head itself, at its depth (the head turn).
+			const from = rig.sr.fit.props.find((x) => x.name === p.name).bone;
+			const hangs = rig.sr.fit.turn && p.host === 'head' ? 'head' : p.bone;
 			good =
-				ok(`props: ${p.name} hangs from ${p.bone}`, bone?.parent?.data.name === p.bone) && good;
+				ok(
+					`props: ${p.name} hangs from ${hangs}`,
+					bone?.parent?.data.name === hangs && from === hangs,
+				) && good;
 			const host = rig.mapping.parts[p.host];
 			const hostSlot = slotOf(M, p.host);
 			const on = carried(drawing(skel, hostSlot, p.host), uvOf(host.region, p.at));
@@ -2144,7 +2154,8 @@ const GUARDS = {
 					Math.abs(w / want - 1) < 0.002 && Math.min(turn, 2 * Math.PI - turn) < 1e-3,
 					`width ${w} vs ${want}, turned ${turn}`,
 				) && good;
-			// Over its host, or over its arm's last slot (a watch over the fingers), as frame to rig draws one.
+			// Over its host, or over its arm's last slot (a watch over the fingers), as frame to rig draws
+			// one; on the head just under the front hair, over every face part.
 			const side = /^(hand|lower_arm)_([lr])$/.exec(hostSlot)?.[2];
 			const slots = M.HALF_BODY.slots.map((x) => x.name);
 			const over = side
@@ -2153,11 +2164,16 @@ const GUARDS = {
 						.filter((n) => n.endsWith(`_${side}`))
 						.pop()
 				: hostSlot;
+			const onHead = hostSlot === 'head';
 			good =
 				ok(
-					`props: ${p.name} drawn just over ${over}`,
-					order.indexOf(p.name) > order.indexOf(over) &&
-						order.indexOf(p.name) <= order.indexOf(over) + rig.mapping.props.length,
+					`props: ${p.name} drawn just over ${onHead ? 'the face, under hair_front' : over}`,
+					onHead
+						? order.indexOf(p.name) < order.indexOf('hair_front') &&
+								order.indexOf(p.name) >= order.indexOf('hair_front') - rig.mapping.props.length &&
+								order.indexOf(p.name) > order.indexOf('mouth')
+						: order.indexOf(p.name) > order.indexOf(over) &&
+								order.indexOf(p.name) <= order.indexOf(over) + rig.mapping.props.length,
 					order.slice(order.indexOf(over), order.indexOf(over) + 4).join(' '),
 				) && good;
 		}
@@ -2350,10 +2366,12 @@ const GUARDS = {
 		let good = true;
 		const worst = { slip: 0, outline: 0, fold: Infinity, roll: 0, turn: Infinity };
 		const depth = M.HALF_BODY.rig3d.depths.face;
+		// ↻ Head turn off: the face over a head that does not turn (on: `sheet-head-turn.mjs`).
+		const still = (sh) => ({ ...sh, mapping: { ...sh.mapping, turn: 0 } });
 		for (const [what, sheet] of [
-			['drawn apart', ownerSheet(M, { face: false })],
-			['drawn apart, trimmed', trimmedHead(ownerSheet(M, { face: false }))],
-			['a face found on the head', ownerSheet(M, { face: true })],
+			['drawn apart', still(ownerSheet(M, { face: false }))],
+			['drawn apart, trimmed', still(trimmedHead(ownerSheet(M, { face: false })))],
+			['a face found on the head', still(ownerSheet(M, { face: true }))],
 		]) {
 			const rig = created(M, M.HALF_BODY, sheet.mapping, sheet.regions);
 			const apart = !sheet.mapping.parts.head.face;
@@ -2503,6 +2521,7 @@ const GUARDS = {
 			const r = regions.find((x) => x.name === head.region);
 			const pts = [
 				['the head', 'head', 'head', [0.5, 0.15]],
+				["the head's outline", 'head', 'head', [0.5, 0]],
 				["the head's face", 'head', 'head', [head.joints.face[0] / r.w, head.joints.face[1] / r.h]],
 				['the nose', 'nose', 'nose', [0.5, 0.5]],
 				['the brow', 'brow_l', 'brow_l_up', [0.5, 0.5]],
@@ -2580,9 +2599,13 @@ const GUARDS = {
 			) && good;
 		good =
 			ok(
-				'draworder: props the layers do not order against their part stay over it, as listed',
-				just('head', 'prop_glasses') && just('prop_glasses', 'prop_earring_l'),
-				order.slice(at('head'), at('head') + 3).join(' '),
+				"draworder: the head's props over every face part, under the front hair, as listed",
+				just('prop_glasses', 'prop_earring_l') &&
+					just('prop_earring_l', 'hair_front') &&
+					order
+						.slice(at('head'), at('prop_glasses'))
+						.every((n) => !n.startsWith('prop_') && n !== 'hair_front'),
+				order.slice(at('hair_front') - 3, at('hair_front') + 1).join(' '),
 			) && good;
 		const layer = [
 			['NellyAssetBreakdown1_0002s_0003s_0001_UpperEyelidR', ['0002s', '0003s', '0001']],
@@ -2885,7 +2908,7 @@ const MUTANTS = [
 	[
 		'skin',
 		"the head not skinned to the face's bones",
-		[FIT, 'mains, neckWidth, drawn?.spots, true);', 'mains, neckWidth, undefined, true);'],
+		[FIT, 'turned?.spots ?? drawn?.spots,\n\t\ttrue,', 'undefined,\n\t\ttrue,'],
 	],
 	[
 		'skin',
@@ -2895,7 +2918,11 @@ const MUTANTS = [
 	[
 		'proportions',
 		'parts drawn apart skinned into the parts beside them, as a cut frame is',
-		[FIT, 'mains, neckWidth, drawn?.spots, true);', 'mains, neckWidth, drawn?.spots, false);'],
+		[
+			FIT,
+			'turned?.spots ?? drawn?.spots,\n\t\ttrue,',
+			'turned?.spots ?? drawn?.spots,\n\t\tfalse,',
+		],
 	],
 	[
 		'headturn',
@@ -2937,15 +2964,15 @@ const MUTANTS = [
 	[
 		'draworder',
 		'a prop the layers put behind its part drawn over it, and one over it drawn behind',
-		[FIT, 'map.region) === true;', 'map.region) === false;'],
+		[MAP, 'host(p.host).region) === true;', 'host(p.host).region) === false;'],
 	],
 	[
 		'draworder',
 		"a part's props in the order listed, not the layers'",
 		[
-			FIT,
-			'const backToFront = psdOrdered(m.props, (p) => p.region);',
-			'const backToFront = [...m.props];',
+			MAP,
+			'const backToFront = psdOrdered(props, (p) => p.region);',
+			'const backToFront = [...props];',
 		],
 	],
 	[
@@ -2975,7 +3002,7 @@ const MUTANTS = [
 	[
 		'capture',
 		'a prop hanging from the root, not its bone',
-		[FIT, 'bone: p.bone, after:', "bone: 'root', after:"],
+		[FIT, 'props.push({ name: p.name, bone: p.bone,', "props.push({ name: p.name, bone: 'root',"],
 	],
 	[
 		'props',
@@ -2986,9 +3013,9 @@ const MUTANTS = [
 		'props',
 		"a watch drawn under its hand's fingers",
 		[
-			FIT,
-			'const beside = side ? armTail(slots, side) : host.slot.name;',
-			'const beside = host.slot.name;',
+			MAP,
+			"const beside = side ? armTail(slots, side) : overHair ? 'hair_front' : slot;",
+			"const beside = overHair ? 'hair_front' : slot;",
 		],
 	],
 	[
@@ -3038,7 +3065,7 @@ const MUTANTS = [
 	[
 		'arrange',
 		'no frame clip made of the arrangement',
-		[FIT, '...(frame ? { frame } : {}),\n\t\t...(drawn', '...(drawn'],
+		[FIT, '...(frame ? { frame } : {}),\n\t\t...(features', '...(features'],
 	],
 	[
 		'arrange',
@@ -3112,8 +3139,8 @@ const MUTANTS = [
 		"a prop's bone placed at rest",
 		[
 			FIT,
-			'fitTemplate(t, { bones, features: drawn.features }).bones, frame)',
-			'fitTemplate(t, { bones, features: drawn.features }).bones)',
+			'fitTemplate(t, { bones, features }).bones, frame)',
+			'fitTemplate(t, { bones, features }).bones)',
 		],
 	],
 	[

@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
+import { soundOptionsFor } from '$lib/soundOptions';
 import { flowArmsAnticipation } from '$lib/server/anticipationArmed';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -10,6 +11,7 @@ import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
+import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { symbolsPageConfig } from '$lib/server/symbolsPageConfig';
 import { loadSymbolsDocWithEtag } from '$lib/server/symbolsStorage';
@@ -55,6 +57,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		effects,
 		customElementFx,
 		anticipationArmed,
+		sounds,
 	] = await Promise.all([
 		loadSymbolsDocWithEtag(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
@@ -77,6 +80,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		loadCustomElementFx(clientKey, projectKey),
 		// Whether the flow can turn the reel anticipation on; the section says so when it cannot.
 		flowArmsAnticipation(clientKey, projectKey),
+		// The project's sound library, for the win line's draw / impact sound pickers.
+		loadSoundsDoc(clientKey, projectKey),
 	]);
 	// Win-amount text is bitmap text, so the font dropdown lists the project's BITMAP
 	// fonts (Font Maker output). The four engine builtins (gold/goldblur/silver/purple)
@@ -107,5 +112,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		effects: effects.map((e) => ({ id: e.id, name: e.name })),
 		customElementFx,
 		anticipationArmed,
+		/** The one-shot sounds the win line can play: this project's library first, then the
+		 *  engine's own — the launcher's one sound-picker source. */
+		soundNames: soundOptionsFor(sounds).sfx,
 	};
 };

@@ -4,6 +4,7 @@
  * reads and writes the cut around it.
  */
 import type { Resolved, StoredCut } from './rigFromFrame';
+import { armTail } from '../rigSlotOrder';
 import { controlTarget } from './rigTemplateFit';
 
 export const JOB_ID = /^[a-z0-9][a-z0-9-]{5,63}$/;
@@ -24,13 +25,6 @@ export interface CutEdits {
 	props?: unknown;
 	/** Per part, the kept cut (job) of another frame it is taken from; null takes it back. */
 	sources?: unknown;
-}
-
-/** The last slot of side `s`'s arm (as the cut's `arm_tail`): a prop on a hand is drawn after it. */
-export function armTail(slots: readonly string[], s: string): string {
-	const start = Math.max(0, slots.indexOf('hair_front'));
-	const side = slots.slice(start).filter((n) => n.endsWith(`_${s}`));
-	return side[side.length - 1] ?? `hand_${s}`;
 }
 
 /**

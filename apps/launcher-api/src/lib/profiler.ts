@@ -1,11 +1,13 @@
 /**
  * Invisible Profiler (`/profiler`, `docs/design/invisible-profiler.md`): what the browser and the
  * server both need — the readings' retention, the capture links' test switches, and the summary a
- * `?perf=1` report (`perf: 7` / `8`, `apps/lines/src/components/PerfHud.svelte`) is reduced to for
- * its `perf_reports` row. Pure: the fixture gate (`scripts/check-profiler.ts`) runs it on plain JSON.
+ * `?perf=1` report (`perf: 7` / `8` / `9`, `apps/lines/src/components/PerfHud.svelte`) is reduced to
+ * for its `perf_reports` row (a `perf: 9` reading's `network` block: `profilerNetwork.ts`). Pure:
+ * the fixture gate (`scripts/check-profiler.ts`) runs it on plain JSON.
  */
 
 import { perfCounts, type PerfCounts } from './profilerLab';
+import { networkSummary, readNetwork, type NetworkSummary } from './profilerNetwork';
 
 /** Owner decision 2026-11-16: a reading is deleted this long after capture unless it is kept. */
 export const PERF_RETENTION_DAYS = 15;
@@ -21,7 +23,7 @@ export const PROFILER_READINGS = 'profiler:readings';
 export const PERF_SESSION_PARAM = 'perfsession';
 
 /** The report versions this summary reads. A newer probe is accepted only once it is read here. */
-export const PERF_REPORT_VERSIONS: readonly number[] = [7, 8];
+export const PERF_REPORT_VERSIONS: readonly number[] = [7, 8, 9];
 
 /** A report sent straight in a request body; anything larger goes by presigned upload. */
 export const PERF_INLINE_MAX_BYTES = 480 * 1024;
@@ -132,6 +134,8 @@ export interface PerfReportSummary {
 	textureMb: number | null;
 	/** Per-phase per-frame counts — what lab readings are compared on (`profilerLab.ts`). */
 	counts: PerfCounts;
+	/** What the page downloaded (`perf: 9`); null for an older reading. */
+	network: NetworkSummary | null;
 }
 
 export type SummaryResult = { ok: true; summary: PerfReportSummary } | { ok: false; error: string };
@@ -213,6 +217,11 @@ function cappedBrowser(
 	return parts.reduce((sum: number, ms) => sum + (ms ?? 0), 0) < CAP_BUSY_MAX_MS;
 }
 
+function networkOf(report: Obj): NetworkSummary | null {
+	const n = readNetwork(report);
+	return n ? networkSummary(n) : null;
+}
+
 /**
  * Reads a probe report (the parsed Copy JSON) into its summary, or says why it is not one. Never
  * throws: a report from a newer or broken probe is refused with a reason the sender can show.
@@ -273,6 +282,7 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 			jsMs: workMean(report, busy, 'jsMs'),
 			textureMb: textureMb === null ? null : Math.round(textureMb * 10) / 10,
 			counts: perfCounts(report, phaseSet),
+			network: version >= 9 ? networkOf(report) : null,
 		},
 	};
 }
@@ -309,6 +319,8 @@ export interface PerfReportListItem {
 	drawsMean: number | null;
 	textureMb: number | null;
 	counts: PerfCounts | null;
+	/** What the page downloaded (`perf: 9`); null for an older reading. */
+	network: NetworkSummary | null;
 	keep: boolean;
 	/** When the purge removes it (ISO), null while kept. */
 	expiresAt: string | null;

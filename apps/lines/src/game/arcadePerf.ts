@@ -12,7 +12,13 @@
  * last read, the levels (`bodies`) what the last tick left. Room messages are handled in their own
  * WebSocket task between frames, so a frame's `netMs` is the time spent on them since the frame
  * before — inside the interval that ends at this frame.
+ *
+ * Online, every room message in and out is also tallied for the page's network block
+ * ({@link arcadePerf} `socket`, `perfNetwork.ts`) by the same meter as the per-frame `patches` /
+ * `patchBytes`, so a state patch is counted once and read two ways.
  */
+
+import type { SocketTally } from './perfNetwork';
 
 export type ArcadePhase = 'menu' | 'play';
 
@@ -103,9 +109,41 @@ export const arcadePerf = {
 	 */
 	lates: [] as number[],
 	info: undefined as ArcadeInfo | undefined,
+	/** Online: the room's messages since the probe began reading (never reset: the page's traffic). */
+	socket: undefined as SocketTally | undefined,
 	/** Record one state's lateness (online). */
 	late(ms: number): void {
 		if (this.lates.length < LATES_KEPT) this.lates.push(ms);
+	},
+	/** Tally one room message, in or out; a state (full or patch) is a message in. */
+	message(out: boolean, bytes: number, state = false): void {
+		const now = performance.now();
+		const s = (this.socket ??= {
+			since: now,
+			last: now,
+			inMessages: 0,
+			inBytes: 0,
+			inLargest: 0,
+			states: 0,
+			stateBytes: 0,
+			outMessages: 0,
+			outBytes: 0,
+			outLargest: 0,
+		});
+		s.last = now;
+		if (out) {
+			s.outMessages += 1;
+			s.outBytes += bytes;
+			s.outLargest = Math.max(s.outLargest, bytes);
+			return;
+		}
+		s.inMessages += 1;
+		s.inBytes += bytes;
+		s.inLargest = Math.max(s.inLargest, bytes);
+		if (state) {
+			s.states += 1;
+			s.stateBytes += bytes;
+		}
 	},
 };
 

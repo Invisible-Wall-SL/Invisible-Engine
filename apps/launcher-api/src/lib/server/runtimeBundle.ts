@@ -34,6 +34,7 @@ import {
 	flightEffectIds,
 	normalizeResolutionTiers,
 	resolveComponentClosureWithPins,
+	winLineEffectIds,
 	type ComponentDef,
 	type FontCatalog,
 	type SoundCatalog,
@@ -448,6 +449,9 @@ async function assembleRuntimeBundle(
 	// …and a Hold and Win flight's trail / arrival effect — the fourth symbol-doc source. Mirrored in
 	// the bake's keep-set; `check:flights` proves both keep the same ids.
 	for (const id of flightEffectIds(symbols.flights)) symbolDocEffectIds.add(id);
+	// …and the styled win line's tip / burst / trail effects, the fifth. Mirrored in the bake's
+	// keep-set; `check:win-line-style` proves both keep the same ids.
+	for (const id of winLineEffectIds(symbols.winLine)) symbolDocEffectIds.add(id);
 	// Ship only REACHABLE effects (placed / rig-bound / event-triggered / symbols-doc-referenced) — an
 	// orphan/scratch effect that nothing mounts must not reach the game (it would otherwise ride the
 	// bundle dead weight). The editor still reads ALL effects straight from R2, so authors keep managing

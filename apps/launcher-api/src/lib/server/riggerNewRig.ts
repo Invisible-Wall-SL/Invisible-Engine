@@ -85,7 +85,7 @@ export interface NewRigBody {
 	skeleton: Record<string, unknown>;
 	template: TemplateRig | null;
 	/** A rig made from a sheet mapped to its template: the mapping as kept, and what it made. */
-	sheet: { mapping: SheetMapping; scale: number; face: string } | null;
+	sheet: { mapping: SheetMapping; scale: number; face: string; hidden: string[] } | null;
 }
 
 /**
@@ -144,6 +144,7 @@ export async function resolveNewRigBody(
 				mapping: { ...sheet, template: { id: t.id, version: t.version } },
 				scale: fitted.value.scale,
 				face: fitted.value.face,
+				hidden: fitted.value.hidden,
 			};
 		}
 		const misfit = fit ? templateFitProblem(t, fit) : null;
