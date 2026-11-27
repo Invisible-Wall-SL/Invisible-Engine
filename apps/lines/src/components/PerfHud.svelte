@@ -437,6 +437,13 @@
 				`(${Math.round(trial.before.slowShare * 100)}% → ${Math.round(trial.after.slowShare * 100)}% ` +
 				`slow, ${trial.before.frameMs} → ${trial.after.frameMs} ms)`
 			: undefined;
+		const up = q.stepUp;
+		const stepUp = !up
+			? undefined
+			: up.never
+				? `L${up.level} never again (${up.failures} failed)`
+				: `L${up.level} again after ${up.good}/${up.goodWindows} good windows ` +
+					`(${up.failures} failed)`;
 		return [
 			q.mode,
 			...(q.levels > 1 ? [`L${q.level.index} of L0–L${q.levels - 1}`] : []),
@@ -445,17 +452,11 @@
 			q.level.postFx === false ? 'post FX off' : 'post FX on',
 			`particle cap ${q.level.particleCap ?? 1}`,
 			...(q.secondChance ? [`second chance ${q.secondChance}`] : []),
+			...(q.effectsNext ? ['effects next'] : []),
 			...(q.mode === 'adaptive' ? [switches] : []),
 			...(verdict ? [verdict] : []),
 			...(q.downStopped ? ['no more steps down'] : []),
-			...(q.stepUp
-				? [
-						Number.isFinite(q.stepUp.goodWindows)
-							? `L${q.stepUp.level} again after ${q.stepUp.good}/${q.stepUp.goodWindows} good ` +
-								`windows (${q.stepUp.failures} failed)`
-							: `L${q.stepUp.level} never again`,
-					]
-				: []),
+			...(stepUp ? [stepUp] : []),
 		].join(' · ');
 	};
 
