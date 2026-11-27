@@ -19,6 +19,11 @@
  *
  * Zero cost at rest: with every slot empty the stage's list and area are as they were before the
  * first claim, and there is no ticker callback.
+ *
+ * LEFT OUT. The render-quality ladder's last step (`renderQuality.ts`) leaves the post FX out of
+ * the list ({@link setStagePostFxSuppressed}) on a device that cannot hold its frame rate: the slot
+ * keeps its filters, so they are back on the stage the moment the level rises. Nothing else ever
+ * leaves a slot out, so without the ladder the list is as it always was.
  */
 
 import { Rectangle, UPDATE_PRIORITY, type Application, type Filter } from 'pixi.js';
@@ -70,6 +75,15 @@ interface Owner {
 
 const owners = new WeakMap<StageApp, Owner>();
 
+/** Apps whose post FX slot is left out of the stage's list ({@link setStagePostFxSuppressed}). */
+const postFxLeftOut = new WeakSet<StageApp>();
+
+/** The filters the stage draws, slot by slot: every slot's, but the post FX's where left out. */
+const drawn = (owner: Owner): Filter[] =>
+	SLOTS.flatMap((slot) =>
+		slot === 'post' && postFxLeftOut.has(owner.app) ? NONE : owner.slots[slot],
+	);
+
 /**
  * How far inside the viewport's edges the area is drawn, in screen pixels. Mapped back through a
  * moved stage, the viewport's edges land a rounding error off whole pixels, and Pixi rounds a
@@ -103,10 +117,11 @@ const apply = (owner: Owner, changed: boolean): void => {
 		const mine = ours(owner);
 		owner.external = current.filter((f) => !mine.has(f));
 	}
-	const stack = [...owner.external, ...SLOTS.flatMap((slot) => owner.slots[slot])];
+	const stack = [...owner.external, ...drawn(owner)];
 	const same = owner.last.length === stack.length && stack.every((f, i) => owner.last[i] === f);
 	if (!same) {
-		stage.filters = stack;
+		// Empty only while the post FX are left out and no other slot holds a filter.
+		stage.filters = stack.length ? stack : null;
 		owner.last = stage.filters ?? NONE;
 	}
 };
@@ -192,6 +207,24 @@ export const stagePostFxSlot =
 	(app: StageApp): StagePostFxSlot =>
 	(filters) =>
 		setStageFilters(app, 'post', filters ?? NONE);
+
+/**
+ * Leave the post FX slot of `app`'s stage out of its list (`on`), or put it back. The slot keeps
+ * its filters, and the post FX may go on filling it while it is left out: whatever it holds is on
+ * the stage again once `on` is false. The list is right at once, for the frame being drawn.
+ */
+export function setStagePostFxSuppressed(app: StageApp, on: boolean): void {
+	if (on === postFxLeftOut.has(app)) return;
+	if (on) postFxLeftOut.add(app);
+	else postFxLeftOut.delete(app);
+	const owner = owners.get(app);
+	if (!owner || !app.stage || app.stage.destroyed) return;
+	fitArea(owner);
+	apply(owner, true);
+}
+
+/** Whether `app`'s post FX slot is left out of its stage's list now. */
+export const stagePostFxSuppressed = (app: StageApp): boolean => postFxLeftOut.has(app);
 
 /**
  * Whether every filter on `app`'s stage keeps the canvas's anti-aliasing (`'inherit'`: MSAA where
