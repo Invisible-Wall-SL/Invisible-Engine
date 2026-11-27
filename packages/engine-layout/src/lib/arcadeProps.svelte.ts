@@ -77,3 +77,14 @@ export function spawnInstancesOf(
 	}
 	return at;
 }
+
+/**
+ * Whether `<SpawnProps>` must look for its instance container again: the layer registered under its
+ * id is not the one it was found in (`seen`), or the container it found is gone (destroyed, or taken
+ * off the stage), or it has none yet.
+ */
+export const spawnTargetStale = (
+	seen: Container | undefined,
+	now: Container | undefined,
+	target: Container | undefined,
+): boolean => now !== seen || !target || target.destroyed || !target.parent;

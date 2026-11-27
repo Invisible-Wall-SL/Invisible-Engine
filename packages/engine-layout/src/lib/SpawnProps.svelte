@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { Container } from 'pixi.js';
 
 	import PropsInto from './PropsInto.svelte';
-	import { spawnInstancesOf, spawnPropsOf } from './arcadeProps.svelte';
+	import { spawnInstancesOf, spawnPropsOf, spawnTargetStale } from './arcadeProps.svelte';
 	import { ISO_DEPTH_SPREAD } from './projection';
 	import { projectedLayer } from './worldDrawing.svelte';
 
@@ -14,20 +15,31 @@
 	const { id }: { id: string } = $props();
 	const pieces = $derived(spawnPropsOf(id).filter((p) => p.band === 'sorted' || p.band === 'over'));
 	let target = $state.raw<Container | undefined>();
-	// Looked for again each frame until found: mounted inside `<ProjectedLayer>`, this effect runs
+	// Looked at every frame while there are pieces: mounted inside `<ProjectedLayer>`, this runs
 	// before the layer registers itself (a child's effects run first) and before its instance
-	// container is drawn, so pieces published before a remount would otherwise never be placed.
-	let looks = $state(0);
+	// container is drawn, and a screen rebuilt in place registers a new layer container, so the
+	// container found once may be gone. A new layer, or a container destroyed or taken off the
+	// stage, is resolved again; `<PropsInto>` is mounted afresh in the new one.
 	$effect(() => {
-		void looks;
-		if (!pieces.length || target) return;
-		target = spawnInstancesOf(projectedLayer(id), ISO_DEPTH_SPREAD);
-		if (target) return;
-		const frame = requestAnimationFrame(() => (looks += 1));
+		if (!pieces.length) return;
+		let layer: Container | undefined;
+		let frame = 0;
+		const look = () => {
+			const now = projectedLayer(id);
+			if (spawnTargetStale(layer, now, target)) {
+				layer = now;
+				const next = spawnInstancesOf(now, ISO_DEPTH_SPREAD);
+				if (next !== target) target = next;
+			}
+			frame = requestAnimationFrame(look);
+		};
+		untrack(look);
 		return () => cancelAnimationFrame(frame);
 	});
 </script>
 
 {#if target && pieces.length}
-	<PropsInto {target} {pieces} />
+	{#key target}
+		<PropsInto {target} {pieces} />
+	{/key}
 {/if}

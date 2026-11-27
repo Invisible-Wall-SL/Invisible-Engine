@@ -354,6 +354,51 @@ check(
 	},
 );
 
+const { spawnInstancesOf, spawnTargetStale } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/arcadeProps.svelte.ts')).href
+);
+check(
+	'the deck cells follow a rebuilt spawn layer: a new layer, or a container gone, is found again',
+	() => {
+		const SPREAD = 1e6;
+		const layerWith = () => {
+			const layer = new Container();
+			const wrapper = new Container();
+			const instances = new Container();
+			layer.addChild(wrapper);
+			wrapper.addChild(instances);
+			instances.addChild(Object.assign(new Container(), { zIndex: 2 * SPREAD }));
+			instances.addChild(Object.assign(new Container(), { zIndex: 3 * SPREAD }));
+			return { layer, instances };
+		};
+		const first = layerWith();
+		const found = spawnInstancesOf(first.layer, SPREAD);
+		assert.equal(found, first.instances);
+		assert.equal(spawnTargetStale(first.layer, first.layer, found), false, 'still there: kept');
+		const second = layerWith();
+		assert.equal(
+			spawnTargetStale(first.layer, second.layer, found),
+			true,
+			'a new layer: looked again',
+		);
+		assert.equal(spawnInstancesOf(second.layer, SPREAD), second.instances);
+		first.instances.removeFromParent();
+		assert.equal(
+			spawnTargetStale(first.layer, first.layer, found),
+			true,
+			'taken off: looked again',
+		);
+		const gone = spawnInstancesOf(second.layer, SPREAD);
+		gone.destroy();
+		assert.equal(
+			spawnTargetStale(second.layer, second.layer, gone),
+			true,
+			'destroyed: looked again',
+		);
+		assert.equal(spawnTargetStale(second.layer, second.layer, undefined), true, 'none yet');
+	},
+);
+
 console.log(
 	process.exitCode ? 'check:prop-depth FAILED' : `check:prop-depth: all ${passed} checks pass`,
 );
