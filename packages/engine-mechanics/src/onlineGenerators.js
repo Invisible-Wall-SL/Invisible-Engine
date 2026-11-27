@@ -241,7 +241,8 @@ const propsThatDiffer = (a = {}, b = {}) =>
  *  - The device plays the ROOM's prop colliders (`props`, `arcade.online.props`), and none when
  *    the room said none (a game without them, or a game server older than them, which played
  *    none). `differs` names the kinds whose colliders are not its own config's (`bridges`); a
- *    shape that differs only in its `from` stamp is the same collider.
+ *    shape that differs only in its `from` stamp is the same collider, named nowhere, but the
+ *    room's stamp is the one played, so the device draws the room's version.
  *  - The room said a fingerprint ⇒ the level the device made must have it, or the answer is
  *    `{ refused }` and the device must leave: `'generator'` when it made the level from the room's
  *    own levels (its generator is not the room's: the runtime and the game server are of different
@@ -266,11 +267,15 @@ export function roomLevelGame(game, seed, said) {
 	const adopted = differs.length > 0;
 	let online = game.online;
 	if (levelParts.length) online = { ...online, levels: theirs };
-	if (propParts.length) {
+	// The room's props whenever they are not the device's own to the letter: a differing collider
+	// (named in `differs`), and a re-stamp alone too (the same level), so the art the device draws
+	// is the room's version's (`engine-layout` `roomPropDef`).
+	const restamped = JSON.stringify(game.online.props) !== JSON.stringify(theirProps);
+	if (propParts.length || restamped) {
 		online = { ...online, props: theirProps };
 		if (!theirProps) delete online.props;
 	}
-	const played = generatedOnlineGame(adopted ? { ...game, online } : game, seed);
+	const played = generatedOnlineGame(online === game.online ? game : { ...game, online }, seed);
 	const roomLevelHash = typeof said?.levelHash === 'string' ? said.levelHash : '';
 	const report = {
 		adopted,

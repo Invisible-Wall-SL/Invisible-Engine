@@ -661,7 +661,13 @@ try {
 							sim.game.online.props,
 							`${what}: its props`,
 						);
-					else assert.equal(decided.game.online.props, own.online.props, `${what}: its own props`);
+					// The same collider: the room's stamp (its version is the one drawn), else its own.
+					else
+						assert.deepEqual(
+							decided.game.online.props,
+							sim.game.online.props ?? own.online.props,
+							`${what}: the room's props`,
+						);
 					if (decided.adopted) adoptions += 1;
 				}
 				// A game server older than the field (it played no props) says none: the device plays
@@ -755,6 +761,49 @@ try {
 			assert.equal(decided.levelHash, said.levelHash);
 			assertSame(levelOf(decided.game), levelOf(sim.game), `seed ${seed}`);
 		}
+	});
+
+	await check('a device draws the room’s version of the prop, not its own config’s', async () => {
+		const { roomPropDef, propPieces } =
+			await import('../packages/engine-layout/src/lib/propPieces.ts');
+		const { BRIDGE_PROP_DEF } = await import('../packages/engine-layout/src/lib/propComponents.ts');
+		// Two versions of the project's bridge, their deck cells told apart by their piece ids.
+		const version = (v, deck) => ({
+			...structuredClone(BRIDGE_PROP_DEF),
+			id: 'bridgeProp',
+			version: v,
+			root: {
+				...BRIDGE_PROP_DEF.root,
+				children: BRIDGE_PROP_DEF.root.children.map((c) =>
+					c.kind === 'repeater' && c.propDepth === 'sorted'
+						? { ...c, componentId: deck, variants: { first: deck, middle: deck, last: deck } }
+						: c,
+				),
+			},
+		});
+		const registered = { 1: version(1, 'deckOne'), 4: version(4, 'deckFour') };
+		const resolve = (id, v) => (id === 'bridgeProp' ? registered[v] : undefined);
+		const seed = SEEDS[0];
+		const { sim, said } = await roomOf('ramped', seed);
+		// The device booted a config pinning v4 (`repinned`); the room plays v1 (`ramped`).
+		const decided = roomLevelGame(deviceGame(SERVED.repinned), seed, said);
+		assert.ok(!('refused' in decided));
+		const def = roomPropDef(decided.game.online.props, 'bridge#', resolve);
+		assert.equal(def?.version, 1, 'the room’s version');
+		const zone = sim.game.zones.find((z) => z.id === 'bridge0');
+		const decks = propPieces(def, zone, CELL).filter((p) => p.band === 'sorted');
+		assert.ok(decks.length && decks.every((p) => p.componentId === 'deckOne'));
+		// A version the device does not have, or a room with no props there: the seed draws.
+		assert.equal(
+			roomPropDef(decided.game.online.props, 'bridge#', () => undefined),
+			undefined,
+		);
+		const plain = roomLevelGame(
+			deviceGame(SERVED.ramped),
+			seed,
+			(await roomOf('published', seed)).said,
+		);
+		assert.equal(roomPropDef(plain.game.online.props, 'bridge#', resolve), undefined);
 	});
 
 	// --- 3. What must not change ------------------------------------------------------------------

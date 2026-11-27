@@ -111,3 +111,19 @@ export function settledPropStates(
 		return layer.states.find((s) => s.id === (to ?? layer.entry));
 	});
 }
+
+/**
+ * The def a room's prop of `family` is drawn with, so the art is always the collider the room
+ * plays: the component its adopted `props[family]` was compiled from (`from.component` at
+ * `from.version`), as `resolve` finds it at exactly that version; `undefined` when the room plays
+ * no prop there, or that version is not here (the caller draws its seed, which is today's rule).
+ */
+export function roomPropDef(
+	props: Readonly<Record<string, { from: { component: string; version: number } }>> | undefined,
+	family: string,
+	resolve: (id: string, version: number) => ComponentDef | undefined,
+): ComponentDef | undefined {
+	const from = props && Object.hasOwn(props, family) ? props[family].from : undefined;
+	const def = from && resolve(from.component, from.version);
+	return def?.prop && def.version === from?.version ? def : undefined;
+}

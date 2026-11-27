@@ -2,6 +2,7 @@ import {
 	registerBoundComponents,
 	resolveComponent,
 	resolveFlipbook,
+	roomPropDef,
 	type ComponentDef,
 	type LayoutDoc,
 } from 'engine-layout';
@@ -45,15 +46,19 @@ export const zoneSceneryOf = (key: ZoneArtScenery): ZoneArt | undefined =>
 	zoneArtOf(bakedGameConfig())?.[key];
 
 /**
- * The prop component the config's zone art draws `family` with (`docs/design/arcade-prop-components.md`
- * §6: Salmons' `bridge#`), at its pinned version, as the bundle registered it; none ⇒ the game's
- * seed prop.
+ * The prop component the room draws `family` with (`docs/design/arcade-prop-components.md` §6:
+ * Salmons' `bridge#`): the one its adopted props were compiled from, at that version, as the bundle
+ * registered it (`engine-layout` `roomPropDef`), so the art is the collider the room plays; none
+ * ⇒ the game's seed prop. Never the device's own config's: a room may play another version.
  */
-export function zonePropOf(family: string): ComponentDef | undefined {
-	const source = zoneArtOf(bakedGameConfig())?.[family]?.source;
-	if (source?.kind !== 'component') return undefined;
-	const def = resolveComponent(source.component, source.version).def;
-	return def?.prop ? def : undefined;
+export function zonePropOf(
+	props: Parameters<typeof roomPropDef>[0],
+	family: string,
+): ComponentDef | undefined {
+	return roomPropDef(props, family, (id, version) => {
+		const resolved = resolveComponent(id, version);
+		return resolved.versionMismatch ? undefined : resolved.def;
+	});
 }
 
 /** Whether the config's zone art names a rig: only then is the rig drawing loaded. */

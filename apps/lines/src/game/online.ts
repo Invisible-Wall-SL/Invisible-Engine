@@ -951,7 +951,7 @@ async function enterRoom(
 					current.game,
 					current.game.online.layer,
 					bakedCinematics(),
-					zonePropOf('bridge#'),
+					zonePropOf(current.game.online.props, 'bridge#'),
 				);
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
