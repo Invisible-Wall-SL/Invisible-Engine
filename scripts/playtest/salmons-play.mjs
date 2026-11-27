@@ -1411,12 +1411,12 @@ const steppedOver = (depths, end) =>
 	new Set(depths.filter((depth) => depth > 0 && depth < 1)).size >= 3 &&
 	depths.length >= 6 &&
 	depths.length <= 11;
-/** Whether a page's wading of a player is a look half under: all the way in, through its filter,
- *  under one of the water's tints, its line's ends over the look's `middle` and its lowest point
- *  under it. */
+/** Whether a page's wading of a player is a look half under: all the way in, drawn under (by a
+ *  pass or its own programs), under one of the water's tints, its line's ends over the look's
+ *  `middle` and its lowest point under it. */
 const halfUnder = (wading, middle) =>
 	wading?.depth === 1 &&
-	wading.filtered === true &&
+	wading.drawnUnder === true &&
 	WATER_TINTS.includes(wading.tint) &&
 	!!wading.line &&
 	typeof middle === 'number' &&
@@ -2444,7 +2444,7 @@ play: try {
 				rigDrawn.mounted === true &&
 				(await drawnOf(w)).clips?.[wader] === undefined &&
 				rigDry?.depth === 0 &&
-				rigDry.filtered === false &&
+				rigDry.drawnUnder === false &&
 				mostly(drySeen.low, isRig) &&
 				mostly(drySeen.high, isRig),
 			{ rigOnBank, rigDrawn, rigDry, low: drySeen.low[12], high: drySeen.high[12] },
@@ -2461,6 +2461,7 @@ play: try {
 			rigInWater &&
 				steppedOver(rigRising, 1) &&
 				halfUnder(rigWet, rigMiddle) &&
+				rigWet.pass === true &&
 				(await drawnOf(w)).rigs?.[wader]?.mounted === true &&
 				mostly(wetSeen.high, isRig) &&
 				!mostly(wetSeen.low, isRig) &&
@@ -2472,8 +2473,8 @@ play: try {
 		await settle(w, 300);
 		const rigAshore = await wadingOf(w, wader);
 		verdict(
-			'…back on the bank it steps out, and the rig has no filter again',
-			steppedOver(rigFalling, 0) && rigAshore?.depth === 0 && rigAshore.filtered === false,
+			'…back on the bank it steps out, and the rig is not drawn under again',
+			steppedOver(rigFalling, 0) && rigAshore?.depth === 0 && rigAshore.drawnUnder === false,
 			{ rigFalling, rigAshore },
 		);
 		const errorsW = await w.page.evaluate('window.__AR_ERRORS__');
@@ -3707,10 +3708,10 @@ play: try {
 		high: lookAt(dryShot, dryArcade, meWb, WADE_LIFT.high),
 	};
 	verdict(
-		'page WB: on the bank its bear is not wading: no filter on its look, its fur drawn as it is',
+		'page WB: on the bank its bear is not wading: not drawn under, its fur drawn as it is',
 		onBank &&
 			dry?.depth === 0 &&
-			dry.filtered === false &&
+			dry.drawnUnder === false &&
 			dry.line === null &&
 			mostly(drySeen.low, isFur) &&
 			mostly(drySeen.high, isFur),
@@ -3747,9 +3748,10 @@ play: try {
 		WADE_LIFT.low,
 	);
 	verdict(
-		'…and stands half under the water’s tint: its fur above the waterline, the same fur through the tint below it',
+		'…and stands half under the water’s tint: its fur above the waterline, the same fur through the tint below it, drawn by its own programs (no pass)',
 		inWater &&
 			halfUnder(wet, lookWb?.middle) &&
+			wet.pass === false &&
 			mostly(wetSeen.high, isFur) &&
 			!mostly(wetSeen.low, isFur) &&
 			mostly(wetSeen.low, furUnder) &&
@@ -3787,8 +3789,8 @@ play: try {
 	await settle(wb, 300);
 	const ashore = await wadingOf(wb, meWb);
 	verdict(
-		'…back on the bank it steps out: the line falls, and its look has no filter again',
-		steppedOver(falling, 0) && ashore?.depth === 0 && ashore.filtered === false,
+		'…back on the bank it steps out: the line falls, and its look is not drawn under again',
+		steppedOver(falling, 0) && ashore?.depth === 0 && ashore.drawnUnder === false,
 		{ falling, ashore },
 	);
 	for (const [name, game] of [
