@@ -275,6 +275,54 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Resolve conflict's job code (ADR-0015 card 15B1).** The owner: "I get the
+  conflict with main a lot, and there is no way to fix it from the pipeline". `scripts/merge-main/`,
+  runnable on a local checkout. Wiring for 15B2 is in its `README.md`; nothing calls it yet.
+  - **`merge.mjs` (job `merge`, no secrets).** It merges `main` into the change at the two pinned
+    SHAs path by path, with no rename detection, as the launcher's three-tree Accept builds it (§5).
+    It applies §3's rules: `docs-append`, `runtime-bytes`, `vendored-bundle` and `ratchet`. It
+    applies §4's job refusals, then writes the `merge` record (its shape is in the header).
+    - The build rules run only on a tree with no conflict left outside Markdown. With code still
+      conflicted they are `pending`: the file holds main's, and the record names the command.
+    - A build that fails on a resolved tree is `needs_person`.
+    - `docs-append` hands the file to the model when both sides added the same block (two or more
+      lines of 40+ characters), since keeping both would write it twice.
+    - The protected paths, lockfile names and vendored bundles are read from
+      `bugFixRunsChange.ts` and `check-vendored-bundles.mjs`, never copied.
+  - **`collect.mjs` (job `propose`).**
+    - `stage` redoes the merge from main's git and refuses a record that differs. Only the builds'
+      output is taken from the record, held to the rule's exact commands. It then lays out the
+      merged tree and writes `conflicts.json`.
+    - `result` holds the run to §4: only its files change; an edit outside a hunk is listed; no
+      marker is left; UTF-8 with no NUL; the caps. For a mechanical-only run it fills `explanation`
+      from the rules. It builds §10's body and POSTs it with OIDC (audience
+      `invisible-launcher-merge-main`).
+    - It reuses `scripts/bug-fix/collect.mjs`'s helpers by import. They are now exported, and
+      `oidcToken` takes the audience.
+  - **`budget_usd`** (§10 as amended on 2026-11-27) is `BUDGET_USD`, and it is required. With `0`
+    the model does not run, the mechanical part is still proposed, and a real conflict ends
+    `needs_person` saying the month's budget is spent.
+  - **Gate:** `pnpm check:merge-main`, 113 checks, picked up by `check:all`. It covers one case per
+    rule and per refusal on scratch repos, collect's guards, the §10 shape, and both steps end to end
+    against a loopback launcher.
+  - **Replay (ADR §9),** over the 296 merges of `main` into the window's 147 branches
+    (11-04…26):
+    - 212 conflict path by path (`git merge-tree`: 213). 106 are mechanical-only.
+    - 81 of those equal the person's merge commit, with the regenerated manifests' contents set
+      aside.
+    - The 25 that differ are the person's own edits. Blank lines between the two additions: 8.
+      Main's lines put first: 3. Text rewritten inside the entries: 8. Files outside the conflict
+      edited in the merge commit: 6 (Accept never takes those).
+    - **The manifest rule, run for real** on BUG-20's merge `fa73b7d86`: `pnpm install` and
+      `check:runtime-bytes --update --only` all five ids, in 7 minutes. The merged tree equals the
+      person's merge commit, and the five manifests are byte for byte their own re-record
+      `3a3940ea3`.
+  - **Found: `apps/launcher-api/static/rigger/view.html` holds a raw NUL** at byte 809,576: an
+    option value `"\u0000none"` written as the character itself. git merges the file as text,
+    because it looks for NUL only in the first 8 KB. §10 refuses a NUL in a file's content, though,
+    so every merge where both sides changed the file ends `needs_person`: 19 of the window's 212.
+    Writing the escape instead is a one-line launcher fix (launcher-studio).
+
 - 2026-11-27 — **Resolve conflict, the launcher side (ADR-0015 card 15C).** Hidden until
   `merge-main.yml` is on `main` (15B2); the job's side is `scripts/merge-main/` (15B1).
   - Migration `0052_merge_main_runs.sql` (the table of §8 with its partial unique index, so one
@@ -297,7 +345,6 @@ server module, routes, page components, triage, screenshots, the pull-request li
     (`bugFixRunsChange.ts`, `scripts/bug-fix/settings.json` and `coordinator.md`).
   - Fixtures: `check:merge-main-runs` (new, 189 checks), `check:pipeline-changes` (the conflict
     sentence), `check:bug-fix-runs`, `check:bug-fix-workflow`.
-
 - 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline."
   - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with
