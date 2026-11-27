@@ -44,6 +44,13 @@
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
 //     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees] [--zone-rig]
+//     [--stall]
+//
+// `--stall` plays ONE room too (the net client once a frame, docs/design/salmons-performance.md
+// T6): page ST's main thread is blocked 2 s while the room keeps sending, three times. Each held
+// state is recorded as it lands; the own player is applied a handful of times, the newest
+// (`online.net`), and the prediction still agrees with it (engine netcode; under `colyseus` the
+// probe counts no corrections). `result.json` `stall` has the message and frame timings.
 //
 // `--trees` plays ONE room too (zone art's scenery, docs/design/zone-art.md): page T boots the game
 // with `arcade.zoneArt['@trees']` set to a magenta frame of a stub sheet exported as a publish
@@ -160,6 +167,7 @@ const { values: opt } = parseArgs({
 		turn: { type: 'boolean', default: false },
 		trees: { type: 'boolean', default: false },
 		'zone-rig': { type: 'boolean', default: false },
+		stall: { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -341,6 +349,32 @@ const HOOK = `(() => {
 		wire.push(String(url));
 		return open.call(this, method, url, ...rest);
 	};
+})();`;
+
+// `--stall`: every room message's handler is timed (the SDK's transport sets `ws.onmessage`), on
+// the real clock: the determinism probe makes the page's `performance.now` and timers virtual.
+const STALL_HOOK = `(() => {
+	const now = (window.__REAL_NOW__ = performance.now.bind(performance));
+	window.__REAL_TIMEOUT__ = setTimeout.bind(window);
+	const tally = (window.__NET_TASKS__ = { n: 0, ms: 0 });
+	const own = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'onmessage');
+	Object.defineProperty(WebSocket.prototype, 'onmessage', {
+		configurable: true,
+		get() {
+			return own.get.call(this);
+		},
+		set(fn) {
+			own.set.call(this, fn && function (event) {
+				const started = now();
+				try {
+					return fn.call(this, event);
+				} finally {
+					tally.n += 1;
+					tally.ms += now() - started;
+				}
+			});
+		},
+	});
 })();`;
 
 const tree = testServerTree(join(work, 'tree'), resolve(opt.runtime), KEY, {
@@ -1017,6 +1051,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function boot(profile, extra = {}, next = undefined) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, profile));
 	await page.page('Page.addScriptToEvaluateOnNewDocument', { source: HOOK });
+	if (opt.stall) await page.page('Page.addScriptToEvaluateOnNewDocument', { source: STALL_HOOK });
 	if (next) {
 		const join = JSON.stringify({
 			server: `ws://127.0.0.1:${roomsPort}`,
@@ -1446,6 +1481,84 @@ const lookAt = (shot, arcade, id, lift) =>
 const mostly = (seen, test) => seen.length > 0 && seen.filter(test).length * 2 > seen.length;
 
 play: try {
+	if (opt.stall) {
+		// The main thread blocked 2 s while the room keeps sending (a GC, a level mount, a slow
+		// frame): its states queue and land together. Each is recorded as it lands (interpolation
+		// and Flow need every one); the own player takes the newest, once, on the next frame — not a
+		// whole pass per state. The page's frames are stepped by the harness, so the
+		// catch-up frame is the one stepped next.
+		const st = await ready(await boot('st', { rooms_name: 'Stella', rooms_character: 'salmon' }));
+		await settle(st, 1500);
+		// Both in one call: the room keeps sending between two.
+		const counters = () =>
+			st.page.evaluate(
+				`(async () => { const s = await window.__IE_DETERMINISM__.state(); return { tasks: { ...window.__NET_TASKS__ }, net: s.arcade?.online?.net ?? { states: 0, applied: 0 } }; })()`,
+			);
+		const netOf = async () => (await counters()).net;
+		const timedStep = () =>
+			st.page.evaluate(
+				`(async () => { const t = __REAL_NOW__(); await window.__IE_DETERMINISM__.step(1, { draw: 'last' }); return __REAL_NOW__() - t; })()`,
+			);
+		const trials = [];
+		for (let trial = 0; trial < 3; trial++) {
+			await st.key('ArrowUp', 'down');
+			await settle(st, 600);
+			const { tasks: tasks0, net: net0 } = await counters();
+			const shown0 = (await drawnOf(st)).corrections ?? 0;
+			await st.page.evaluate(
+				'(() => { const end = __REAL_NOW__() + 2000; while (__REAL_NOW__() < end); return 0; })()',
+			);
+			// The held messages are handled as their own tasks once the thread is free.
+			await st.page.evaluate('new Promise((r) => __REAL_TIMEOUT__(r, 150))');
+			const { tasks: tasks1, net: net1 } = await counters();
+			const catchUpMs = await timedStep();
+			const net2 = await netOf();
+			const nextMs = await timedStep();
+			await st.key('ArrowUp', 'up');
+			await settle(st, 800);
+			trials.push({
+				states: net1.states - net0.states,
+				appliedBeforeFrame: net1.applied - net0.applied,
+				appliedInFrame: net2.applied - net1.applied,
+				messages: tasks1.n - tasks0.n,
+				messagesMs: Math.round((tasks1.ms - tasks0.ms) * 10) / 10,
+				catchUpFrameMs: Math.round(catchUpMs * 10) / 10,
+				nextFrameMs: Math.round(nextMs * 10) / 10,
+				corrections: ((await drawnOf(st)).corrections ?? 0) - shown0,
+			});
+		}
+		result.stall = trials;
+		console.log(JSON.stringify({ stall: trials }));
+		verdict(
+			'stall: 2 s of the room’s states queue and are each recorded as they land',
+			trials.every((t) => t.states >= 30 && t.messages >= t.states),
+			trials,
+		);
+		// Applied once on the frame, and before it only for an event about the own salmon (a step's
+		// events follow its patch): a handful, never one a state.
+		verdict(
+			'…and they are applied a handful of times, not once a state: the next frame applies the newest',
+			trials.every((t) => t.appliedInFrame <= 1 && t.appliedBeforeFrame + t.appliedInFrame <= 5),
+			trials,
+		);
+		const { me } = await drawnOf(st);
+		const room = (await players(st)).find((b) => b.id === me);
+		const drawn = (await drawnOf(st)).drawn.find((d) => d.id === me);
+		// In the river's current a resting salmon still drifts, a step or so ahead of the room's
+		// last state on the device: within a step's travel, not to the bit.
+		verdict(
+			'…the newest state agrees with the prediction (no correction), and at rest after it the own salmon is drawn by the room’s place',
+			trials.every((t) => t.corrections === 0) &&
+				!!room &&
+				!!drawn &&
+				Math.hypot(room.x - drawn.x, room.y - drawn.y) < 8,
+			{ room, drawn },
+		);
+		const errors = await st.page.evaluate('window.__AR_ERRORS__');
+		verdict('page ST: no page error', errors.length === 0, errors);
+		await st.page.close();
+		break play;
+	}
 	if (opt.turn) {
 		const DEG = Math.PI / 180;
 		// Neither sheet names a `lean`: on an isometric view of eight facings the picture is tilted
