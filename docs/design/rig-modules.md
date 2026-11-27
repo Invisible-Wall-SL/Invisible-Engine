@@ -81,28 +81,48 @@ Later modules on the same mechanism (§6): **legs** (Full body), **neck** (two b
 
 ## 4. An existing rig: adding or taking away a module
 
-A rig's modules can change in place, with no rebuild (🧩 **Modules**, the rig's Setup):
+A rig's modules can change in place, with no rebuild (`changeModules`, `rigFrameUpdate.ts`):
 
-- **Taking one away** removes from the open rig what the module's option takes from the template:
-  its bones (a bare one keeps its bone), their slots, attachments, every key on them (bones, slots,
-  deforms, draw-order keys re-read without them), constraints naming them, their control-layer
-  entries and their 3D data. A weighted vertex naming a removed bone hands its share to the nearest
-  bone kept above it (where the vertex is at setup), and the bones are renumbered — weighted
-  vertices name bones by place. `references` lists what goes first, for the page to ask.
-- **Adding one** makes the module's pieces as the rig's maker would — 🗺 and 🎞 rigs through
-  🔄 Update rig with the new module set (the build makes the hands from the mapping or the cut, the
-  merge adds their bones, slots and attachments where the build has them, on the rig's own lengths);
-  a ＋ New rig rig through `templateRig` over its art at its own lengths, merged the same way.
-- The choice is written to `template.json` (and the mapping) with the rig's next save.
+- **Taking one away** removes from the open rig what the old set has and the new one lacks: slots
+  with their attachments and keys (every draw-order key re-read without them), bones with their keys
+  and the constraints naming them. A weighted vertex naming a bone that goes hands its share to the
+  nearest bone kept above it where the vertex is at setup, and the bones are renumbered — weighted
+  vertices name bones by place. A bone kept with nothing left on it is reported **bared** (a wrist),
+  so the page drops its ring and picker button too. A bone or slot of the author's own on a bone
+  that goes stops the change, named, rather than going with it.
+- **Adding one** takes what the new set has and the old lacks from a build of it over the rig's art
+  (`fresh`): bones where the build has them (appended in its order, so nothing renumbers), slots
+  where its draw order has them, their art bound to the rig's bones by name, constraints naming them.
+- **Where.** 🧩 in the rig panel: a ＋ New rig rig gets a dialog (`POST /api/rigger/modules` plans it
+  over the rig's own art on its fit, the page takes it as one undo step and saves, then `PUT` writes
+  `template.json`); a 🗺 rig opens 🗺 Edit mapping, whose top row has the pickers — 🔄 Update rig runs
+  `changeModules` between the kept mapping's set and the edited one before the parts merge, and
+  sends back the new set's controls; the page drops what went from `controls.json` and the 3D data
+  and takes the new set's control entries for what came (`modulesOnSidecars`). A 🎞 rig opens ✂ Edit
+  cut, whose top row has the pickers likewise: its 🔄 Update rig makes the parts for the new set
+  (below) and runs `changeModules` from the rig's recorded set before the parts merge
+  (`updateFrameRig`'s `from`); the page records the set (`PUT`) once the rig is saved.
+
+**A rig cut from a frame.** The cut is a property of the frame: it is always cut into the
+template's every part (a saved cut serves every module set), and the module set decides what the
+parts become. A part the set leaves out is drawn into the part on the nearest bone above its own
+that the set still draws (`drawnInto`; a part on `<bone>_image` counts as on `<bone>`): with no
+hands, each hand's pixels join its forearm's image (the parts request's `merge`, which atlas-tool's
+parts job applies before making the parts whole), so the arm still ends in the drawn hand, rigid on
+the forearm. A prop the cut draws over a finger is drawn over that part. With the default set the
+request is unchanged.
 
 ## 5. Stack
 
 1. **Modules and no hands** (bottom): `modules` on the built-ins, `templateWithModules`, the choice
    in `template.json` and the mapping, ＋ New rig / 🗺 From my sheet / 🎞 Frame to rig pick it, every
    reader in §2 follows; gate `rig-modules.mjs`.
-2. **Change a rig's modules in place** (§4): remove with renumbered weights, add through the update
-   merge; gate `rig-modules-update.mjs`.
-3. **Presets of modules**: Bust with face, Half body and Full body written as a base and the same
+2. **Change a rig's modules in place** (§4): remove with renumbered weights, add over the rig's
+   art; 🧩 and 🗺 Edit mapping; gate `rig-modules-change.mjs`.
+3. **🎞 Frame to rig with modules** (§4, "A rig cut from a frame"): a part the set leaves out is
+   drawn into the one above it (`merge`), the frame rig records the set, ✂ Edit cut's 🔄 Update
+   rig changes it; gate `rig-modules-frame.mjs`, atlas-tool's `test_rig_frame_parts.py` (`merged`).
+4. **Presets of modules**: Bust with face, Half body and Full body written as a base and the same
    module builders (neck, head and face, arms, hands, legs), so a module is defined once; gated to
    produce today's templates exactly (a snapshot of each), so no rig sees a difference.
 

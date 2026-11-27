@@ -37,6 +37,8 @@ export async function load(mutate = []) {
 			contents: [
 				"export * from './server/rigSheetFit.ts';",
 				"export * from './server/rigSheetUpdate.ts';",
+				"export { changeModules, frameSourceOf, madeAttachments, madeParts, planModules, updateFrameRig } from './server/rigFrameUpdate.ts';",
+				"export { framePartsRequest, propPivots } from './server/rigFrameFit.ts';",
 				"export * from './rigSheetMap.ts';",
 				"export * from './server/rigTemplates.ts';",
 				"export * from './server/rigTemplateModules.ts';",
@@ -112,6 +114,8 @@ export async function load(mutate = []) {
 	const mod = await import(pathToFileURL(out).href);
 	return {
 		...mod,
+		/** A function of the page's script as written there (a mutant swapped in), by name. */
+		pageSource: (name) => pageFn(name, page),
 		/** The page's functions `names` (and its consts `consts`), by name. */
 		page: (names, consts = []) =>
 			new Function(
@@ -131,7 +135,8 @@ const src = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/
 	.join('\n');
 /** A function of the page's script (`from`: the script, mutated), by name, as written there. */
 export const pageFn = (name, text = src) => {
-	const at = text.indexOf(`\nfunction ${name}(`);
+	const plain = text.indexOf(`\nfunction ${name}(`);
+	const at = plain === -1 ? text.indexOf(`\nasync function ${name}(`) : plain;
 	if (at === -1) throw new Error(`view.html has no function ${name}`);
 	let depth = 0;
 	let j = text.indexOf('{', at);
