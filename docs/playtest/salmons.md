@@ -644,6 +644,32 @@ zone) is written to `bridge-triggers.json`. 7 verdicts:
 - the deck's planks are on screen round him on it;
 - no page error.
 
+## A painted bridge (`--bridge-art`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-bridge-art \
+  --bridge-art
+```
+
+Page BA is a fisherman in the wading's level. Its bridges are drawn by a project copy of the seed
+bridge, `myBridge`:
+- Zone art's `component` source names the copy, and its collider is compiled into
+  `arcade.online.props`, as a save does.
+- Its deck cells are `myDeck`, a cyan frame of a stub sheet exported as a publish exports one.
+- Its near ramp is 3 cells.
+
+The room stands him 2½ cells off the deck's near end, then on the deck's middle. Each place is
+screenshot (`bridge-art-near-ramp.png`, `bridge-art-deck.png`). 5 verdicts:
+
+- the copy's pieces are published;
+- 2½ cells off the near end he is on its ramp, aloft, with `bridge0` occupied. With a 2-cell ramp
+  he would be on the ground;
+- the deck is the copy's sprite: cyan round him on it;
+- the slopes in view follow the ramps: the near one (3 cells) is 4 : 3 as wide as the far one
+  (2), since a slope is as wide as its run plus a cell across it;
+- no page error.
+
 ## P8: a project bridge, live (owner + headless check)
 
 The live check of [design/arcade-prop-components](../design/arcade-prop-components.md) §7 P8.
