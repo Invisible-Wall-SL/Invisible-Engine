@@ -344,6 +344,7 @@
 				const field = room3d ? online(three, room3d) : offline(three);
 				if (room3d)
 					arcadePerf.info = { online: true, fixedHz: room3d.tickHz, patchHz: room3d.patchHz };
+				arcadePerf.mount();
 				undo.push(() => field.release());
 				const models = (bakedBundleData() as { models?: unknown } | undefined)?.models;
 				const hasModels = ((models as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
@@ -606,11 +607,11 @@
 						face,
 						view?.aims ? view.pitch : 0,
 					);
-					if (
-						arcadePerf.on &&
-						(!room3d || (room3d.room.state as { phase?: string }).phase === 'running')
-					)
-						arcadePerf.phase = 'play';
+					if (arcadePerf.on) {
+						const room = (room3d?.room.state as { phase?: string } | undefined)?.phase;
+						arcadePerf.room = room;
+						arcadePerf.phase = !room3d || room === 'running' ? 'play' : 'lobby';
+					}
 					bodies = field.bodies();
 					const own = bodies.find((b) => b.kind === 'hero');
 					ownId = own?.id;

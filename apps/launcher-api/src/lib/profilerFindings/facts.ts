@@ -9,7 +9,7 @@
  * receipt into the rows' `facts` column, so the rules never read R2. Bounded: a few KB each.
  */
 
-import { phaseSetOf, setPhases, type PerfPhase } from '../profiler';
+import { phaseSetOf, phasesFor, type PerfPhase } from '../profiler';
 import { readNetwork, type NetworkFacts } from '../profilerNetwork';
 
 /**
@@ -37,6 +37,12 @@ export interface PhaseTiming {
 	jsMs: number | null;
 	/** `?perfgpu=1` only: the GPU's work after the submit. */
 	gpuWaitMs: number | null;
+	/** `perf: 10`: the phase's busy time per frame (late + tick + after) over the whole reading. */
+	busyP50?: number;
+	busyP95?: number;
+	/** `perf: 10`, a browser with a timer query: the tick's GPU time, p50 / p95. */
+	gpuP50?: number;
+	gpuP95?: number;
 }
 
 export interface SpikeFact {
@@ -100,15 +106,50 @@ export interface ArcadeFacts {
 	fixedHz: number | null;
 	/** Online: room patches a second. */
 	patchHz: number | null;
+	/** `perf: 8` / `9` only (the lobby, loading and spectating together). */
 	menu: ArcadePhaseFact | null;
 	play: ArcadePhaseFact | null;
+	/** `perf: 10`. */
+	loading?: ArcadePhaseFact | null;
+	lobby?: ArcadePhaseFact | null;
+	spectate?: ArcadePhaseFact | null;
+}
+
+/** A layer of the scene sample (`perf: 10`, `pixi-svelte` `sceneProbe.ts`): means over the samples. */
+export interface SceneLayerFact {
+	label: string;
+	nodes: number;
+	renderables: number;
+	visible: number;
+	culled: number;
+	renderGroup: boolean;
+	draws: number | null;
+	passes: number | null;
+	filterPasses: number | null;
+}
+
+export interface SceneFacts {
+	samples: number;
+	nodes: number;
+	renderables: number;
+	visible: number;
+	culled: number;
+	layers: SceneLayerFact[];
+	/** The stage's own draws and filter passes, no render-group layer's. */
+	rest: { draws: number; passes: number; filterPasses: number };
 }
 
 export interface ReportFacts {
 	v: number;
 	/** The full reading could not be read when the facts were filled: every fact rule is unmeasured. */
 	missing?: true;
+	/** The rate the frames ran at (`perf: 10` `achievedHz`; the older `refreshHz`, the same number). */
 	refreshHz: number | null;
+	/** `perf: 10`: the fastest rate rAF ran at, and the frame period busy time is judged against. */
+	displayHz?: number;
+	budgetMs?: number;
+	/** `perf: 10`: where the scene's cost sits (arcade). */
+	scene?: SceneFacts;
 	/** Per phase of the reading's set (a row filled before arcade phases has the slot ones only). */
 	timing: Partial<Record<PerfPhase, PhaseTiming | null>>;
 	/** Spikes per phase and cause (`spikeCauses`); null when the reading has none recorded. */
@@ -132,6 +173,8 @@ const KEEP_SPIKES = 8;
 const KEEP_FALLBACKS = 20;
 
 function timing(report: Obj, phase: PerfPhase): PhaseTiming | null {
+	const busy = isObj(report.busy) && isObj(report.busy[phase]) ? report.busy[phase] : null;
+	const gpu = isObj(report.gpuMs) && isObj(report.gpuMs[phase]) ? report.gpuMs[phase] : null;
 	const work = isObj(report.work) ? report.work[phase] : undefined;
 	if (!isObj(work)) return null;
 	const perFrame = isObj(work.perFrame) ? work.perFrame : {};
@@ -148,6 +191,12 @@ function timing(report: Obj, phase: PerfPhase): PhaseTiming | null {
 		tickMs: mean('tickMs'),
 		jsMs: mean('jsMs'),
 		gpuWaitMs: mean('gpuWaitMs'),
+		...(isObj(busy) && num(busy.frames)
+			? { busyP50: num(busy.p50) ?? 0, busyP95: num(busy.p95) ?? 0 }
+			: {}),
+		...(isObj(gpu) && num(gpu.count)
+			? { gpuP50: num(gpu.p50) ?? 0, gpuP95: num(gpu.p95) ?? 0 }
+			: {}),
 	};
 }
 
@@ -166,26 +215,35 @@ function spikeCauses(v: unknown, phases: readonly PerfPhase[]): ReportFacts['spi
 	return out;
 }
 
-/** A spike record's phase: an arcade one carries `play: true` in play; a slot one `spin` / `round`. */
-const spikePhase = (s: Obj, arcade: boolean): PerfPhase =>
+/**
+ * A spike record's phase: an arcade one carries `play: true` in play, and from `perf: 10` `loading`
+ * or `spectate` (none: the lobby; before it, the menu); a slot one `spin` / `round`.
+ */
+const spikePhase = (s: Obj, arcade: boolean, version: number): PerfPhase =>
 	arcade
 		? s.play === true
 			? 'play'
-			: 'menu'
+			: s.loading === true
+				? 'loading'
+				: s.spectate === true
+					? 'spectate'
+					: version >= 10
+						? 'lobby'
+						: 'menu'
 		: s.spin === true
 			? 'spinning'
 			: s.round === true
 				? 'round'
 				: 'idle';
 
-function spikes(v: unknown, arcade: boolean): SpikeFact[] {
+function spikes(v: unknown, arcade: boolean, version: number): SpikeFact[] {
 	if (!Array.isArray(v)) return [];
 	return v
 		.filter(isObj)
 		.map((s) => ({
 			at: num(s.at) ?? 0,
 			ms: num(s.ms) ?? 0,
-			phase: spikePhase(s, arcade),
+			phase: spikePhase(s, arcade, version),
 			cause: str(s.cause, 40) ?? 'unknown',
 			why: str(s.why, 160) ?? '',
 		}))
@@ -200,7 +258,7 @@ function lateStats(v: unknown): LateStats | null {
 	return { count, p50: num(v.p50) ?? 0, p95: num(v.p95) ?? 0, max: num(v.max) ?? 0 };
 }
 
-function arcadePhase(report: Obj, phase: 'menu' | 'play', late: unknown): ArcadePhaseFact | null {
+function arcadePhase(report: Obj, phase: PerfPhase, late: unknown): ArcadePhaseFact | null {
 	const work = isObj(report.work) ? report.work[phase] : undefined;
 	const bucket = report[phase];
 	const frames =
@@ -222,14 +280,56 @@ function arcadePhase(report: Obj, phase: 'menu' | 'play', late: unknown): Arcade
 	};
 }
 
-function arcadeFacts(report: Obj): ArcadeFacts {
+function arcadeFacts(report: Obj, version: number): ArcadeFacts {
 	const a = isObj(report.arcade) ? report.arcade : {};
+	const phase = (name: PerfPhase) => arcadePhase(report, name, a.lateMs);
 	return {
 		online: a.online === true,
 		fixedHz: num(a.fixedHz),
 		patchHz: num(a.patchHz),
-		menu: arcadePhase(report, 'menu', a.lateMs),
-		play: arcadePhase(report, 'play', a.lateMs),
+		menu: phase('menu'),
+		play: phase('play'),
+		...(version >= 10
+			? { loading: phase('loading'), lobby: phase('lobby'), spectate: phase('spectate') }
+			: {}),
+	};
+}
+
+const KEEP_LAYERS = 8;
+
+/** A `perf: 10` arcade reading's scene summary, bounded. */
+function sceneFacts(v: unknown): SceneFacts | null {
+	if (!isObj(v) || !isObj(v.mean) || !Array.isArray(v.layers)) return null;
+	const samples = num(v.samples);
+	if (!samples) return null;
+	const layers = v.layers
+		.filter(isObj)
+		.map((l): SceneLayerFact => ({
+			label: str(l.label, 60) ?? '?',
+			nodes: num(l.nodes) ?? 0,
+			renderables: num(l.renderables) ?? 0,
+			visible: num(l.visible) ?? 0,
+			culled: num(l.culled) ?? 0,
+			renderGroup: l.renderGroup === true,
+			draws: num(l.draws),
+			passes: num(l.passes),
+			filterPasses: num(l.filterPasses),
+		}))
+		.sort((a, b) => b.renderables - a.renderables)
+		.slice(0, KEEP_LAYERS);
+	const rest = isObj(v.rest) ? v.rest : {};
+	return {
+		samples,
+		nodes: num(v.mean.nodes) ?? 0,
+		renderables: num(v.mean.renderables) ?? 0,
+		visible: num(v.mean.visible) ?? 0,
+		culled: num(v.mean.culled) ?? 0,
+		layers,
+		rest: {
+			draws: num(rest.draws) ?? 0,
+			passes: num(rest.passes) ?? 0,
+			filterPasses: num(rest.filterPasses) ?? 0,
+		},
 	};
 }
 
@@ -255,21 +355,28 @@ function textures(v: unknown): TextureFact[] | null {
 export function reportFacts(report: unknown): ReportFacts {
 	const r = isObj(report) ? report : {};
 	const list = Array.isArray(r.textureList) ? r.textureList : null;
-	const arcade = (num(r.perf) ?? 0) >= 8 && phaseSetOf(str(r.kind, 20)) === 'arcade';
-	const phases = setPhases(arcade ? 'arcade' : 'slot');
-	const network = (num(r.perf) ?? 0) >= 9 ? readNetwork(r) : null;
+	const version = num(r.perf) ?? 0;
+	const arcade = version >= 8 && phaseSetOf(str(r.kind, 20)) === 'arcade';
+	const phases = phasesFor(arcade ? 'arcade' : 'slot', version);
+	const network = version >= 9 ? readNetwork(r) : null;
+	const scene = version >= 10 ? sceneFacts(r.scene) : null;
+	const display = num(r.displayHz);
+	const budget = num(r.budgetMs);
 	return {
 		v: FACTS_VERSION,
-		refreshHz: num(r.refreshHz),
+		refreshHz: num(r.achievedHz) ?? num(r.refreshHz),
+		...(display !== null ? { displayHz: display } : {}),
+		...(budget !== null ? { budgetMs: budget } : {}),
+		...(scene ? { scene } : {}),
 		timing: Object.fromEntries(phases.map((p) => [p, timing(r, p)])),
 		spikeCauses: spikeCauses(r.spikeCauses, phases),
-		spikes: spikes(r.spikes, arcade),
+		spikes: spikes(r.spikes, arcade, version),
 		textures: textures(list),
 		ktx2Fallbacks: (Array.isArray(r.ktx2Fallbacks) ? r.ktx2Fallbacks : [])
 			.filter(isObj)
 			.map((f) => ({ key: str(f.key, 200) ?? '?', reason: str(f.reason, 160) ?? '' }))
 			.slice(0, KEEP_FALLBACKS),
-		...(arcade ? { arcade: arcadeFacts(r) } : {}),
+		...(arcade ? { arcade: arcadeFacts(r, version) } : {}),
 		...(network ? { network } : {}),
 	};
 }

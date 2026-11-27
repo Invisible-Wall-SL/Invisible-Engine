@@ -373,3 +373,66 @@ export function previewCues(plan: PreviewPlan, from: number, to: number): ('draw
 	if (crosses(plan.startMs + plan.drawMs)) cues.push('end');
 	return cues;
 }
+
+/** When a play stops moving (ms from the replay): the line has landed and its tip's fade or the
+ *  burst's emission is over. Particles still alive past it play on their own stages. */
+export function previewSettledMs(plan: PreviewPlan): number {
+	const landed = plan.startMs + plan.drawMs;
+	if (plan.tipEnd === 'fade') return landed + WIN_LINE_TIP_FADE_MS;
+	if (plan.bursts) return landed + plan.burstMs;
+	return landed;
+}
+
+/** Whether the board must be redrawn for the frame after `lastT`: the frame before was still moving
+ *  (so the first one at or past {@link previewSettledMs} is drawn, the ones after are not). */
+export function previewMoving(plan: PreviewPlan, lastT: number): boolean {
+	return lastT < previewSettledMs(plan);
+}
+
+/** The board canvas's backing size for `width` × `height` CSS px at `scale` device px each. */
+export function canvasBacking(
+	width: number,
+	height: number,
+	scale: number,
+): { width: number; height: number } {
+	return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
+/** A canvas needs resizing when either side of its backing store differs from the wanted one. */
+export function canvasNeedsResize(
+	canvas: { width: number; height: number },
+	want: { width: number; height: number },
+): boolean {
+	return canvas.width !== want.width || canvas.height !== want.height;
+}
+
+/**
+ * The preview's effects, read once each: an id mapped to `undefined` (or not in the map yet) is
+ * being fetched, one mapped to `null` was not found (deleted, or never saved).
+ */
+export type PreviewEffectDocs = Record<string, EffectDoc | null | undefined>;
+
+/** Where the preview's effects stand: still loading, and the ids that came back missing (each
+ *  once, in the order asked). */
+export function previewEffectStatus(
+	ids: readonly (string | undefined)[],
+	docs: PreviewEffectDocs,
+): { loading: boolean; missing: string[] } {
+	const wanted = [...new Set(ids.filter((id): id is string => !!id))];
+	return {
+		loading: wanted.some((id) => docs[id] === undefined),
+		missing: wanted.filter((id) => docs[id] === null),
+	};
+}
+
+/** The caption's effects note: `loading effects…` while any is fetched, then the missing ids by
+ *  name; empty when every effect is in. */
+export function previewEffectNote(status: { loading: boolean; missing: string[] }): string {
+	const notes: string[] = [];
+	if (status.loading) notes.push('loading effects…');
+	if (status.missing.length === 1) notes.push(`effect “${status.missing[0]}” is missing`);
+	else if (status.missing.length > 1) {
+		notes.push(`effects ${status.missing.map((id) => `“${id}”`).join(', ')} are missing`);
+	}
+	return notes.join(' · ');
+}

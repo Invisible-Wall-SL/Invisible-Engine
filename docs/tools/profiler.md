@@ -13,7 +13,8 @@ bug, and **Compare** puts any two readings side by side.
 
 The game already measures itself: open any published game with `?perf=1` and a small readout at
 the top shows its frame rate, and opens into the full reading (frame times while idle, spinning and
-during a round's wins — or, for an arcade game, in its menus and while the field plays — the GPU,
+during a round's wins — or, for an arcade game, while a level loads, in its lobby, while the field
+plays and while the player spectates — the busy time of each, the GPU,
 draw calls, textures). Until now that reading travelled by hand,
 with **Copy** and a paste into a chat. The Profiler opens the game with a **capture session**, so
 the readout gets a **Send** button and the reading goes straight to the project's list.
@@ -168,11 +169,28 @@ refuses forcing today, so that step is skipped.
      and features with the reels at rest, three figures each: **fps**, **p95** (95 % of frames
      took less than this many ms) and **>33** (frames that took over 33 ms, the hitches you see).
      `–` means the reading has no frames in that phase.
-   - **Menu**, **Play**: the same three figures for an arcade game, in its menus (title, lobby,
-     countdown, win screen) and while its field plays (online: while the room's round runs). The
-     table shows the phase groups the listed readings have: a slot project only Idle, Spinning and
-     Round, an arcade project Menu and Play, and both while older readings of an arcade game are
-     still listed (a reading from before the arcade phases puts all its frames under Idle).
+   - **Loading**, **Lobby**, **Play**, **Spectate**: the same figures for an arcade game (a
+     reading from readout `perf: 10` on). **Loading** is a level mounting: from its mount until
+     its first drawn frame and one second after. **Lobby** is the title, the lobby, a countdown or
+     a win screen; **Play** the field playing (online: the room's round runs and the player is in
+     it); **Spectate** the room running with the player out of it, watching. An older reading
+     (`perf: 8` / `9`) has one **Menu** for the first, second and last, and **Play**. The table
+     shows the phase groups the listed readings have: a slot project only Idle, Spinning and Round,
+     an arcade project Loading, Lobby, Play and Spectate, plus Menu while older readings are listed.
+   - **busy** (a fourth figure per phase, once any listed reading has it, `perf: 10`): the p95 of
+     the main thread's work in a frame (before, in and after the Pixi tick), in ms. It is what the
+     game costs a frame, whatever the display or the browser does with the frame rate: a phone
+     that misses 60 Hz by 1 ms reads exactly 30 fps. Hover it for the p50, the max and the frame it
+     is judged against (16.7 ms at 60 Hz; the readout's `budgetMs`, from the display's rate), and
+     the display's and the achieved rates. An arcade reading is judged on busy time, not fps.
+   - A **throttled** tag after the time (any readout version): the page was in the background or
+     throttled for much of the reading (its median frame is over 250 ms, or it was hidden for over
+     5 % of it): its frames are the browser's, not the game's. It is kept and listed, but "not
+     comparable": it is left out of every verdict, finding and Devices cell (its draws and GPU MB
+     still count), and the tag's hover says why. Readings 10308430 and 49aadb1f (1004 ms frames)
+     are what it catches. The readout (`perf: 10`) also does not count a hidden page's frames at
+     all: it reports the time hidden (`hiddenMs`), the frames that still came while hidden and the
+     visible frames over 250 ms (`throttledFrames`), and the page's visibility when sent.
    - A **30 cap** tag after the time: the browser held the reading to 30 fps (iOS Low Power Mode,
      a battery saver) while its frames had room for 60. Its fps and p95 are not judged against the
      budgets. A game whose frames are too busy for 60 also runs at exactly 30 fps on a 60 Hz screen;
@@ -274,9 +292,11 @@ a token.
     - **Device**: the class (`phone`, `desktop`) and the GPU under it (hover for the full name).
     - **Readings**: how many readings the group holds.
     - **Verdict**: `pass`, `warn`, `fail` or `not enough data` — the worst of the row's cells.
-    - **Idle**, **Spinning**, **Round** (an arcade game's **Menu** and **Play**): **fps** and
-      **p95** (the median over the group's readings) and **>33** (hitches, added up over the
-      readings). A device is judged only on its readings' own phases.
+    - **Idle**, **Spinning**, **Round** (an arcade game's **Loading**, **Lobby**, **Play** and
+      **Spectate**): **fps** and **p95** (the median over the group's readings), **>33** (hitches,
+      added up over the readings) and, where a reading has it, **busy** (the median of the
+      readings' p95 busy time). A device is judged only on its readings' own phases; an arcade
+      reading from `perf: 10` is judged on its busy time, not on fps and p95.
     - **Draws** and **GPU MB**: the median draw calls a frame and texture memory.
     - **Transfer MB** and **Largest file**: the median of what the readings downloaded and of their
       heaviest file (readings from `perf: 9` on; with none, the cells read `—` and are not judged).
@@ -289,8 +309,9 @@ a token.
     - Readings taken with a test switch (**Particles off** and the others) are left out: they
       measure what a feature costs, not the game players get. So are lab runs (their fps is a
       shared runner's, not a device's) and readings whose device class the game did not name. A
-      reading with the **30 cap** tag counts for draws and GPU MB but not for fps and p95. Lines
-      under the table say how many were left out, and how many were at a 30 fps cap.
+      reading with the **30 cap** tag counts for draws and GPU MB but not for fps and p95; a
+      **throttled** one likewise for every timing. Lines under the table say how many were left
+      out, how many were at a 30 fps cap and how many were throttled.
 17. Click a device's name to open its readings **build by build**, newest first, in a card under
     the table: each build (or the build number the game stamped, when no build record matches)
     with its readings judged the same way. Click the name again to close it.
@@ -439,10 +460,11 @@ them, so a project with many old readings shows its full list after a few visits
 
 29. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
     **Phone**, **Tablet**, **Desktop** and **Every device** (shipped size). Each row is one metric
-    (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Transfer**, **Largest
-    file**, **Shipped size**. The
-    phases are the project's game kind's: Idle, Spinning and Round for a slot, Menu and Play for an
-    arcade game (plus any other phase the project has its own line for).
+    (and phase): **fps**, **p95 frame**, **p95 busy time**, **Draws a frame**, **GPU memory**,
+    **Transfer**, **Largest file**, **Shipped size**. The
+    phases are the project's game kind's: Idle, Spinning and Round for a slot, Loading, Lobby, Play
+    and Spectate for an arcade game (plus any other phase the project has its own line for, such as
+    the older Menu).
     - **Warn** and **Fail** are the project's lines, filled in with the line in force. For fps,
       below the line is bad (`<`); for the others, above it (`>`). A blank line is not checked.
     - **Studio default** shows the studio's line beside it, and a `project` tag when this project
@@ -451,20 +473,24 @@ them, so a project with many old readings shows its full list after a few visits
 
     | Device        | Metric                    | Warn     | Fail     |
     | ------------- | ------------------------- | -------- | -------- |
-    | Phone, tablet | fps idle, menu            | < 58     | < 55     |
-    | Phone, tablet | fps spinning, round, play | < 55     | < 50     |
+    | Phone, tablet | fps idle, lobby, menu     | < 58     | < 55     |
+    | Phone, tablet | fps spinning, round, play, spectate | < 55 | < 50 |
     | Phone, tablet | p95 frame, every phase    | > 20 ms  | > 25 ms  |
     | Phone, tablet | GPU memory                | > 120 MB | > 150 MB |
     | Desktop       | fps, every phase          | < 58     | < 55     |
     | Desktop       | p95 frame, every phase    | > 20 ms  | > 25 ms  |
+    | Every class   | p95 busy, lobby, play, spectate | > 14 ms | > 16.7 ms |
     | Every class   | Transfer                  | > 20 MB  | > 25 MB  |
     | Every class   | Largest file              | > 3 MB   | > 6 MB   |
     | Every device  | Shipped size              | > 20 MB  | > 25 MB  |
 
     "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
     Draws a frame and desktop GPU memory have no default; set one if your project wants it. An
-    arcade game's **menu** takes idle's lines and its **play** spinning's — a studio default by
-    analogy, not an owner number; change them here if your game needs others. **Transfer** takes
+    arcade game's **lobby** (and the older **menu**) takes idle's lines and its **play** and
+    **spectate** spinning's — a studio default by analogy, not an owner number; change them here if
+    your game needs others. **Busy time** (`perf: 10` readings) has a line for an arcade game's
+    lobby, play and spectate on every device: a frame's p95 busy time must fit the display's frame,
+    16.7 ms at 60 Hz, warning from 14 ms; loading has none (it is one expensive frame by design). **Transfer** takes
     the shipped-size line (what a first visit downloads is what the game ships); **Largest file** is
     a studio default (a 6 MB file is about 5 s alone on a 10 Mbit/s phone link).
 
@@ -506,11 +532,18 @@ Today:
   (the partner's RGS, the arcade game server's matchmaking) has its time but not its size. A 3D
   arcade game does not count its room's messages yet. The browser keeps the first 250 files before
   the readout starts listening; a page that fetched more before that misses the earliest.
-- Only readings from a game whose readout reports `perf: 7`, `8` or `9` are read. A reading from
+- Only readings from a game whose readout reports `perf: 7`, `8`, `9` or `10` are read. A reading from
   a newer or older readout is refused with its version. A `perf: 7` reading names no game kind, so
   it is read in the slot's phases even from an arcade game (its frames are all **Idle**).
-- An arcade game is read in two phases, **Menu** and **Play**. A 3D arcade game counts its play
-  frames but not yet its sim, bodies or room states.
+- An arcade game is read in four phases from `perf: 10` (**Loading**, **Lobby**, **Play**,
+  **Spectate**), two before it (**Menu**, **Play**). A 3D arcade game counts its play frames but
+  not yet its sim, bodies or room states.
+- The readout's `perf: 10` additions that the launcher stores but this page does not list yet (they
+  are in the reading's JSON and its Findings facts): a scene sample every 30 frames for an arcade
+  game (nodes, renderables, drawn and culled, and for each top-level layer that is its own render
+  group its draws, passes and filter passes), GPU time per tick where the browser offers
+  `EXT_disjoint_timer_query_webgl2` (`gpuTimer` says `n/a` otherwise), the room's bytes by kind of
+  message, and a p95 beside every per-frame mean.
 - Purging a project deletes its readings, build records and budgets with it. A duplicated
   project starts with no readings or builds, and on the studio budgets: its overrides are not
   copied.
