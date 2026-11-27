@@ -1,0 +1,331 @@
+# Merge main — a Resolve conflict run on a pipeline change (ADR-0015 §2–§4, §10,
+# docs/director/DECISIONS/0015-resolve-merge-conflicts.md).
+#
+# The launcher dispatches this on `main` through its GitHub App when a person presses Resolve
+# conflict, with five public inputs: the run's id, the pull request, the head's and main's SHA, and
+# the model's budget. Nothing here commits, pushes or opens anything: the launcher builds the merge
+# itself from three trees when a person presses Accept (§5).
+#
+# TWO JOBS, because the merge runs the branch's own code:
+#   merge    holds nothing worth stealing: `contents: read`, no id-token, no secret, no environment.
+#            It merges main into the head at the two pinned SHAs with main's copy of
+#            scripts/merge-main/merge.mjs, which runs the §3 rules' builds (the branch's code), and
+#            uploads the record as the artifact `merge`. The record is trusted no more than the branch.
+#   propose  the `bug-fix` environment and its key, `id-token: write`. Before the model only main's
+#            code runs: main's checkout, main's dependencies, then collect.mjs `stage`, which redoes
+#            the merge from main's git and refuses a record that differs. The model runs only when
+#            conflicts are left for it and the budget is above 0. collect.mjs `result` POSTs §10's
+#            body with an OIDC token for the audience `invisible-launcher-merge-main`.
+#
+# Dependencies install BEFORE the merged tree is laid out, from main's lockfile: pnpm reads the
+# workspace's `.npmrc` (and expands environment variables in it, the OIDC request pair included),
+# `packageManager` (which picks the pnpm binary that runs) and pnpmfile, so installing the merged
+# tree would let the branch steer code outside the sandbox. The model's gates run on main's
+# dependencies; CI on the pushed head is the gate (§6).
+#
+# THE SANDBOX IS bug-fix.yml's: "Record node's path", "Install dependencies" and the six steps from
+# "Install Claude Code and its sandbox" to "Clean up" are copied step for step, so what
+# scripts/bug-fix/prove-cli.mjs proves of them (bug-fix-proof.yml) holds here. The only edits: the
+# model's steps run when stage says so, the scripts are scripts/merge-main/'s, the budget is the
+# input, and the folder the run may read but not write is the conflicts', not a bug's.
+# check:merge-main-workflow (scripts/merge-main/workflow.fixture.mjs) pins them and every rule here
+# with a planted mutant each. Setup: docs/INFRA.md "Resolve conflict (merge-main.yml)".
+
+name: Merge main
+
+# The launcher binds the run by this title (`mergeRunName`, apps/launcher-api/src/lib/mergeMainRuns.ts).
+run-name: Merge main ${{ inputs.merge_run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      merge_run:
+        description: The launcher's merge run id (10 lowercase hex characters)
+        required: true
+        type: string
+      pr:
+        description: The pull request's number
+        required: true
+        type: string
+      head_sha:
+        description: The change's head commit (40 lowercase hex characters)
+        required: true
+        type: string
+      main_sha:
+        description: The commit of main to merge in (40 lowercase hex characters)
+        required: true
+        type: string
+      budget_usd:
+        description: The model's cap in dollars, 0 to 100, at most two decimals (0 skips the model)
+        required: true
+        type: string
+
+env:
+  MERGE_RUN: ${{ inputs.merge_run }}
+  PR: ${{ inputs.pr }}
+  HEAD_SHA: ${{ inputs.head_sha }}
+  MAIN_SHA: ${{ inputs.main_sha }}
+  BUDGET_USD: ${{ inputs.budget_usd }}
+  LAUNCHER_URL: https://app.invisiblewall.org
+  CLAUDE_CODE_VERSION: 2.1.311
+  CLAUDE_CODE_INTEGRITY: sha512-dk1lVMt7n+NlYucKM7dLp/PfrK32pa/4oKQkacfazlSj8rG+hkH67wnDnaFG9Gs2al3OjK8PTVHgZ2WGHXoWUg==
+  MODEL: claude-opus-5-5
+  MAX_TURNS: 150
+
+jobs:
+  merge:
+    # The App's own dispatch on main, first attempt only: a re-run keeps the bot as the actor.
+    if: ${{ github.ref == 'refs/heads/main' && github.run_attempt == '1' && github.actor == 'invisible-pipeline-changes-v2[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check the inputs
+        run: |
+          if [[ ! "$MERGE_RUN" =~ ^[0-9a-f]{10}$ ]]; then
+            echo '::error title=merge-main::merge_run is not a merge run id'
+            exit 1
+          fi
+          if [[ ! "$PR" =~ ^[1-9][0-9]{0,9}$ ]]; then
+            echo '::error title=merge-main::pr is not a pull request number'
+            exit 1
+          fi
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error title=merge-main::head_sha is not a full commit SHA'
+            exit 1
+          fi
+          if [[ ! "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error title=merge-main::main_sha is not a full commit SHA'
+            exit 1
+          fi
+          if [[ ! "$BUDGET_USD" =~ ^(100(\.00?)?|[1-9]?[0-9](\.[0-9]{1,2})?)$ ]]; then
+            echo '::error title=merge-main::budget_usd is not a dollar amount from 0 to 100'
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # main_sha must be a commit of main as dispatched: the scripts below are its copy, never the
+      # branch's.
+      - name: Keep a pristine copy of main
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+          [ -z "$(git status --porcelain)" ]
+          git fetch --quiet --no-tags origin "$MAIN_SHA"
+          if ! git merge-base --is-ancestor "$MAIN_SHA" "$GITHUB_SHA"; then
+            echo '::error title=merge-main::main_sha is not a commit of main'
+            exit 1
+          fi
+          mkdir "$RUNNER_TEMP/main"
+          git archive "$MAIN_SHA" | tar -xf - -C "$RUNNER_TEMP/main"
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+
+      # No install here: a rule that builds installs the merged tree itself.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      # Exits 0 for every outcome (a refusal is in the record), 1 only when the job broke.
+      - name: Merge main into the change
+        run: node "$RUNNER_TEMP/main/scripts/merge-main/merge.mjs" --repo "$GITHUB_WORKSPACE" --head "$HEAD_SHA" --main "$MAIN_SHA" --out "$RUNNER_TEMP/merge"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: merge
+          path: ${{ runner.temp }}/merge
+          if-no-files-found: error
+          retention-days: 7
+
+  propose:
+    needs: merge
+    # After a failed merge job too, so the run still ends with a result; never once it is cancelled.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.run_attempt == '1' && github.actor == 'invisible-pipeline-changes-v2[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: bug-fix
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check the inputs
+        run: |
+          if [[ ! "$MERGE_RUN" =~ ^[0-9a-f]{10}$ ]]; then
+            echo '::error title=merge-main::merge_run is not a merge run id'
+            exit 1
+          fi
+          if [[ ! "$PR" =~ ^[1-9][0-9]{0,9}$ ]]; then
+            echo '::error title=merge-main::pr is not a pull request number'
+            exit 1
+          fi
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error title=merge-main::head_sha is not a full commit SHA'
+            exit 1
+          fi
+          if [[ ! "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error title=merge-main::main_sha is not a full commit SHA'
+            exit 1
+          fi
+          if [[ ! "$BUDGET_USD" =~ ^(100(\.00?)?|[1-9]?[0-9](\.[0-9]{1,2})?)$ ]]; then
+            echo '::error title=merge-main::budget_usd is not a dollar amount from 0 to 100'
+            exit 1
+          fi
+
+      # Main at the run's commit, before anything of the change is in the workspace.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.main_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      # As bug-fix.yml's: the result step runs node by this path, whatever a later PATH says.
+      - name: Record node's path
+        id: node
+        run: echo "path=$(node -p process.execPath)" >> "$GITHUB_OUTPUT"
+
+      # The pristine copy every later script runs from; its git holds the head too, which collect
+      # reads the merge from.
+      - name: Keep a pristine copy of main
+        id: base
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$MAIN_SHA" ]
+          if ! git merge-base --is-ancestor "$MAIN_SHA" "$GITHUB_SHA"; then
+            echo '::error title=merge-main::main_sha is not a commit of main'
+            exit 1
+          fi
+          git fetch --quiet --no-tags origin "$HEAD_SHA"
+          [ -z "$(git status --porcelain)" ]
+          cp -a "$GITHUB_WORKSPACE" "$RUNNER_TEMP/main"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: merge
+          path: ${{ runner.temp }}/merge
+
+      # The workspace becomes the merged tree, each conflict left with its markers, and
+      # $RUNNER_TEMP/conflicts/conflicts.json lists them. `model` is false when nothing is left for
+      # the model, the merge is refused, or the budget is 0.
+      - name: Stage the merge
+        id: stage
+        run: node "$RUNNER_TEMP/main/scripts/merge-main/collect.mjs" stage
+
+      # collect.mjs result reads both: the model must not be able to write them.
+      - name: Lock the record
+        if: ${{ steps.stage.outputs.model == 'true' }}
+        run: |
+          set -euo pipefail
+          for d in "$RUNNER_TEMP/merge" "$RUNNER_TEMP/conflicts"; do
+            sudo chown -R root:root "$d"
+            sudo chmod -R go-w,u-w "$d"
+          done
+
+      - name: Install Claude Code and its sandbox
+        if: ${{ steps.stage.outputs.model == 'true' }}
+        run: |
+          set -euo pipefail
+          tgz="$RUNNER_TEMP/claude-code.tgz"
+          curl -fsSL --retry 3 -o "$tgz" \
+            "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-${CLAUDE_CODE_VERSION}.tgz"
+          if [ "sha512-$(openssl dgst -sha512 -binary "$tgz" | base64 -w0)" != "$CLAUDE_CODE_INTEGRITY" ]; then
+            echo '::error title=bug-fix::the Claude Code package does not match its pinned sha512'
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/claude/bin"
+          tar -xzf "$tgz" -C "$RUNNER_TEMP/claude/bin" --strip-components=1 package/claude
+          chmod 0755 "$RUNNER_TEMP/claude/bin/claude"
+          [ "$("$RUNNER_TEMP/claude/bin/claude" --version)" = "$CLAUDE_CODE_VERSION (Claude Code)" ]
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bubblewrap socat
+          # Ubuntu 24.04's AppArmor can refuse the unprivileged user namespaces bubblewrap needs.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --dev /dev --unshare-net true
+          # Docker's socket is root on this machine, and nothing in a fix run needs it.
+          sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
+
+      - name: Prepare the run
+        id: prepare
+        if: ${{ steps.stage.outputs.model == 'true' }}
+        run: node "$RUNNER_TEMP/main/scripts/merge-main/collect.mjs" prepare
+
+      - name: Lock what the run must not change
+        if: ${{ steps.stage.outputs.model == 'true' }}
+        run: |
+          set -euo pipefail
+          for d in "$RUNNER_TEMP/main" "$RUNNER_TEMP/claude/conf" "$RUNNER_TEMP/claude/bin" "$RUNNER_TEMP/tsx-shim"; do
+            sudo chown -R root:root "$d"
+            sudo chmod -R go-w,u-w "$d"
+          done
+
+      - name: Run Claude Code
+        id: cli
+        if: ${{ steps.stage.outputs.model == 'true' }}
+        timeout-minutes: 60
+        env:
+          ANTHROPIC_BUG_FIX_API_KEY: ${{ secrets.ANTHROPIC_BUG_FIX_API_KEY }}
+          BUDGET: ${{ inputs.budget_usd }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANTHROPIC_BUG_FIX_API_KEY" ]; then
+            echo '::error title=bug-fix: missing secret::Add ANTHROPIC_BUG_FIX_API_KEY to the bug-fix environment (docs/INFRA.md)'
+            exit 1
+          fi
+          umask 077
+          sudo install -d -o root -g root -m 0700 "$RUNNER_TEMP/key"
+          printf '%s' "$ANTHROPIC_BUG_FIX_API_KEY" | sudo tee "$RUNNER_TEMP/key/anthropic" > /dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/key/anthropic"
+          c="$RUNNER_TEMP/claude"
+          mkdir -p "$c/config"
+          cd "$GITHUB_WORKSPACE"
+          exec env -i \
+            HOME="$HOME" PATH="$PATH" SHELL=/bin/bash LANG=C.UTF-8 TERM=dumb CI=true \
+            CLAUDE_CONFIG_DIR="$c/config" \
+            DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null \
+            "$c/bin/claude" -p \
+            --model "$MODEL" --max-turns "$MAX_TURNS" --max-budget-usd "$BUDGET" \
+            --settings "$c/conf/settings.json" --setting-sources '' \
+            --agents "$c/conf/agents.json" \
+            --tools Bash,Read,Glob,Grep,Edit,Write,Agent \
+            --restricted --strict-mcp-config --disable-slash-commands \
+            --permission-mode dontAsk --permission-prompts none \
+            --add-dir "$RUNNER_TEMP/conflicts" --add-dir "$RUNNER_TEMP/out" \
+            --no-session-persistence --output-format stream-json --verbose \
+            < "$c/conf/prompt.md" > "$c/stream.jsonl" 2> "$c/stderr.log"
+
+      # After a failed, timed-out, stopped or skipped model step too: the run always ends with a
+      # result and its spend.
+      - name: Post the result
+        if: ${{ always() && steps.base.outcome == 'success' }}
+        timeout-minutes: 12
+        working-directory: ${{ runner.temp }}/main
+        env:
+          NODE: ${{ steps.node.outputs.path }}
+        run: |
+          pkill -KILL -x bwrap 2>/dev/null || true
+          "$NODE" "$RUNNER_TEMP/main/scripts/merge-main/collect.mjs" result
+
+      # As bug-fix.yml's, word for word: $RUNNER_TEMP/bug never exists here.
+      - name: Clean up
+        if: ${{ always() }}
+        run: sudo rm -rf "$RUNNER_TEMP/key" "$RUNNER_TEMP/bug" "$RUNNER_TEMP/out" "$RUNNER_TEMP/claude" "$GITHUB_WORKSPACE/.git"

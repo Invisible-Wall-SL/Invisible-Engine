@@ -878,8 +878,35 @@ code default, so the dashboard need not set it):
     `POST /api/pipeline/merge-runs/<id>/result` with a GitHub OIDC token for the audience
     `invisible-launcher-merge-main` (its `job_workflow_ref` is `merge-main.yml` on `main`,
     environment `bug-fix`, dispatched by the App's bot, first attempt). The launcher shows no
-    Resolve button until GitHub has an active `merge-main.yml` on `main` (card 15B2). A run that
-    dies is settled by the fix runs' once-a-minute link sync: there is no new loop.
+    Resolve button until GitHub has an active `merge-main.yml` on `main` (card 15B2, "Resolve
+    conflict (merge-main.yml)" below). A run that dies is settled by the fix runs' once-a-minute
+    link sync: there is no new loop.
+- **Resolve conflict (merge-main.yml)** (`.github/workflows/merge-main.yml`, ADR-0015 §2–§4, §10;
+  card 15B2): **Resolve conflict** makes the launcher's App dispatch it on `main` with five public
+  inputs: `merge_run` (10 hex), `pr`, `head_sha` and `main_sha` (40 hex), and `budget_usd` (0 to
+  100, at most two decimals). The run is named `Merge main <merge_run>`. Both jobs run only for the
+  App's own dispatch (`invisible-pipeline-changes-v2[bot]`) on `main`, first attempt, and check
+  the inputs before anything else. It never commits or pushes: Accept is the launcher's (§5).
+  - **Job `merge`** holds nothing: `contents: read`, no `id-token`, no secret, no environment. It
+    merges `main` into the head with `main`'s `scripts/merge-main/merge.mjs`, which runs the
+    branch's own builds for the mechanical rules, and uploads the record as the artifact `merge`
+    (kept 7 days). It runs on `main`'s ref, so it can write `main`'s Actions cache: see
+    `docs/status/infra.md`, open items.
+  - **Job `propose`** runs in the **`bug-fix`** environment with `ANTHROPIC_BUG_FIX_API_KEY` and
+    `id-token: write`. Only `main`'s code runs before the model: `main`'s checkout, `main`'s
+    lockfile installed before the merged tree is laid out, then `collect.mjs stage`, which redoes
+    the merge from `main`'s git. Claude Code runs only when conflicts are left for it and
+    `budget_usd` is above 0, with `--max-budget-usd` from it, in `bug-fix.yml`'s sandbox: those
+    steps are copied word for word, and `pnpm check:merge-main-workflow` holds them to it, so
+    `bug-fix-proof.yml` proves them too. `collect.mjs result` posts with a GitHub OIDC token for
+    the audience **`invisible-launcher-merge-main`**.
+  - **Budget:** `PIPELINE_MERGE_MAIN_BUDGET_USD` (above), cut to what is left of
+    `PIPELINE_FIX_MONTHLY_USD`, and `0` once the month is spent: the run then does only the
+    mechanical part. The job refuses a `budget_usd` over 100, so keep the setting at $100 or less.
+  - **Owner setup:** nothing beyond the fix runs' (the App's Actions write, the `bug-fix`
+    environment and its key), except the hand merge of the workflow itself: current-games refuses
+    a change under `.github/workflows/`. Renaming or replacing the App changes its bot login: edit
+    both jobs' `if:` by hand (the App cannot edit workflows), or every run is skipped.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and

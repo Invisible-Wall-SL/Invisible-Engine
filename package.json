@@ -89,6 +89,7 @@
 		"check:undefined-names": "node scripts/check-undefined-names.mjs",
 		"check:bug-fix-workflow": "node scripts/bug-fix/workflow.fixture.mjs",
 		"check:merge-main": "node scripts/merge-main/merge-main.fixture.mjs",
+		"check:merge-main-workflow": "node scripts/merge-main/workflow.fixture.mjs",
 		"check:family-runtimes": "node scripts/check-family-runtime.mjs --all",
 		"check:runtime-bytes": "node scripts/check-runtime-bytes.mjs",
 		"check:svelte-init-order": "node scripts/check-svelte-init-order.mjs",

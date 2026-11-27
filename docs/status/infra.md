@@ -97,6 +97,16 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    carries errors; the largest share in `apps/lines` is the tracked `static/assets/**/index.ts`
    asset indexes. Lower an entry with `pnpm check:svelte --only <pkg> --update` in the PR that fixes
    it — the job prints a notice when a package is below its baseline.
+7. **Resolve conflict's job `merge` can write `main`'s Actions cache** (`merge-main.yml`, owner
+   decision). It runs the branch's builds (`pnpm install` with scripts, then the build) on the
+   workflow's ref, `main`. Code running there can reach the job's runtime token through the
+   runner (sudo, or a later step's environment) and write cache entries that `main`'s own
+   workflows restore: `agent-eval.yml` and `.github/actions/setup` restore the pnpm store. No
+   secret is in the job, but a poisoned store would reach a later job that holds one. The branch
+   is a person's (who could push a workflow anyway) or a fix run's, whose code a model wrote from a
+   bug report. Ways out: run the builds in a sandbox with its own PID namespace and no sudo, or
+   leave the build rules' files `pending` for the branch's own CI to rebuild (no branch code on
+   `main`'s ref at all).
 
 ## Blocked (owner / external)
 
@@ -138,6 +148,16 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-27 — **Resolve conflict's workflow (ADR-0015 card 15B2), for the owner's hand merge.**
+  `.github/workflows/merge-main.yml`: job `merge` (holds nothing) merges `main` into the head with
+  `main`'s `merge.mjs` and uploads the record; job `propose` (`bug-fix` environment) installs
+  `main`'s lockfile before the merged tree is laid out, stages it, and runs Claude Code in
+  `bug-fix.yml`'s sandbox, its steps copied word for word, only when conflicts are left and the
+  budget is above 0. The model's prompt is `scripts/merge-main/coordinator.md`.
+  `pnpm check:merge-main-workflow` pins every rule with a mutant and holds the copied steps to
+  `bug-fix.yml`'s, so a one-line change to either side fails it. It stays red until
+  `scripts/merge-main/collect.mjs` gains the `prepare` command the copied Prepare step calls.
+  INFRA "Resolve conflict (merge-main.yml)"; open item 7 is the cache risk found on the way.
 - 2026-11-18 — **Actions queue relief.** 178 runs were queued behind the free org plan's 20
   concurrent jobs, some for a week, and jobs began to time out unacquired. `current-games.yml`'s
   concurrency group dropped the commit for PR and push runs, so a new push cancels the superseded
