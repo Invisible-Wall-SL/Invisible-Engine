@@ -4,7 +4,7 @@
  * rule is handed. P5 files a finding as a bug from this shape, so its fields are the bug's.
  */
 
-import type { PerfReportListItem } from '../profiler';
+import { readingThrottled, type PerfReportListItem } from '../profiler';
 import { MIN_PHASE_FRAMES, type EffectiveBudget } from '../profilerBudgets';
 import { readingOnBuild, type PerfBuildListItem } from '../profilerBuilds';
 import type {
@@ -206,9 +206,12 @@ export function rankFindings(findings: readonly Finding[]): Finding[] {
 
 export const round1 = (n: number) => Math.round(n * 10) / 10;
 
-/** Readings that may speak for fps: not a lab run (P6: a shared runner's fps swings ~2×). */
+/**
+ * Readings that may speak for fps and busy time: not a lab run (P6: a shared runner's fps swings
+ * ~2×) and not a throttled page (`profilerTiming.ts`: its frames are the browser's).
+ */
 export const fpsReadings = (readings: readonly PerfReportListItem[]) =>
-	readings.filter((r) => r.source !== 'lab');
+	readings.filter((r) => r.source !== 'lab' && !readingThrottled(r));
 
 /** The newest build of each game key and kind — what the build rules judge. */
 export function newestBuilds(builds: readonly PerfBuildListItem[]): PerfBuildListItem[] {

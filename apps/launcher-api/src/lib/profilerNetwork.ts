@@ -87,6 +87,14 @@ export interface MsStats {
 	max: number;
 }
 
+/** One kind of room message (`perf: 10`): how many, their bytes, the largest. */
+export interface SocketKindFact {
+	code: string;
+	messages: number;
+	bytes: number;
+	largest: number;
+}
+
 export interface SocketFacts {
 	seconds: number;
 	inMessages: number;
@@ -100,6 +108,11 @@ export interface SocketFacts {
 	inBytesPerSecond: number;
 	inMessagesPerSecond: number;
 	outBytesPerSecond: number;
+	/** `perf: 10`: bytes by kind of message, heaviest first, in and out (empty before it). */
+	inByKind: SocketKindFact[];
+	outByKind: SocketKindFact[];
+	/** `perf: 10`: fixed sim steps run while metered, and what went out and came in per step. */
+	perStep: { steps: number; outMessages: number; outBytes: number; inMessages: number } | null;
 }
 
 export interface RepeatFact {
@@ -278,6 +291,22 @@ function msStats(v: unknown): MsStats {
 	return { count: count(m.count), p50: count(m.p50), p95: count(m.p95), max: count(m.max) };
 }
 
+const KEEP_KINDS = 12;
+
+function kinds(v: unknown): SocketKindFact[] {
+	if (!Array.isArray(v)) return [];
+	return v
+		.filter(isObj)
+		.map((k) => ({
+			code: typeof k.code === 'string' ? k.code.slice(0, 40) : '?',
+			messages: count(k.messages),
+			bytes: count(k.bytes),
+			largest: count(k.largest),
+		}))
+		.sort((a, b) => b.bytes - a.bytes)
+		.slice(0, KEEP_KINDS);
+}
+
 function socket(v: unknown): SocketFacts | null {
 	if (!isObj(v)) return null;
 	const inn = isObj(v.in) ? v.in : {};
@@ -297,6 +326,16 @@ function socket(v: unknown): SocketFacts | null {
 		inBytesPerSecond: rate(per.inBytes),
 		inMessagesPerSecond: rate(per.inMessages),
 		outBytesPerSecond: rate(per.outBytes),
+		inByKind: kinds(isObj(v.byCode) ? v.byCode.in : undefined),
+		outByKind: kinds(isObj(v.byCode) ? v.byCode.out : undefined),
+		perStep: isObj(v.perStep)
+			? {
+					steps: count(v.perStep.steps),
+					outMessages: rate(v.perStep.outMessages),
+					outBytes: rate(v.perStep.outBytes),
+					inMessages: rate(v.perStep.inMessages),
+				}
+			: null,
 	};
 }
 

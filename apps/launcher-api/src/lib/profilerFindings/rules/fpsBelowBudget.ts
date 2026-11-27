@@ -26,10 +26,11 @@ export const fpsBelowBudget: Rule = (ctx) => {
 	for (const [game, readings] of byGame) {
 		for (const g of deviceGroups(readings, ctx.budgets)) {
 			for (const m of g.metrics) {
-				if (m.metric !== 'fps' && m.metric !== 'p95') continue;
+				if (m.metric !== 'fps' && m.metric !== 'p95' && m.metric !== 'busy') continue;
 				if (m.verdict !== 'warn' && m.verdict !== 'fail') continue;
 				if (m.value === null) continue;
 				const fps = m.metric === 'fps';
+				const busy = m.metric === 'busy';
 				const line = m.warn ?? m.fail;
 				out.push({
 					id: `fpsBelowBudget:${game}:${g.readings[0].buildVersion ?? ''}:${g.id}:${m.metric}:${m.phase}`,
@@ -37,7 +38,9 @@ export const fpsBelowBudget: Rule = (ctx) => {
 					severity: m.verdict === 'fail' ? 'high' : 'medium',
 					title: fps
 						? `${m.phase} at ${round1(m.value)} fps on ${g.deviceClass} · ${g.gpu}`
-						: `${m.phase} p95 ${round1(m.value)} ms on ${g.deviceClass} · ${g.gpu}`,
+						: busy
+							? `${m.phase} busy ${round1(m.value)} ms (p95) on ${g.deviceClass} · ${g.gpu}`
+							: `${m.phase} p95 ${round1(m.value)} ms on ${g.deviceClass} · ${g.gpu}`,
 					detail: [
 						`Budget: fail ${lineText(m.metric, m.fail)}, warn ${lineText(m.metric, m.warn)}.`,
 						`Median of ${g.readings.length} reading${g.readings.length === 1 ? '' : 's'}, ${m.frames ?? 0} ${m.phase} frames.`,
@@ -46,7 +49,13 @@ export const fpsBelowBudget: Rule = (ctx) => {
 					estimate:
 						fps && line !== null
 							? { value: round1(line - m.value), unit: 'fps', basis: 'fps short of the warn line' }
-							: null,
+							: busy && line !== null
+								? {
+										value: round1(m.value - line),
+										unit: 'ms',
+										basis: 'ms of busy time over the warn line',
+									}
+								: null,
 					owner: kindOwner(ctx.owners, ctx.gameKind),
 					deviceClass: g.deviceClass,
 					gameKey: game || null,

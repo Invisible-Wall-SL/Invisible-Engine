@@ -9,6 +9,7 @@
 		phaseSetOf,
 		phasesOf,
 		PROFILER_READINGS,
+		readingThrottled,
 		type PerfPhase,
 		type PerfPhaseSummary,
 		type PerfReportListItem,
@@ -315,12 +316,33 @@
 	const fps = (p: PerfPhaseSummary | null) => (p ? `${p.fps}` : '–');
 	const p95 = (p: PerfPhaseSummary | null) => (p ? `${p.p95} ms` : '–');
 	const hitches = (p: PerfPhaseSummary | null) => (p ? `${p.hitches}` : '–');
+	/** A reading's busy time in a phase (`perf: 10`): its p95 against the frame period it ran on. */
+	const busyCell = (r: PerfReportListItem, phase: PerfPhase) => {
+		const b = r.counts?.timing?.busy[phase];
+		return b ? `${b.p95}` : '–';
+	};
+	const busyTitle = (r: PerfReportListItem, phase: PerfPhase) => {
+		const t = r.counts?.timing;
+		const b = t?.busy[phase];
+		return b
+			? `Busy time per frame, p50 ${b.p50} · p95 ${b.p95} · max ${b.max} ms, against a ${t?.budgetMs ?? '?'} ms frame` +
+					(t?.displayHz
+						? ` (display ${t.displayHz} Hz, frames ran at ${t.achievedHz ?? '?'} Hz)`
+						: '')
+			: 'This reading has no busy time (a probe older than perf: 10)';
+	};
+	/** The busy column is shown once any listed reading has busy time. */
+	const hasBusy = $derived(data.readings.some((r) => r.counts?.timing));
+	const phaseCols = $derived(hasBusy ? 4 : 3);
 	const switches = (flags: Record<string, string>) =>
 		Object.entries(flags)
 			.map(([k, v]) => `${k}=${v}`)
 			.join(' ');
 	/** The Readings table's phase groups: every phase the listed readings' sets have. */
 	const readingPhases = $derived(phasesOf(data.readings));
+	const THROTTLED_TITLE =
+		'Throttled — not comparable: the page was in the background or throttled for much of this ' +
+		'reading, so its frames are the browser’s. It is kept, left out of every verdict and finding.';
 	const CAP_TITLE =
 		'The browser held this reading to 30 fps (iOS Low Power Mode or a battery saver) while its ' +
 		'frames had room for 60: its fps and p95 are not judged against the budgets.';
@@ -354,7 +376,7 @@
 	/** The build detail's reading columns per phase set: each phase's fps, the busy phase's p95. */
 	const BUILD_READING_COLUMNS: Record<
 		PhaseSet,
-		{ phase: PerfPhase; metric: 'fps' | 'p95'; label: string }[]
+		{ phase: PerfPhase; metric: 'fps' | 'p95' | 'busy'; label: string }[]
 	> = {
 		slot: [
 			{ phase: 'idle', metric: 'fps', label: 'Idle fps' },
@@ -363,9 +385,10 @@
 			{ phase: 'round', metric: 'fps', label: 'Round fps' },
 		],
 		arcade: [
-			{ phase: 'menu', metric: 'fps', label: 'Menu fps' },
+			{ phase: 'lobby', metric: 'fps', label: 'Lobby fps' },
 			{ phase: 'play', metric: 'fps', label: 'Play fps' },
 			{ phase: 'play', metric: 'p95', label: 'Play p95' },
+			{ phase: 'play', metric: 'busy', label: 'Play busy' },
 		],
 	};
 	const buildReadingColumns = $derived(
@@ -723,8 +746,11 @@
 						<p>
 							Every reading of this project, newest first: frames per second, the 95th-percentile
 							frame time and frames over 33 ms, for the game idling, the reels spinning and a
-							round's presentation — or, for an arcade game, its menus and play. A reading marked
-							<em>30 cap</em> ran at a browser's 30 fps cap and is not judged. A reading is deleted
+							round's presentation — or, for an arcade game, its loading, lobby, play and
+							spectating, with the busy time of each (the main thread's work in a frame, against the
+							display's frame period). A reading marked <em>30 cap</em> ran at a browser's 30 fps
+							cap and is not judged; one marked <em>throttled</em> was in the background and is not
+							comparable. A reading is deleted
 							{PERF_RETENTION_DAYS} days after capture unless Keep is ticked.
 						</p>
 					{/snippet}
@@ -741,7 +767,7 @@
 										<th rowspan="2">GPU</th>
 										<th rowspan="2">Build</th>
 										{#each readingPhases as phase (phase)}
-											<th colspan="3">{PHASE_LABELS[phase]}</th>
+											<th colspan={phaseCols}>{PHASE_LABELS[phase]}</th>
 										{/each}
 										<th rowspan="2">Draws</th>
 										<th rowspan="2">Tex MB</th>
@@ -756,6 +782,8 @@
 									<tr>
 										{#each readingPhases as phase (phase)}
 											<th>fps</th><th>p95</th><th>&gt;33</th>
+											{#if hasBusy}<th title="p95 of the main thread's work in a frame, ms">busy</th
+												>{/if}
 										{/each}
 									</tr>
 								</thead>
@@ -771,6 +799,10 @@
 														: undefined}>{r.source === 'capture' ? 'sent' : r.source}</span
 												>
 												{#if r.capped30}<span class="tag warn" title={CAP_TITLE}>30 cap</span>{/if}
+												{#if readingThrottled(r)}<span
+														class="tag warn"
+														title={`${THROTTLED_TITLE} ${readingThrottled(r)}`}>throttled</span
+													>{/if}
 											</td>
 											<td>
 												<strong>{r.deviceClass ?? '?'}</strong>
@@ -790,6 +822,9 @@
 												<td class="num">{fps(r[phase])}</td>
 												<td class="num">{p95(r[phase])}</td>
 												<td class="num">{hitches(r[phase])}</td>
+												{#if hasBusy}<td class="num" title={busyTitle(r, phase)}
+														>{busyCell(r, phase)}</td
+													>{/if}
 											{/each}
 											<td class="num">{r.drawsMean ?? '–'}</td>
 											<td class="num">{r.textureMb ?? '–'}</td>
@@ -1240,7 +1275,11 @@
 												<td class="gpu" title={r.gpu ?? ''}>{r.gpu ?? '–'}</td>
 												{#each buildReadingColumns as c (c.label)}
 													<td class="num">
-														{c.metric === 'fps' ? fps(r[c.phase]) : p95(r[c.phase])}
+														{c.metric === 'fps'
+															? fps(r[c.phase])
+															: c.metric === 'busy'
+																? busyCell(r, c.phase)
+																: p95(r[c.phase])}
 													</td>
 												{/each}
 												<td class="num">{r.textureMb ?? '–'}</td>
