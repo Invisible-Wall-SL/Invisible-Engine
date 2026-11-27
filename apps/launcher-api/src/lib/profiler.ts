@@ -13,6 +13,25 @@ import { readTiming, throttledReason } from './profilerTiming';
 /** Owner decision 2026-11-16: a reading is deleted this long after capture unless it is kept. */
 export const PERF_RETENTION_DAYS = 15;
 export const PERF_RETENTION_MS = PERF_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+/** An archived reading or build record is held this long from its archiving, then purged unless kept. */
+export const ARCHIVE_RETENTION_DAYS = 90;
+export const ARCHIVE_RETENTION_MS = ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * When the purge takes a row, or null while it is kept: a live row 15 days from `at` (capture or
+ * registration), an archived one 90 days from its archiving. `purgeJob.ts` says the same in SQL; the
+ * gate holds the two to this.
+ */
+export function retentionEnd(row: {
+	keep: boolean;
+	at: Date;
+	archivedAt: Date | null;
+}): Date | null {
+	if (row.keep) return null;
+	return row.archivedAt
+		? new Date(row.archivedAt.getTime() + ARCHIVE_RETENTION_MS)
+		: new Date(row.at.getTime() + PERF_RETENTION_MS);
+}
 
 /** A capture session's link stays usable this long. */
 export const CAPTURE_SESSION_TTL_SECONDS = 24 * 60 * 60;
@@ -171,6 +190,10 @@ export interface PerfReportSummary {
 	counts: PerfCounts;
 	/** What the page downloaded (`perf: 9`); null for an older reading. */
 	network: NetworkSummary | null;
+	/** The probe's id for the measuring window this send belongs to (`profilerDedupe.ts`); null if none. */
+	sendKey: string | null;
+	/** Frames the reading holds over every phase: of two sends of one window, the fuller one stays. */
+	sendFrames: number;
 }
 
 export type SummaryResult = { ok: true; summary: PerfReportSummary } | { ok: false; error: string };
@@ -340,9 +363,16 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 			textureMb: textureMb === null ? null : Math.round(textureMb * 10) / 10,
 			counts: withTiming(perfCounts(report, phaseSet), report, version, own),
 			network: version >= 9 ? networkOf(report) : null,
+			sendKey: sendKeyOf(report.sendKey),
+			sendFrames: PERF_PHASES.reduce((n, name) => n + (phases[name]?.frames ?? 0), 0),
 		},
 	};
 }
+
+/** `<loadId>.<resets>` as the probe writes it; anything else is no key (an old probe, a hand edit). */
+const SEND_KEY_RE = /^\d{1,16}\.\d{1,6}$/;
+const sendKeyOf = (v: unknown): string | null =>
+	typeof v === 'string' && SEND_KEY_RE.test(v) ? v : null;
 
 /** The row a page lists: the summary plus where it came from and whether it is kept. */
 export interface PerfReportListItem {
@@ -381,7 +411,13 @@ export interface PerfReportListItem {
 	counts: PerfCounts | null;
 	/** What the page downloaded (`perf: 9`); null for an older reading. */
 	network: NetworkSummary | null;
+	/** The probe's id for its measuring window (`profilerDedupe.ts`); null before it sent one. */
+	sendKey: string | null;
+	/** The `perf` version of the report, so "before perf 10" can archive by it. */
+	perfVersion: number;
 	keep: boolean;
+	/** When it was archived (ISO), null while it is live. */
+	archivedAt: string | null;
 	/** When the purge removes it (ISO), null while kept. */
 	expiresAt: string | null;
 }

@@ -164,8 +164,7 @@ export interface FiledFinding {
 	status: string;
 }
 
-export const filedLabel = (f: Pick<FiledFinding, 'number'>): string =>
-	`Filed as ${bugRef(f.number)}`;
+export const filedLabel = (f: Pick<FiledFinding, 'number'>): string => `Filed: ${bugRef(f.number)}`;
 
 /** The report form a finding opens: its list's page, prefilled server-side from `finding`. */
 export function fileFindingHref(

@@ -1819,3 +1819,4 @@ test('14. a throttled reading is never judged on timing; its counts still count'
 import './check-profiler-findings.ts';
 import './check-profiler-bugs.ts';
 import './check-profiler-network.ts';
+import './check-profiler-archive.ts';

@@ -101,6 +101,12 @@
 	let sent = $state<{ ok: boolean; text: string }>();
 	/** Frames in the last reading sent, so leaving twice with nothing new sends once. */
 	let sentFrames = 0;
+	/**
+	 * Resets since the page loaded. A reading is the whole window since the last Reset, so every send
+	 * of one window carries the same `sendKey` (`<load>.<resets>`): the Profiler keeps the fullest and
+	 * not one reading for every tap, hide and resend.
+	 */
+	let resets = 0;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let probe: RendererProbe | undefined;
 
@@ -285,6 +291,7 @@
 	const reset = (autoSend = true) => {
 		if (autoSend) void send('reset');
 		stats.reset();
+		resets++;
 		snapshot = stats.snapshot();
 		sentFrames = 0;
 		copied = undefined;
@@ -406,6 +413,7 @@
 					};
 		return {
 			perf: 10,
+			sendKey: `${Math.round(performance.timeOrigin)}.${resets}`,
 			kind,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,

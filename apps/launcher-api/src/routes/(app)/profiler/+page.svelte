@@ -4,7 +4,9 @@
 	import { page } from '$app/state';
 	import {
 		PERF_INLINE_MAX_BYTES,
+		PERF_REPORT_VERSIONS,
 		PERF_RETENTION_DAYS,
+		PERF_RETENTION_MS,
 		PHASE_LABELS,
 		phaseSetOf,
 		phasesOf,
@@ -39,6 +41,7 @@
 		type NetworkFacts,
 	} from '$lib/profilerNetwork';
 	import ProfilerLabRuns from '$lib/ProfilerLabRuns.svelte';
+	import { ManagedList } from '$lib/profilerManage.svelte';
 	import {
 		browserStackLiveUrl,
 		CLOUD_PHONE_GROUPS,
@@ -51,6 +54,7 @@
 		type CloudOs,
 	} from '$lib/profilerCloudPhones';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { untrack } from 'svelte';
@@ -59,6 +63,8 @@
 	import CompareTab from './CompareTab.svelte';
 	import DevicesTab from './DevicesTab.svelte';
 	import FindingsTab from './FindingsTab.svelte';
+	import ManageActions from './ManageActions.svelte';
+	import ManageStatus from './ManageStatus.svelte';
 	import VerdictBadge from './VerdictBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -78,7 +84,7 @@
 			: id === 'builds'
 				? ` (${data.builds.length})`
 				: id === 'findings'
-					? ` (${data.findings?.length ?? '?'})`
+					? ` (${data.findings ? data.findings.filter((f) => !data.filed?.[f.id]?.hidden).length : '?'})`
 					: '';
 	type TabId = (typeof TABS)[number]['id'];
 	let tab = $state<TabId>(untrack(() => data.tab));
@@ -283,6 +289,61 @@
 			pasting = false;
 		}
 	}
+
+	// ── Archive and delete (readings and builds) ──
+	const readingList = new ManagedList(
+		'reading',
+		() => data.projectKey,
+		() =>
+			data.readings.map((r) => ({
+				id: r.id,
+				archived: !!r.archivedAt,
+				lapsed: !r.keep && Date.now() - Date.parse(r.capturedAt) > PERF_RETENTION_MS,
+			})),
+		() => invalidate(PROFILER_READINGS),
+	);
+	const buildList = new ManagedList(
+		'build',
+		() => data.projectKey,
+		() =>
+			data.builds.map((b) => ({
+				id: b.id,
+				archived: !!b.archivedAt,
+				// The newest live build of its game and kind is never purged, so it is not lapsed.
+				lapsed:
+					!b.keep &&
+					Date.now() - Date.parse(b.registeredAt) > PERF_RETENTION_MS &&
+					data.builds.some(
+						(o) =>
+							!o.archivedAt &&
+							o.id !== b.id &&
+							o.gameKey === b.gameKey &&
+							o.kind === b.kind &&
+							(o.registeredAt > b.registeredAt ||
+								(o.registeredAt === b.registeredAt && o.id > b.id)),
+					),
+			})),
+		() => invalidate(PROFILER_BUILDS),
+	);
+
+	function showArchived(next: boolean): void {
+		const url = new URL(page.url);
+		if (next) url.searchParams.set('archived', '1');
+		else url.searchParams.delete('archived');
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- the same page, one query changed
+		void goto(url, { keepFocus: true, noScroll: true, replaceState: true });
+	}
+
+	/** "Before perf N": the newest probe version, whose readings are the ones to judge fresh. */
+	const newestPerf = Math.max(...PERF_REPORT_VERSIONS);
+	/** The first reading of that probe on the page: builds from before it are the old ones. */
+	const sincePerf = $derived.by(() => {
+		const first = data.readings
+			.filter((r) => r.perfVersion >= newestPerf)
+			.map((r) => r.capturedAt)
+			.sort()[0];
+		return first ? { label: `Before the first perf ${newestPerf} reading`, iso: first } : null;
+	});
 
 	// ── Readings ──
 	let keepError = $state('');
@@ -742,6 +803,15 @@
 				<ProfilerLabRuns readings={data.readings} />
 
 				<SectionCard scope="profiler" id="readings" title="Readings ({data.readings.length})">
+					{#snippet actions()}
+						<ManageActions
+							list={readingList}
+							archivedCount={data.archived.readings}
+							showArchived={data.showArchived}
+							onShowArchived={(next) => showArchived(next)}
+							perf={newestPerf}
+						/>
+					{/snippet}
 					{#snippet info()}
 						<p>
 							Every reading of this project, newest first: frames per second, the 95th-percentile
@@ -751,10 +821,15 @@
 							display's frame period). A reading marked <em>30 cap</em> ran at a browser's 30 fps
 							cap and is not judged; one marked <em>throttled</em> was in the background and is not
 							comparable. A reading is deleted
-							{PERF_RETENTION_DAYS} days after capture unless Keep is ticked.
+							{PERF_RETENTION_DAYS} days after capture unless Keep is ticked. Tick rows to archive them
+							(kept, but out of every list, verdict and finding until Show archived) or delete them (a
+							kept reading, or one an open bug cites, is not deleted; it says why); "Archive all before…"
+							takes everything older than a day, or taken before perf {newestPerf}. The probe sends
+							one reading per measuring window: a later send replaces the earlier ones.
 						</p>
 					{/snippet}
 					{#if keepError}<p class="error">{keepError}</p>{/if}
+					<ManageStatus list={readingList} />
 					{#if !data.readings.length}
 						<p class="muted">No readings yet.</p>
 					{:else}
@@ -762,6 +837,14 @@
 							<table>
 								<thead>
 									<tr>
+										<th rowspan="2">
+											<input
+												type="checkbox"
+												aria-label="Tick every reading"
+												checked={readingList.allTicked}
+												onchange={() => readingList.toggleAll()}
+											/>
+										</th>
 										<th rowspan="2">Captured</th>
 										<th rowspan="2">Device</th>
 										<th rowspan="2">GPU</th>
@@ -789,9 +872,22 @@
 								</thead>
 								<tbody>
 									{#each data.readings as r (r.id)}
-										<tr>
+										<tr class:archived={!!r.archivedAt}>
+											<td>
+												<input
+													type="checkbox"
+													aria-label="Tick this reading"
+													checked={readingList.isTicked(r.id)}
+													onchange={() => readingList.toggle(r.id)}
+												/>
+											</td>
 											<td class="nowrap" title={r.capturedAt}>
 												{when(r.capturedAt)}
+												{#if r.archivedAt}<span
+														class="tag"
+														title={`Archived ${when(r.archivedAt)}: left out of every verdict and finding`}
+														>archived</span
+													>{/if}
 												<span
 													class="tag"
 													title={r.source === 'lab'
@@ -859,11 +955,27 @@
 													{r.keep ? 'kept' : `${daysLeft(r.expiresAt)} d`}
 												</label>
 											</td>
-											<td>
+											<td class="nowrap">
 												<a
 													href={resolve('/api/profiler/reports/[id]', { id: r.id })}
 													title="The full report JSON">JSON</a
 												>
+												<IconButton
+													icon={r.archivedAt ? 'unarchive' : 'archive'}
+													label={r.archivedAt ? 'Unarchive' : 'Archive'}
+													disabled={readingList.busy}
+													onclick={() =>
+														r.archivedAt
+															? readingList.unarchive([r.id])
+															: readingList.archive([r.id])}
+												/>
+												<IconButton
+													icon="trash"
+													danger
+													label="Delete"
+													disabled={readingList.busy}
+													onclick={() => readingList.remove([r.id])}
+												/>
 											</td>
 										</tr>
 									{/each}
@@ -986,6 +1098,7 @@
 					filed={data.filed}
 					fileAs={data.fileAs}
 					projectKey={data.projectKey}
+					showArchived={data.showArchived}
 					bugTools={new Set(data.tools.map((t) => t.id))}
 					onOpenBuild={openBuild}
 					onCompare={compare}
@@ -1006,6 +1119,15 @@
 		{:else}
 			<div id="panel-builds" role="tabpanel" aria-labelledby="tab-builds">
 				<SectionCard scope="profiler" id="builds" title="Builds ({data.builds.length})">
+					{#snippet actions()}
+						<ManageActions
+							list={buildList}
+							archivedCount={data.archived.builds}
+							showArchived={data.showArchived}
+							onShowArchived={(next) => showArchived(next)}
+							since={sincePerf}
+						/>
+					{/snippet}
 					{#snippet info()}
 						<p>
 							Every desktop ☁ Publish and 📦 Deliver of this project, newest first: what it shipped
@@ -1016,10 +1138,13 @@
 							days after it was made unless Keep is ticked — except the newest of each game and kind,
 							which always stays. Shipped MB and GPU MB are coloured by this project's budgets, and Devices
 							says pass, warn or fail per device class from the as-shipped readings taken on the build
-							(hover for the detail; set the lines on the Budgets tab).
+							(hover for the detail; set the lines on the Budgets tab). Tick rows to archive (out of every
+							list and verdict until Show archived) or delete them — a build a bug cites is not deleted
+							while the bug is open.
 						</p>
 					{/snippet}
 					{#if buildKeepError}<p class="error">{buildKeepError}</p>{/if}
+					<ManageStatus list={buildList} />
 					{#if !data.builds.length}
 						<p class="muted">
 							No builds yet — the desktop launcher sends one after each ☁ Publish or 📦 Deliver.
@@ -1029,6 +1154,14 @@
 							<table>
 								<thead>
 									<tr>
+										<th>
+											<input
+												type="checkbox"
+												aria-label="Tick every build"
+												checked={buildList.allTicked}
+												onchange={() => buildList.toggleAll()}
+											/>
+										</th>
 										<th>Built</th>
 										<th>Build</th>
 										<th>By category</th>
@@ -1053,7 +1186,15 @@
 								</thead>
 								<tbody>
 									{#each data.builds as b (b.id)}
-										<tr class:selected={selectedBuild?.id === b.id}>
+										<tr class:selected={selectedBuild?.id === b.id} class:archived={!!b.archivedAt}>
+											<td>
+												<input
+													type="checkbox"
+													aria-label="Tick this build"
+													checked={buildList.isTicked(b.id)}
+													onchange={() => buildList.toggle(b.id)}
+												/>
+											</td>
 											<td class="nowrap" title={b.builtAt ?? b.registeredAt}>
 												{when(b.builtAt ?? b.registeredAt)}
 											</td>
@@ -1141,6 +1282,20 @@
 													href={resolve('/api/profiler/builds/[id]', { id: b.id })}
 													title="The breakdown JSON">JSON</a
 												>
+												<IconButton
+													icon={b.archivedAt ? 'unarchive' : 'archive'}
+													label={b.archivedAt ? 'Unarchive' : 'Archive'}
+													disabled={buildList.busy}
+													onclick={() =>
+														b.archivedAt ? buildList.unarchive([b.id]) : buildList.archive([b.id])}
+												/>
+												<IconButton
+													icon="trash"
+													danger
+													label="Delete"
+													disabled={buildList.busy}
+													onclick={() => buildList.remove([b.id])}
+												/>
 											</td>
 										</tr>
 									{/each}
@@ -1531,6 +1686,9 @@
 	.tab.active {
 		color: #fff;
 		background: #23232e;
+	}
+	tr.archived td {
+		opacity: 0.55;
 	}
 	tr.selected td {
 		background: #181826;

@@ -88,8 +88,14 @@ export interface FindingOwner {
 }
 
 export interface Finding {
-	/** Stable across reloads, so P5 can tell a finding already filed. */
+	/** Stable across reloads, so P5 can tell a finding already filed. The build is part of it. */
 	id: string;
+	/**
+	 * What the finding is about, without the build: the rule, the game, the device, the metric. A
+	 * new build of the same thing is the same subject under a new `id`, so one list row and one bug
+	 * follow it (`mergeBySubject`, `filed.ts`).
+	 */
+	subject: string;
 	rule: FindingRule;
 	severity: Severity;
 	title: string;
@@ -204,6 +210,30 @@ export function rankFindings(findings: readonly Finding[]): Finding[] {
 			a.title.localeCompare(b.title) ||
 			a.id.localeCompare(b.id),
 	);
+}
+
+/**
+ * One finding per subject and owner: where several say the same thing (a switch measured by two
+ * pairs of readings, say), the strongest stays and the evidence of the rest joins it, so a list
+ * never repeats a finding and every reading behind it is still linked.
+ */
+export function mergeBySubject(findings: readonly Finding[]): Finding[] {
+	const groups = new Map<string, Finding[]>();
+	for (const f of findings) {
+		const key = `${f.subject}|${f.owner.id}`;
+		const group = groups.get(key);
+		if (group) group.push(f);
+		else groups.set(key, [f]);
+	}
+	return [...groups.values()].map((group) => {
+		if (group.length === 1) return group[0];
+		const [top, ...rest] = rankFindings(group);
+		const seen = new Set<string>();
+		const evidence = [top, ...rest]
+			.flatMap((f) => f.evidence)
+			.filter((e) => !seen.has(e.type + e.id) && !!seen.add(e.type + e.id));
+		return { ...top, evidence };
+	});
 }
 
 export const round1 = (n: number) => Math.round(n * 10) / 10;

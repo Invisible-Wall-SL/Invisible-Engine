@@ -15,6 +15,8 @@ import { perfBuilds, perfFindingBugs, perfReports } from '../db/schema';
 export interface FindingLink {
 	projectKey: string;
 	findingId: string;
+	/** The finding without its build (`Finding.subject`): the bug follows it to the next build. */
+	subject: string;
 	bugNumber: number;
 	readingIds: string[];
 	buildIds: string[];

@@ -5,6 +5,7 @@
  */
 
 import {
+	mergeBySubject,
 	rankFindings,
 	type Finding,
 	type FindingContext,
@@ -50,7 +51,7 @@ export const RULES: Record<FindingRule, Rule> = {
 };
 
 export function findings(ctx: FindingContext): Finding[] {
-	return rankFindings(Object.values(RULES).flatMap((rule) => rule(ctx)));
+	return rankFindings(mergeBySubject(Object.values(RULES).flatMap((rule) => rule(ctx))));
 }
 
 export * from './finding';
