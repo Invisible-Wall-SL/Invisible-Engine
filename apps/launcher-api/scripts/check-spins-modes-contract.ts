@@ -198,7 +198,7 @@ check(
 );
 check(
 	'contract: their strips in the server vocabulary',
-	Object.values(modes).every((m) => m.strips.flat().every((name) => !/^[HL]\d$/.test(name))),
+	Object.values(modes).every((m) => m.strips.flat().every((name) => !/^[HML]\d$/.test(name))),
 	true,
 );
 check(
