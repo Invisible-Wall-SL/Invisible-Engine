@@ -1334,8 +1334,29 @@ template** below), listed as `<name> (template v<n>)`.
 - **A missing part is left out, never named.** The game cannot load a rig naming an image its
   atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
   have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
+- **Modules** (hover each for what it does): under a template that has switchable pieces, a row
+  of pickers. **Hands** — Half body **With fingers** (as above), **Simple (one bone)** (the hand
+  image and its drawn poses, no finger bones) or **None** (no hand drawn or rigged: the arm ends
+  at the wrist, where its IK control stays, so 🎥 Motion still reaches the tracked wrist); Full body
+  **Simple** or **None**. Hover an option for the parts it leaves out. The row applies to
+  **Create**, **🗺 From my sheet** (its parts list drops what the choice leaves out) and **🎞 From
+  a Flipbook frame** (the frame is still cut into every part; a part the choice leaves out is drawn
+  into the one above it — with no hands, each hand joins its forearm's image, so the arm still ends
+  in the drawn hand). The rig's Controls, picker, IK, 3D setup and 🎥 Motion all follow the choice:
+  a capture keys no hand the rig lacks.
+- **Change a rig's modules later** with **🧩** in the rig panel (shown when its template has
+  modules): pick, **Apply**. What the new choice leaves out leaves the rig — its bones, slots and
+  every key on them (you're told how many first); a mesh of yours weighted to a bone that goes moves
+  onto the bone above it where it stands; what it adds is made over the rig's art where a new rig
+  has it. One ↶ undo, then saved. A bone or slot of your own on a bone that would go stops it (move
+  it first). A rig made from a sheet changes its modules in **🗺 Edit mapping** (🧩 opens it): the
+  pickers sit in its top row, the parts list follows, and **🔄 Update rig** makes the change (map the
+  hands' regions to add hands back). A rig cut from a frame changes them in **✂ Edit cut** (🧩
+  opens it): the pickers sit in its top row and **🔄 Update rig** makes the parts for the new choice
+  and changes the rig; the choice is recorded once the rig is saved.
 - A template can't be combined with a saved rig: both are a whole skeleton.
-- The rig remembers its template in a `template.json` beside it in the bundle.
+- The rig remembers its template, and its modules off their default, in a `template.json` beside
+  it in the bundle (a 🗺 rig's mapping keeps them too, so 🔄 Update rig builds the same rig).
 
 #### The rig-building workspaces: zoom, pan and shortcuts
 
@@ -1554,6 +1575,10 @@ the rig's cut again. **🔄 Update rig** takes 🦴 Create rig's place:
 - A mesh you edited by hand is replaced by the rebuilt one; when its part's drawing barely changed,
   you are asked whether to keep yours instead. Deform keys on a rebuilt mesh stay when it has the same
   vertices, and are listed and dropped when it has not.
+- **Modules** (when the rig's template has them) sit in the dialog's top row, set to the rig's own.
+  Change one, then 🔄 Update rig: the parts are made for the new choice (Hands → None draws each hand
+  into its forearm), what it leaves out leaves the rig with its keys, what it adds comes back where a
+  new rig has it, and the report says what moved. The choice is recorded once the rig is saved.
 - It is **one ↶ undo** (the rig, its source and its art together) and is saved straight away through
   💾 Save, under the same conflict check. ↶ then 💾 puts the rig back on the art it had.
 
@@ -1650,16 +1675,15 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    as its clip **frame**, as a rig made from a video frame does; a part left where it was rides its
    bones into that pose.
 6. **Layers** (the side panel, under Props). Which drawing is in front of which: every mapped part
-   and prop, front at the top, in the slot it is drawn in (a hand pose shares its hand's row). It
-   starts as the template's order with each prop over its part (or behind it where your Photoshop
-   layers say so): a prop on the head — glasses, an earring — over every face part (each eye white
-   under its pupil, under its lids, all under the glasses) and under the front hair, a hat over the
-   hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
+   and prop, front at the top, by the name of the slot it is drawn in (a hand pose shares its hand's
+   row). It starts as the template's order with each prop over its part (or behind it where your
+   Photoshop layers say so): a prop on the head — glasses, an earring — over every face part (each
+   eye white under its pupil, under its lids, all under the glasses) and under the front hair, a
+   hat over the hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
    **Ctrl+]** / **Ctrl+[** to move it one place to the front / back (**Shift** goes all the way);
-   ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
-   draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
-   list: the template's arm-depth control moves the arm from in front of them to behind them, so
-   it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
+   ◧ Arranged draws the new order at once. An arm drawn behind the head or the torso is refused,
+   with why under the list: the template's arm-depth control moves the arm from in front of them to
+   behind them, so it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
    draw what they drew, so a new order shows at setup and in the clips that key no draw order.
 7. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
@@ -1672,7 +1696,22 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    mouth shape on its own bones (the brow's ends, the mouth's corners and lips). A prop sits just
    over its part, or just behind it when your Photoshop layers put it there (Export Layers names
    such as `…_0004_HoodBack` keep the layer order; only layers of one group are compared), and a
-   part's props keep that order among themselves. The rig draws the
+   part's props keep that order among themselves. **One slot per region**: each slot is named after
+   its region, past the Photoshop file and index (`…_0002s_0002s_0001_UpperEyelidL` →
+   `upper_eyelid_l`, `…_0001s_0002_HandRPissoff` → `hand_r_pissoff`; a prop's `prop_chain`), and
+   rides the bone its part rides, so the Slots panel lists your sheet, not the template. Drawings one
+   control swaps between (a hand's poses, the mouth's shapes, a lid drawn half and closed) share one
+   slot, named after its main drawing; the template's slots no region is drawn in (an ear, a cheek,
+   the shoulders) are not made. Every control, lip-sync, 🎥 Motion and the 3D data find each part by
+   the template's name through the rig's own. **Only the bones the mapping needs**: each region's
+   bone and the bones above it, the bones a drawing bends on, what a limb's IK moves it by (its
+   hand control, its spaces, its elbow pole) and the face's control bones for the features you drew
+   (the jaw under a lower lip, a lid's follow bone, the mouth's corners a lip bends on); every prop
+   and custom part on a bone of its own. The template's other bones are left out — a hand drawn as
+   one picture has no fingers, Full body with no legs drawn no legs, brows nobody drew no brows — and
+   so are their controls, keys and 3D setup. The side panel's **Bones** section (hover its header)
+   counts what is made and lists what is left out; tick a bone there to keep it anyway, for a
+   region you will map later (kept with the mapping). The rig draws the
    sheet's own regions (nothing is copied or renamed) and opens when made; the report gives the
    scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
    does not map. When a rig cannot be made, the popup says why.
@@ -1703,8 +1742,8 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
 **🔄 Update rig** (in 🦴 Create rig's place):
 
 - **What it rebuilds.** The parts are built as Create rig builds them and swapped into the open rig.
-- **What stays.** Its bones (yours too, where you put them), every clip and key, constraints and IK,
-  the Controls and the 3D data, and your own slots.
+- **What stays.** Its bones (yours too, where you put them) but those the mapping leaves out (below),
+  every clip and key on them, constraints and IK, the Controls and the 3D data, and your own slots.
 - **The arrangement.** The clip **frame** takes the new arrangement, unless you keyed that clip
   yourself: then yours stays and the report says so.
 - **The layers.** The Layers list opens as the rig draws its slots now, a reorder in Setup's
@@ -1715,6 +1754,19 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   what it drew, so the new order shows at setup and in the clips that key no draw order.
   Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
   refused, with why under the list, until you fix that order too (in the list, or in Setup).
+- **One slot per region.** A rig made before gets its slots named after its regions, each keeping
+  its keys (attachment, colour, draw order), a prop named with the Photoshop file's name
+  (`prop_nelly_asset_breakdown_1_0003_chain`) renamed past it (`prop_chain`) with its bone, its keys,
+  its 3D depth and its controls; the template's empty slots go, with the keys on them; your Layers
+  order and your own slots stay. The report lists each rename. A part you map anew gets a slot of
+  its own; one you re-map to another region takes that region's name, keys and all.
+- **Only the bones the mapping needs.** A rig made with every bone of the template loses those
+  nothing is drawn on (the fingers of a hand drawn whole, cheeks, brows, hair with no region), with
+  the keys on them, and you are shown how many keys before anything changes; every drawing poses
+  exactly as before and every key on a bone that stays is kept. A template bone one of your own
+  bones, slots or constraints hangs from stays, and the mapping keeps it from then on (ticked in
+  **Bones**). A region you map anew on a bone the rig lacks (brows drawn later) brings that bone,
+  where a new rig has it.
 - **The neck.** A rig made before the neck had two bones gets `neck_upper` (between `neck` and the
   head, on its own line), its drawing skinned along both and into the torso and the head at its
   seams. Every clip poses as it did; Head nod shares a nod along the neck from then on, and a capture

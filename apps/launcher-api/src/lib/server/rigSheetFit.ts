@@ -31,6 +31,7 @@
 import { PROP_NAME } from './rigCutEdits';
 import { apartFace, faceNote, frameFace } from './rigFrameFace';
 import { HEAD_TURN_DEFAULT, HEAD_TURN_MAX, headTurn } from './rigHeadTurn';
+import { sheetBones, type SheetBone } from './rigSheetBones';
 import { fitFromJoints, framePose, skinBends, turnedAtSetup, type Fitted } from './rigFrameFit';
 import {
 	boneWorld,
@@ -58,6 +59,7 @@ import {
 	sheetLayerList,
 	sheetPropPlaces,
 	sheetSide,
+	sheetSlotNames,
 	type P,
 	type SheetKind,
 	type SheetMapping,
@@ -66,6 +68,7 @@ import {
 	type SheetProp,
 } from '../rigSheetMap';
 import { inDrawOrder } from '../rigSlotOrder';
+import { parseModuleChoice } from './rigTemplateModules';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
@@ -77,6 +80,8 @@ const NAME = /^[^\0/\\]{1,200}$/;
 /** The face mesh the tracker finds (468, or 478 with the irises). */
 const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
+/** The most template bones a mapping keeps with nothing drawn on them. */
+const MAX_KEEP = 1024;
 /** The slot the template's mouth shapes swap in. */
 const MOUTH_SLOT = 'mouth';
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
@@ -99,6 +104,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		'swapSides',
 		'layers',
 		'turn',
+		'keep',
 	]);
 	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
 	if (raw.swapSides !== undefined && typeof raw.swapSides !== 'boolean')
@@ -108,11 +114,13 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 	const tpl = raw.template;
 	if (
 		!isRecord(tpl) ||
-		extraKey(tpl, ['id', 'version']) !== undefined ||
+		extraKey(tpl, ['id', 'version', 'modules']) !== undefined ||
 		typeof tpl.id !== 'string' ||
 		!Number.isInteger(tpl.version)
 	)
-		return no('it names its template as { id, version }');
+		return no('it names its template as { id, version, modules? }');
+	const modules = parseModuleChoice(tpl.modules);
+	if (modules === null) return no("its template's modules are { module: option }");
 	if (raw.scale !== undefined && !(finite(raw.scale) && raw.scale > 0 && raw.scale < 1000))
 		return no('its scale is a number above 0');
 	if (raw.turn !== undefined && !(finite(raw.turn) && raw.turn >= 0 && raw.turn <= HEAD_TURN_MAX))
@@ -193,10 +201,25 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 			return no(`\`layers\` is a list of up to ${MAX_LAYERS} slot names, front to back, each once`);
 		layers = [...(raw.layers as string[])];
 	}
+	let keep: string[] | undefined;
+	if (raw.keep !== undefined) {
+		if (
+			!Array.isArray(raw.keep) ||
+			raw.keep.length > MAX_KEEP ||
+			!raw.keep.every((n) => typeof n === 'string' && NAME.test(n)) ||
+			new Set(raw.keep).size !== raw.keep.length
+		)
+			return no(`\`keep\` is a list of up to ${MAX_KEEP} bone names, each once`);
+		keep = [...(raw.keep as string[])];
+	}
 	const mapping: SheetMapping = {
 		sheet: 1,
 		manifestKey: raw.manifestKey,
-		template: { id: tpl.id, version: tpl.version as number },
+		template: {
+			id: tpl.id,
+			version: tpl.version as number,
+			...(modules && Object.keys(modules).length ? { modules } : {}),
+		},
 		parts,
 		props,
 		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),
@@ -204,6 +227,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		...(raw.swapSides === true ? { swapSides: true as const } : {}),
 		...(layers ? { layers } : {}),
 		...(raw.turn !== undefined ? { turn: raw.turn as number } : {}),
+		...(keep?.length ? { keep } : {}),
 	};
 	return { mapping };
 }
@@ -267,6 +291,8 @@ export function sheetMappingProblem(
 		if (stray !== undefined)
 			return `the layers list "${stray}", which no mapped part or prop is drawn in`;
 	}
+	const unknown = m.keep?.find((b) => !bones.has(b));
+	if (unknown !== undefined) return `it keeps a bone "${unknown}" the template does not have`;
 	return null;
 }
 
@@ -285,6 +311,8 @@ export interface SheetRig {
 	origin: P;
 	/** Jointed mouth parts made with their slots empty: mouth shapes are mapped too, and win. */
 	hidden: string[];
+	/** Every bone of the template, made or left out, and why (`sheetBones`, §13.1i). */
+	skeleton: SheetBone[];
 }
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -699,7 +727,9 @@ export function sheetRig(
 			: {}),
 		...(m.layers && fitLayers ? { order: [...m.layers].reverse() } : {}),
 	};
-	const against = layersAgainstDepth(t, fit);
+	// Judged by the rig's names for its slots (its regions'), as the Layers list shows them.
+	const names = sheetSlotNames(t, m);
+	const against = layersAgainstDepth(t, { ...fit, slots: names });
 	if (against) return layersRefused(against);
 	const mains = mapped.filter((x) => x.main).map((x) => x.part);
 	const posed = framePose(t, fit, mains);
@@ -729,6 +759,15 @@ export function sheetRig(
 		if (b?.grid && w > h && b.grid[0] < b.grid[1]) b.grid = [b.grid[1], b.grid[0]];
 	}
 	if (Object.keys(bends).length) fit.bends = bends;
+	// One slot per region, named as the region is (§13.1h): the fit names the roles, and this the rig's.
+	fit.slots = names;
+	// Only the bones the mapping needs (§13.1i): each drawing's, what ends its length, what its limb
+	// moves by, what the author keeps, and the bones above them.
+	const ends = mapped
+		.filter((x) => x.main)
+		.flatMap((x) => lengthOf(x.kind, x.side).map((b) => b.name));
+	const skeleton = sheetBones(t, fit, ends, m.keep ?? []);
+	if (skeleton.leftOut.length) fit.leftOut = skeleton.leftOut;
 	const problem = templateFitProblem(t, fit);
 	if (problem) return no(problem);
 	return {
@@ -745,6 +784,7 @@ export function sheetRig(
 				.join(' '),
 			origin,
 			hidden,
+			skeleton: skeleton.bones,
 		},
 	};
 }
@@ -769,13 +809,12 @@ function layersAgainstDepth(t: RigTemplate, fit: RigFit): string | null {
 
 /**
  * Why a draw order (`slots`, back to front: a fitted template's, or a rig's) cannot stand with the
- * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged. A
- * slot outside the Layers list (`listed`, when given) was put there in Setup, and is worded so.
+ * depth controls among `channels`, or null (`layersAgainstDepth`). A slot it lacks is not judged;
+ * every slot a depth control steps is one the Layers list draws (one slot per region, §13.1h).
  */
 function slotsAgainstDepth(
 	channels: readonly RigTemplateChannel[],
 	slots: readonly string[],
-	listed?: ReadonlySet<string>,
 ): string | null {
 	const at = new Map(slots.map((n, i) => [n, i]));
 	for (const c of channels) {
@@ -786,22 +825,25 @@ function slotsAgainstDepth(
 		for (const st of c.order.steps) {
 			if (!at.has(st.behind) || at.get(st.behind)! < at.get(back)!) continue;
 			const moves = `the control "${c.label}" moves it from in front of "${st.behind}" to behind it`;
-			return listed && !listed.has(back)
-				? `Setup's slots draw "${back}" behind "${st.behind}", but ${moves}: fix the order in Setup's slots, or leave the Layers as opened`
-				: `the Layers draw "${back}" behind "${st.behind}", but ${moves}: keep ${back} in front of ${st.behind}`;
+			return `the Layers draw "${back}" behind "${st.behind}", but ${moves}: keep ${back} in front of ${st.behind}`;
 		}
 	}
 	return null;
 }
 
-/** The slots mapping `m` draws in, back to front, as its Layers list orders them (`sheetLayerList`). */
-function sheetLayerOrder(t: RigTemplate, m: SheetMapping): string[] {
+/**
+ * The slots mapping `m` draws in, back to front, as its Layers list orders them (`sheetLayerList`),
+ * by the names `fit` gives them in the rig (§13.1h).
+ */
+function sheetLayerOrder(t: RigTemplate, m: SheetMapping, fit: RigFit): string[] {
 	const slotOf = (part: string) => t.parts.find((p) => p.name === part)?.slot ?? part;
 	return sheetLayerList(
 		t.slots.map((s) => s.name),
 		slotOf,
 		m,
-	).reverse();
+	)
+		.reverse()
+		.map((n) => fit.slots?.[n] ?? n);
 }
 
 /**
@@ -818,7 +860,7 @@ function layersJudged(
 	had: readonly string[],
 ): boolean {
 	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null)) return false;
-	const want = sheetLayerOrder(t, m);
+	const want = sheetLayerOrder(t, m, fit);
 	if (inDrawOrder(had, want).some((n, i) => n !== had[i])) return true;
 	const have = new Set(had);
 	const stepped = new Set(fitTemplate(t, fit).channels.flatMap((c) => c.order?.slots ?? []));
@@ -842,12 +884,11 @@ export function sheetLayersApplied(
 ): LayersFitted<string[] | null> {
 	if (JSON.stringify(m.layers ?? null) === JSON.stringify(was ?? null))
 		return { ok: true, value: null };
-	const want = sheetLayerOrder(t, m);
+	const want = sheetLayerOrder(t, m, fit);
 	const now = inDrawOrder(merged, want);
 	if (now.every((n, i) => n === merged[i])) return { ok: true, value: null };
 	const against =
-		layersJudged(t, fit, m, was, had) &&
-		slotsAgainstDepth(fitTemplate(t, fit).channels, now, new Set(want));
+		layersJudged(t, fit, m, was, had) && slotsAgainstDepth(fitTemplate(t, fit).channels, now);
 	return against ? layersRefused(against) : { ok: true, value: now };
 }
 
@@ -865,6 +906,8 @@ export interface SheetPreview {
 	bones: Record<string, P>;
 	/** Whether the rig has a `frame` clip (the sheet is arranged). */
 	frame: boolean;
+	/** The template's bones, made or left out, and why (`sheetBones`): the dialog's 🦴 Bones list. */
+	skeleton: SheetBone[];
 }
 
 /**
@@ -880,7 +923,7 @@ export function sheetPreview(
 ): LayersFitted<SheetPreview> {
 	const made = sheetRig(t, regions, m, { fitLayers: !edit });
 	if (!made.ok) return made;
-	const { fit, art, scale, origin } = made.value;
+	const { fit, art, scale, origin, skeleton } = made.value;
 	const all = fitTemplate(t, fit);
 	const ft = templateMade(
 		all,
@@ -888,7 +931,7 @@ export function sheetPreview(
 	);
 	const order = inDrawOrder(
 		ft.slots.map((s) => s.name),
-		m.layers ? sheetLayerOrder(t, m) : [],
+		m.layers ? sheetLayerOrder(t, m, fit) : [],
 	);
 	const slotAt = new Map(order.map((n, i) => [n, i]));
 	const slotOf = (name: string) => ft.parts.find((p) => p.name === name)?.slot ?? name;
@@ -903,6 +946,7 @@ export function sheetPreview(
 				.sort((a, b) => (slotAt.get(slotOf(a.name)) ?? 0) - (slotAt.get(slotOf(b.name)) ?? 0)),
 			bones: Object.fromEntries([...W].map(([n, w]): [string, P] => [n, [w[4], w[5]]])),
 			frame: !!fit.frame,
+			skeleton,
 		},
 	};
 }

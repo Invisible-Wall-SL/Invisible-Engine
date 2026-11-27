@@ -1721,7 +1721,7 @@ const MUTANTS = [
 	[
 		'bends',
 		'a covered part still reported needed',
-		[TPL, 'if (p.required && !covered.has(p.name))', 'if (p.required)'],
+		[TPL, 'p.required && !covered.has(p.name);', 'p.required;'],
 	],
 ];
 for (const [id, what, swap] of MUTANTS) {

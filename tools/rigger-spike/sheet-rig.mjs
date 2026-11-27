@@ -58,6 +58,9 @@
 //      put it there, a part's props in the layers' order, the head's props over its face, under the
 //      front hair (🗺 Layers: sheet-layers.mjs);
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
+// Two checks, so each stays well inside CI's 300 s for one (the whole ran 130–300 s there): this file
+// runs the plain sheet's guards, `sheet-rig-arranged.mjs` the arranged sheet's and the owner's sheet
+// shape's (`ARRANGED`), each guard with its mutants.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--mutants <guard>] [--write]
 //   (--mutants: only that guard's mutants.)
 //   (--write: make the sheet from the F2 fixture's parts again.)
@@ -535,10 +538,25 @@ function posed(rig, anim = null, time = 0) {
 	skel.updateWorldTransform(RIG.Physics.update);
 	return skel;
 }
-/** A slot's drawing in the world: vertices, triangles, its own UVs (0…1 of the image) and page UVs. */
+/**
+ * The slot of skeleton `skel` drawing part `part`: an attachment keeps its part's name, its slot takes
+ * its region's (one slot per region, frame-to-rig §13.1h).
+ */
+const partSlot = (skel, part) =>
+	skel.slots.find((s) => skel.data.defaultSkin?.getAttachment(s.data.index, part)) ?? null;
+/** The slot of rig document `doc` drawing part `part`: `slot` when it does, else the one that does. */
+const slotIn = (doc, slot, part) =>
+	doc.skins[0].attachments[slot]?.[part]
+		? slot
+		: (Object.entries(doc.skins[0].attachments).find(([, by]) => by[part])?.[0] ?? slot);
+/**
+ * A slot's drawing in the world: vertices, triangles, its own UVs (0…1 of the image) and page UVs.
+ * `slotName` a slot of the rig, or the template's slot of part `attName` (drawn in its region's).
+ */
 function drawing(skel, slotName, attName) {
-	const slot = skel.findSlot(slotName);
-	const att = attName ? skel.getAttachmentByName(slotName, attName) : slot?.getAttachment();
+	const slot = skel.findSlot(slotName) ?? (attName ? partSlot(skel, attName) : null);
+	const att =
+		attName && slot ? skel.getAttachmentByName(slot.data.name, attName) : slot?.getAttachment();
 	if (att instanceof RIG.MeshAttachment) {
 		const v = new Float32Array(att.worldVerticesLength);
 		att.computeWorldVertices(slot, 0, v.length, v, 0, 2);
@@ -628,6 +646,21 @@ function jointBones(M, part) {
 }
 /** The body parts and what each is drawn in (slot), as the rig has them. */
 const bodyParts = (M) => Object.keys(TRUTH.parts).map((part) => ({ part, slot: slotOf(M, part) }));
+
+/**
+ * The draw order sheet rig `rig` is made in, by the template's names, every slot of its fitted
+ * template in it; and whether the rig draws its own in that order, each named after its region (it
+ * makes only the slots a region is drawn in: one slot per region, frame-to-rig §13.1h).
+ */
+function roleOrder(rig) {
+	const { slots: names = {}, ...fit } = rig.sr.fit;
+	delete fit.leftOut;
+	const order = rig.M.fitTemplate(rig.M.HALF_BODY, fit).slots.map((s) => s.name);
+	const props = new Set(rig.mapping.props.map((p) => p.name));
+	const drawn = order.filter((n) => n in names || props.has(n)).map((n) => names[n] ?? n);
+	const own = rig.rigged.skeleton.slots.map((s) => s.name);
+	return { order, same: drawn.join() === own.join() };
+}
 
 // ---- the sheet arranged as the frame ---------------------------------------------------------------
 /** `[a, b, c, d, x, y]` maps: `m` after `n`, the inverse, a point through one. */
@@ -947,7 +980,7 @@ function captureRides(M, rig, label) {
 	// At rest: each drawing's middle in its bone's frame, its length, and its joints.
 	const home = parts.map(({ part, slot, on }) => {
 		const dr = drawing(rest, slot, part);
-		const bone = on ? rest.findBone(on) : rest.findSlot(slot).bone;
+		const bone = on ? rest.findBone(on) : (rest.findSlot(slot) ?? partSlot(rest, part)).bone;
 		const c = centreOf(dr);
 		const local = bone.worldToLocal(new RIG.Vector2(c[0], c[1]));
 		const map = rig.mapping.parts[part];
@@ -1352,7 +1385,8 @@ function bentFromDrawn(M, rig, skel, t, part, what) {
 		}
 		return good;
 	}
-	const att = rig.rigged.skeleton.skins[0].attachments[slot][part];
+	const att =
+		rig.rigged.skeleton.skins[0].attachments[slotIn(rig.rigged.skeleton, slot, part)][part];
 	const names = rig.rigged.skeleton.bones.map((b) => b.name);
 	const onImage = invert(rig.sr.art[part].matrix);
 	const anchors = bend.bones.map((b) => ({
@@ -1517,6 +1551,9 @@ const GUARDS = {
 			a.mapping.props.map((p, i) => [p.name, b.mapping.props[i]?.name ?? p.name]),
 		);
 		const inB = (name) => propIn.get(name) ?? name;
+		// A part's slot is named after its region: the two rigs' slots, paired by the part they draw.
+		const roleA = new Map(Object.entries(a.sr.fit.slots).map(([r, n]) => [n, r]));
+		const slotInB = (name) => propIn.get(name) ?? b.sr.fit.slots[roleA.get(name)] ?? name;
 		good =
 			ok(
 				'swap: the props are the same drawings on the same hosts',
@@ -1535,7 +1572,7 @@ const GUARDS = {
 				if (d > off.d) off = { d, what: `${bone.data.name} at ${t} s` };
 			}
 			for (const slot of sa.slots) {
-				const [da, db] = [drawing(sa, slot.data.name), drawing(sb, inB(slot.data.name))];
+				const [da, db] = [drawing(sa, slot.data.name), drawing(sb, slotInB(slot.data.name))];
 				if (!da || !db) {
 					if (da || db) off = { d: Infinity, what: `${slot.data.name} drawn in one rig only` };
 					continue;
@@ -1735,7 +1772,8 @@ const GUARDS = {
 		const rig = made(M);
 		const doc = rig.rigged.skeleton;
 		/** The bones a drawing's vertices name (its slot's bone alone for an image). */
-		const named = (r, slot, part) => {
+		const named = (r, role, part) => {
+			const slot = slotIn(r.rigged.skeleton, role, part);
 			const raw = r.rigged.skeleton.skins[0].attachments[slot][part];
 			if (raw.type !== 'mesh')
 				return { bones: [r.rigged.skeleton.slots.find((s) => s.name === slot).bone], sumOff: 0 };
@@ -1768,7 +1806,7 @@ const GUARDS = {
 			...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
 			ALTERNATE.part,
 		]) {
-			const slot = slotOf(M, part);
+			const slot = slotIn(doc, slotOf(M, part), part);
 			good = only(part, doc.slots.find((s) => s.name === slot).bone);
 		}
 		good = only('torso', 'torso_image', 'spine', 'clavicle_l', 'clavicle_r');
@@ -2125,7 +2163,12 @@ const GUARDS = {
 		let good = true;
 		const rig = made(M);
 		const skel = posed(rig);
-		const order = skel.drawOrder.map((s) => s.data.name);
+		const { order, same } = roleOrder(rig);
+		good =
+			ok(
+				"props: the rig draws its slots in the template's order, each by its region's name",
+				same,
+			) && good;
 		for (const p of rig.mapping.props) {
 			const bone = skel.findBone(p.name);
 			// One worn on the head's drawing hangs from the head itself, at its depth (the head turn).
@@ -2230,7 +2273,7 @@ const GUARDS = {
 			const doc = rig.rigged.skeleton;
 			const skel = framePosed(rig);
 			for (const { part, region, w, h } of FACE_DRAWN) {
-				const slot = slotOf(M, part);
+				const slot = slotIn(doc, slotOf(M, part), part);
 				const att = doc.skins[0].attachments[slot]?.[part];
 				const bends = !!t.parts.find((p) => p.name === part).bend;
 				good =
@@ -2590,7 +2633,10 @@ const GUARDS = {
 		let good = true;
 		const { regions, mapping } = ownerSheet(M);
 		const rig = created(M, M.HALF_BODY, mapping, regions);
-		const order = rig.rigged.skeleton.slots.map((s) => s.name);
+		const { order, same } = roleOrder(rig);
+		good =
+			ok("draworder: the rig draws its slots in that order, each by its region's name", same) &&
+			good;
 		const tpl = M.HALF_BODY.slots.map((s) => s.name);
 		const mappedSlots = [...new Set(Object.keys(mapping.parts).map((p) => slotOf(M, p)))];
 		const at = (n) => order.indexOf(n);
@@ -2795,8 +2841,25 @@ const ONLY = process.argv.includes('--only')
 const MUTANTS_OF = process.argv.includes('--mutants')
 	? process.argv[process.argv.indexOf('--mutants') + 1]
 	: null;
+/** The guards `sheet-rig-arranged.mjs` runs (`--part arranged`): the sheet arranged as the frame, and the owner's sheet shape. */
+const ARRANGED = new Set([
+	'arrange',
+	'framejoints',
+	'partialface',
+	'proportions',
+	'faceturn',
+	'headturn',
+	'draworder',
+]);
+const PART = process.argv.includes('--part')
+	? process.argv[process.argv.indexOf('--part') + 1]
+	: 'plain';
+if (PART !== 'plain' && PART !== 'arranged') throw new Error(`no part "${PART}" (plain, arranged)`);
+for (const id of ARRANGED) if (!GUARDS[id]) throw new Error(`ARRANGED names no guard "${id}"`);
+/** Whether guard `id` (and its mutants) runs in this part: `--only` / `--mutants` name it whatever the part. */
+const inPart = (id) => !!(ONLY || MUTANTS_OF) || ARRANGED.has(id) === (PART === 'arranged');
 for (const [id, guard] of Object.entries(GUARDS)) {
-	if ((ONLY && id !== ONLY) || MUTANTS_OF) continue;
+	if ((ONLY && id !== ONLY) || MUTANTS_OF || !inPart(id)) continue;
 	console.log(`\n=== ${id}`);
 	guard(M0, (line) => console.log(`    ${line}`));
 }
@@ -3184,7 +3247,7 @@ const SOURCES = {
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {
-	if (MUTANTS_OF && guard !== MUTANTS_OF) continue;
+	if ((MUTANTS_OF && guard !== MUTANTS_OF) || !inPart(guard)) continue;
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {
 		ok(`mutant planted: ${what}`, false, `"${from}" is not in ${file}`);

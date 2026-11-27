@@ -49,12 +49,45 @@ export interface SheetProp {
 export const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,40}$/;
 
 /**
- * A custom part's name from its region's, past a Photoshop layer's file and index
- * (`Nelly_0008_HoodBack` → `hood_back`).
+ * A region's own name as a slot or part name, past a Photoshop layer's file and index, its words in
+ * snake case (`Nelly_0008_HoodBack` → `hood_back`, `…_0002s_0001_UpperEyelidL` → `upper_eyelid_l`):
+ * a custom part's name, and the slot a mapped region is drawn in (`sheetSlotNames`).
  */
 export function customName(region: string): string {
 	const base = nameWords(layerName(region)).join('_').slice(0, 41);
 	return /^[a-z]/.test(base) ? base : `part_${base}`.slice(0, 41);
+}
+
+/**
+ * The slot each template slot a mapping draws in takes in the rig (frame-to-rig §13.1h): its
+ * region's own name (`customName`), so a rig made from a sheet has one slot per region, named as the
+ * artist named it. A slot whose parts are drawings of one thing a control swaps between (a hand's
+ * poses, the mouth's shapes) is one slot, named by its main drawing's region (the part named as the
+ * slot), else its first mapped part's in the template's order. A name taken by a prop or an earlier
+ * slot gets `_2`, `_3`…. Keyed by the template's slot (its role): every control, key and layer names
+ * the role, and the rig's name is read through this.
+ */
+export function sheetSlotNames(
+	t: {
+		slots: readonly (string | { name: string })[];
+		parts: readonly { name: string; slot: string }[];
+	},
+	m: Pick<SheetMapping, 'parts' | 'props'>,
+): Record<string, string> {
+	const taken = new Set(m.props.map((p) => p.name));
+	const out: Record<string, string> = {};
+	for (const s of t.slots) {
+		const slot = typeof s === 'string' ? s : s.name;
+		const drawn = t.parts.filter((p) => p.slot === slot && m.parts[p.name]);
+		const main = drawn.find((p) => p.name === slot) ?? drawn[0];
+		if (!main) continue;
+		const base = customName(m.parts[main.name].region);
+		let name = base;
+		for (let n = 2; taken.has(name); n++) name = `${base.slice(0, 37)}_${n}`;
+		taken.add(name);
+		out[slot] = name;
+	}
+	return out;
 }
 
 /** A region's own name past a Photoshop Export Layers file and index (`Nelly_0002s_0000_Glasses` → `Glasses`). */
@@ -75,7 +108,8 @@ export interface SheetPlace {
 export interface SheetMapping {
 	sheet: 1;
 	manifestKey: string;
-	template: { id: string; version: number };
+	/** `modules`: the template's modules off their default (docs/design/rig-modules.md). */
+	template: { id: string; version: number; modules?: Record<string, string> };
 	parts: Record<string, SheetPartMap>;
 	props: SheetProp[];
 	/** Rig units per sheet pixel, set by hand; none = the torso's shoulders against the template's. */
@@ -104,6 +138,11 @@ export interface SheetMapping {
 	 * head, 0 off (the face slides alone over a still head). None: 1.
 	 */
 	turn?: number;
+	/**
+	 * Template bones the rig keeps with no region drawn on them yet (frame-to-rig §13.1i): every
+	 * other bone nothing needs is left out of the skeleton (`sheetBones`). None: only what is needed.
+	 */
+	keep?: string[];
 }
 
 export const SHEET_SIDECAR = 'sheet.json';
@@ -547,13 +586,24 @@ export function suggestProp(
 
 /** A prop's name from its region's (`prop_` and up to 40 lowercase letters, digits and _). */
 export function propName(region: string): string {
-	const base =
-		nameWords(layerName(region))
+	return propNamed(layerName(region));
+}
+
+/**
+ * The name `propName` gave a prop before it read past a Photoshop file's prefix
+ * (`prop_nelly_asset_breakdown_1_0003_chain`): what 🔄 Update rig renames to `propName`'s.
+ */
+export function rawPropName(region: string): string {
+	return propNamed(region);
+}
+
+const propNamed = (name: string) =>
+	`prop_${
+		nameWords(name)
 			.join('_')
 			.replace(/^prop_?/, '')
-			.slice(0, 40) || 'item';
-	return `prop_${base}`;
-}
+			.slice(0, 40) || 'item'
+	}`;
 
 // ---- the draw order ----------------------------------------------------------------------------
 

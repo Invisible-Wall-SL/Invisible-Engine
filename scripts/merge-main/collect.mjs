@@ -24,12 +24,13 @@
 //
 // THE MODEL'S RESULT, `$RUNNER_TEMP/out/result.json`:
 //   { "outcome": "proposed" | "needs_person", "reason": "<when needs_person>",
-//     "hunks": [{ "path", "index", "main", "change", "takes": "main"|"change"|"both"|"combined",
+//     "hunks": [{ "path", "index", "takes": "main"|"change"|"both"|"combined",
 //                 "why", "nowDoes": "<required when combined>" | null, "otherwise": "…" | null }],
 //     "outside": [{ "path", "what" }], "checks": [{ "command", "ok" }], "risks": "…" }
 // Every hunk of every file left for the model needs its entry (index as conflicts.json counts
 // them), and every file changed outside its hunks its `outside` line; anything missing or empty
-// ends the run `no_proposal`. collect fills what conflicted (from main's git) and the rules' part.
+// ends the run `no_proposal`. collect fills each hunk's `main` and `change` from git (the model's
+// own words for them are ignored) and the rules' part.
 //
 // THE LOG IS PUBLIC and reads `::` commands: each step prints one line inside a stop-commands
 // span, paths in printable ASCII only, and nothing of the model's words.
@@ -56,12 +57,12 @@ import {
 	agentsJson,
 	fail,
 	failureOf,
-	oidcToken,
+	UPLOAD_OVER,
+	postResult,
 	printFenced,
 	readPlain,
 	readStream,
 	render,
-	request,
 	sandboxTsx,
 	shown,
 	textOf,
@@ -98,6 +99,10 @@ const STATUSES = [
 ];
 export const TAKES = ['main', 'change', 'both', 'combined'];
 export const TEXT_CAP = 3_000;
+/** One hunk's `main`, `change` or `result`: real lines, outside the 16,000-character prose cap. */
+export const LINES_CAP = 10_000;
+/** Those lines over every hunk of a proposal. */
+export const LINES_TOTAL_CAP = 120_000;
 export const EXPLANATION_CAP = 16_000;
 const COMMAND_CAP = 300;
 const MAX_CHECKS = 50;
@@ -440,24 +445,58 @@ const piecesOf = (text) => text.split(/(?<=\n)/).filter(Boolean);
 const startsAt = (lines, piece, at) => piece.every((l, i) => lines[at + i] === l);
 
 /**
- * Whether `text` changes anything outside the conflicts of a file's merged `segments`: every clean
- * piece must still be there, in order, the first at the start and the last at the end.
+ * Where git's clean pieces lie in `text`, in order, the first at the start and the last at the
+ * end, or why they cannot be placed: `null` when a piece is missing or out of order, `ambiguous`
+ * when searching each middle piece from the front and from the back gives different places (a
+ * piece such as a lone `}` that a correct resolution also holds, or a copy of one: the file could
+ * be read two ways, so no hunk's result is shown, which is not an edit outside the hunks). One
+ * function for both `outsideEdited` and `hunkResults`, so they can never read a file differently.
  */
-export function outsideEdited(segments, text) {
+export function placeClean(segments, text) {
 	const cleans = segments.filter((s) => s.clean !== undefined).map((s) => piecesOf(s.clean));
 	const lines = piecesOf(text);
-	if (!startsAt(lines, cleans[0], 0)) return true;
-	let at = cleans[0].length;
-	for (const piece of cleans.slice(1, -1)) {
+	const first = cleans[0];
+	const last = cleans.at(-1);
+	const lastAt = lines.length - last.length;
+	if (!startsAt(lines, first, 0) || lastAt < first.length || !startsAt(lines, last, lastAt)) {
+		return null;
+	}
+	const middle = cleans.slice(1, -1);
+	const forward = [];
+	let at = first.length;
+	for (const piece of middle) {
 		let found = -1;
-		for (let i = at; i + piece.length <= lines.length && found < 0; i++) {
+		for (let i = at; i + piece.length <= lastAt && found < 0; i++) {
 			if (startsAt(lines, piece, i)) found = i;
 		}
-		if (found < 0) return true;
+		if (found < 0) return null;
+		forward.push(found);
 		at = found + piece.length;
 	}
-	const last = cleans.at(-1);
-	return !(lines.length - last.length >= at && startsAt(lines, last, lines.length - last.length));
+	const backward = [];
+	let end = lastAt;
+	for (const piece of [...middle].reverse()) {
+		let found = -1;
+		for (let i = end - piece.length; i >= first.length && found < 0; i--) {
+			if (startsAt(lines, piece, i)) found = i;
+		}
+		if (found < 0) return null;
+		backward.unshift(found);
+		end = found;
+	}
+	const ambiguous = forward.some((place, i) => place !== backward[i]);
+	return { lines, first, middle, starts: forward, lastAt, ambiguous };
+}
+
+/**
+ * Whether `text` changes anything outside the conflicts of a file's merged `segments`: every clean
+ * piece must still be there, in order ({@link placeClean}). A piece with two places (a lone `}` that
+ * a correct resolution repeats) is NOT an outside edit: `merge-file` merges eagerly, so such pieces
+ * are ordinary, and the model could not know to list them. Those hunks just get no `result`, and the
+ * card says the lines could not be located.
+ */
+export function outsideEdited(segments, text) {
+	return placeClean(segments, text) === null;
 }
 
 /**
@@ -515,6 +554,21 @@ export function clean(value, cap = TEXT_CAP) {
 	return Array.from(text).slice(0, cap).join('');
 }
 
+/**
+ * Code as a person reads it: CRLF as LF (a lone CR stays, the card shows it as ⟨CR⟩), no hidden or
+ * control characters (tab and newline stay),
+ * indentation kept, only the last line break dropped, cut at `cap` with a `…`.
+ */
+export function cleanLines(value, cap = LINES_CAP) {
+	if (typeof value !== 'string') return '';
+	const text = Array.from(value.replace(/\r\n/g, '\n').replace(HIDDEN, ''))
+		.filter((c) => c === '\r' || !control(c))
+		.join('')
+		.replace(/\n$/, '');
+	const points = Array.from(text);
+	return points.length > cap ? `${points.slice(0, cap - 1).join('')}…` : text;
+}
+
 /** Every string a value holds, counted in code points. */
 export function measure(value) {
 	if (typeof value === 'string') return Array.from(value).length;
@@ -558,8 +612,11 @@ function ruleHunks(x) {
 		return x.hunks.map((h) => ({
 			path: x.path,
 			index: h.index,
-			main: h.main,
-			change: h.change,
+			main: sideOf(x, h.index, 'main'),
+			change: sideOf(x, h.index, 'change'),
+			result: null,
+			resultCut: 0,
+			kind: 'description',
 			takes: 'both',
 			why: DOCS_WHY,
 			nowDoes: null,
@@ -576,12 +633,26 @@ function ruleHunks(x) {
 			index: 0,
 			main: words.main,
 			change: words.change,
+			result: null,
+			resultCut: 0,
+			kind: 'description',
 			takes: 'main',
 			why: `Never merged by hand, and never built by the job: ${how}`,
 			nowDoes: null,
 			otherwise: null,
 		},
 	];
+}
+
+/**
+ * What one side really had in a hunk, from the merge's own segments: the lines as git read them,
+ * indentation and all, never the model's account of them. A hunk with no lines on that side (or a
+ * modify/delete, which has no segments) falls back to the record's one-line summary.
+ */
+function sideOf(x, index, side) {
+	const hunk = x.segments?.filter((s) => s.hunk)[index]?.hunk;
+	const text = cleanLines(hunk?.[side]);
+	return text !== '' ? text : x.hunks[index][side];
 }
 
 /** The model's hunks, outside edits, checks and risks, checked against the files it had. */
@@ -601,14 +672,17 @@ function modelExplanation(result, plan, outside) {
 		const entry = {
 			path: h.path,
 			index: h.index,
-			main: clean(h.main),
-			change: clean(h.change),
+			main: sideOf(x, h.index, 'main'),
+			change: sideOf(x, h.index, 'change'),
+			result: null,
+			resultCut: 0,
+			kind: x.segments ? 'lines' : 'description',
 			takes: TAKES.includes(h.takes) ? h.takes : null,
 			why: clean(h.why),
 			nowDoes: optional(h.nowDoes),
 			otherwise: optional(h.otherwise),
 		};
-		if (!entry.main || !entry.change || !entry.takes || !entry.why) noProposal(NO_EXPLANATION);
+		if (!entry.takes || !entry.why) noProposal(NO_EXPLANATION);
 		if (entry.takes === 'combined' && !entry.nowDoes) noProposal(NO_EXPLANATION);
 		return entry;
 	});
@@ -645,6 +719,48 @@ function readModelResult(file) {
 	}
 }
 
+/** The text of lines past the cap are not sent: how many lines (a cut one counts) that leaves out. */
+function linesCut(full, cap) {
+	const shown = Array.from(full).slice(0, cap - 1);
+	return full.split('\n').length - shown.filter((c) => c === '\n').length;
+}
+
+/** A hunk's `result` and `resultCut` from what was found in the final file (undefined: not found). */
+function shownResult(found) {
+	if (found === undefined) return { result: null, resultCut: 0 };
+	const whole = cleanLines(found, Infinity);
+	const result = cleanLines(found);
+	return { result, resultCut: result === whole ? 0 : linesCut(whole, LINES_CAP) };
+}
+
+/**
+ * What the final text holds at each hunk of a merged file, from git's clean pieces around the
+ * hunks (the ones `outsideEdited` finds, in order): hunk i is what lies between clean piece i and
+ * clean piece i + 1. Null when the pieces cannot be placed in order, or can be placed in two ways
+ * ({@link placeClean}): a result the job cannot place is not guessed.
+ */
+export function hunkResults(segments, text) {
+	const placed = placeClean(segments, text);
+	if (placed === null || placed.ambiguous) return null;
+	const ends = [
+		placed.first.length,
+		...placed.middle.map((piece, i) => placed.starts[i] + piece.length),
+	];
+	const starts = [...placed.starts, placed.lastAt];
+	return ends.map((end, i) => placed.lines.slice(end, starts[i]).join(''));
+}
+
+/** The characters of an explanation that are prose: all but each hunk's real lines. */
+const proseOf = (explanation) =>
+	measure({
+		...explanation,
+		hunks: explanation.hunks.map((h) => [h.path, h.index, h.takes, h.why, h.nowDoes, h.otherwise]),
+	});
+
+/** The code points of every hunk's real lines. */
+const linesOf = (explanation) =>
+	explanation.hunks.reduce((n, h) => n + measure([h.main, h.change, h.result ?? '']), 0);
+
 /**
  * §4's explanation, whole: what conflicted (from main's git), every hunk (the model's and the
  * rules'), what changed outside, the checks and the risks — what follows Accept for each pending
@@ -652,9 +768,20 @@ function readModelResult(file) {
  * Fitted into 16,000 characters by naming fewer of main's commits per file; null when even none
  * does not fit.
  */
-function explanationOf(plan, own) {
+function explanationOf(plan, own, finals) {
 	const ruled = plan.paths.filter((x) => x.rule && (x.status === 'mechanical' || x.pending));
-	const hunks = [...(own?.hunks ?? []), ...ruled.flatMap((x) => ruleHunks(x))].sort((a, b) =>
+	const resultsOf = (path) => {
+		const x = plan.paths.find((y) => y.path === path);
+		const final = finals.get(path);
+		return x?.segments && typeof final === 'string' ? hunkResults(x.segments, final) : null;
+	};
+	const results = new Map();
+	const ownHunks = (own?.hunks ?? []).map((h) => {
+		if (!results.has(h.path)) results.set(h.path, resultsOf(h.path));
+		const found = results.get(h.path)?.[h.index];
+		return { ...h, ...shownResult(found) };
+	});
+	const hunks = [...ownHunks, ...ruled.flatMap((x) => ruleHunks(x))].sort((a, b) =>
 		a.path === b.path ? a.index - b.index : a.path < b.path ? -1 : 1,
 	);
 	const undone = ruled
@@ -683,7 +810,7 @@ function explanationOf(plan, own) {
 			checks: [...(own?.checks ?? []), ...plan.checks],
 			risks: risks || 'none found',
 		};
-		if (measure(explanation) <= EXPLANATION_CAP) return explanation;
+		if (proseOf(explanation) <= EXPLANATION_CAP) return explanation;
 	}
 	return null;
 }
@@ -750,8 +877,13 @@ function proposalBody(input, plan, { finals, modes }, own, usage) {
 	if (sizes.some((n) => n > MAX_FILE_BYTES) || sizes.reduce((a, b) => a + b, 0) > MAX_TOTAL_BYTES) {
 		return refuse('The merged files are over 2 MB a file or 4 MB in all.');
 	}
-	const explanation = explanationOf(plan, own);
+	const explanation = explanationOf(plan, own, finals);
 	if (!explanation) return refuse('The explanation would be longer than 16,000 characters.');
+	if (linesOf(explanation) > LINES_TOTAL_CAP) {
+		return refuse(
+			`The conflicting lines are over ${LINES_TOTAL_CAP.toLocaleString('en-US')} characters in all.`,
+		);
+	}
 	return {
 		...opening(input, plan.baseSha),
 		outcome: 'proposed',
@@ -830,15 +962,20 @@ export function buildResult(p, input, key = '') {
 	return body;
 }
 
-/** The body as sent: JSON, gzipped past 400 KB; null when it unpacks past {@link MAX_BODY_BYTES}. */
+/**
+ * The body as sent: JSON, gzipped past 400 KB; null when it unpacks past {@link MAX_BODY_BYTES}.
+ * One whose gzip is past the upload threshold is flagged `upload` and goes through R2 (`postResult`).
+ */
 export function encodeBody(body) {
 	const raw = Buffer.from(JSON.stringify(body), 'utf8');
 	if (raw.length > MAX_BODY_BYTES) return null;
 	if (raw.length <= GZIP_OVER)
-		return { bytes: raw, headers: { 'content-type': 'application/json' } };
+		return { bytes: raw, headers: { 'content-type': 'application/json' }, upload: false };
+	const bytes = gzipSync(raw);
 	return {
-		bytes: gzipSync(raw),
+		bytes,
 		headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
+		upload: bytes.length > UPLOAD_OVER,
 	};
 }
 
@@ -853,7 +990,7 @@ export function logLine(id, body, status, answer) {
 }
 
 const launcherUrl = (id) =>
-	`${trustedUrl(env('LAUNCHER_URL'), ['app.invisiblewall.org']).origin}/api/pipeline/merge-runs/${id}/result`;
+	`${trustedUrl(env('LAUNCHER_URL'), ['app.invisiblewall.org']).origin}/api/pipeline/merge-runs/${id}`;
 
 async function resultStep() {
 	const input = inputs();
@@ -863,17 +1000,15 @@ async function resultStep() {
 		const sent =
 			encodeBody(b) ??
 			encodeBody(failureBody(input, b.baseSha, 'The result is too large to send.', b.usage));
-		const token = await oidcToken(AUDIENCE);
-		return request(
-			launcherUrl(input.mergeRun),
-			{
-				method: 'POST',
-				headers: { ...sent.headers, authorization: `Bearer ${token}` },
-				body: sent.bytes,
-			},
-			'with the result',
-			{ tries: 1, timeoutMs: 10 * 60_000 },
-		);
+		return postResult({
+			base: launcherUrl(input.mergeRun),
+			kind: 'merge',
+			id: input.mergeRun,
+			audience: AUDIENCE,
+			sent,
+			rebuild: (why) => encodeBody(failureBody(input, b.baseSha, why, b.usage)),
+			tries: 3,
+		});
 	};
 	let sent = body;
 	let res = await post(sent);

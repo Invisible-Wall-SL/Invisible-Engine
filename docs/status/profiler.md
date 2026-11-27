@@ -28,7 +28,11 @@ launcher shows, budgets and judges it so; a slot reading is unchanged. Step **P9
 2026-11-26** (#1939): every reading (`perf: 9`) says what its page downloaded — each file's path
 and sizes, by class and by load stage, the first frame, the RGS's requests and the arcade room's
 messages — and the launcher keeps its transfer MB, lists its files, compares it across builds,
-budgets it per device class and ranks five network findings.
+budgets it per device class and ranks five network findings. Step **P10 "Probe accuracy" built
+2026-11-27** (Salmons performance track T1, in review): `perf: 10` readings carry busy time per phase
+against the display's frame, hidden and throttled time (such a reading is marked "not comparable"),
+an arcade game's `loading` / `lobby` / `play` / `spectate` split, a p95 per work counter, a scene
+sample, GPU time and the room's bytes by kind — and an arcade game is judged on busy time, not fps.
 
 ## Current state
 
@@ -458,6 +462,65 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   Gate 20 runs it on a fake store (two pages, a clean reading left untouched, a raced write left for
   the next pass, a missing file, a second pass changing nothing, and a mutant that skips `facts`).
   Not yet seen run against production: check the launcher's log after the deploy.
+
+- 2026-11-27 — **P10 "Probe accuracy"** (`claude/salmons-perf-t1-probe`; plan:
+  `docs/design/salmons-performance.md` §2, track T1; `perf: 10`, perf 7 / 8 / 9 stay readable and a
+  slot reading's summary is unchanged — a `perf: 10` slot twin of a `perf: 9` one reads the same but
+  for its version and `counts.timing`, held by `check:profiler` 14). Why: the Salmons readings
+  could not say why the game is slow — fps hid headroom (a flagship that misses 60 Hz by 1.4 ms reads
+  30.0), two readings were throttled background tabs and nothing marked them, `menu` mixed the lobby,
+  the countdown, spectating and the level mount, and nothing named what costs.
+  - **Busy time.** `perfStats.ts` reports, per phase over the WHOLE reading (a log histogram, within
+    ~2%; the old frame-time percentiles are the last 600 frames), the p50 / p95 / max of `lateMs +
+    tickMs + afterMs`, and `budgetMs`, the display's frame period (60 Hz at least; 30 Hz's when the
+    browser caps). The HUD header reads "spin busy p95 11 / 16.7 ms · 60 fps". The launcher keeps it
+    in `counts.timing` (no migration: `counts` is jsonb), judges it with a new **p95 busy time**
+    budget (warn 14, fail 16.7 ms; lobby, play, spectate; every class) and a `fpsBelowBudget`
+    finding, and an arcade reading that has it is NOT judged on fps / p95 (an older one still is).
+    Compare gets "busy p50 / p95" rows, Devices and Readings a **busy** column.
+  - **Hidden and throttled.** The probe counts no frame while `document.hidden` (`pause()` /
+    `resume()` on `visibilitychange`): `hiddenMs` (wall time), `hiddenFrames`, `throttledFrames`
+    (visible intervals over 250 ms) and `visibilityState` at send. The launcher marks a reading
+    **throttled — not comparable** (`profilerTiming.ts`; `counts.throttled` holds why) when its
+    busiest phase's median frame is over 250 ms (any version: this catches 10308430 and 49aadb1f)
+    or it was hidden for over 5% of it (`perf: 10`). Such a reading is kept and listed with a tag,
+    and left out of budgets, findings (`fpsReadings`) and Devices timing; its draws and MB still count.
+  - **Rates.** `refreshHz` was the achieved rate: now `achievedHz`, beside `displayHz`, the fastest
+    rate a side rAF loop ever saw (the display's when the page ever idled; not cleared by Reset).
+    Facts keep reading `refreshHz` for `perf: 7`–`9`.
+  - **p95 per work counter** (`work.<phase>.perFrame.<key>.p95`, over the whole reading).
+  - **Arcade phases.** `loading` (a level's mount — the room joined, its art landed, the local loop
+    started: `arcadePerf.mount()` — until its first ticked frame and 1 s after), `lobby` (the old
+    `menu`: no tick, a countdown, a win screen), `play`, `spectate` (online: the room running and the
+    player out of it). A spike's `state` is the room's phase (`lobby` / `countdown` / `running` /
+    `over`) for an arcade game, not the slot machine's; a record carries `loading` / `spectate`
+    flags beside `play`. The launcher's arcade phase set is those four, plus `menu` for `perf: 8` /
+    `9` (`phasesFor`; `phasesOf` lists an arcade phase only where a reading has frames in it).
+  - **Scene sample** (`pixi-svelte` `sceneProbe.ts`, `glCounters.ts`): every 30 frames, outside the
+    frame's busy time, a walk of the display tree under the stage: nodes, renderables, drawn and
+    culled (a node or ancestor with `visible` / `renderable` false), filtered nodes, render groups,
+    and per top-level layer; a layer that is its own render group also carries its draws, passes,
+    filter passes and target switches (a wrap of Pixi's render-group pipe, nested groups included),
+    and the stage's own share is the frame's less theirs. A layer that is not a render group draws
+    inside the stage's own instructions, so its draws are not told apart: **make a layer a render
+    group to see it** (T4 does this for the river). Reported as `scene` (means by layer, the latest
+    sample) in an arcade reading; in the facts for a rule to use.
+  - **GPU time**: `EXT_disjoint_timer_query_webgl2` where offered (a query round per tick, read
+    back when ready: never waited for, results arrive a few frames late), reported per phase as
+    `gpuMs`; else `gpuTimer: "n/a"`. Off under `?perfgpu=1`. Not verified on a phone yet (below).
+  - **Socket by kind**: in and out room messages tallied by kind (`patch`, `state`, the message's
+    type name, `code <n>`; 12 kept, the rest `other`), the state bytes against the rest, and the
+    fixed steps run, so "sends per step" reads off `network.socket.perStep` (`online.ts`
+    `meterMessages`, `perfNetwork.ts` `messageLabel`). The 3D room does not meter yet.
+  - **Gates.** `check:profiler` 101 (five new: the perf 10 summary, its slot twin, throttled, busy budgets, throttled in budgets),
+    findings 24 (was 22), network 17 (was 16), the probe fixtures (`perfStats` now pins busy,
+    display rate, hidden, throttled, p95, scene and GPU; its slot snapshot hash holds with the new
+    keys stripped, so the old recording still stands), the new `arcadePerf.fixture.ts` (loading
+    window, room state, socket tally) and `sceneProbe.fixture.ts`. svelte-check at baseline
+    (`apps/lines` 145, `pixi-svelte` 14).
+  - **Not verified:** the HUD on a real phone and the timer query on Mali / Adreno / Apple (the
+    extension is often absent; the probe says `n/a`); the render-group wrap against a real Salmons
+    frame (the fixture drives stand-in nodes — a live `?perf=1` read of Salmons is the check).
 
 - 2026-11-26 — **P9 review fixes** (the #1939 merge-sweep review, which held the merge on a token
   leak; #1939 merged before the fix, so it ships as #1949 — a runtime release):

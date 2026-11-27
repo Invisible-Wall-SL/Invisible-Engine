@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { askConfirm } from '$lib/dialogs.svelte';
-	import type { MergeRunsAnswer } from '$lib/mergeMainRuns';
+	import { mergeRunFilePath, type MergeRunsAnswer } from '$lib/mergeMainRuns';
 	import type { ChangeDetail } from '$lib/server/pipelineChanges';
 	import IconButton from '$lib/ui/IconButton.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
+		acceptBody,
+		DIFF_SIGN,
+		diffOf,
+		gutter,
 		apiErrorText,
 		hunkColumns,
 		mergeBrief,
@@ -50,6 +55,9 @@
 
 	async function send(action: 'accept' | 'discard'): Promise<void> {
 		if (busy || !run) return;
+		// The head the person is looking at when they click, not whatever a refresh brings while the
+		// confirmation is open.
+		const shown = acceptBody(detail);
 		const confirmed = await askConfirm(
 			action === 'accept'
 				? {
@@ -72,7 +80,7 @@
 				{
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ headSha: run.headSha }),
+					body: JSON.stringify(action === 'accept' ? shown : {}),
 				},
 			);
 			const body: unknown = await res.json().catch(() => null);
@@ -159,7 +167,7 @@
 						</div>
 						<div>
 							<span class="col-title">result</span>
-							<pre>{cols.result ?? h.nowDoes ?? ''}</pre>
+							<pre>{cols.result}</pre>
 						</div>
 					</div>
 				</div>
@@ -168,7 +176,52 @@
 		{#if run.files.length}
 			<h4>Files written</h4>
 			{#each run.files as f (f.path)}
-				<p class="plain mono">{f.path}</p>
+				{@const diff = diffOf(run.explanation, f.path)}
+				<p class="plain">
+					<span class="mono">{f.path}</span>
+					{#if diff && !f.deleted}
+						·
+						<a
+							href={mergeRunFilePath(detail.number, run.id, f.path)}
+							target="_blank"
+							rel="external noopener noreferrer">Open resolved file</a
+						>
+					{/if}
+				</p>
+				{#if diff}
+					<span class="col-title"
+						>What Accept changes on this branch
+						<InfoTip>
+							The line diff of the change's own version of this file against what Accept pushes.
+							Main's own changes since the merge base also land on the branch; this section shows
+							only the files the run resolved.
+						</InfoTip></span
+					>
+					{#if diff.headMode !== null && diff.mode !== null && diff.headMode !== diff.mode}
+						<p class="plain mono">mode {diff.headMode} → {diff.mode}</p>
+					{/if}
+					{#if diff.takes === 'main'}
+						<p class="plain">
+							Takes main's own version of this file whole, in place of the branch's.
+						</p>
+					{:else if !diff.hunks.length}
+						{#if diff.headMode === null || diff.mode === null || diff.headMode === diff.mode}
+							<p class="plain">No change: the branch's version is what is kept.</p>
+						{/if}
+					{:else}
+						<div class="diff" role="group" aria-label={`Changes to ${f.path}`}>
+							{#each diff.hunks as hunk, i (i)}
+								{#each hunk as l, j (j)}
+									<div class="dl {l.k}">
+										<span class="gut">{gutter(l.o)}</span><span class="gut">{gutter(l.n)}</span
+										><span class="sign">{DIFF_SIGN[l.k]}</span><span class="code">{l.text}</span>
+									</div>
+								{/each}
+								{#if i < diff.hunks.length - 1}<div class="dl gap">⋯</div>{/if}
+							{/each}
+						</div>
+					{/if}
+				{/if}
 			{/each}
 		{/if}
 		{#if proposal.blocked}
@@ -274,6 +327,56 @@
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 8px;
+	}
+	.diff {
+		margin-top: 2px;
+		max-height: 420px;
+		overflow: auto;
+		font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+		font-size: 12px;
+		background: #0d0d12;
+		border: 1px solid #23232e;
+		border-radius: 8px;
+	}
+	.dl {
+		display: flex;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		color: #c9c9d1;
+	}
+	.dl.add {
+		background: rgba(126, 224, 192, 0.12);
+	}
+	.dl.del {
+		background: rgba(255, 157, 157, 0.12);
+	}
+	.dl.gap {
+		padding: 0 8px;
+		color: #6a6a76;
+	}
+	.gut {
+		flex: none;
+		min-width: 3.5ch;
+		padding: 0 4px;
+		text-align: right;
+		color: #6a6a76;
+		user-select: none;
+	}
+	.sign {
+		flex: none;
+		width: 2ch;
+		text-align: center;
+		color: #8a8a96;
+	}
+	.dl.add .sign {
+		color: #7ee0c0;
+	}
+	.dl.del .sign {
+		color: #ff9d9d;
+	}
+	.code {
+		flex: 1 1 auto;
+		min-width: 0;
 	}
 	.col-title {
 		font-size: 11px;

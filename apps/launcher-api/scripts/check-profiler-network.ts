@@ -952,6 +952,75 @@ test('21. slow or heavy messages: RGS latency off devices only; the room’s byt
 	holds('netTraffic', check, RULES.netTraffic, labLatency);
 });
 
+test('20. a perf: 10 room: bytes by kind of message, sends per fixed step; a perf: 9 room has none', () => {
+	const m = createNetworkMonitor(PAGE, 1);
+	m.add(entry(`${PAGE}/a.js`, { initiatorType: 'script' }));
+	const tally = (code: string, messages: number, bytes: number) => ({
+		messages,
+		bytes,
+		largest: bytes / messages,
+	});
+	const block = m.block({
+		socket: {
+			since: 0,
+			last: 10_000,
+			inMessages: 230,
+			inBytes: 60_000,
+			inLargest: 900,
+			states: 200,
+			stateBytes: 58_000,
+			outMessages: 300,
+			outBytes: 3000,
+			outLargest: 10,
+			inByCode: { patch: tally('patch', 200, 58_000), events: tally('events', 30, 2000) },
+			outByCode: { input: tally('input', 300, 3000) },
+			steps: 300,
+		},
+	});
+	const facts = reportFacts({
+		perf: 10,
+		kind: 'arcade',
+		network: JSON.parse(JSON.stringify(block)),
+	});
+	const socket = facts.network?.socket;
+	assert.deepEqual(
+		socket?.inByKind.map((k) => [k.code, k.bytes]),
+		[
+			['patch', 58_000],
+			['events', 2000],
+		],
+		'heaviest first',
+	);
+	assert.deepEqual(
+		socket?.outByKind.map((k) => [k.code, k.messages]),
+		[['input', 300]],
+	);
+	assert.deepEqual(socket?.perStep, { steps: 300, outMessages: 1, outBytes: 10, inMessages: 0.77 });
+	const old = reportFacts({
+		perf: 9,
+		kind: 'arcade',
+		network: JSON.parse(
+			JSON.stringify(
+				m.block({
+					socket: {
+						since: 0,
+						last: 10_000,
+						inMessages: 1,
+						inBytes: 10,
+						inLargest: 10,
+						states: 1,
+						stateBytes: 10,
+						outMessages: 1,
+						outBytes: 1,
+						outLargest: 1,
+					},
+				}),
+			),
+		),
+	}).network?.socket;
+	assert.deepEqual([old?.inByKind, old?.outByKind, old?.perStep], [[], [], null]);
+});
+
 test('21. every network finding’s owner is an agent owners.json names in its areas', () => {
 	const agents = new Set(Object.values(OWNERS.areas ?? {}).flat());
 	assert.deepEqual(Object.keys(OWNERS.areas ?? {}).sort(), [

@@ -166,7 +166,7 @@ and `main`'s SHA. All four are public, so there is no brief endpoint. The run is
 | Heading | What it says |
 |---|---|
 | **What conflicted** | Each file, and which change on `main` it met (`#n`, title) |
-| **What each side wanted** | Per hunk, one plain line for each side |
+| **What each side wanted** | Per hunk, the real lines of each side as git read them (indentation kept), and the lines the resolved file holds there. Never the model's words: `collect` fills them (§10) |
 | **What the resolution takes** | Per hunk: `main`'s, this change's, both, or combined, and why |
 | **What the merged code now does** | In plain words, for every combined hunk |
 | **What else was possible** | When a hunk had another reasonable answer |
@@ -289,6 +289,15 @@ treats a merge base other than the stored one as `stale`. (Amended 2026-11-27, f
 without the input the job could not know the cap, and without `base_sha` Accept could not tell
 that the run's hunks were cut against another base.)
 
+**A result may arrive as a pointer** (amended 2026-11-27, ADR-0013 §4's "option B"). A result whose
+gzip is past 400 KB (a Resolve-conflict result can be several MB) is not posted: `collect` asks
+`POST /api/pipeline/merge-runs/<merge_run>/result-upload` (same token and run binding as the result;
+a working run only), PUTs the gzipped result to the presigned R2 URL it returns for
+`_runs/merge/<merge_run>/result.json.gz`, and posts `{ "upload": { "key", "sha256", "bytes" } }`
+to the result endpoint instead. The launcher reads that object (8 MB unpacked at most, size and
+sha256 checked), parses it exactly as an inline body, and deletes it whatever happened. Everything
+below describes the body, inline or uploaded.
+
 **The result**, posted once by job `propose`'s `collect` to
 `POST /api/pipeline/merge-runs/<merge_run>/result` with a GitHub OIDC token (audience
 `invisible-launcher-merge-main`), as JSON:
@@ -305,7 +314,10 @@ that the run's hunks were cut against another base.)
                "content": "<text>" | null, "mode": "100644" | "100755" } ],
   "explanation": {
     "conflicted": [ { "path": "...", "met": [ { "pr": 1234 | null, "title": "..." } ] } ],
-    "hunks": [ { "path": "...", "index": 0, "main": "...", "change": "...",
+    "hunks": [ { "path": "...", "index": 0, "main": "<main's lines>", "change": "<this change's>",
+                 "result": "<the resolved file's lines there>" | null,
+                 "resultCut": 0,
+                 "kind": "lines" | "description",
                  "takes": "main" | "change" | "both" | "combined", "why": "...",
                  "nowDoes": "..." | null, "otherwise": "..." | null } ],
     "outside": [ { "path": "...", "what": "..." } ],
@@ -330,6 +342,76 @@ that the run's hunks were cut against another base.)
 - **Caps:** at most 10 files for the model plus the pending rule files; 2 MB a file and 4 MB in all;
   each text field 3,000 characters; 16,000 for `explanation` in all. Everything is untrusted text,
   cleaned and scanned like a fix run's summary (ADR-0013 §5).
+- **A hunk's real lines are not prose** (amended after the 15C review). `main`, `change` and
+  `result` are lines of code, and they are the job's, so they are not trusted either. `collect`
+  fills them from git, never from the model's `result.json` (the model's own `main`/`change` are
+  ignored): `main` and `change` from `merge-file`'s own segments, untrimmed (only the last line
+  break is dropped), and `result` from the final file, as the text between the clean pieces git put
+  around the hunk (hunk *i* lies between clean piece *i* and *i + 1*). Where a clean piece has two
+  places (searched from the front and from the back: a lone `}` that a correct resolution also
+  holds, which `merge-file` makes ordinary by merging eagerly) the hunks get no `result`. That is not
+  an outside edit (only a piece that cannot be placed at all is), because the model could not know to
+  list it; the card says the lines could not be located and to read the file. A `result` the job cut
+  at its cap says how many lines it left out (`resultCut`), and the card says so before Accept pushes
+  the whole file. `kind` is `lines` for a hunk of a content conflict and `description` for a
+  rule's or a modify/delete hunk, whose `main` and `change` are words and whose result follows what
+  it took; a `lines` hunk with a `null` result is shown as "could not be located", never as what the
+  model says it took. They are outside the 3,000 and 16,000 caps and the prose scan, with their own
+  caps (10,000 characters each, 120,000 over all hunks; over it, `no_proposal`). The launcher
+  refuses a `result` that is not inside its file's content, scans the `result` lines neither side
+  has for secrets, as sent, as cleaned and with format characters taken out (a key split by a
+  zero-width character), and hides a side's own line that looks like a secret instead of refusing
+  (the repository holds such lines). A format character (a zero-width joiner, a bidi mark) is shown
+  as `⟨U+200D⟩`, never dropped, since the pushed file keeps it; a line the run added that holds one is
+  refused, naming the file.
+  They are shown as text only, to the proposal waiting for Accept, never as HTML and never in the
+  other cards.
+- **What Accept changes on this branch is a positional diff the launcher makes** (`explanation.diff`;
+  amended after the 15C review, replacing a per-hunk list of "lines the run wrote"). The job sends
+  no part of it. At the result the launcher reads the change's tree (at `headSha`) and `main`'s
+  itself, fetches each file's head blob, and diffs that, by lines, against the run's stored
+  `files[].content` (the bytes Accept pushes and the file route serves) with a small Myers O(ND)
+  diff (`pipelineMergeRunsDiff.ts`), three lines of context, real numbers on both sides. A copy, a
+  duplicate or a reorder is a `-`/`+` pair at its real position, and nothing depends on where a hunk
+  was placed. A deleted file is all removed, a file the branch no longer has all added. A path both
+  sides changed identically (Accept keeps main's entry) has no diff and no file to open; only a build
+  rule's file left pending (`isPendingRuleFile`, its content verified as main's own) is shown as
+  taking main's version whole, and a model file that ends as exactly main's text, or a deletion, shows
+  every `-` line. Each file's diff carries the branch's mode and the mode Accept writes, and a
+  difference (`mode 100644 → 100755`) is shown with or without line changes; "No change" is said
+  only when the modes are equal. A link or a submodule is refused at the result with Accept's own
+  reason. Past 2,000 changed lines or 80,000 characters of them, 200,000 characters stored in all
+  (context and visible markers count, so a poll stays small), or more changes than the diff looks
+  for, the result is `no_proposal` ("The merge
+  changes more than the card can show: resolve it by hand"), so nothing Accept pushes is unseen. The
+  head blob is immutable under `headSha`, so the branch-tip check at Accept (a moved head is `stale`)
+  is the check that the diff is still the one for the file Accept replaces. For every line the merge
+  ADDS that neither side's version holds (membership, not a multiset): a lone CR, U+2028, U+2029,
+  U+0085 or any format character is refused, naming the file (a CR at the very end is a CRLF), and a
+  secret, as it is and with format characters removed, is refused; a secret-looking line a side does
+  hold is hidden on the card. On the card every control character but tab, every format character,
+  the line and paragraph separators, U+0085, U+FEFF and a no-break space is shown as what it is
+  (`⟨CR⟩`, `⟨U+200D⟩`), never dropped; the raw text is capped first; nothing is stripped of a CI-skip
+  token. Each file shows its diff under "What Accept changes on this branch" and an **Open resolved
+  file** link: `GET …/merge-runs/<id>/file?path=…`, `pipelineMerge`, the exact text Accept would push
+  from the run's own record (the branch is not fetched), `text/plain`, `nosniff`, `inline`, only for
+  a path that has a diff and only while the run is `proposed` or `accepting`.
+- **Accept's claim.** Accept takes `proposed → accepting` in the database, by the database's clock
+  and with a 5-minute lease and a claim id, before any GitHub write; every later update, settle and
+  release carries the claim id, and the merge commit's SHA is stored (with whoever built it) before
+  the branch moves, which the claim must still hold with at least 90 seconds of its lease left (one
+  slow GitHub call is about 60 seconds, so the claim cannot lapse while the push is in flight). A
+  claim that already holds an earlier holder's commit is kept, not given back, by any failure that
+  has not read the branch's tip: the backstop settles it from the tip. The page's "has the lease
+  lapsed" is the server's, by the database's clock.
+  Discard acts only from `proposed`, or on a lapsed claim that built no commit. A lost answer is
+  recognised by the branch's tip being that commit or a descendant of it (a person may push on top),
+  never by its parents or a token anyone can copy; the backstop settles a lapsed claim the same way
+  (accepted if so, else the proposal is given back). A definitive refusal from GitHub (a 4xx other
+  than 422) gives the claim back at once.
+- **The result is posted up to three times** when the launcher answers 5xx (a GitHub read it makes
+  failed, for example): the spend is recorded once per model and the settle is conditional, so a
+  second post of a result that did arrive finds the run settled (409), not doubled.
 
 ## Consequences
 

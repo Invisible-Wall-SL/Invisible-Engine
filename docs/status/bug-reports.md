@@ -275,6 +275,62 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Resolve conflict, Accept hardened (post-merge review of #1961, before 15B2).**
+  - **Blocking: Accept wrote to an unencoded ref.** `PATCH git/refs/heads/<branch>` took the
+    branch raw, and `fetch` drops everything from a `#`: a conflicted change from `main#x` would
+    have moved `refs/heads/main`. Now the ref is encoded (`githubPaths.ts`, shared with the two
+    copies that existed), Accept refuses a head branch that is not the run's `branch`
+    (`stale`) and one outside letters, digits and `- _ . /` (`unsafe_branch`, a sentence). Every
+    other ref URL is encoded, `main`, or a launcher-made name; `check:merge-main-runs` scans for
+    it.
+  - **The reviewer sees real bytes.** `collect.mjs` fills a hunk's `main` and `change` from
+    git's own segments (indentation kept) and its `result` from the final file, between git's clean
+    pieces, never from the model's `result.json`. They are their own field, outside the prose cap
+    and scan (10,000 each, 120,000 in all); the page gets no whole-file content, and only the
+    proposal waiting gets the lines (ADR-0015 §4, §10).
+  - **The card shows what Accept changes on the branch, exactly** (R4–R6): per file, a positional
+    line diff (Myers, 3 lines of context, both line numbers) of the branch's own version of the file
+    against the content Accept would push, made by the LAUNCHER at the result from the head blob it
+    fetched itself (`explanation.diff`; the job sends nothing for it, and the earlier "lines the run
+    wrote" list is gone). A copy, a duplicate or a reorder is a `-`/`+` pair at its real position;
+    over 2,000 changed lines or 80,000 characters is `no_proposal`; a line the merge adds that
+    neither side holds is refused for a lone CR, U+2028/9, U+0085, a format character or a secret;
+    control and format characters are shown as `⟨CR⟩` / `⟨U+200D⟩`. "Open resolved file"
+    (`GET …/merge-runs/<id>/file?path=…`, plain text, `pipelineMerge`) serves the exact bytes, only
+    for a path Accept takes from the run. The raw text is capped before characters are made visible,
+    and code on the card is never stripped of `[skip ci]`. Only a pending build rule's file is shown
+    "taking main's version whole"; modes are on the card (`mode 100644 → 100755`); the stored diffs
+    are capped at 200,000 characters in all, context included.
+  - **Accept takes a database claim** (`proposed → accepting`, a claim id, a 5-minute lease on the
+    database's clock, migration 0053) before any GitHub write; every update, settle and release
+    carries the id, and the push needs the claim with 90 s of lease left (one slow GitHub call is ~60 s); a claim that holds an earlier holder's commit is kept by any failure that has not read the tip. Discard acts only from
+    `proposed` (or a lapsed claim that built nothing), so on any replica one wins whole. The merge
+    commit's SHA is stored (with its builder) before the branch moves; a lost answer is recognised by
+    the tip being that commit or a descendant, never by parents or the public run id; the backstop
+    settles a lapsed claim the same way. The store's SQL is proved on a real Postgres
+    (`pnpm --filter launcher-api prove:merge-runs`, run by `director-worker`'s `prove:idle`, so by
+    CI's `postgres-proofs`): a bare `Date` in a raw `sql` template throws on postgres-js, so the
+    store uses column-aware operators and `now()`, and `check:merge-main-runs` forbids the pattern.
+  - `mainChangedSince` is unknown (stale) when the compare lists 300 files; `filesProblem` gives its
+    `main`-exemption to a protected path or lockfile only when it is main's own entry at the run's SHA (read from main's tree); Accept posts the head the page
+    showed. The branch's push time is not in GitHub's data, so the card still uses the head
+    commit's time.
+
+- 2026-11-27 — **Large run results travel through R2 (ADR-0013 §4 / ADR-0015 §10, owner's option B).**
+  adapter-node refuses a body past 512 KB (gzipped), and a fix run's result (whole files) or a
+  Resolve-conflict result can pass it. A result whose gzip is past 400 KB is now PUT by the job to a
+  presigned R2 URL (`POST /api/pipeline/{fix,merge}-runs/<id>/result-upload`, same OIDC claims and run
+  binding as the result, live runs only, key `_runs/{fix,merge}/<id>/result.json.gz`, 15 minutes), and
+  the job posts `{ upload: { key, sha256, bytes } }`. The launcher accepts either body: for a pointer it
+  checks the run's own key, reads the object bounded at 8 MB, checks size and sha256, gunzips within
+  8 MB, parses as inline, and deletes the object whatever happened (a bad pointer is a 400, the run waits
+  for the backstop). The backstops delete a leftover object when they end a run. The job's allowlist
+  takes only the exact URL the launcher returned, over https, at `<account>.r2.cloudflarestorage.com`
+  (bucket label and `eu` allowed), no redirects, never printed. Code: `pipelineRunResultUpload.ts`,
+  `bugFixRuns.ts` (`readResultBody`), `scripts/bug-fix/collect.mjs` (`postResult`, shared by
+  `scripts/merge-main/collect.mjs`). Not provable offline: a real presigned PUT to R2 and a real runner
+  (see the PR). Optional owner step: a 1-day lifecycle rule on `_runs/` (`docs/INFRA.md`).
+
 - 2026-11-27 — **Resolve conflict's job code (ADR-0015 card 15B1).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline". `scripts/merge-main/`,
   runnable on a local checkout. Wiring for 15B2 is in its `README.md`; nothing calls it yet.

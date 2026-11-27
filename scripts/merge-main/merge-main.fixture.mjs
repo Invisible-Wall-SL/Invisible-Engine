@@ -9,6 +9,7 @@
 // real one would. What the real commands do on the real tree is CI's to prove on the pushed head.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import {
 	chmodSync,
@@ -28,13 +29,18 @@ import { gunzipSync } from 'node:zlib';
 import {
 	AUDIENCE,
 	EXPLANATION_CAP,
+	LINES_CAP,
+	LINES_TOTAL_CAP,
 	NO_EXPLANATION,
 	TAKES,
 	TEXT_CAP,
 	budgetOf,
 	buildResult,
 	clean,
+	cleanLines,
 	encodeBody,
+	hunkResults,
+	placeClean,
 	logLine,
 	measure,
 	outsideEdited,
@@ -875,10 +881,29 @@ function shapeProblems(body) {
 	}
 	for (const h of e.hunks) {
 		const ok =
-			keysAre(h, ['path', 'index', 'main', 'change', 'takes', 'why', 'nowDoes', 'otherwise']) &&
+			keysAre(h, [
+				'path',
+				'index',
+				'main',
+				'change',
+				'result',
+				'resultCut',
+				'kind',
+				'takes',
+				'why',
+				'nowDoes',
+				'otherwise',
+			]) &&
+			['lines', 'description'].includes(h.kind) &&
 			Number.isInteger(h.index) &&
 			TAKES.includes(h.takes) &&
-			[h.main, h.change, h.why].every((t) => text(t) && t) &&
+			[h.main, h.change].every((t) => text(t, LINES_CAP) && t) &&
+			(h.result === null || text(h.result, LINES_CAP)) &&
+			Number.isInteger(h.resultCut) &&
+			h.resultCut >= 0 &&
+			(h.result !== null || h.resultCut === 0) &&
+			text(h.why) &&
+			h.why &&
 			(h.nowDoes === null ? h.takes !== 'combined' : text(h.nowDoes)) &&
 			(h.otherwise === null || text(h.otherwise));
 		if (!ok) out.push(`hunk ${h.path}#${h.index}`);
@@ -893,7 +918,13 @@ function shapeProblems(body) {
 	)
 		out.push('checks');
 	if (!text(e.risks) || !e.risks) out.push('risks');
-	if (measure(e) > EXPLANATION_CAP) out.push('explanation over 16,000');
+	const prose = {
+		...e,
+		hunks: e.hunks.map((h) => [h.path, h.index, h.takes, h.why, h.nowDoes, h.otherwise]),
+	};
+	if (measure(prose) > EXPLANATION_CAP) out.push('explanation over 16,000');
+	const lines = e.hunks.reduce((n, h) => n + measure([h.main, h.change, h.result ?? '']), 0);
+	if (lines > LINES_TOTAL_CAP) out.push('hunk lines over their cap');
 	return out;
 }
 
@@ -1152,6 +1183,359 @@ check(
 		'guard: an edit outside a hunk, listed, is allowed and shown',
 	);
 }
+{
+	const lying = model(staged(), {
+		result: {
+			...goodResult(),
+			hunks: goodResult().hunks.map((h) => ({
+				...h,
+				main: 'MODEL-MADE-UP MAIN',
+				change: 'MODEL-MADE-UP CHANGE',
+			})),
+		},
+	});
+	const [h0, h1] = lying.explanation.hunks.filter((h) => h.path === 'src/a.ts');
+	const docs = lying.explanation.hunks.find((h) => h.path === 'docs/status/x.md');
+	check(
+		lying.outcome === 'proposed' &&
+			h0.main === 'export const a = 3;' &&
+			h0.change === 'export const a = 2;' &&
+			h1.change === 'export const b = 2;' &&
+			h1.main === 'export const b = 3;' &&
+			docs.main.includes('main entry') &&
+			docs.change.includes('change entry') &&
+			!JSON.stringify(lying.explanation).includes('MODEL-MADE-UP'),
+		"proposal: a hunk's main and change are the sides' real lines from git, not the model's words",
+	);
+}
+// Where git's clean pieces lie is one reading or none (`placeClean`, shared by outsideEdited and hunkResults)
+{
+	const seg = (A, P, Z) => [
+		{ clean: A },
+		{ hunk: { change: 'c1\n', base: 'b\n', main: 'm1\n' } },
+		{ clean: P },
+		{ hunk: { change: 'c2\n', base: 'b\n', main: 'm2\n' } },
+		{ clean: Z },
+	];
+	// a lone "}" between the hunks that hunk 1's resolution also holds: two readings, so not guessed
+	const s1 = seg('function a() {\n', '}\n', 'end\n');
+	const f1 = 'function a() {\n\tif (x) {\n\t\ty();\n}\n\tz();\n}\nR2\nend\n';
+	check(
+		placeClean(s1, f1)?.ambiguous === true &&
+			outsideEdited(s1, f1) === false &&
+			hunkResults(s1, f1) === null,
+		'placeClean: a clean piece the resolution also holds has two places → NOT an outside edit (the model could not know), and no result (never cut short and shown under the wrong hunk)',
+	);
+	// the same file with the piece in one place only
+	const f1b = 'function a() {\n\tif (x) {\n\t\ty();\n\tz();\n}\nR2\nend\n';
+	check(
+		placeClean(s1, f1b)?.ambiguous === false &&
+			outsideEdited(s1, f1b) === false &&
+			json(hunkResults(s1, f1b)) === json(['\tif (x) {\n\t\ty();\n\tz();\n', 'R2\n']),
+		'placeClean: a piece in one place gives both hunks their own lines',
+	);
+	const s2 = seg('head\n', '\tcheck(token);\n\treturn ok;\n', 'tail\n');
+	// a copy of a clean piece next to the real one: two places, so the file is not trusted
+	const copy2 =
+		'head\nR1\n\tcheck(token);\n\treturn ok;\nR1b\n\tcheck(token);\n\treturn ok;\nR2\ntail\n';
+	check(
+		placeClean(s2, copy2)?.ambiguous === true &&
+			outsideEdited(s2, copy2) === false &&
+			hunkResults(s2, copy2) === null,
+		'placeClean: a clean piece that is in the file twice has two places → no result: the card never shows text that differs from the file',
+	);
+	check(
+		outsideEdited(s2, 'head\nR1\n\tcheck(token);\n\treturn ok;\nR2\ntail\n') === false &&
+			outsideEdited(s2, 'head\nR1\n\tcheck(token);\n\treturn true;\nR2\ntail\n') === true,
+		'outsideEdited: the clean piece intact is not an edit; rewritten is',
+	);
+}
+
+// git's own --diff3 output: two hunks separated by one `\t}`, a resolution that wraps hunk 2 in its own braces
+{
+	const code = (x, y) => `function f() {\n\tx(${x});\n\t}\n\ty(${y});\n}\n`;
+	const job = scratch('ambig', {
+		base: { 'src/w.ts': code(1, 1) },
+		change: [['c', { 'src/w.ts': code(2, 2) }]],
+		main: [['m', { 'src/w.ts': code(3, 3) }]],
+	});
+	const j = propose(job, jobMerge(job).out);
+	j.input.budget = 6;
+	stage(j.p, j.input);
+	const merged = readFileSync(join(j.p.workspace, 'src/w.ts'), 'utf8');
+	const segs = segmentsOf(merged, 7);
+	const wrapped = 'function f() {\n\tx(23);\n\t}\n\tif (c) {\n\t\ty(23);\n\t}\n}\n';
+	check(
+		segs.filter((x) => x.hunk).length === 2 &&
+			json(segs.filter((x) => x.clean !== undefined).map((x) => x.clean)) ===
+				json(['function f() {\n', '\t}\n', '}\n']),
+		'ambig: git really leaves two hunks with one `\\t}` between them',
+	);
+	check(
+		placeClean(segs, wrapped)?.ambiguous === true &&
+			outsideEdited(segs, wrapped) === false &&
+			hunkResults(segs, wrapped) === null,
+		'ambig: the wrapped resolution has two places for the `\\t}` piece, is not an outside edit and gets no result',
+	);
+	apply(j.p.workspace, { 'src/w.ts': wrapped });
+	mkdirSync(j.p.out, { recursive: true });
+	const hunk = (index) => ({
+		path: 'src/w.ts',
+		index,
+		takes: 'combined',
+		why: 'Both.',
+		nowDoes: `It is 23 (${index}).`,
+		otherwise: null,
+	});
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [hunk(0), hunk(1)],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const hs = body.explanation?.hunks.filter((h) => h.path === 'src/w.ts');
+	check(
+		body.outcome === 'proposed' &&
+			hs.length === 2 &&
+			hs.every((h) => h.kind === 'lines' && h.result === null && h.resultCut === 0) &&
+			hs[0].main === '\tx(3);' &&
+			hs[1].change === '\ty(2);',
+		'ambig: an honest wrapped resolution is PROPOSED (not "changed outside its conflicts"), its sides real and its results "not located"',
+	);
+}
+{
+	// a result past the cap is cut, and says by how many lines: a long result made of lines the sides hold
+	const fill = (tag) =>
+		Array.from({ length: 250 }, (_, i) => `${tag}${i}`.padEnd(39, '.') + '\n').join('');
+	const long = (x) => `${fill('c')}${fill('m')}v = ${x};\n`;
+	const job = scratch('cut', {
+		base: { 'src/c.ts': 'head\nv = 1;\ntail\n' },
+		change: [['c', { 'src/c.ts': `head\n${fill('c')}v = 2;\ntail\n` }]],
+		main: [['m', { 'src/c.ts': `head\n${fill('m')}v = 3;\ntail\n` }]],
+	});
+	const j = propose(job, jobMerge(job).out);
+	j.input.budget = 6;
+	stage(j.p, j.input);
+	apply(j.p.workspace, { 'src/c.ts': `head\n${long(23)}tail\n` });
+	mkdirSync(j.p.out, { recursive: true });
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [
+				{
+					path: 'src/c.ts',
+					index: 0,
+					takes: 'combined',
+					why: 'Both.',
+					nowDoes: 'x',
+					otherwise: null,
+				},
+			],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const h = body.explanation?.hunks[0];
+	check(
+		body.outcome === 'proposed' &&
+			h.result.endsWith('…') &&
+			Array.from(h.result).length === LINES_CAP &&
+			h.resultCut > 200 &&
+			h.resultCut < 300,
+		`result: a result past the cap is cut with a trailing … and resultCut counts the lines not shown (${h?.resultCut} ${body.reason})`,
+	);
+}
+// the hunk's real lines and its result, from git and the final file (§10)
+{
+	const tabs = (x) =>
+		`function f() {\n\tif (a) {\n\t\tconst v = ${x};\n\t\treturn v;\n\t}\n\treturn 0;\n}\n`;
+	const gitText = '\t\tconst v = 2;\n\t\treturn v;\n';
+	check(
+		cleanLines(gitText) === '\t\tconst v = 2;\n\t\treturn v;' &&
+			cleanLines('a\r\nb\n') === 'a\nb' &&
+			cleanLines('‮x\u0007y') === 'xy' &&
+			cleanLines('a\rb') === 'a\rb' &&
+			Array.from(cleanLines('z'.repeat(LINES_CAP + 5))).length === LINES_CAP,
+		'cleanLines: indentation kept, only the last line break dropped, hidden and control characters gone, capped',
+	);
+	// hunkResults: the text between git's clean pieces, whatever the hunk text repeats elsewhere
+	const segs = [
+		{ clean: '}\nfoo\n}\n' },
+		{ hunk: { change: '}\nconst a = 2;\n', base: '', main: '}\nconst a = 3;\n' } },
+		{ clean: 'tail\n' },
+	];
+	check(
+		json(hunkResults(segs, '}\nfoo\n}\nconst a = 5;\ntail\n')) === json(['const a = 5;\n']) &&
+			hunkResults(segs, 'gone\n') === null &&
+			json(hunkResults([{ clean: 'a\n' }, { hunk: {} }, { clean: 'b\n' }], 'a\nb\n')) ===
+				json(['']),
+		'hunkResults: the text between the clean pieces around a hunk (a repeated "}" does not mislead it); null when they are not there; empty when the hunk was resolved to nothing',
+	);
+	const job = scratch('tabs', {
+		base: { 'src/t.ts': tabs(1), 'docs/status/x.md': STATUS },
+		change: [['change', { 'src/t.ts': tabs(2), 'docs/status/x.md': withEntry('change') }]],
+		main: [['main', { 'src/t.ts': tabs(3), 'docs/status/x.md': withEntry('main') }]],
+	});
+	const m = jobMerge(job);
+	const j = propose(job, m.out);
+	j.input.budget = 6;
+	const { model: ran } = stage(j.p, j.input);
+	const out = (body) => body.explanation.hunks.find((h) => h.path === 'src/t.ts');
+	apply(j.p.workspace, { 'src/t.ts': tabs('2 + 3') });
+	mkdirSync(j.p.out, { recursive: true });
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [
+				{
+					path: 'src/t.ts',
+					index: 0,
+					main: 'LIE',
+					change: 'LIE',
+					result: 'LIE',
+					takes: 'combined',
+					why: 'Both.',
+					nowDoes: 'Adds them.',
+					otherwise: null,
+				},
+			],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const h = body.explanation?.hunks && out(body);
+	check(
+		ran === true &&
+			body.outcome === 'proposed' &&
+			h.change === '\t\tconst v = 2;' &&
+			h.main === '\t\tconst v = 3;' &&
+			h.result === '\t\tconst v = 2 + 3;' &&
+			!JSON.stringify(body.explanation).includes('LIE'),
+		'result: a tab-indented hunk keeps its indentation on both sides, and its result is the final file’s own line (never the model’s)',
+	);
+	const docs = body.explanation.hunks.find((x) => x.path === 'docs/status/x.md');
+	check(
+		docs.result === null && docs.main.includes('main entry'),
+		'result: a rule hunk keeps its old wording (no result), with real sides',
+	);
+	check(
+		json(Object.keys(h).sort()) ===
+			json([
+				'change',
+				'index',
+				'kind',
+				'main',
+				'nowDoes',
+				'otherwise',
+				'path',
+				'result',
+				'resultCut',
+				'takes',
+				'why',
+			]),
+		'result: a hunk carries exactly the §10 fields, result included',
+	);
+}
+{
+	// a modify/delete has no lines to find: its hunk keeps the description and no result
+	const job = scratch('gone', {
+		base: { 'src/gone.ts': 'a\n' },
+		change: [['c', { 'src/gone.ts': 'a, changed\n' }]],
+		main: [['m', { 'src/gone.ts': null }]],
+	});
+	const j = propose(job, jobMerge(job).out);
+	j.input.budget = 6;
+	stage(j.p, j.input);
+	apply(j.p.workspace, { 'src/gone.ts': 'a, changed\n' });
+	mkdirSync(j.p.out, { recursive: true });
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [
+				{
+					path: 'src/gone.ts',
+					index: 0,
+					takes: 'change',
+					why: 'Keep it.',
+					nowDoes: null,
+					otherwise: null,
+				},
+			],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const h = body.explanation?.hunks[0];
+	check(
+		body.outcome === 'proposed' &&
+			h.result === null &&
+			h.change === 'Keeps the file, changed.' &&
+			h.main === 'Deletes the file.',
+		'result: a modify/delete hunk keeps its description and has no result',
+	);
+}
+{
+	// a file over 200 KB: the hunk's result is still its own lines, within the cap, not cut by the page
+	const big = (x) =>
+		`${'filler line\n'.repeat(20_000)}const a = ${x};\n${'more filler\n'.repeat(20_000)}`;
+	const job = scratch('big', {
+		base: { 'src/big.ts': big(1) },
+		change: [['c', { 'src/big.ts': big(2) }]],
+		main: [['m', { 'src/big.ts': big(3) }]],
+	});
+	const j = propose(job, jobMerge(job).out);
+	j.input.budget = 6;
+	stage(j.p, j.input);
+	apply(j.p.workspace, { 'src/big.ts': big(23) });
+	mkdirSync(j.p.out, { recursive: true });
+	writeFileSync(
+		join(j.p.out, 'result.json'),
+		json({
+			hunks: [
+				{
+					path: 'src/big.ts',
+					index: 0,
+					takes: 'combined',
+					why: 'Both.',
+					nowDoes: 'It is 23.',
+					otherwise: null,
+				},
+			],
+			outside: [],
+			checks: [{ command: 'pnpm check:thing', ok: true }],
+			risks: 'none',
+		}),
+	);
+	mkdirSync(j.p.claude, { recursive: true });
+	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
+	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
+	const h = body.explanation?.hunks[0];
+	check(
+		body.outcome === 'proposed' &&
+			h.result === 'const a = 23;' &&
+			h.main === 'const a = 3;' &&
+			Buffer.byteLength(body.files[0].content) > 200_000,
+		'result: a file over 200 KB gives its hunk’s own lines, never a "not found"',
+	);
+}
 check(
 	refusedWith(model(staged(), { files: {} }), 'conflict marker in src/a.ts'),
 	'guard: a marker left',
@@ -1249,7 +1633,12 @@ check(
 	const huge = model(staged(), {
 		result: {
 			...goodResult(),
-			hunks: goodResult().hunks.map((h) => ({ ...h, why: long, main: long, change: long })),
+			hunks: goodResult().hunks.map((h) => ({
+				...h,
+				why: long,
+				nowDoes: long,
+				otherwise: long,
+			})),
 		},
 	});
 	check(
@@ -1428,7 +1817,7 @@ check(
 
 // ── Both steps, end to end: the CLI, the token service and the launcher ───────
 
-async function endToEnd() {
+async function endToEnd(big = false) {
 	const job = propose(mixed, mixedMerge.out);
 	const seen = [];
 	const server = createServer((req, res) => {
@@ -1444,10 +1833,27 @@ async function endToEnd() {
 				body: Buffer.concat(chunks),
 			});
 			res.setHeader('content-type', 'application/json');
+			const here = `http://127.0.0.1:${server.address().port}`;
+			// the launcher answers the first result post with a 502 (a read of main's tree failed): the job sends it again
+			const results = seen.filter((x) => x.method === 'POST' && x.path.endsWith('/result'));
+			if (url.pathname.endsWith('/result') && req.method === 'POST' && results.length === 1) {
+				res.statusCode = 502;
+				res.end(json({ message: 'bad gateway' }));
+				return;
+			}
 			res.end(
 				url.pathname === '/token'
 					? json({ value: `oidc-for-${url.searchParams.get('audience')}` })
-					: json({ status: 'proposed', spendUsd: 2.5 }),
+					: url.pathname.endsWith('/result-upload')
+						? json({
+								url: `${here}/put`,
+								key: `_runs/merge/${job.input.mergeRun}/result.json.gz`,
+								expiresAt: 'x',
+								maxBytes: 8 * 1024 * 1024,
+							})
+						: url.pathname === '/put'
+							? '{}'
+							: json({ status: 'proposed', spendUsd: 2.5 }),
 			);
 		});
 	});
@@ -1481,14 +1887,48 @@ async function endToEnd() {
 		staging.code === 0 && read(dirname(output), 'github-output') === 'model=true\n',
 		`stage CLI: exits 0 and tells the workflow to run the model (${staging.stdout})`,
 	);
-	apply(job.p.workspace, { 'src/a.ts': RESOLVED });
+	const noise = Array.from({ length: 4000 }, () => `// ${randomBytes(150).toString('base64')}`);
+	apply(job.p.workspace, {
+		'src/a.ts': big ? `${RESOLVED}${noise.join('\n')}\n` : RESOLVED,
+	});
 	writeFileSync(join(job.p.out, 'result.json'), json(goodResult()));
 	mkdirSync(job.p.claude, { recursive: true });
 	writeFileSync(join(job.p.claude, 'stream.jsonl'), STREAM_OK);
 	const posting = await cli('result');
 	server.close();
 	const token = seen.find((s) => s.path === '/token');
-	const post = seen.find((s) => s.method === 'POST');
+	const put = seen.find((s) => s.method === 'PUT');
+	const posts = seen.filter((s) => s.method === 'POST' && s.path.endsWith('/result'));
+	const post = posts.at(-1);
+	check(
+		posts.length === 2 && posting.code === 0,
+		`result CLI${big ? ', a large result' : ''}: a 5xx from the launcher is sent again (up to 3 tries) and the second answer counts`,
+	);
+	if (big) {
+		const pointer = post && JSON.parse(post.body.toString('utf8'));
+		check(
+			seen.some((s) => s.path.endsWith('/result-upload')) &&
+				put?.path === '/put' &&
+				put.headers['content-type'] === 'application/gzip' &&
+				post?.path === `/api/pipeline/merge-runs/${job.input.mergeRun}/result` &&
+				post.headers['content-encoding'] === undefined &&
+				JSON.stringify(pointer) ===
+					JSON.stringify({
+						upload: {
+							key: `_runs/merge/${job.input.mergeRun}/result.json.gz`,
+							sha256: createHash('sha256').update(put.body).digest('hex'),
+							bytes: put.body.length,
+						},
+					}) &&
+				JSON.parse(gunzipSync(put.body).toString('utf8')).outcome === 'proposed',
+			`result CLI, a result gzipping past 400 KB: uploaded to the run's key, only the pointer posted (${posting.stdout})`,
+		);
+		return;
+	}
+	check(
+		!seen.some((s) => s.path.endsWith('/result-upload') || s.method === 'PUT'),
+		'result CLI, a small result: posted inline, no upload address asked for',
+	);
 	const body =
 		post &&
 		JSON.parse(
@@ -1522,6 +1962,13 @@ async function endToEnd() {
 	);
 }
 await endToEnd();
+await endToEnd(true);
+check(
+	encodeBody({ x: randomBytes(600 * 1024).toString('base64') }).upload === true &&
+		encodeBody({ x: 'y'.repeat(500 * 1024) }).upload === false &&
+		encodeBody({ x: randomBytes(100 * 1024).toString('base64') }).upload === false,
+	'a body whose gzip is past 400 KB is flagged for upload; one that gzips smaller, or is under 400 KB, is not',
+);
 
 // `collect.mjs prepare`: the CLI's settings, agents and prompt, rendered with no placeholder left.
 {

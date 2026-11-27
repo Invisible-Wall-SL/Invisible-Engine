@@ -25,16 +25,22 @@
 //   6. find the boot config inside whatever a person pasted from a browser capture;
 //   7. keep a pasted capture as the partner reference, and report drift against it only when one
 //      was captured;
-//   8. show what the info page shows: in-play line rows, and the scatter's own or default row.
+//   8. show what the info page shows: in-play line rows, and the scatter's own or default row;
+//   9. name a server's line symbols by what it pays (H / M / L), rename them through a config in
+//      one pass, and map the wire through the project's stored names exactly as the import reads it.
 
 import {
 	POTS_OVERLAY_WIRE,
 	bookMapping,
 	linesMapping,
+	mapSymbol,
 	pickMappingForConfig,
+	tierSymbolNames,
+	withServerSymbolNames,
 } from '../packages/rgs-translator-eagaming/src/gameMappings.ts';
 import {
 	findCapturedConfig,
+	lineTierInputs,
 	readDeclaredPaytable,
 	readMappedPaytable,
 } from '../packages/rgs-translator-eagaming/src/paytable.ts';
@@ -48,7 +54,11 @@ import {
 	shownPaytable,
 	toImportedPaytable,
 } from '../packages/game-config/src/serverPaytable.ts';
-import type { PaytableRow } from '../packages/game-config/src/types.ts';
+import {
+	normalizeServerSymbolNames,
+	renameSymbols,
+} from '../packages/game-config/src/serverSymbolNames.ts';
+import type { GameConfigDoc, PaytableRow } from '../packages/game-config/src/types.ts';
 
 let failures = 0;
 const check = (name: string, ok: boolean, extra = '') => {
@@ -299,6 +309,58 @@ const rows = (row: Record<number, number>): PaytableRow[] =>
 	const authored = shownPaytable({ ...dictionary, S: { special_properties: ['scatter'], paytable: [{ '3': 1 }, { '5': 50 }] } }, ['H1', 'S']); // prettier-ignore
 	check('an authored scatter shows its own row and never a line row', same(authored.map((e) => `${e.on.of}:${e.on.mode}:${e.pay}`), ['H1:line:5,20', 'S:scatter:1,50'])); // prettier-ignore
 	check('no in-play scatter ⇒ no scatter row', !shownPaytable(dictionary, ['H1']).some((e) => e.on.mode === 'scatter')); // prettier-ignore
+}
+
+// --- 9. NAMING SYMBOLS BY WHAT THE SERVER PAYS -----------------------------------------------------
+{
+	// The partner's Getting Hot / Fortune Vault boot config (docs/reference/play4fun-collector-respin-capture.md).
+	const pays: Record<string, number[]> = {
+		PIC1: [400, 600, 1000], PIC2: [300, 400, 800], PIC3: [200, 300, 400], PIC4: [100, 150, 200],
+		PIC5: [100, 150, 200], PIC6: [30, 50, 80], PIC7: [30, 50, 80], PIC8: [30, 50, 80], PIC9: [10, 20, 30],
+	}; // prettier-ignore
+	const partner = {
+		symbols: [...Object.keys(pays), 'COIN', 'COLLECT', 'BLANK'],
+		symbolsPay: { line: Object.keys(pays) },
+		paytable: Object.entries(pays).map(([of, pay]) => ({ on: { occurs: [3, 4, 5], of, mode: 'line' }, pay })),
+	}; // prettier-ignore
+	const mapping = pickMappingForConfig(partner) ?? linesMapping;
+	const inputs = lineTierInputs(partner, mapping);
+	check('tier inputs are the line symbols, in server order, at their longest run', same(inputs.map((i) => `${i.server}:${i.topPay}`), Object.keys(pays).map((k) => `${k}:${pays[k][2]}`))); // prettier-ignore
+	const names = tierSymbolNames(inputs);
+	const expected = { PIC1: 'H1', PIC2: 'H2', PIC3: 'H3', PIC4: 'M1', PIC5: 'M2', PIC6: 'L1', PIC7: 'L2', PIC8: 'L3', PIC9: 'L4' }; // prettier-ignore
+	check('Getting Hot names: H ≥ 40% of the top pay, M ≥ 15%, L the rest, ties in server order', same(names, expected), JSON.stringify(names)); // prettier-ignore
+	const moved = tierSymbolNames(inputs, { PIC3: 'M' });
+	check('a hand override moves a symbol and renumbers its new tier by pay', moved.PIC3 === 'M1' && moved.PIC4 === 'M2' && moved.PIC5 === 'M3' && moved.PIC2 === 'H2', JSON.stringify(moved)); // prettier-ignore
+	check('a symbol that pays nothing gets no name', !('PIC0' in tierSymbolNames([...inputs, { server: 'PIC0', topPay: 0 }]))); // prettier-ignore
+
+	const stored = Object.fromEntries(Object.entries(names).map(([server, ours]) => [ours, server]));
+	const own = withServerSymbolNames(mapping, stored);
+	check('the stored names map the wire: PIC4 → M1, PIC8 → L3, PIC9 → L4', mapSymbol(own, 'PIC4') === 'M1' && mapSymbol(own, 'PIC8') === 'L3' && mapSymbol(own, 'PIC9') === 'L4'); // prettier-ignore
+	check('no two server names land on one of ours (PIC10, the shared L4, is dropped)', !('PIC10' in own.symbols) && mapSymbol(own, 'SCAT') === 'S'); // prettier-ignore
+	check('the project-named read prices M1 as PIC4', same(toImportedPaytable(readMappedPaytable(partner, own) ?? []).lines.M1, [{ '3': 100 }, { '4': 150 }, { '5': 200 }])); // prettier-ignore
+	check('the shared mapping is untouched', mapSymbol(linesMapping, 'PIC5') === 'L1' && mapSymbol(linesMapping, 'PIC8') === 'H5'); // prettier-ignore
+
+	// A doc named the shared way (PIC5 = L1, PIC8 = H5 …) renamed to the pay tiers in one pass.
+	const shared = Object.fromEntries(
+		Object.keys(pays).map((server) => [server, mapSymbol(linesMapping, server)]),
+	);
+	const renames = Object.fromEntries(
+		Object.keys(pays).map((server) => [shared[server], names[server]]),
+	);
+	const doc = {
+		symbols: { ...Object.fromEntries(Object.values(shared).map((n) => [n, { paytable: [{ '5': 1 }] }])), COIN: {} },
+		reelStrips: { BR0: [['H1', 'L1', 'H5', 'COIN', 'L3']] },
+		partnerPaytable: { entries: [{ on: { occurs: [5], of: 'L1', mode: 'line' }, pay: [200] }] },
+	} as unknown as GameConfigDoc; // prettier-ignore
+	const result = renameSymbols(doc, renames);
+	const out = 'doc' in result ? (result.doc as unknown as typeof doc & { reelStrips: { BR0: string[][] } }) : null; // prettier-ignore
+	check('a rename reaches keys, strips and references in one pass (L1 → M2 while L3 → L4, H5 → L3)', !!out && same(Object.keys(out.symbols).sort(), [...Object.values(expected), 'COIN'].sort()) && same(out.reelStrips.BR0[0], ['H1', 'M2', 'L3', 'COIN', 'L4']) && (out as unknown as { partnerPaytable: { entries: { on: { of: string } }[] } }).partnerPaytable.entries[0].on.of === 'M2', JSON.stringify(out?.reelStrips)); // prettier-ignore
+	const clash = renameSymbols({ symbols: { H1: {}, M1: {} } } as unknown as GameConfigDoc, {
+		H1: 'M1',
+	});
+	check('a rename onto a symbol that stays is refused', 'error' in clash);
+	check('normalize keeps one claim per server name and drops bad pairs', same(normalizeServerSymbolNames({ H1: 'PIC1', M1: 'PIC1', L1: 7, 'bad name': 'PIC2', L2: 'PIC6' }), { H1: 'PIC1', L2: 'PIC6' })); // prettier-ignore
+	check('normalize drops an empty map', normalizeServerSymbolNames({}) === undefined);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

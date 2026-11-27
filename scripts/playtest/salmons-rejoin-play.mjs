@@ -1059,6 +1059,14 @@ try {
 			const lobby = await fay.when((o) => !!o.me && o.screens?.lobby?.shown === true, 240);
 			// The page's boot splash fades for a moment over the game it has loaded.
 			await fay.settle(1500);
+			// A cold boot into a lobby: the flow decides its lobby at the start screen's tap, before
+			// the play field ticks, from the variables the room's states wrote (code review, T6).
+			const shownCold = await shownOn(fay.page);
+			verdict(
+				`${failure.what}: the loaded page's flow shows the lobby (salmonsLobby), its phase the room's`,
+				shownCold.includes('salmonsLobby') && (await variableOn(fay.page, 'phase')) === 'waiting',
+				{ shown: shownCold, phase: await variableOn(fay.page, 'phase') },
+			);
 			writeFileSync(join(out, `failed-${failure.id}-end.png`), await fay.page.screenshot());
 			const room = lobby.me ? await roomWith(lobby.me) : undefined;
 			const player = room?.sim.players.get(lobby.me);

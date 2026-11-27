@@ -41,6 +41,7 @@ import {
 	propName,
 	sheetKind,
 	sheetLayerList,
+	sheetSlotNames,
 	sheetSide,
 	sheetSnapTargets,
 	suggestProp,
@@ -470,6 +471,7 @@ const api = {
 	// joints from a drawing's shape, where a part's first joint snaps to on the arrange canvas, and
 	// the Layers list: the slots the mapping draws in, front to back, as the rig is made.
 	sheetLayerList,
+	sheetSlotNames,
 	SHEET_JOINTS,
 	SHEET_JOINT_LABELS,
 	sheetKind,

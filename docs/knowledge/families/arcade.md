@@ -31,8 +31,7 @@ A seed and the same keys replay the same game.
 
 - **One mechanic decides the branch.** `mechanicFor` returns `ARCADE_RULES_MECHANIC` (`playField`,
   `rgsSession: false`) or `ARCADE_ONLINE_MECHANIC` (also `room`). An RGS arcade config is
-  `unplayable`. Enforced in `packages/engine-game/src/game/mechanic.ts`; pinned by
-  `check:arcade-rules`.
+  `unplayable`. Enforced in `packages/engine-game/src/game/mechanic.ts`; `check:arcade-rules`.
 - **Publishing follows playability, not family.** `apps/launcher-api/src/lib/server/familyGate.ts`
   refuses only `unplayable` configs. A rules game is dealt the refusing `freePlay` mock.
   `scripts/delivery-family-gate.mjs` refuses every arcade game for delivery.
@@ -58,8 +57,9 @@ A seed and the same keys replay the same game.
   both predictors. Its choices hash the seed; a change re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
   (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
-  `server` variables `online.ts` writes from each state (`variable-server-owned`). The own
-  `ability` is raised on the press (`createAbilityPredictor`); the room's echo of it is dropped per
+  `server` variables (`variable-server-owned`), written as each state lands with others' places;
+  the own reconcile and `acked` take the newest once a frame (`check:netcode` stall rows). Own
+  `ability` is raised on the press (`createAbilityPredictor`); the room's echo is dropped per
   button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
@@ -87,7 +87,7 @@ A seed and the same keys replay the same game.
   clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
   A line's hand and style and the rising catch text are the player's, not its look's (`standOf`).
 - **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
-- **A character sheet and zone art are carried, not normalized** (C2a; `arcade.zoneArt`, [zone-art](../../design/zone-art.md)): `normalizeGameConfigDoc` drops them (slot bundles keep that code); read them off the raw config (`characterSheet.ts`, `zoneArt.ts` `zoneArtOf`). Zone art is cosmetic, in no room or fingerprint; a family with no entry draws as before. Its `@`-keys (`ZONE_ART_SCENERY`: `@trees`) are scenery a generator's art places, never a zone's family, and never a rig (`zoneArtTakesRig`: ~430 rigs are too heavy for a phone); Salmons' river keeps every seeded draw with or without them (`check:salmons-art` mounts the river in Node and compares). A rig picture is drawn by `engine-layout/zone-art-rig`, loaded only for a config whose zone art names a rig: a plain game's stamp node binds `ZoneArtRig.svelte`, Salmons' art loads it beside its textures. `check:character-sheet`, `check:zone-art`.
+- **A character sheet and zone art are carried, not normalized** (C2a; `arcade.zoneArt`, [zone-art](../../design/zone-art.md)): `normalizeGameConfigDoc` drops them (slot bundles keep that code); read them off the raw config (`characterSheet.ts`, `zoneArt.ts` `zoneArtOf`). Zone art is cosmetic, in no room or fingerprint; a family with no entry draws as before. Its `@`-keys (`ZONE_ART_SCENERY`: `@trees`) are scenery a generator's art places, never a zone's family, and never a rig (`zoneArtTakesRig`: ~430 rigs are too heavy for a phone); Salmons' river keeps every seeded draw with or without them (`check:salmons-art` mounts the river in Node and compares). The river is drawn in ordered chunks, the ground one render group (`salmonsArt/river.ts`): tiles that overlap keep the order they were laid in, the riverbed's ripple is measured over the tiles in view as when each was culled on its own, what animates moves only while in view, and the pieces among the players come and go exactly with the view; the art fingerprint hashes what is drawn in which order, not the containers, and `scripts/salmons/river-pixels.mjs --base <checkout>` compares the pixels with another checkout's. The projected spawn layer sorts only when a depth changes the order (`depthOrder.ts`). A rig picture is drawn by `engine-layout/zone-art-rig`, loaded only for a config whose zone art names a rig: a plain game's stamp node binds `ZoneArtRig.svelte`, Salmons' art loads it beside its textures. `check:character-sheet`, `check:zone-art`.
 - **`<SpawnLayer>` and `arcadeClips` know nothing of a lean** (C9, `view.turn`): a character that turns smoothly has no published clip; `engine-layout/sheet-clip` draws it through the code-look channel (arcade runtimes only). `check:character-turn`.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it

@@ -46,11 +46,12 @@
 	{#snippet info()}
 		<p>
 			Any two readings side by side: per phase fps, p95 frame time, frames over 33 ms and frames
-			(idle, spinning and round for a slot; menu and play for an arcade game), then what each frame
-			did (draws, passes, texture uploads, GL calls, JS ms — and an arcade game's sim steps, sim ms,
-			bodies, room ms and patches) and texture memory, with B − A. Green is better, red worse — a
-			difference, not a verdict: two devices, or a lab run beside a phone, differ for reasons a
-			build did not cause.
+			(idle, spinning and round for a slot; loading, lobby, play and spectate for an arcade game,
+			menu and play for an older reading), their busy time per frame (perf: 10), then what each
+			frame did (draws, passes, texture uploads, GL calls, JS ms — and an arcade game's sim steps,
+			sim ms, bodies, room ms and patches) and texture memory, with B − A. Green is better, red
+			worse — a difference, not a verdict: two devices, or a lab run beside a phone, differ for
+			reasons a build did not cause.
 		</p>
 	{/snippet}
 	<div class="pick">

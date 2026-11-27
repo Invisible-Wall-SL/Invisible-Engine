@@ -22,6 +22,7 @@ import { joinOnlineRoom } from '../families/arcade';
 import { startErrorTracking } from '../game/errorTracking';
 import {
 	publishExpandMinReelsToFacade,
+	publishServerSymbolNamesToFacade,
 	publishWinLevelsToFacade,
 	resetGameConfigCache,
 } from '../game/gameConfig';
@@ -54,5 +55,6 @@ export const load = async () => {
 	resetGameConfigCache();
 	publishWinLevelsToFacade();
 	publishExpandMinReelsToFacade();
+	publishServerSymbolNamesToFacade();
 	return {};
 };

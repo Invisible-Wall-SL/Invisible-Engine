@@ -1053,6 +1053,18 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			: undefined;
 	}
 
+	/**
+	 * Publish the project's own names for its server's symbols (`serverSymbolNames`, our name → server
+	 * name) to the global the RGS FACADE maps the wire through — the same bridge as
+	 * {@link publishWinLevelsToFacade}. Unset when the project names none, which leaves the facade on
+	 * the shared mapping. Called beside it, at boot, before the game authenticates.
+	 */
+	function publishServerSymbolNamesToFacade(): void {
+		const names = getActiveGameConfig().serverSymbolNames;
+		(globalThis as { __IE_SERVER_SYMBOL_NAMES__?: unknown }).__IE_SERVER_SYMBOL_NAMES__ =
+			names && Object.keys(names).length ? { ...names } : undefined;
+	}
+
 	let warned = false;
 
 	/**
@@ -1140,6 +1152,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		payoutDivisor,
 		publishWinLevelsToFacade,
 		publishExpandMinReelsToFacade,
+		publishServerSymbolNamesToFacade,
 		publishWinPresentation,
 		resetGameConfigCache,
 		captureServerGrid,

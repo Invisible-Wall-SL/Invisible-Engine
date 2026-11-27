@@ -7,8 +7,9 @@
 
 import {
 	PERF_PHASES,
+	phasesFor,
 	phasesOf,
-	setPhases,
+	readingThrottled,
 	type PerfPhase,
 	type PerfReportListItem,
 	type PhaseSet,
@@ -49,6 +50,7 @@ export interface BudgetMetricDef {
 export const BUDGET_METRICS = [
 	'fps',
 	'p95',
+	'busy',
 	'draws',
 	'gpuMb',
 	'transferMb',
@@ -79,6 +81,17 @@ export const BUDGET_METRIC_DEFS: Record<BudgetMetric, BudgetMetricDef> = {
 		min: 1,
 		max: 1000,
 		from: 'readings',
+	},
+	busy: {
+		id: 'busy',
+		label: 'p95 busy time',
+		unit: 'ms',
+		better: 'lower',
+		phased: true,
+		perDevice: true,
+		min: 1,
+		max: 1000,
+		from: "readings' busy time (`perf: 10`): the main thread's work in a frame, not its interval",
 	},
 	draws: {
 		id: 'draws',
@@ -173,6 +186,10 @@ export interface BudgetOverride extends BudgetLine {
  *
  * The arcade phases' lines are studio defaults by analogy, not an owner number: menu ≈ idle (a
  * screen at rest, 60 fps), play ≈ spinning (the field moving, ≥ 50), the same p95 and desktop lines.
+ * A `perf: 10` arcade reading is judged on BUSY time, not fps (a device that misses 60 Hz by 1 ms
+ * reads 30 fps; the display and the browser decide the frame rate, the game decides its busy time):
+ * the p95 of a frame's busy time must fit the display's frame, 16.7 ms at 60 Hz (warn from 14 ms),
+ * in the lobby, in play and spectating on every device class; loading has no line.
  *
  * Transfer (`perf: 9`, every device class): what a reading's page downloads takes the shipped-size
  * line (warn > 20 MB, fail > 25 MB) — the owner's "shipped ≤ 25 MB" is what a first visit fetches.
@@ -183,9 +200,15 @@ const PHONE_FPS: Record<PerfPhase, BudgetThresholds> = {
 	idle: { warn: 58, fail: 55 },
 	spinning: { warn: 55, fail: 50 },
 	round: { warn: 55, fail: 50 },
+	loading: { warn: 58, fail: 55 },
+	lobby: { warn: 58, fail: 55 },
 	menu: { warn: 58, fail: 55 },
 	play: { warn: 55, fail: 50 },
+	spectate: { warn: 55, fail: 50 },
 };
+
+const BUSY_LINE: BudgetThresholds = { warn: 14, fail: 16.7 };
+const BUSY_PHASES: readonly PerfPhase[] = ['lobby', 'play', 'spectate'];
 
 const TRANSFER_LINE: BudgetThresholds = { warn: 20, fail: 25 };
 const FILE_LINE: BudgetThresholds = { warn: 3, fail: 6 };
@@ -215,6 +238,9 @@ export const STUDIO_BUDGETS: readonly BudgetLine[] = [
 		{ deviceClass: 'desktop', metric: 'fps', phase, warn: 58, fail: 55 },
 		{ deviceClass: 'desktop', metric: 'p95', phase, warn: 20, fail: 25 },
 	]),
+	...BUDGET_DEVICE_CLASSES.flatMap((deviceClass) =>
+		BUSY_PHASES.map((phase): BudgetLine => ({ deviceClass, metric: 'busy', phase, ...BUSY_LINE })),
+	),
 	{ deviceClass: 'all', metric: 'shippedMb', phase: '', warn: 20, fail: 25 },
 ];
 
@@ -242,7 +268,8 @@ export function budgetLinesFor(
 	budgets: readonly EffectiveBudget[],
 	set: PhaseSet,
 ): EffectiveBudget[] {
-	const phases = setPhases(set);
+	// The current phases: an arcade game's old `menu` line is listed only while overridden.
+	const phases = phasesFor(set, 10);
 	return budgets.filter((b) => b.phase === '' || phases.includes(b.phase) || !!b.override);
 }
 
@@ -359,6 +386,7 @@ type ReadingForBudget = Pick<
 	| 'deviceClass'
 	| 'phaseSet'
 	| 'capped30'
+	| 'counts'
 	| 'drawsMean'
 	| 'textureMb'
 	| 'flags'
@@ -409,10 +437,16 @@ export function evaluateReadings(
 ): MetricVerdict[] {
 	const line = lookup(budgets);
 	const out: MetricVerdict[] = [];
-	const timed = readings.filter((r) => !r.capped30);
+	// A throttled page's frames are the browser's: left out of every timing, never of its counts.
+	const comparable = readings.filter((r) => !readingThrottled(r));
+	// An arcade reading that reports busy time is judged on it, not on its frame rate.
+	const busyJudged = (r: ReadingForBudget) => r.phaseSet === 'arcade' && !!r.counts?.timing;
+	const timed = comparable.filter((r) => !r.capped30 && !busyJudged(r));
 	const phases = phasesOf(readings);
 	for (const metric of ['fps', 'p95'] as const) {
 		for (const phase of phases) {
+			const seen = readings.filter((r) => r[phase]);
+			if (seen.length && seen.every(busyJudged)) continue;
 			const enough = timed
 				.map((r) => r[phase])
 				.filter((p): p is NonNullable<typeof p> => !!p && p.frames >= MIN_PHASE_FRAMES);
@@ -426,6 +460,25 @@ export function evaluateReadings(
 				warn: b?.warn ?? null,
 				fail: b?.fail ?? null,
 				verdict: judge(metric, value, b),
+			});
+		}
+	}
+	// Busy time is judged only where a reading measured it (`perf: 10`).
+	if (readings.some((r) => r.counts?.timing)) {
+		for (const phase of phases) {
+			const enough = comparable
+				.map((r) => r.counts?.timing?.busy[phase])
+				.filter((b): b is NonNullable<typeof b> => !!b && b.frames >= MIN_PHASE_FRAMES);
+			const key = { deviceClass, metric: 'busy' as const, phase };
+			const b = line(key);
+			const value = median(enough.map((b) => b.p95));
+			out.push({
+				...key,
+				value,
+				frames: enough.reduce((n, b) => n + b.frames, 0),
+				warn: b?.warn ?? null,
+				fail: b?.fail ?? null,
+				verdict: judge('busy', value, b),
 			});
 		}
 	}

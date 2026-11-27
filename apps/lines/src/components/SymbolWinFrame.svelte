@@ -3,6 +3,7 @@
 
 	import { SYMBOL_SIZE, hexToTintNumber } from 'engine-game';
 	import { bakedHighlight } from '../editor-scenes';
+	import { getContext } from '../game/context';
 
 	/**
 	 * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine, drawn over a
@@ -27,6 +28,7 @@
 	};
 
 	const props: Props = $props();
+	const context = getContext();
 
 	// Falls back to the coded `anticipation`/`payframe` frame when no highlight is authored
 	// (un-baked = identical). That bundle is a coded asset of this app — the shared `_runtime/lines`
@@ -42,16 +44,42 @@
 		if (highlight?.tintMode === 'winLine') return hexToTintNumber(props.winLineColor);
 		return undefined;
 	});
+
+	const geometry = $derived(context.stateGameDerived.boardGeometry());
 </script>
 
-<RigProvider
-	x={props.x}
-	y={props.y}
-	key={frameKey}
-	width={SYMBOL_SIZE * 0.19}
-	tint={frameTint}
-	parked={props.parked}
-	restart={props.restart}
->
-	<RigTrack trackIndex={0} animationName={frameAnimation} loop />
-</RigProvider>
+<!--
+	An authored frame fits its Rigger Bounds frame into the live cell, centred (`anchor={0.5}`,
+	contain), so the box an author draws around the symbol in the Rigger is the box it covers here.
+	`loadScaleBase={1}` divides out the symbol bundles' load scale (`SYMBOL_RIG_LOAD_SCALE`), which no
+	width fit cancels. The coded payframe keeps its hand-tuned width on its skeleton origin.
+-->
+{#if highlight}
+	<RigProvider
+		x={props.x}
+		y={props.y}
+		key={frameKey}
+		anchor={0.5}
+		width={geometry.cellWidthLocal}
+		height={geometry.cellHeightLocal}
+		fit="contain"
+		loadScaleBase={1}
+		tint={frameTint}
+		parked={props.parked}
+		restart={props.restart}
+	>
+		<RigTrack trackIndex={0} animationName={frameAnimation} loop />
+	</RigProvider>
+{:else}
+	<RigProvider
+		x={props.x}
+		y={props.y}
+		key={frameKey}
+		width={SYMBOL_SIZE * 0.19}
+		tint={frameTint}
+		parked={props.parked}
+		restart={props.restart}
+	>
+		<RigTrack trackIndex={0} animationName={frameAnimation} loop />
+	</RigProvider>
+{/if}
