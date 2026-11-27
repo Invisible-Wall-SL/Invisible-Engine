@@ -309,7 +309,19 @@
 			data.builds.map((b) => ({
 				id: b.id,
 				archived: !!b.archivedAt,
-				lapsed: !b.keep && Date.now() - Date.parse(b.registeredAt) > PERF_RETENTION_MS,
+				// The newest live build of its game and kind is never purged, so it is not lapsed.
+				lapsed:
+					!b.keep &&
+					Date.now() - Date.parse(b.registeredAt) > PERF_RETENTION_MS &&
+					data.builds.some(
+						(o) =>
+							!o.archivedAt &&
+							o.id !== b.id &&
+							o.gameKey === b.gameKey &&
+							o.kind === b.kind &&
+							(o.registeredAt > b.registeredAt ||
+								(o.registeredAt === b.registeredAt && o.id > b.id)),
+					),
 			})),
 		() => invalidate(PROFILER_BUILDS),
 	);
@@ -1086,6 +1098,7 @@
 					filed={data.filed}
 					fileAs={data.fileAs}
 					projectKey={data.projectKey}
+					showArchived={data.showArchived}
 					bugTools={new Set(data.tools.map((t) => t.id))}
 					onOpenBuild={openBuild}
 					onCompare={compare}

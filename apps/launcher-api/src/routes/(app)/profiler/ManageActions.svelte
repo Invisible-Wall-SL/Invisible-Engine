@@ -39,6 +39,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={(e) => e.key === 'Escape' && (before = false)} />
+
 <span class="manage">
 	{#if ticked.length}
 		<span class="count">{ticked.length} selected</span>

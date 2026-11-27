@@ -22,6 +22,8 @@
 		/** Which list each finding is filed in. */
 		fileAs: Record<string, BugKind>;
 		projectKey: string;
+		/** Archived rows are in the list: a filing re-reads the live ones, so it is off meanwhile. */
+		showArchived: boolean;
 		/** The viewer's tools: File as bug needs the list's own. */
 		bugTools: ReadonlySet<string>;
 		onOpenBuild: (id: string) => void;
@@ -208,6 +210,11 @@
 								{#if !filed[f.id] || (filed[f.id].state === 'regressed' && !filed[f.id].exact)}
 									{#if !props.filed}
 										<span class="muted" title="The filed bugs could not be read this load">?</span>
+									{:else if props.showArchived}
+										<span
+											class="muted"
+											title="Hide archived rows (Readings or Builds) to file this finding">—</span
+										>
 									{:else if props.bugTools.has(BUG_TOOL[props.fileAs[f.id]])}
 										<!-- A query on another route: `resolve()` cannot carry one. -->
 										<!-- eslint-disable svelte/no-navigation-without-resolve -->

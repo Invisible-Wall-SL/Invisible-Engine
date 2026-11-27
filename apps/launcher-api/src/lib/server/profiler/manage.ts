@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import { bugRef, BUG_ACTIVE_STATUSES, BUG_STATUS_LABELS, isBugStatus } from '$lib/bugReports';
+import type { Refusal, RowType } from '$lib/profilerManageTypes';
 import { getDb } from '../db';
 import { bugReports, perfBuilds, perfFindingBugs, perfReports } from '../db/schema';
 import { deleteObject } from '../r2';
@@ -20,18 +21,11 @@ import { removeClaimed } from './purge';
  *   What it refuses, it says why.
  */
 
-export type RowType = 'reading' | 'build';
-
 /** Which rows: the named ids, or every row of the project older than `before` / of a `perf:` below. */
 export interface Target {
 	ids?: readonly string[];
 	before?: Date;
 	perfBefore?: number;
-}
-
-export interface Refusal {
-	id: string;
-	reason: string;
 }
 
 export interface ManageResult {

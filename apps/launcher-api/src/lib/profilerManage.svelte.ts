@@ -1,18 +1,12 @@
 import { askConfirm } from '$lib/dialogs.svelte';
 import { PERF_RETENTION_DAYS } from '$lib/profiler';
+import type { Refusal, RowType } from '$lib/profilerManageTypes';
 
 /**
  * The page side of archiving and deleting readings and build records (`/api/profiler/manage`): the
  * selection, the calls and what they said. One per list, so the header's icon buttons and the
  * table's checkboxes read the same state.
  */
-
-export type RowType = 'reading' | 'build';
-
-export interface Refusal {
-	id: string;
-	reason: string;
-}
 
 interface Answer {
 	done?: string[];

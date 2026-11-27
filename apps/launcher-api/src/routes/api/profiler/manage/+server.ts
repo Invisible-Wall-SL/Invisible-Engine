@@ -1,11 +1,11 @@
 import { error, json } from '@sveltejs/kit';
+import type { RowType } from '$lib/profilerManageTypes';
 import { jsonBody, requireTool } from '$lib/server/http';
 import {
 	countArchivable,
 	deleteRows,
 	MANAGE_IDS_MAX,
 	setArchived,
-	type RowType,
 	type Target,
 } from '$lib/server/profiler/manage';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
@@ -28,7 +28,11 @@ function targetOf(body: Record<string, unknown>, type: RowType): Target {
 		target.ids = [...new Set(body.ids as string[])];
 	}
 	if (body.before !== undefined) {
-		const before = typeof body.before === 'string' ? new Date(body.before) : null;
+		// An ISO date or time only: `new Date('12')` would read as a day in 2001.
+		const iso =
+			typeof body.before === 'string' &&
+			/^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:\d{2})?)?$/.test(body.before);
+		const before = iso ? new Date(body.before as string) : null;
 		if (!before || Number.isNaN(before.getTime())) {
 			throw error(400, '"before" must be a date, like 2026-11-27.');
 		}

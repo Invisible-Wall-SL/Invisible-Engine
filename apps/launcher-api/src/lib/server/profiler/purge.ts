@@ -59,7 +59,10 @@ export async function removeClaimed({
 		try {
 			await deleteObject(row.r2Key);
 		} catch (e) {
-			console.error(`profiler purge: file of ${what} ${row.id} not deleted; retried next run`, e);
+			console.error(
+				`profiler: file of ${what} ${row.id} not deleted; its row stays hidden and the daily purge retries`,
+				e,
+			);
 			result.failed.push(row.id);
 			continue;
 		}
