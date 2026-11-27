@@ -52,6 +52,16 @@ const Q = /* glsl */ `
 vec4 q8(vec4 c) { return floor(c * 255.0 + 0.5) / 255.0; }
 `;
 
+/** `HP`: `highp` where the fragment stage has it (places are hundreds of px, read to a fraction of
+ *  one), else the best there is, so no GPU refuses a program over it. */
+const HP = /* glsl */ `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+#define HP highp
+#else
+#define HP mediump
+#endif
+`;
+
 /** How many points the salmon's glint rope has (`looks.ts` `GLINT_POINTS`). */
 export const GLINT_STRIP_POINTS = 7;
 
@@ -67,48 +77,52 @@ const salmonBit: HighShaderBit = {
 			vLocal = aPosition;
 		`,
 		end: /* glsl */ `
-			vGlint = vec4(uGlintAlpha) * uWorldColorAlpha;
+			// The glint mesh's alpha as Pixi packed it: its own times its ancestors' (the rope's
+			// \`uColor.a\`), clamped, cut to a byte.
+			float glintAlpha = floor(clamp(uGlintAlpha * uColor.a, 0.0, 1.0) * 255.0) / 255.0;
+			vGlint = vec4(glintAlpha) * uWorldColorAlpha;
 		`,
 	},
 	fragment: {
 		header: /* glsl */ `
-			in highp vec2 vLocal;
+			${HP}
+			in HP vec2 vLocal;
 			in vec4 vGlint;
 			uniform sampler2D uGlintTexture;
 			uniform float uUnder;
 			uniform float uGlintOn;
 			uniform float uColorMatrix[20];
 			uniform float uMatrixAlpha;
-			uniform highp vec2 uGlintStrip[${GLINT_STRIP_POINTS * 2}];
+			uniform HP vec2 uGlintStrip[${GLINT_STRIP_POINTS * 2}];
 			${Q}
-			vec4 glintIn(highp vec2 p, highp vec2 a, highp vec2 b, highp vec2 c, highp vec2 ua, highp vec2 ub, highp vec2 uc)
+			vec4 glintIn(HP vec2 p, HP vec2 a, HP vec2 b, HP vec2 c, HP vec2 ua, HP vec2 ub, HP vec2 uc)
 			{
-				highp vec2 v0 = b - a;
-				highp vec2 v1 = c - a;
-				highp vec2 v2 = p - a;
-				highp float d = v0.x * v1.y - v1.x * v0.y;
+				HP vec2 v0 = b - a;
+				HP vec2 v1 = c - a;
+				HP vec2 v2 = p - a;
+				HP float d = v0.x * v1.y - v1.x * v0.y;
 				if (d == 0.0) return vec4(0.0);
-				highp float wb = (v2.x * v1.y - v1.x * v2.y) / d;
-				highp float wc = (v0.x * v2.y - v2.x * v0.y) / d;
-				highp float wa = 1.0 - wb - wc;
+				HP float wb = (v2.x * v1.y - v1.x * v2.y) / d;
+				HP float wc = (v0.x * v2.y - v2.x * v0.y) / d;
+				HP float wa = 1.0 - wb - wc;
 				if (wa < 0.0 || wb < 0.0 || wc < 0.0) return vec4(0.0);
 				return texture(uGlintTexture, wa * ua + wb * ub + wc * uc) * vGlint;
 			}
 			// The glint rope's strip as \`RopeGeometry\` builds it: point i's two vertices (2i over the
 			// line, 2i + 1 under it) at u = i / (points - 1), v 0 and 1; segment i the triangles
 			// (2i, 2i + 1, 2i + 2) and (2i + 2, 2i + 1, 2i + 3), each adding as the additive mesh did.
-			vec4 glintAt(highp vec2 p)
+			vec4 glintAt(HP vec2 p)
 			{
 				vec4 sum = vec4(0.0);
-				highp float n = ${(GLINT_STRIP_POINTS - 1).toFixed(1)};
+				HP float n = ${(GLINT_STRIP_POINTS - 1).toFixed(1)};
 				for (int i = 0; i < ${GLINT_STRIP_POINTS - 1}; i++)
 				{
-					highp float u0 = float(i) / n;
-					highp float u1 = float(i + 1) / n;
-					highp vec2 a = uGlintStrip[i * 2];
-					highp vec2 b = uGlintStrip[i * 2 + 1];
-					highp vec2 c = uGlintStrip[i * 2 + 2];
-					highp vec2 d = uGlintStrip[i * 2 + 3];
+					HP float u0 = float(i) / n;
+					HP float u1 = float(i + 1) / n;
+					HP vec2 a = uGlintStrip[i * 2];
+					HP vec2 b = uGlintStrip[i * 2 + 1];
+					HP vec2 c = uGlintStrip[i * 2 + 2];
+					HP vec2 d = uGlintStrip[i * 2 + 3];
 					sum += glintIn(p, a, b, c, vec2(u0, 0.0), vec2(u0, 1.0), vec2(u1, 0.0));
 					sum += glintIn(p, c, b, d, vec2(u1, 0.0), vec2(u0, 1.0), vec2(u1, 1.0));
 				}
@@ -182,15 +196,16 @@ const wadeBit: HighShaderBit = {
 			// maps those px to the screen by the drawable's transform less its own (\`uFeetMatrix\`).
 			mat3 screen = worldTransformMatrix * modelMatrix;
 			highp float det = uFeetMatrix[0][0] * uFeetMatrix[1][1] - uFeetMatrix[1][0] * uFeetMatrix[0][1];
-			highp vec2 up = vec2(-uFeetMatrix[1][0], uFeetMatrix[0][0]) / det;
-			highp vec2 down = screen[0].xy * up.x + screen[1].xy * up.y;
+			highp vec2 feetDown = vec2(-uFeetMatrix[1][0], uFeetMatrix[0][0]) / det;
+			highp vec2 down = screen[0].xy * feetDown.x + screen[1].xy * feetDown.y;
 			vPixel = 1.0 / (length(down) * uScreenResolution);
 		`,
 	},
 	fragment: {
 		header: /* glsl */ `
-			in highp vec2 vFeet;
-			in highp float vPixel;
+			${HP}
+			in HP vec2 vFeet;
+			in HP float vPixel;
 			uniform float uWading;
 			uniform vec4 uLine;
 			uniform vec4 uUnder;
@@ -246,32 +261,37 @@ const programsOf = () =>
 		),
 	});
 
-let refused = false;
-
 const isWebGL = (renderer: Renderer): renderer is WebGLRenderer =>
 	renderer.type === RendererType.WEBGL;
 
-/**
- * Whether the GPU takes the body programs (asked of the driver as the look is mounted, before
- * any is drawn with them); `false` on a renderer that is not WebGL. A body refused them is drawn
- * by Pixi's own program: crisp, as out of the water.
- */
-export function bodyShadersLink(app: Application): boolean {
+const refused = new Set<string>();
+/** Whether the GPU takes `programs` (asked of the driver once each); `false` on a renderer that is
+ *  not WebGL. */
+const links = (app: Application, name: string, programs: GlProgram[]): boolean => {
 	const { renderer } = app;
 	if (!isWebGL(renderer)) return false;
-	const all = programsOf();
-	const ok =
-		programLinks(renderer, all.salmon) &&
-		programLinks(renderer, all.wadeMesh) &&
-		programLinks(renderer, all.wadeGraphics);
-	if (!ok && !refused) console.warn('[salmons-art] the body shaders did not compile on this GPU');
-	if (!ok) refused = true;
+	const ok = programs.every((program) => programLinks(renderer, program));
+	if (!ok && !refused.has(name))
+		console.warn(`[salmons-art] the ${name} program did not compile on this GPU`);
+	if (!ok) refused.add(name);
 	return ok;
-}
+};
+
+/** Whether the salmon's program can draw it; refused, it is drawn by Pixi's own: crisp, as out of
+ *  the water, with no glint. */
+export const salmonLinks = (app: Application): boolean =>
+	links(app, 'salmon', [programsOf().salmon]);
+
+/** Whether a wading body's programs can draw it; refused, the wading pass draws it (`wade.ts`). */
+export const wadeLinks = (app: Application): boolean => {
+	const { wadeMesh, wadeGraphics } = programsOf();
+	return links(app, 'wading', [wadeMesh, wadeGraphics]);
+};
 
 /** Ask the driver for the programs as the river mounts, not as the first body is drawn. */
 export const warmBodyShaders = (app: Application): void => {
-	bodyShadersLink(app);
+	salmonLinks(app);
+	wadeLinks(app);
 };
 
 /** A mesh's program that draws its texture: a mesh hands it each texture it is given, and it
@@ -312,8 +332,7 @@ export type SalmonUnder = {
 	under(matrix: readonly number[] | undefined): void;
 	/**
 	 * The glint over the rope this frame: its strip (`RopeGeometry` of the glint rope) and how the
-	 * strip's px are taken to the rope's (`scale`), at `alpha` (the glint mesh's own, packed as Pixi
-	 * packs a mesh's); `alpha` 0 ⇒ none.
+	 * strip's px are taken to the rope's (`scale`), at `alpha` (the glint mesh's own); 0 ⇒ none.
 	 */
 	glint(strip: RopeGeometry, scale: number, alpha: number): void;
 	destroy(): void;
@@ -327,11 +346,8 @@ type SalmonUniforms = {
 	uGlintStrip: Float32Array;
 };
 
-/** A mesh's alpha as Pixi packs it into its vertex colour: clamped to 0..1, cut to a byte. */
-export const packedAlpha = (alpha: number): number =>
-	((Math.min(1, Math.max(0, alpha)) * 255) | 0) / 255;
-
-/** The program a salmon's rope is drawn by, with the glint's texture `glint`. */
+/** The program a salmon's rope is drawn by, with the glint's texture `glint` (a whole canvas: it is
+ *  sampled with the strip's own UVs, no frame). */
 export function salmonUnder(texture: Texture, glint: Texture): SalmonUnder {
 	const uniforms = new UniformGroup({
 		uUnder: { value: 0, type: 'f32' },
@@ -358,10 +374,9 @@ export function salmonUnder(texture: Texture, glint: Texture): SalmonUnder {
 			uniforms.update();
 		},
 		glint: (strip, scale, alpha) => {
-			const a = packedAlpha(alpha);
-			u.uGlintOn = a > 0 ? 1 : 0;
-			u.uGlintAlpha = a;
-			if (a > 0) {
+			u.uGlintOn = alpha > 0 ? 1 : 0;
+			u.uGlintAlpha = alpha;
+			if (alpha > 0) {
 				const at = strip.positions;
 				for (let i = 0; i < u.uGlintStrip.length; i++) u.uGlintStrip[i] = at[i] * scale;
 			}

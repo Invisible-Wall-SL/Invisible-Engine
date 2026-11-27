@@ -1051,9 +1051,9 @@ check(
 	},
 );
 
-const { packedAlpha } = await import('../packages/engine-layout/src/lib/salmonsArt/bodyShaders.ts');
+const { quadOf } = await import('../packages/engine-layout/src/lib/salmonsArt/looks.ts');
 check(
-	'body shaders: the salmon’s step is ColorMatrixFilter’s fragment, and a mesh’s alpha packed as Pixi packs it',
+	'body shaders: the salmon’s step is ColorMatrixFilter’s fragment, and the glint’s alpha packed as Pixi packs it',
 	() => {
 		assert.ok(new ColorMatrixFilter().resolution === 1, 'the pass it replaces ran at resolution 1');
 		const source = readFileSync(join(ART, 'bodyShaders.ts'), 'utf8');
@@ -1073,16 +1073,52 @@ check(
 		for (const line of lines) assert.ok(source.includes(line), `the step has \`${line}\``);
 		assert.match(colorMatrixFilterFrag, /vec3 rgb = mix\(color\.rgb, result\.rgb, uAlpha\);/);
 		assert.match(source, /vec3 rgb = mix\(color\.rgb, result\.rgb, uMatrixAlpha\);/);
-		assert.equal(packedAlpha(0.5), 127 / 255);
-		assert.equal(packedAlpha(1.2), 1, 'clamped to 1, as a group alpha is');
-		assert.equal(packedAlpha(-0.1), 0);
+		// `updateRenderGroupTransforms`: the group alpha clamped to 0..1, then `* 255 | 0`.
+		assert.ok(
+			source.includes('floor(clamp(uGlintAlpha * uColor.a, 0.0, 1.0) * 255.0) / 255.0'),
+			'the glint’s alpha with its ancestors’, clamped and cut to a byte',
+		);
 		assert.match(
 			readFileSync(join(ART, 'index.ts'), 'utf8'),
-			/river: \(into, app\) => \{[\s\S]*?\n\t\t\twarmBodyShaders\(app\);\n/,
+			/river: \(into, app\) => \{[\s\S]*?warmBodyShaders\(app\);/,
 			'the driver is asked for the programs as the river mounts',
 		);
 	},
 );
+
+check('the bear’s quad: where a Sprite puts it, and its frame on the page, trimmed or not', () => {
+	const TextureSource = Texture.WHITE.source.constructor;
+	const base = new TextureSource({ width: 512, height: 256 });
+	const plain = new Texture({ source: base, frame: new Rectangle(100, 20, 80, 40) });
+	const trimmed = new Texture({
+		source: base,
+		frame: new Rectangle(100, 20, 60, 30),
+		orig: new Rectangle(0, 0, 80, 40),
+		trim: new Rectangle(12, 6, 60, 30),
+	});
+	for (const [name, texture, box] of [
+		['untrimmed', plain, [-40, -20, 40, 20]],
+		['trimmed', trimmed, [-28, -14, 32, 16]],
+	]) {
+		const quad = quadOf(texture, 0.5);
+		const p = [...quad.positions];
+		assert.deepEqual([p[0], p[1], p[4], p[5]], box, `${name}: Sprite's quad bounds`);
+		texture.textureMatrix.update();
+		const m = texture.textureMatrix.mapCoord;
+		const page = (i) => {
+			const [u, v] = [quad.uvs[i * 2], quad.uvs[i * 2 + 1]];
+			return [(m.a * u + m.c * v + m.tx) * base.width, (m.b * u + m.d * v + m.ty) * base.height];
+		};
+		const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 1e-4); // UVs are float32
+		const { frame } = texture;
+		assert.ok(near(page(0), [frame.x, frame.y]), `${name}: its first corner on the frame’s`);
+		assert.ok(
+			near(page(2), [frame.x + frame.width, frame.y + frame.height]),
+			`${name}: its far corner on the frame’s`,
+		);
+		quad.destroy();
+	}
+});
 
 check(
 	'wading: the pass draws underTint’s colour under the line and finds the look’s place at any zoom and resolution',

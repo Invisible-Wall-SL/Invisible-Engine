@@ -192,14 +192,17 @@ export function createWading(
 ): Wading {
 	const waders = new Map<string, Wader>();
 
-	const bare = (wader: Wader) => {
-		if (wader.own) wader.look.water?.(undefined);
-		wader.own = false;
+	const unfilter = (wader: Wader) => {
 		if (wader.filtered) {
 			wader.filtered.filters = [];
 			wader.filtered.filterArea = undefined;
 		}
 		wader.filtered = undefined;
+	};
+	const bare = (wader: Wader) => {
+		if (wader.own) wader.look.water?.(undefined);
+		wader.own = false;
+		unfilter(wader);
 	};
 	/**
 	 * Put the wader's water on the container its look is in, or take it off on land. The pass
@@ -211,11 +214,7 @@ export function createWading(
 		const { into, app, line } = wader;
 		if (!into || !app || !line) return bare(wader);
 		if (wader.look.water?.({ line, under: wader.under })) {
-			if (wader.filtered) {
-				wader.filtered.filters = [];
-				wader.filtered.filterArea = undefined;
-				wader.filtered = undefined;
-			}
+			unfilter(wader);
 			wader.own = true;
 			return;
 		}

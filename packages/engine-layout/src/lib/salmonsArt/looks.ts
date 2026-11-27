@@ -26,8 +26,10 @@ import {
 } from './leap';
 import { BLOOD, createRedness, type Blood } from './blood';
 import {
-	bodyShadersLink,
+	GLINT_STRIP_POINTS,
+	salmonLinks,
 	salmonUnder,
+	wadeLinks,
 	wadeGraphicsUnder,
 	wadeMeshUnder,
 	type WadeUnder,
@@ -175,7 +177,7 @@ function highlightTexture(): Texture {
 /** The old salmon's length, px: its sizes are in these units, scaled to the body. */
 const OLD_SALMON = 50;
 const ROPE_POINTS = 12;
-const GLINT_POINTS = 7;
+const GLINT_POINTS = GLINT_STRIP_POINTS;
 const GLINT_HALF = 12;
 const GLINT_FROM = 3;
 const PULSE_MS = 180;
@@ -250,7 +252,7 @@ function salmonLook(
 
 	return {
 		mount: mountOf(view, (app) => {
-			if (rope.shader || !bodyShadersLink(app)) return;
+			if (rope.shader || !salmonLinks(app)) return;
 			shader.shader.texture = rope.texture;
 			rope.shader = shader.shader;
 		}),
@@ -373,16 +375,20 @@ function salmonLook(
 const SWIPE_MS = 300;
 
 /** A quad drawing `texture` as a `Sprite` anchored at `anchor` draws it (Pixi's `updateQuadBounds`),
- *  its UVs the frame's own (the program takes them to the page). */
-function quadOf(texture: Texture, anchor: number): MeshGeometry {
+ *  its UVs over the texture's untrimmed rect, as its `textureMatrix` takes them to the page. */
+export function quadOf(texture: Texture, anchor: number): MeshGeometry {
 	const { orig, trim } = texture;
+	const tx = trim ? trim.x : 0;
+	const ty = trim ? trim.y : 0;
 	const w = trim ? trim.width : orig.width;
 	const h = trim ? trim.height : orig.height;
-	const x0 = (trim ? trim.x : 0) - anchor * orig.width;
-	const y0 = (trim ? trim.y : 0) - anchor * orig.height;
+	const x0 = tx - anchor * orig.width;
+	const y0 = ty - anchor * orig.height;
+	const [u0, v0] = [tx / orig.width, ty / orig.height];
+	const [u1, v1] = [(tx + w) / orig.width, (ty + h) / orig.height];
 	return new MeshGeometry({
 		positions: new Float32Array([x0, y0, x0 + w, y0, x0 + w, y0 + h, x0, y0 + h]),
-		uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+		uvs: new Float32Array([u0, v0, u1, v0, u1, v1, u0, v1]),
 		indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
 	});
 }
@@ -396,7 +402,8 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 	centre.y = -drawnH / 2;
 	view.addChild(centre);
 	// A mesh and not a `Sprite`, so its program can draw the water it wades in (`wade.ts`).
-	const sprite = new Mesh({ geometry: quadOf(texture, 0.5), texture });
+	const quad = quadOf(texture, 0.5);
+	const sprite = new Mesh({ geometry: quad, texture });
 	sprite.scale.set(bodyW / texture.width);
 	const claw = new Graphics().ellipse(-18, 0, 22, 4).fill(0x664422);
 	claw.scale.set(k);
@@ -430,7 +437,7 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 	const mount: WadingMount = Object.assign(
 		mountOf(view, (drawnBy) => {
 			app = drawnBy;
-			if (shaded || !bodyShadersLink(drawnBy)) return;
+			if (shaded || !wadeLinks(drawnBy)) return;
 			sprite.shader = pictureWater.shader;
 			claw.context.customShader = clawWater.shader;
 			shaded = true;
@@ -462,6 +469,7 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 		},
 		destroy: () => {
 			view.destroy({ children: true });
+			quad.destroy();
 			pictureWater.destroy();
 			clawWater.destroy();
 		},

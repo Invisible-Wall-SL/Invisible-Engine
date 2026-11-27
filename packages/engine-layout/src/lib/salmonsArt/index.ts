@@ -4,6 +4,7 @@ import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
+import { warmBodyShaders } from './bodyShaders';
 import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
@@ -17,7 +18,6 @@ import {
 	type SalmonsScreens,
 } from './screens';
 import { createWading, type WadeDrawn, type WadeFrame } from './wade';
-import { warmBodyShaders } from './bodyShaders';
 import { wadeSurface, warmWade } from './wadeFilter';
 import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';

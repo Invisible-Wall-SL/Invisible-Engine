@@ -221,7 +221,7 @@ async function render(c) {
 		boxes.push(
 			placed.map((p) => {
 				const box = p.holder.getBounds();
-				const r = c.resolution;
+				const r = app.renderer.resolution;
 				const d = p.look.drawn();
 				return { id: p.b.id, x: box.minX * r, y: box.minY * r, w: box.width * r, h: box.height * r, under: d.underwater === true };
 			}),
