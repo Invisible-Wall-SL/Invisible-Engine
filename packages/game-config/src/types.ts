@@ -660,6 +660,13 @@ export type GameConfigDoc = {
 	 * reference, no banner, no publish gate. See `partnerPaytableDrift`.
 	 */
 	partnerPaytable?: PartnerPaytable;
+	/**
+	 * OPTIONAL: our name for each symbol the server deals, our name → server name (`M1` → `PIC4`),
+	 * set when `/config` names the symbols by what the server pays (H / M / L). The facade maps the
+	 * wire through it instead of the shared fixed mapping. Absent ⇒ the shared mapping. See
+	 * `./serverSymbolNames`.
+	 */
+	serverSymbolNames?: Record<string, string>;
 	paddingReels: PaddingReels;
 	/**
 	 * OPTIONAL per-payline colour, keyed by the SAME payline id as {@link paylines}, as a `#rrggbb`

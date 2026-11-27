@@ -1532,6 +1532,26 @@ The button is disabled — with _Publish the game first_ — until the project h
 published game on the Invisible Test Server. Rows are imported as `count:multiplier`
 pairs in ascending order, with zero pays dropped.
 
+### Naming symbols by what the server pays
+
+The dialog can also rename your line symbols after what the server pays, so the
+names tell the artist which symbols are the big ones. Tick **Name symbols by what
+the server pays**. Each server symbol is listed with its top pay (the longest run),
+a **Tier** and its new name:
+
+- **H** — pays at least 40% of the top symbol; **M** — at least 15%; **L** — the
+  rest. Within a tier the higher payer gets the lower number (`H1` is the top
+  symbol).
+- Change a symbol's **Tier** to move it by hand; the numbers follow.
+
+**Apply** renames the symbols everywhere in this config (paytable, strips, bet
+modes, triggers…), remembers which server symbol each name stands for, and writes
+the pay rows. The game then reads the server through these names. Once a project
+uses them, the box stays ticked, so every later import keeps the names in step with
+the server. Art you already made in Invisible Symbols stays under the old name: the
+dialog lists it, and you move it there. Projects that never tick the box keep the
+usual names (`H1`–`H5`, `L1`–`L5`).
+
 ## Importing from a pasted capture
 
 A partner's server can't be read from the launcher — it turns away requests that

@@ -76,6 +76,7 @@ import {
 	mapSymbol,
 	resolveActiveMapping,
 	pickMappingForConfig,
+	withServerSymbolNames,
 	type GameMapping,
 } from './gameMappings';
 import { engineToPlay4Fun, play4FunAmountMultiplier, play4FunToEngine } from './amounts';
@@ -132,6 +133,22 @@ import {
  *  event — the most reliable signal, since env exposure differs across build
  *  setups (SvelteKit routes PUBLIC_* through $env, not import.meta.env). */
 let activeMapping: GameMapping = resolveActiveMapping();
+
+/** The shared mapping `activeMapping` was built from — itself, unless the project names its server's
+ *  symbols (`projectServerSymbolNames`). Says which vocabulary the server speaks. */
+let activeBase: GameMapping = activeMapping;
+
+/** The project's own names for its server's symbols (Game Config `serverSymbolNames`, our name →
+ *  server name), published by the engine before it authenticates (`engine-game`'s `gameConfig.ts` →
+ *  `publishServerSymbolNamesToFacade`). Unset ⇒ the shared mapping, as before it existed. */
+const projectServerSymbolNames = (): Record<string, string> | undefined => {
+	const names = (globalThis as { __IE_SERVER_SYMBOL_NAMES__?: unknown }).__IE_SERVER_SYMBOL_NAMES__;
+	if (!names || typeof names !== 'object' || Array.isArray(names)) return undefined;
+	const pairs = Object.entries(names).filter(
+		(pair): pair is [string, string] => typeof pair[1] === 'string',
+	);
+	return pairs.length ? Object.fromEntries(pairs) : undefined;
+};
 
 // ---------- boot-config capture & defence ----------
 
@@ -337,7 +354,9 @@ const captureConfig = (
 	capturedConfig.set(sid, cfg);
 	// Auto-select the symbol mapping from the declared vocabulary.
 	const detected = pickMappingForConfig(cfg);
-	if (detected) activeMapping = detected;
+	if (detected) activeMapping = activeBase = detected;
+	const ownNames = projectServerSymbolNames();
+	if (ownNames) activeMapping = withServerSymbolNames(activeBase, ownNames);
 	const match3 = readMatch3Config(cfg);
 	if (match3) capturedMatch3.set(sid, match3);
 	const collector = readCollectorRespinConfig(cfg, events);
@@ -672,7 +691,7 @@ type FacadeWinTier = { level: number; threshold: number; type: 'small' | 'medium
  *  every other from 3. */
 const expandMinReels = (special: string, client: string): number => {
 	const authored =
-		activeMapping === linesMapping
+		activeBase === linesMapping
 			? (globalThis as { __IE_EXPAND_MIN_REELS__?: Record<string, number> }).__IE_EXPAND_MIN_REELS__
 			: undefined;
 	const minReels = authored?.[client];

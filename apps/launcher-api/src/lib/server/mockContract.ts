@@ -55,6 +55,7 @@ import {
 	bookMapping,
 	linesMapping,
 	mapSymbol,
+	withServerSymbolNames,
 	type GameMapping,
 } from 'rgs-translator-eagaming/game-mappings';
 import { loadGameConfigDoc } from './gameConfigStorage';
@@ -201,9 +202,20 @@ function projectMultiplier(doc: GameConfigDoc, symbols: SymbolFacts): boolean {
  * The BOOK contract states the pool only when it leaves a symbol out, so a book project dealing all
  * ten keeps the contract it had.
  */
+/**
+ * The lines mock's vocabulary as THIS project reads it: the shared `linesMapping`, with the
+ * project's own names laid over it when it names its server's symbols by pay (`serverSymbolNames`),
+ * so the mock deals, prices and triggers the same server symbols the game maps them to.
+ */
+function projectLinesMapping(doc: GameConfigDoc): GameMapping {
+	return doc.serverSymbolNames
+		? withServerSymbolNames(linesMapping, doc.serverSymbolNames)
+		: linesMapping;
+}
+
 function projectLineSymbols(
 	doc: GameConfigDoc,
-	mapping: GameMapping = linesMapping,
+	mapping: GameMapping = projectLinesMapping(doc),
 ): string[] | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	// `WILD` and `MULT` are excluded because neither is a LINE symbol: each has its own switch
@@ -401,7 +413,7 @@ function projectExpandingSymbol(doc: GameConfigDoc, projectKey: string): Grid['e
 	const resolved = resolveExpandingSymbol(doc);
 	if (!resolved) return undefined;
 	const toServer = new Map(
-		Object.entries(linesMapping.symbols).map(([server, client]) => [client, server]),
+		Object.entries(projectLinesMapping(doc).symbols).map(([server, client]) => [client, server]),
 	);
 	const unnamed = resolved.candidates.filter((c) => !toServer.has(c.symbol)).map((c) => c.symbol);
 	if (unnamed.length) {
@@ -439,12 +451,13 @@ function projectWildRewrite(
 	doc: GameConfigDoc,
 	projectKey: string,
 ): Pick<Grid, 'expandingWilds' | 'growingWild' | 'wildPaytables'> {
+	const mapping = projectLinesMapping(doc);
 	const toServer = new Map(
-		Object.entries(linesMapping.symbols).map(([server, client]) => [client, server]),
+		Object.entries(mapping.symbols).map(([server, client]) => [client, server]),
 	);
 	const serverName = (client: string): string | undefined => {
 		const name = toServer.get(client) ?? client;
-		if (name === client && client in linesMapping.symbols) {
+		if (name === client && client in mapping.symbols) {
 			warnOnce(
 				`${projectKey}:wildRewrite:${client}`,
 				`[mock-contract] '${projectKey}' names a wild ${client}, which the test server's mock already uses for another symbol — it is never dealt there.`,
@@ -546,7 +559,7 @@ function projectBookFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpins
 /**
  * The trigger in SERVER vocabulary, or `undefined` when it is the default 3+ scatter.
  *
- * The trigger symbol is translated through the SAME `linesMapping` the in-play pool and the
+ * The trigger symbol is translated through the SAME `projectLinesMapping` the in-play pool and the
  * paytable use. A symbol with no server name is NOT replaced by `SCAT`: the field is omitted and
  * the project is told once — the mock then keeps its own 3+ SCAT rule, which is exactly what this
  * warning names. (Such a symbol is never dealt by the mock either: `projectLineSymbols` cannot
@@ -559,9 +572,8 @@ function projectFreeSpinsTrigger(
 ): Grid['freeSpinsTrigger'] {
 	if (!freeSpins.triggerSymbol || freeSpinsTriggerIsDefault(doc)) return undefined;
 	const client = freeSpins.triggerSymbol;
-	const server = Object.keys(linesMapping.symbols).find(
-		(name) => mapSymbol(linesMapping, name) === client,
-	);
+	const mapping = projectLinesMapping(doc);
+	const server = Object.keys(mapping.symbols).find((name) => mapSymbol(mapping, name) === client);
 	if (!server) {
 		warnOnce(
 			`${projectKey}:freeSpinsTrigger:${client}`,
@@ -721,7 +733,7 @@ function projectGrid(
 		// newly-mapped symbols (`H5`/`L3`/`L4` → `PIC8`/`PIC9`/`PIC10`) with no price row at all,
 		// since the mock's own table has none for them. Same gap, one fix: the mock prices what the
 		// project authored, and falls back to its own table per-symbol for anything unpriced.
-		const symbolPaytable = projectSymbolPaytable(doc, linesMapping);
+		const symbolPaytable = projectSymbolPaytable(doc, projectLinesMapping(doc));
 		const scatterPaytable = projectScatterPaytable(doc);
 		const betModes = projectBetModes(doc, projectKey);
 		// Last, so a project with free spins on three scatters keeps its grid byte-identical.
@@ -733,7 +745,11 @@ function projectGrid(
 		const scatterWild = paysLines && projectScatterWild(doc);
 		// The pots overlay composes over the lines mock as over the book mock (book-feature Phase 4),
 		// its imported modes' names in the lines vocabulary. Last, so a project without it is unchanged.
-		const potsOverlay = inServerNames(potsOverlayMockInputs(doc), linesMapping, projectKey);
+		const potsOverlay = inServerNames(
+			potsOverlayMockInputs(doc),
+			projectLinesMapping(doc),
+			projectKey,
+		);
 		return {
 			reels,
 			rows,

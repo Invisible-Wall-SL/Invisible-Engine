@@ -5,13 +5,19 @@ import {
 	linesMapping,
 	mapSymbol,
 	pickMappingForConfig,
+	withServerSymbolNames,
 } from 'rgs-translator-eagaming/game-mappings';
-import { findCapturedConfig, readMappedPaytable } from 'rgs-translator-eagaming/paytable';
+import {
+	findCapturedConfig,
+	lineTierInputs,
+	readMappedPaytable,
+} from 'rgs-translator-eagaming/paytable';
 import { requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import { resolveGameConfigDoc } from '$lib/server/gameConfigDefaults';
 import { projectGameType } from '$lib/server/projects';
 import { fetchServerBootConfig, projectServerGameKeys } from '$lib/server/rgsConfig';
 import { loadTestServerManifest } from '$lib/server/testServerManifest';
+import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -36,28 +42,30 @@ async function readDeclared(
 		? config.symbols.filter((s): s is string => typeof s === 'string')
 		: [];
 	const detected = pickMappingForConfig({ symbols: serverSymbols });
-	const mapping = detected ?? linesMapping;
-	const declared = readMappedPaytable(config, mapping);
-	if (!declared) return json({ error: `${label} declares no paytable.` }, { status: 422 });
-	const { lines, scatter } = toImportedPaytable(declared);
+	const base = detected ?? linesMapping;
 
-	let skipped: string[];
+	let doc: Awaited<ReturnType<typeof resolveGameConfigDoc>>;
+	let withArt: string[];
 	try {
-		const doc = await resolveGameConfigDoc(
-			clientKey,
-			projectKey,
-			await projectGameType(projectKey),
-		);
-		skipped = doc
-			? planPaytableImport(doc.symbols, { lines, scatter }).skipped
-			: Object.keys(lines);
+		doc = await resolveGameConfigDoc(clientKey, projectKey, await projectGameType(projectKey));
+		withArt = Object.keys((await loadSymbolsDoc(clientKey, projectKey)).symbols ?? {});
 	} catch {
 		return json({ error: "Couldn't load this project's saved config." }, { status: 502 });
 	}
+	// A project that names its server's symbols reads the server through those names, as its game does.
+	const mapping = doc?.serverSymbolNames
+		? withServerSymbolNames(base, doc.serverSymbolNames)
+		: base;
+	const declared = readMappedPaytable(config, mapping);
+	if (!declared) return json({ error: `${label} declares no paytable.` }, { status: 422 });
+	const { lines, scatter } = toImportedPaytable(declared);
+	const skipped = doc
+		? planPaytableImport(doc.symbols, { lines, scatter }).skipped
+		: Object.keys(lines);
 
 	return json({
 		...game,
-		mapping: Object.keys(MAPPINGS).find((name) => MAPPINGS[name] === mapping) ?? 'lines',
+		mapping: Object.keys(MAPPINGS).find((name) => MAPPINGS[name] === base) ?? 'lines',
 		mappingDetected: detected !== null,
 		serverSymbols,
 		serverNames: Object.fromEntries(serverSymbols.map((s) => [mapSymbol(mapping, s), s])),
@@ -66,6 +74,8 @@ async function readDeclared(
 		skipped,
 		declared,
 		dealt: [...new Set(serverSymbols.map((s) => mapSymbol(mapping, s)))],
+		tierInputs: lineTierInputs(config, base),
+		withArt,
 	});
 }
 

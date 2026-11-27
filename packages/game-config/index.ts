@@ -49,5 +49,6 @@ export * from './src/sounds';
 export * from './src/grid';
 export * from './src/serverGrid';
 export * from './src/serverPaytable';
+export * from './src/serverSymbolNames';
 export * from './src/infoFigures';
 export * from './src/serverDeclaration';
