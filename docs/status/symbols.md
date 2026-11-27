@@ -199,6 +199,23 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-27 — **Payline preview fixes** (review of #1969, editor only — `WinLine.svelte`,
+  `winLineStyle.ts` and every game runtime untouched).
+  - **A missing effect no longer reads "loading effects…" forever.** The doc map now keeps
+    `undefined` = fetching and `null` = not found; the caption names the missing id
+    (`effect “pop” is missing`). Pure `previewEffectStatus` / `previewEffectNote`.
+  - **A board with another row count no longer stretches:** the canvas backing resizes when either
+    side changes (`canvasBacking` / `canvasNeedsResize`; it compared the width only).
+  - **No WebGL context churn on replay.** The `{#key run}` remount (up to three `FxStage` Pixi
+    Applications, each a WebGL context, per replay) is gone: the stages stay mounted and a replay
+    calls `FxStage`'s existing `replay()` (particles cleared, emitters rewound). The tip stage stays
+    mounted while hidden (`opacity` 0, `emitting={tipShown}`). Browser harness (Chromium, the real
+    component under Vite, effects stubbed): 30 replays created **61** contexts before, **0** after
+    (60 back-to-back: still 0); no "Too many active WebGL contexts".
+  - **The board is redrawn only while a play moves** (`previewSettledMs` / `previewMoving`: the
+    landing, the tip's fade or the burst) or a setting changes, not on every frame.
+  - `check:payline-preview` §8 covers all of it (69 → 87 checks).
+
 - 2026-11-27 — **Payline style preview.** The Payline style card opens on a live preview: a
   board of the project's grid (Game Config reels and rows; 5 × 3 without one) with a win on one of
   its paylines — the most zig-zagging by default, a **Payline** picker and a **Pays N of a kind**
