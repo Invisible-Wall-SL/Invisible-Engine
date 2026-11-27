@@ -13,9 +13,9 @@ Format and rules: [README](../README.md). Current state lives in
 - **Cause:** `renderQuality.ts` stopped at 1.5x, never lowered effects, and gave up after one step
   that did not help; #1930's second chance then jumped from any level straight to the effects
   level, which nearly always reads as helped, and its `waiting` never expired.
-- **Fix:** steps to 1.25 and 1 and a last effects level (#1930); the second chance walks one level
-  at a time (to the effects level directly only from resolution 1), keeps the first that helps,
-  and comes back `unused` after 15 good windows.
+- **Fix:** steps to 1.25 and 1 and a last effects level (#1930); the second chance walks down from
+  two levels below the failed one, keeps the first that helps, comes back `unused` after 15 windows
+  under 1% slow, and holds the cap's last 2 switches so earlier spells cannot block it.
 - **Guard:** `renderQuality.fixture.ts`: just over the line keeps its effects, slow at every
-  resolution reaches them, the expiry, the effects wiring; each rule mutated fails it.
-- **PR:** #1930 (2026-11-27) and its follow-up, branch `bug-20-fix-f907656591`
+  resolution reaches them (also after spells spent 10 switches), the expiry, the effects wiring.
+- **PR:** #1930 (2026-11-27) and its follow-up, branch `bug-20-ladder-review-fixes`

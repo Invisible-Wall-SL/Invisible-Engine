@@ -83,9 +83,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   (`renderQuality.ts`, 2026-11-10 below). **The ladder** (2026-11-27): 2, 1.75, 1.5, 1.5 without
   MSAA, 1.25, 1, then 1 with the effects lowered (stage post FX left out, particle budget capped at
   0.5), each step a trial kept only if the slow share halves or frames get 20% shorter. **The
-  second chance** after a step that did not help: four slow windows start a walk, one level at a
-  time (straight to the effects level only from resolution 1), kept at the first level that helps
-  and back to its start when none does; 15 good windows while it waits give it back unused. The
+  second chance** after a step that did not help: four slow windows start a walk two levels down
+  (past the one that did not help), then one level at a time, kept at the first level that helps
+  and back to its start when none does; 15 windows in a row under 1% slow while it waits give it
+  back unused. Until it is taken, the last 2 of the 12 switches are held for its step to the
+  effects level and that step's revert. The
   `?perf=1` HUD's quality line shows post FX, the particle cap and the second chance.
   `?render=full` pins full, `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
   never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout per frame: verified with
@@ -616,28 +618,37 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 ## Recent changes
 
 - 2026-11-27 — **Render quality: the second chance walks down instead of jumping to the effects
-  level** (follow-up to #1930, BUG-20, branch `bug-20-fix-f907656591`). #1930 gave
+  level** (follow-up to #1930, BUG-20, branch `bug-20-ladder-review-fixes`). #1930 gave
   `pixi-svelte` `renderQuality.ts` steps to 1.25 and 1 and a last level with the stage post FX
   left out and the particle budget capped at 0.5, plus a second chance after a step down that did
   not help, which jumped straight to that last level and waited forever. Review: a phone just over
   the line (the Nothing Phone (1), 13% slow, no gain at 1.75) would reach the effects level in
   ~8 s, where nearly any device reads as helped, and stay there; a heavy bonus 20 minutes later
-  jumped there too. Now the second chance (four slow windows after the revert) steps one level
-  down, or straight to the effects level only from a level already at resolution 1, and walks on
-  one level at a time while a level does not help (each judged against those four windows),
-  keeping the first that does; at the last level that does not help it goes back to its start and
-  stepping down stops. A device slow at every resolution (BUG-20's Mali-G57) still reaches the
-  effects level. `QUALITY_RULES.retryGoodWindows` (15) good windows in a row give a waiting second
-  chance back as `unused`, so a later slow spell starts from a first step. Max 12 switches as
-  before (a full walk on a DPR-3 phone is 9). Also: `configureParticleBudget` run again keeps the
-  ladder's cap (`particleBudget.ts`), and the `?perf=1` HUD's quality line shows `post FX on|off`,
-  `particle cap <n>` and `second chance <state>`, so L5 and L6 read apart. Guard:
-  `renderQuality.fixture.ts` (just-over-the-line keeps its effects at 1.25; slow-at-every-resolution
-  walks to the effects level; expiry after 15 good windows; the DPR-1 jump; the 90%-late 45 ms feed
-  and `trials.length === 7` restored; the effects wiring of `installRenderQuality` on a stand-in
-  app, lowered and given back only on a change and on teardown), `particleBudget.fixture.ts`;
-  every rule mutated in turn fails it. **Not verified:** any real phone; a Profiler reading on the
-  BUG-20 phone is still owed. Lesson: `docs/knowledge/lessons/engine.md`.
+  jumped there too. Now the second chance (four slow windows after the revert) starts two levels
+  down, past the level that did not help (on a DPR-1 screen that is the effects level), and walks
+  on one level at a time while a level does not help (each judged against those four windows;
+  such a level's verdict reads `stepped on`), keeping the first that does; at the last level that
+  does not help it goes back to its start and stepping down stops. A device slow at every
+  resolution (BUG-20's Mali-G57) still reaches the effects level. `QUALITY_RULES.retryGoodWindows`
+  (15) windows in a row under 1% slow give a waiting second chance back as `unused`, so a later
+  slow spell starts from a first step. **The cap:** still 12 switches, but until the second chance
+  is taken the last 2 are held for it: ordinary steps down and steps up only start while their
+  revert fits outside those 2; a walk step that would leave less than its own revert plus one more
+  goes straight to the effects level; and when no ordinary step fits, four slow windows take the
+  second chance at once, to the effects level. So however earlier slow spells and recoveries spent
+  the switches, a device slow at every resolution reaches the effects level, unless its second
+  chance was already taken. A full walk on a DPR-3 phone with nothing spent costs 8 switches
+  (`0→1`, `1→0`, the walk `0→2 … 5→6`, its revert). Also: `configureParticleBudget` run again keeps
+  the ladder's cap (`particleBudget.ts`), and the `?perf=1` HUD's quality line shows
+  `post FX on|off`, `particle cap <n>` and `second chance <state>`, so L5 and L6 read apart.
+  Guard: `renderQuality.fixture.ts` (just over the line keeps its effects at 1.25; slow at every
+  resolution walks to the effects level, also after 3 and 5 earlier spells spent 6 and 10
+  switches; expiry after 15 windows; the DPR-1 start; the 90%-late 45 ms feed and an exact trial
+  count restored; the effects wiring of `installRenderQuality` on a stand-in app, lowered and
+  given back only on a change, on the climb from the last level and on teardown),
+  `particleBudget.fixture.ts`; every rule mutated in turn fails it. **Not verified:** any real
+  phone; a Profiler reading on the BUG-20 phone is still owed. Lesson:
+  `docs/knowledge/lessons/engine.md`.
 
 - 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
   (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
