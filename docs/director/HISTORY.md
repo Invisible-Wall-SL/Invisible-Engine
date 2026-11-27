@@ -15,6 +15,20 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · coordinator (15B2 merged: Resolve conflict is live)
+- Did: merged `main`, with #1990, into 15B2; the prompt stops asking the model for each side of a
+  hunk (the job reads both from git) and names the launcher's diff and the refusals for a written
+  line; the workflow fixture follows (hunk keys, the new heading, the audience passed to the shared
+  `postResult`), each with a mutant. Merged at the owner's request: current-games refuses a harness
+  edit by design. Also #1986: Director worker's Postgres proofs run when the Accept claim's code
+  changes.
+- Files: `scripts/merge-main/coordinator.md`, `scripts/merge-main/workflow.fixture.mjs`,
+  `docs/status/infra.md`, `.github/workflows/director-worker.yml` (#1986).
+- Branch / PR: #1977 (15B2), #1986.
+- Tests: `check:merge-main-workflow` (35 rules, 116 mutants), `check:merge-main`,
+  `check:bug-fix-workflow`; CI green apart from current-games' harness refusal.
+- Decisions: none new. Next is 15D, the pilot.
+
 ## 2026-11-27 · Phase 12 · director-backend (15C review: Accept hardened, before 15B2)
 - Did: the post-merge review of #1961 (three rounds).
   - Blocking: Accept PATCHed an unencoded branch ref (`main#x` would have moved `main`). Every ref

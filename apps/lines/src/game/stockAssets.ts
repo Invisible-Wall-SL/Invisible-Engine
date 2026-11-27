@@ -48,6 +48,7 @@ import {
 import {
 	ALWAYS_KEPT,
 	ANTICIPATION_SWITCHES,
+	BOARDLESS_ALWAYS_KEPT,
 	FREE_SPIN_PARTS,
 	FREE_SPIN_SWITCHES,
 	KEPT_TOGETHER,
@@ -89,6 +90,11 @@ import {
  *
  * A game that can never enter free spins ({@link freeSpinsReachable}) mounts the free-spin parts and
  * the board glow without ever drawing them, so they keep nothing (`FREE_SPIN_PARTS`).
+ *
+ * A BOARDLESS game (a play field or a card table, `StockAssetsInput.boardless`) has no reels, no
+ * bet and no book: the slot scenes the game falls back to, the board's coded mounts and the symbol
+ * rule draw nothing there, so only its own doc's scenes and what its data names keep a key
+ * ({@link reachable}).
  */
 
 type Params = Record<string, unknown>;
@@ -153,6 +159,9 @@ export type StockAssetsInput = {
 	config: GameConfigDoc;
 	/** The symbols the board deals, server-declared when the RGS is authoritative (`getSymbolsInPlay`). */
 	symbolsInPlay: readonly string[];
+	/** The game has no reel board: an arcade play field or a card table (`engine-game`
+	 *  `GameMechanic.playField` / `cardTable`). Absent ⇒ a board, as every slot and match-3 game. */
+	boardless?: boolean;
 };
 
 export type StockAssetsAnalysis = {
@@ -200,17 +209,23 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *   authored highlight ?? `anticipation`, unless the symbols doc turned it off.
  * - The reel anticipation overlay (`Anticipations.svelte:95-96`, `anticipationPresentation.ts:141-142`):
  *   the authored `spineKey` || `anticipation`, when an authored doc can arm it
- *   ({@link anticipationReachable}).
+ *   (`ANTICIPATION_SWITCHES`, {@link firesSwitch}).
+ *
+ * A boardless game mounts no `BoardFrame`, win frame or anticipation (they are the reel stack's,
+ * `Game.svelte` `reelStack`), and its background is the feature one only in a free game, which a
+ * flow's free-spin switch alone can start there (`freeSpins`).
  */
 function codedMountNeeds(
 	data: StockAssetData,
 	freeSpins: boolean,
 	anticipation: boolean,
+	boardless: boolean,
 ): string[] {
 	const out: string[] = [];
 	const { doc, symbols, effects = [], rigFx = {} } = data;
 	if (!hasAuthoredBackground(doc.scenes)) {
-		out.push('foregroundAnimation', 'foregroundFeatureAnimation');
+		out.push('foregroundAnimation');
+		if (!boardless || freeSpins) out.push('foregroundFeatureAnimation');
 	}
 	const rigBound = new Set(
 		Object.values(rigFx).flatMap((binds) => (binds ?? []).map((bind) => bind?.effectId)),
@@ -223,6 +238,7 @@ function codedMountNeeds(
 			),
 	);
 	if (bonePlaced) out.push('foregroundAnimation');
+	if (boardless) return out;
 	if (freeSpins && !hasAuthoredBoardGlow(doc.scenes) && symbols?.off?.boardGlow !== true) {
 		out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
 	}
@@ -244,9 +260,10 @@ export function anticipationRigLeftOut(data: StockAssetData, needed: ReadonlySet
 	return (STOCK_KEYS as readonly string[]).includes(rig) && !needed.has(rig);
 }
 
-/** Whether an authored doc fires one of `ANTICIPATION_SWITCHES`, bare or scoped. */
-function anticipationReachable(authoredNames: Names): boolean {
-	const switches = new Set(ANTICIPATION_SWITCHES);
+/** Whether an authored doc fires one of `names`, bare or scoped (`signal:boardFrameGlowShow`, which
+ *  `FlowV2Cinematics.svelte` broadcasts bare). */
+function firesSwitch(authoredNames: Names, names: readonly string[]): boolean {
+	const switches = new Set(names);
 	for (const name of authoredNames.keys()) {
 		if (switches.has(name.slice(name.lastIndexOf(':') + 1))) return true;
 	}
@@ -254,20 +271,22 @@ function anticipationReachable(authoredNames: Names): boolean {
 }
 
 /**
- * Whether a round can ever draw the free-spin presentation: the config's free-spins rule is on, a
- * bonus route (a pot, a buy, a meter) starts the built-in free spins, the project has a reels mode of
- * its own (an imported free spins, `stateModes.svelte.ts` `isFreeGameType`), or an authored doc fires
- * one of `FREE_SPIN_SWITCHES` — bare, or scoped as a cinematic cue is (`signal:boardFrameGlowShow`,
- * which `FlowV2Cinematics.svelte` broadcasts bare). With free spins off the rules page already tells
- * the player there are none (`infoManifest.ts`), so a server that sends them anyway is out of step
- * with what the game says.
+ * Whether a round can ever draw the free-spin presentation: an authored doc fires one of
+ * `FREE_SPIN_SWITCHES` — bare, or scoped as a cinematic cue is — or, on a board, the config's
+ * free-spins rule is on, a bonus route (a pot, a buy, a meter) starts the built-in free spins, or the
+ * project has a reels mode of its own (an imported free spins, `stateModes.svelte.ts`
+ * `isFreeGameType`). With free spins off the rules page already tells the player there are none
+ * (`infoManifest.ts`), so a server that sends them anyway is out of step with what the game says. A
+ * boardless game has no book and no RGS round, so only a flow's switch reaches them there.
  */
-function freeSpinsReachable(config: GameConfigDoc, authoredNames: Names): boolean {
+function freeSpinsReachable(
+	config: GameConfigDoc,
+	authoredNames: Names,
+	boardless: boolean,
+): boolean {
+	if (firesSwitch(authoredNames, FREE_SPIN_SWITCHES)) return true;
+	if (boardless) return false;
 	if (resolveFreeSpins(config).enabled) return true;
-	const switches = new Set(FREE_SPIN_SWITCHES);
-	for (const name of authoredNames.keys()) {
-		if (switches.has(name.slice(name.lastIndexOf(':') + 1))) return true;
-	}
 	const builtins = new Set(builtinGameModes().map((mode) => mode.id));
 	if (resolveGameModes(config).some((mode) => mode.board === 'reels' && !builtins.has(mode.id))) {
 		return true;
@@ -431,6 +450,12 @@ function mountedScenes(doc: LayoutDoc, fallback: LayoutDoc): Scene[] {
 	return out;
 }
 
+/** The doc's own scenes, and the reference base game when the doc has none (`basegameSceneOf`). */
+function withBasegame(doc: LayoutDoc, fallback: LayoutDoc): Scene[] {
+	const basegame = basegameSceneOf(doc.scenes, fallback);
+	return basegame && !doc.scenes.includes(basegame) ? [...doc.scenes, basegame] : doc.scenes;
+}
+
 /** {@link analyseStockAssets}'s answer alone. */
 export const stockAssetsNeeded = (input: StockAssetsInput): Set<StockKey> =>
 	analyseStockAssets(input).needed;
@@ -466,7 +491,8 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 	const names: Names = new Map();
 	const authoredNames: Names = new Map();
 	collectNames(data.other, authoredNames, 'authored docs');
-	const freeSpins = freeSpinsReachable(input.config, authoredNames);
+	const boardless = input.boardless === true;
+	const freeSpins = freeSpinsReachable(input.config, authoredNames, boardless);
 	const drawsNothing = (part: unknown): boolean =>
 		!freeSpins && typeof part === 'string' && FREE_SPIN_PARTS.has(part);
 	/** `id@version` of every def the walk expanded. */
@@ -568,7 +594,16 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		}
 	};
 
-	for (const scene of mountedScenes(doc, input.fallbackDoc)) {
+	// A boardless game's fallback scenes are the slot's (the win, the buy screens, the book, the
+	// counter): each draws only on a win, a bet, a book or a free-spin cue, and the doc's flow fires
+	// a win or a transition there only through a cue it names, which keeps that art by its name. A
+	// flow's free-spin switch is the one it can fire bare, and keeps them all, as on a board. The base
+	// game is the exception: a doc without one mounts the reference's.
+	const scenes =
+		boardless && !freeSpins
+			? withBasegame(doc, input.fallbackDoc)
+			: mountedScenes(doc, input.fallbackDoc);
+	for (const scene of scenes) {
 		walkNodes(scene.nodes, {}, [], `scene ${scene.id}`);
 	}
 
@@ -588,32 +623,14 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 	for (const [name, origins] of authoredNames) {
 		for (const origin of origins) addName(names, name, origin);
 	}
-	for (const need of codedMountNeeds(data, freeSpins, anticipationReachable(authoredNames))) {
+	const anticipation = firesSwitch(authoredNames, ANTICIPATION_SWITCHES);
+	for (const need of codedMountNeeds(data, freeSpins, anticipation, boardless)) {
 		addName(names, need, 'coded mount');
 	}
 
-	// SYMBOLS: every symbol the game can show, through the renderer's own merge (`symbolMap.ts`) and
-	// state resolution (`symbolCell.ts`), for every state it can be asked for.
-	const merged = createSymbolMap({
-		codedMap: SYMBOL_INFO_MAP as SymbolInfoMap,
-		bakedMap: () => symbols?.map,
-	}).getActiveSymbolInfoMap();
-	// What the board can show is THE GATE (`game-config` `inPlay.ts`): the strips and the server's
-	// declaration, plus the pots overlay's tokens. A dictionary entry nothing deals never draws.
+	// A boardless game draws no symbol cell: a stock symbol rig it names is kept by that name.
 	const config = input.config;
-	const shown = new Set([...input.symbolsInPlay, ...symbolsUsed(config)]);
-	// `engine-game` `gameConfig.ts` `initialBoard`: a board that deals nothing is padded with the
-	// dictionary's first symbol, else `H1`.
-	if (shown.size === 0) shown.add(Object.keys(config.symbols ?? {})[0] ?? 'H1');
-	for (const name of Object.keys(SYMBOL_INFO_MAP)) if (names.has(name)) shown.add(name);
-	for (const name of shown) {
-		const states = merged[name];
-		if (!states) continue;
-		for (const state of new Set<string>([...SYMBOL_STATES, ...Object.keys(states)])) {
-			const drawn = resolveSymbolState(states, state);
-			if (drawn) collectNames(states[drawn], names, `symbol ${name}.${drawn}`);
-		}
-	}
+	if (!boardless) collectSymbolNames(input, symbols, names);
 
 	// The config names symbols by the same ids as the symbol rigs; the symbol rule decides those.
 	const configNames: Names = new Map();
@@ -624,7 +641,7 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 	const keep = (key: StockKey, origins: Iterable<string>): void => {
 		reasons[key] = [...new Set([...(reasons[key] ?? []), ...origins])];
 	};
-	for (const key of ALWAYS_KEPT) keep(key, ['always']);
+	for (const key of boardless ? BOARDLESS_ALWAYS_KEPT : ALWAYS_KEPT) keep(key, ['always']);
 	// A frame a project symbol sheet registers under the same bare name draws from that sheet, so it
 	// keeps no stock frame sheet: keeping both registered the name twice (Pixi's "[Cache] already has
 	// key") and left which one drew to load order. A stock rig or font of that name still keeps its key.
@@ -666,6 +683,37 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		reasons,
 		editorArtUnused: editorArtUnused(data.editorArt, artNames),
 	};
+}
+
+/**
+ * SYMBOLS: every symbol the board can show, through the renderer's own merge (`symbolMap.ts`) and
+ * state resolution (`symbolCell.ts`), for every state it can be asked for.
+ */
+function collectSymbolNames(
+	input: StockAssetsInput,
+	symbols: StockSymbolsDoc | undefined,
+	names: Names,
+): void {
+	const merged = createSymbolMap({
+		codedMap: SYMBOL_INFO_MAP as SymbolInfoMap,
+		bakedMap: () => symbols?.map,
+	}).getActiveSymbolInfoMap();
+	// What the board can show is THE GATE (`game-config` `inPlay.ts`): the strips and the server's
+	// declaration, plus the pots overlay's tokens. A dictionary entry nothing deals never draws.
+	const config = input.config;
+	const shown = new Set([...input.symbolsInPlay, ...symbolsUsed(config)]);
+	// `engine-game` `gameConfig.ts` `initialBoard`: a board that deals nothing is padded with the
+	// dictionary's first symbol, else `H1`.
+	if (shown.size === 0) shown.add(Object.keys(config.symbols ?? {})[0] ?? 'H1');
+	for (const name of Object.keys(SYMBOL_INFO_MAP)) if (names.has(name)) shown.add(name);
+	for (const name of shown) {
+		const states = merged[name];
+		if (!states) continue;
+		for (const state of new Set<string>([...SYMBOL_STATES, ...Object.keys(states)])) {
+			const drawn = resolveSymbolState(states, state);
+			if (drawn) collectNames(states[drawn], names, `symbol ${name}.${drawn}`);
+		}
+	}
 }
 
 /**

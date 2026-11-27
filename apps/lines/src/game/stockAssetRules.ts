@@ -114,6 +114,17 @@ export const ALWAYS_KEPT: readonly StockKey[] = [
 	'progressBar',
 ];
 
+/**
+ * {@link ALWAYS_KEPT} on a boardless game (a play field or a card table), less `goldFont`: the
+ * `gold` face the code draws in is the board's (the win text, a symbol's label, a coin's value).
+ * The coded press stays: any overlay instance mounts it from a param, with no bind the walk sees.
+ */
+export const BOARDLESS_ALWAYS_KEPT: readonly StockKey[] = [
+	'sound',
+	'pressToContinueText',
+	'progressBar',
+];
+
 /** Sheets that pack the same frame (`totalwin.png`) into one flat texture map: kept together. */
 export const KEPT_TOGETHER: readonly (readonly StockKey[])[] = [['freeSpins', 'winSmall']];
 
@@ -184,7 +195,9 @@ export const PART_NEEDS: Record<string, PartNeeds> = {
 	WinVisual: winVisualNeeds,
 	WinGate: none,
 	// `Transition.svelte:28-46` → `TransitionAnimation.svelte:23`. Awaited: a missing rig never
-	// completes, so a mounted Transition keeps its rig even when nothing is known to fire it.
+	// completes, so a mounted Transition keeps its rig even when nothing is known to fire it. Not on
+	// a boardless game: the reference overlays that mount it there are not walked (its flow fires the
+	// `transition` cue only by name, which keeps the rig), but a scene of its own doc that places it is.
 	Transition: () => ['transition'],
 	// `FreeSpinIntroVisual.svelte:29,82,99,111` inside `FreeSpinAnimation.svelte:82`.
 	FreeSpinIntroVisual: (params, props) => [

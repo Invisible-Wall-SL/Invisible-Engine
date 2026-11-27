@@ -9,6 +9,7 @@ import { bootStockAssetData } from '../editor-scenes';
 import { anticipationParam } from './anticipationParam';
 import { fallbackEditorScenes } from './fallbackLayout';
 import { getActiveGameConfig, getSymbolsInPlay } from './gameConfig';
+import { gameMechanic } from './mechanic';
 import { analyseStockAssets, anticipationRigLeftOut, withoutStockAssets } from './stockAssets';
 import { stockAssetsOnDevice } from './stateApp';
 import { ANTICIPATION_SWITCHES } from './stockAssetRules';
@@ -37,6 +38,9 @@ export const anticipationParamRefused = (): boolean => refusedAnticipationParam;
 export function skipUnusedStockAssets<T extends Record<string, unknown>>(registered: T): T {
 	const data = bootStockAssetData();
 	if (!data) return registered;
+	// A play field or a card table has no reel board (`stockAssets.ts` `boardless`).
+	const mechanic = gameMechanic();
+	const boardless = mechanic.playField || mechanic.cardTable;
 	// `?anticipation=` arms the reel anticipation at boot (`Game.svelte`), as the flow action does.
 	const urlArmsAnticipation =
 		typeof location !== 'undefined' && anticipationParam(location.search) !== null;
@@ -50,6 +54,7 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 			isBoundPart: (name) => getBoundComponent(name) !== undefined,
 			config: getActiveGameConfig(),
 			symbolsInPlay: getSymbolsInPlay(),
+			boardless,
 		});
 	let analysis = analyse(urlArmsAnticipation);
 	if (urlArmsAnticipation && stockFilesPruned()) {

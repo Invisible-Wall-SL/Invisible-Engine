@@ -2,7 +2,7 @@ import { STOCK_SOUND_REACH_VERSION, type SoundCatalog } from 'engine-layout';
 import { SOUND_SLOTS, resolveSounds, type GameSounds } from 'game-config';
 import type { LoadedAudio } from 'pixi-svelte';
 
-import { CODED_STOCK_SOUNDS } from './stockSoundRules';
+import { BOARDLESS_CODED_STOCK_SOUNDS, CODED_STOCK_SOUNDS } from './stockSoundRules';
 
 /**
  * WHICH OF THE ENGINE'S STOCK SOUNDS A GAME LOADS.
@@ -22,6 +22,10 @@ import { CODED_STOCK_SOUNDS } from './stockSoundRules';
  * Every doubt loads every bank: no list (a bundle exported before lists existed, or one whose reach
  * the export could not tell), a list of another version, a flow other than the bundle's running
  * (the dev opt-ins), or a game repo whose own `static/` still carries the old single sprite.
+ *
+ * A BOARDLESS game (a play field, a card table) has no reels, book, bet or win: its code plays only
+ * the presses, and its slots only the base music, at boot when no flow drives its screens
+ * (`Sound.svelte`). Every other slot is a board's moment.
  *
  * A stock sound a project uploads a sound of its own for is never played from the stock bank (the
  * project's bank comes later, and the last bank declaring a name wins), so a bank whose every sound
@@ -56,6 +60,9 @@ export type StockSoundInput = {
 	flowOverridden: boolean;
 	/** Whether this browser decodes a container (`canPlayAudioFormat`). */
 	canPlay: (ext: string) => boolean;
+	/** Set for a game with no reel board (`GameMechanic.playField` / `cardTable`): whether it plays
+	 *  the base music at boot, as it does when no v2 flow drives its screens (`Sound.svelte`). */
+	boardless?: { musicAtBoot: boolean };
 };
 
 export type StockSoundPlan = {
@@ -64,14 +71,19 @@ export type StockSoundPlan = {
 	loadedAllBecause?: string;
 };
 
-/** The stock sounds a slot can resolve to, read as `activeSounds()` reads them. */
-export function slotStockSounds(catalog: SoundCatalog | undefined): string[] {
+/** The stock sounds a slot can resolve to, read as `activeSounds()` reads them: every slot, or the
+ *  slots of `only`. */
+export function slotStockSounds(
+	catalog: SoundCatalog | undefined,
+	only?: readonly string[],
+): string[] {
+	const played = only ? SOUND_SLOTS.filter((slot) => only.includes(slot.id)) : SOUND_SLOTS;
 	const slots = catalog?.bindings?.slots;
 	// No slots in the catalog: the game resolves them through its config, which a mode can swap,
 	// so every slot's catalogue defaults stay in reach (an authored name is in the data list).
-	if (!slots) return SOUND_SLOTS.flatMap((slot) => [...slot.defaults]);
+	if (!slots) return played.flatMap((slot) => [...slot.defaults]);
 	const resolved = resolveSounds({ sounds: slots as GameSounds });
-	return SOUND_SLOTS.flatMap((slot) => {
+	return played.flatMap((slot) => {
 		const { names, enabled } = resolved.slot(slot.id);
 		return enabled ? names : [];
 	});
@@ -79,16 +91,19 @@ export function slotStockSounds(catalog: SoundCatalog | undefined): string[] {
 
 /** The stock sounds this game can play, or the reason it must load every bank. */
 export function stockSoundReach(
-	input: Pick<StockSoundInput, 'catalog' | 'flowOverridden'>,
+	input: Pick<StockSoundInput, 'catalog' | 'flowOverridden' | 'boardless'>,
 ): { reach: Set<string> } | { loadAll: string } {
 	const list = input.catalog?.stock;
 	if (!list) return { loadAll: 'the bundle lists no stock sounds' };
 	if (list.version !== STOCK_SOUND_REACH_VERSION || !Array.isArray(list.names))
 		return { loadAll: `the bundle's stock list is version ${list.version}` };
 	if (input.flowOverridden) return { loadAll: 'a flow other than the bundle’s is running' };
-	return {
-		reach: new Set([...list.names, ...CODED_STOCK_SOUNDS, ...slotStockSounds(input.catalog)]),
-	};
+	const { boardless } = input;
+	const coded = boardless ? BOARDLESS_CODED_STOCK_SOUNDS : CODED_STOCK_SOUNDS;
+	const slots = boardless
+		? slotStockSounds(input.catalog, boardless.musicAtBoot ? ['baseMusic'] : [])
+		: slotStockSounds(input.catalog);
+	return { reach: new Set([...list.names, ...coded, ...slots]) };
 }
 
 /** `bank` as a `LoadedAudio` on the first container it lists that this browser plays, its lead
@@ -111,10 +126,11 @@ function bankAudio(bank: StockBank, input: StockSoundInput): LoadedAudio<string>
 }
 
 /** The banks of `banks` this game can play, in manifest order; all of them, and why, on a doubt.
- *  A standalone build ships exactly these (`stockSoundBuild.ts`). */
+ *  A standalone build ships these as a board would (`stockSoundBuild.ts`, no `boardless`): a
+ *  superset of what a boardless game loads. */
 export function stockBanksInReach(
 	banks: readonly StockBank[],
-	input: Pick<StockSoundInput, 'catalog' | 'flowOverridden'>,
+	input: Pick<StockSoundInput, 'catalog' | 'flowOverridden' | 'boardless'>,
 ): { banks: StockBank[]; loadedAllBecause?: string } {
 	const decided = stockSoundReach(input);
 	if ('loadAll' in decided) return { banks: [...banks], loadedAllBecause: decided.loadAll };
