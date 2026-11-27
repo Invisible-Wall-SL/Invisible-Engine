@@ -6,7 +6,9 @@
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		acceptBody,
-		writtenLinesOf,
+		DIFF_SIGN,
+		diffOf,
+		gutter,
 		apiErrorText,
 		hunkColumns,
 		mergeBrief,
@@ -173,10 +175,10 @@
 		{#if run.files.length}
 			<h4>Files written</h4>
 			{#each run.files as f (f.path)}
-				{@const own = writtenLinesOf(run.explanation, f.path)}
+				{@const diff = diffOf(run.explanation, f.path)}
 				<p class="plain">
 					<span class="mono">{f.path}</span>
-					{#if !f.deleted}
+					{#if diff && !f.deleted}
 						·
 						<a
 							href={mergeRunFilePath(detail.number, run.id, f.path)}
@@ -185,9 +187,27 @@
 						>
 					{/if}
 				</p>
-				{#if own.length}
-					<span class="col-title">Lines the run wrote itself ({own.length})</span>
-					<pre>{own.map((l) => `${l.n}: ${l.text}`).join('\n')}</pre>
+				{#if diff}
+					<span class="col-title">What Accept changes on this branch</span>
+					{#if diff.takes === 'main'}
+						<p class="plain">
+							Takes main's own version of this file whole, in place of the branch's.
+						</p>
+					{:else if !diff.hunks.length}
+						<p class="plain">No change: the branch's version is what is kept.</p>
+					{:else}
+						<div class="diff" role="group" aria-label={`Changes to ${f.path}`}>
+							{#each diff.hunks as hunk, i (i)}
+								{#each hunk as l, j (j)}
+									<div class="dl {l.k}">
+										<span class="gut">{gutter(l.o)}</span><span class="gut">{gutter(l.n)}</span
+										><span class="sign">{DIFF_SIGN[l.k]}</span><span class="code">{l.text}</span>
+									</div>
+								{/each}
+								{#if i < diff.hunks.length - 1}<div class="dl gap">⋯</div>{/if}
+							{/each}
+						</div>
+					{/if}
 				{/if}
 			{/each}
 		{/if}
@@ -294,6 +314,56 @@
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 8px;
+	}
+	.diff {
+		margin-top: 2px;
+		max-height: 420px;
+		overflow: auto;
+		font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+		font-size: 12px;
+		background: #0d0d12;
+		border: 1px solid #23232e;
+		border-radius: 8px;
+	}
+	.dl {
+		display: flex;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		color: #c9c9d1;
+	}
+	.dl.add {
+		background: rgba(126, 224, 192, 0.12);
+	}
+	.dl.del {
+		background: rgba(255, 157, 157, 0.12);
+	}
+	.dl.gap {
+		padding: 0 8px;
+		color: #6a6a76;
+	}
+	.gut {
+		flex: none;
+		min-width: 3.5ch;
+		padding: 0 4px;
+		text-align: right;
+		color: #6a6a76;
+		user-select: none;
+	}
+	.sign {
+		flex: none;
+		width: 2ch;
+		text-align: center;
+		color: #8a8a96;
+	}
+	.dl.add .sign {
+		color: #7ee0c0;
+	}
+	.dl.del .sign {
+		color: #ff9d9d;
+	}
+	.code {
+		flex: 1 1 auto;
+		min-width: 0;
 	}
 	.col-title {
 		font-size: 11px;

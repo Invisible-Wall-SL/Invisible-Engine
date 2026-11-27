@@ -4,6 +4,7 @@ import {
 	afterAcceptText,
 	isLiveMergeRun,
 	type MergeChoice,
+	type FileDiff,
 	type MergeRunExplanation,
 	type MergeRunFileView,
 	type MergeRunHunk,
@@ -731,17 +732,21 @@ export const choiceWord = (choice: MergeChoice): string => CHOICE_TEXT[choice];
 export const takesWord = (takes: MergeTakes): string => TAKES_TEXT[takes];
 
 export const RESULT_NOT_LOCATED =
-	'The resolved lines could not be located in the final file: use "Open resolved file" below to read it.';
+	'The resolved lines could not be located in the final file: read "What Accept changes on this branch" under the file below, or open the resolved file.';
 
-/** The lines the run wrote itself in one file of the proposal, with their line numbers. */
-export const writtenLinesOf = (
-	explanation: MergeRunExplanation | null,
-	path: string,
-): { n: number; text: string }[] => explanation?.written.find((w) => w.path === path)?.lines ?? [];
+/** The diff of one file of the proposal: what Accept changes on the branch there, or null when it takes nothing from the run. */
+export const diffOf = (explanation: MergeRunExplanation | null, path: string): FileDiff | null =>
+	explanation?.diff.find((d) => d.path === path) ?? null;
+
+/** A diff line's two gutters: its number in the branch's version and in the merged file. */
+export const gutter = (n: number | null): string => (n === null ? '' : String(n));
+
+/** The sign a diff line is drawn with. */
+export const DIFF_SIGN = { ctx: ' ', del: '-', add: '+' } as const;
 
 /** The notice under a result the job cut at its cap: Accept pushes the whole file. */
 export const resultCutText = (lines: number): string =>
-	`[${lines} ${plural(lines, 'line')} of the result ${lines === 1 ? 'is' : 'are'} not shown: use "Open resolved file" below to read it before accepting.]`;
+	`[${lines} ${plural(lines, 'line')} of the result ${lines === 1 ? 'is' : 'are'} not shown: read the diff under the file below, or open the resolved file, before accepting.]`;
 
 /**
  * One hunk as the card's three columns: main's and this change's lines as git had them, and the

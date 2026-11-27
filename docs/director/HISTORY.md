@@ -34,10 +34,14 @@ with a new one. Use this format:
     column-aware operators and `now()`, proved on a real Postgres by `prove:merge-runs` (run by
     `director-worker`'s `prove:idle`, so by CI's `postgres-proofs`), and a source check forbids the
     pattern.
-  - The card cannot hide a pushed line (rounds 4 and 5): `explanation.written` lists every line the
-    run wrote itself per file, recomputed by Accept from the real sides; format characters are shown
-    as `⟨U+200D⟩` or refused; a cut result says how many lines; `Open resolved file` serves the exact
-    text before Accept; code on the card keeps its `[skip ci]`.
+  - The card cannot hide a pushed line (rounds 4 to 6): "what Accept changes on this branch" is a
+    positional line diff per file (Myers, 3 lines of context, both line numbers) that the launcher
+    computes at the result from the head blob it fetches itself against the stored content; the job
+    sends nothing for it (an earlier per-file list of "lines the run wrote" is gone, its multiset
+    leaked on a copy, a duplicate and a reorder). A line the merge adds that neither side holds is
+    refused for a lone CR, U+2028/9, U+0085, a format character or a secret; control and format
+    characters are shown as `⟨CR⟩` / `⟨U+200D⟩`; over 2,000 changed lines is `no_proposal`; `Open
+    resolved file` serves the exact text before Accept; code on the card keeps its `[skip ci]`.
   - Also: the compare's 300-file cap and a missing file list are "unknown"; the protected-path and
     lockfile exemption holds only for main's own entry; Accept posts the head the page showed; a
     GitHub error reading main's tree is a 502 and the job posts its result up to three times; the

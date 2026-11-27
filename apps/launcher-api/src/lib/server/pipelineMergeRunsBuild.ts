@@ -198,41 +198,6 @@ function dedupe(writes: Write[]): Write[] {
 }
 
 /** The text sides of a resolved file, read by the caller: null for a file a side lacks. */
-/** A line the run wrote itself: in the resolved file, in neither side. `n` is its line number. */
-export interface WrittenLine {
-	n: number;
-	text: string;
-}
-
-const HAS_FORMAT = /\p{Cf}/u;
-
-/**
- * The lines of `after` that `before` does not hold, counted as {@link addedLines} counts (a line
- * `before` has twice is "held" twice), with their line numbers, blank lines left out (nothing is
- * hidden in them). The job's `collect.mjs` has the same function, and the join check holds the two
- * to each other.
- */
-export function addedLinesAt(before: string | null, after: string): WrittenLine[] {
-	const left = new Map<string, number>();
-	for (const line of before?.split('\n') ?? []) left.set(line, (left.get(line) ?? 0) + 1);
-	const out: WrittenLine[] = [];
-	after.split('\n').forEach((line, i) => {
-		const n = left.get(line) ?? 0;
-		if (n) left.set(line, n - 1);
-		else if (line.trim() !== '') out.push({ n: i + 1, text: line.replace(/\r$/, '') });
-	});
-	return out;
-}
-
-/** What the run wrote itself in a resolved file, against the two sides it was resolved from. */
-export const writtenOf = (file: MergeRunFile, sides: Sides): WrittenLine[] =>
-	file.content === null
-		? []
-		: addedLinesAt(`${sides.main ?? ''}\n${sides.head ?? ''}`, file.content);
-
-/** Whether a line holds a format character (a zero-width joiner, a bidi mark): never in a line the run wrote. */
-export const hasFormatChar = (line: string): boolean => HAS_FORMAT.test(line);
-
 export interface Sides {
 	main: string | null;
 	head: string | null;

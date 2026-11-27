@@ -30,9 +30,6 @@ import {
 	EXPLANATION_CAP,
 	LINES_CAP,
 	LINES_TOTAL_CAP,
-	WRITTEN_CHARS_CAP,
-	WRITTEN_LINES_CAP,
-	addedLinesAt,
 	NO_EXPLANATION,
 	TAKES,
 	TEXT_CAP,
@@ -869,29 +866,8 @@ function shapeProblems(body) {
 	}
 	if (total > 4 * 1024 * 1024) out.push('files over 4 MB');
 	const e = body.explanation;
-	if (!keysAre(e, ['conflicted', 'hunks', 'outside', 'checks', 'risks', 'written']))
+	if (!keysAre(e, ['conflicted', 'hunks', 'outside', 'checks', 'risks']))
 		return [...out, 'explanation keys'];
-	for (const w of e.written) {
-		const file = body.files.find((f) => f.path === w.path);
-		const own = file?.content?.split('\n') ?? [];
-		if (
-			!keysAre(w, ['path', 'lines']) ||
-			!w.lines.length ||
-			!w.lines.every(
-				(l) =>
-					keysAre(l, ['n', 'text']) &&
-					Number.isInteger(l.n) &&
-					own[l.n - 1]?.replace(/\r$/, '') === l.text,
-			)
-		)
-			out.push(`written ${w.path}`);
-	}
-	const writtenAll = e.written.flatMap((w) => w.lines);
-	if (
-		writtenAll.length > WRITTEN_LINES_CAP ||
-		writtenAll.reduce((n, l) => n + Array.from(l.text).length, 0) > WRITTEN_CHARS_CAP
-	)
-		out.push('written over its cap');
 	for (const c of e.conflicted) {
 		if (
 			!keysAre(c, ['path', 'met']) ||
@@ -944,7 +920,6 @@ function shapeProblems(body) {
 	const prose = {
 		...e,
 		hunks: e.hunks.map((h) => [h.path, h.index, h.takes, h.why, h.nowDoes, h.otherwise]),
-		written: [],
 	};
 	if (measure(prose) > EXPLANATION_CAP) out.push('explanation over 16,000');
 	const lines = e.hunks.reduce((n, h) => n + measure([h.main, h.change, h.result ?? '']), 0);
@@ -1333,94 +1308,6 @@ check(
 		'ambig: an honest wrapped resolution is PROPOSED (not "changed outside its conflicts"), its sides real and its results "not located"',
 	);
 }
-// Every line the run wrote itself is listed, from the real resolved file, wherever a hunk was placed
-{
-	const ZWJ = String.fromCodePoint(0x200d);
-	check(
-		json(addedLinesAt('a\nb\nb\n', 'a\nb\nb\nb\n\nc\r\n  \nd\n')) ===
-			json([
-				{ n: 4, text: 'b' },
-				{ n: 6, text: 'c' },
-				{ n: 8, text: 'd' },
-			]),
-		'addedLinesAt: a line held fewer times than it now appears is added, blank lines are not listed, a CR is dropped',
-	);
-	const code = (x, y) => `function f() {\n\tx(${x});\n\t}\n\ty(${y});\n}\n`;
-	const job = scratch('ambig2', {
-		base: { 'src/w.ts': code(1, 1) },
-		change: [['c', { 'src/w.ts': code(2, 2) }]],
-		main: [['m', { 'src/w.ts': code(3, 3) }]],
-	});
-	const j = propose(job, jobMerge(job).out);
-	j.input.budget = 6;
-	stage(j.p, j.input);
-	// the model adds a call next to the repeated `\t}`, and a line with a zero-width joiner
-	const sneaky = `function f() {\n\tx(23);\n\t}\n\tgrantAll();\n\tif (c) {\n\t\tis${ZWJ}Admin(23);\n\t}\n}\n`;
-	apply(j.p.workspace, { 'src/w.ts': sneaky });
-	mkdirSync(j.p.out, { recursive: true });
-	const hunk = (index) => ({
-		path: 'src/w.ts',
-		index,
-		takes: 'combined',
-		why: 'Both.',
-		nowDoes: `It is 23 (${index}).`,
-		otherwise: null,
-	});
-	writeFileSync(
-		join(j.p.out, 'result.json'),
-		json({
-			hunks: [hunk(0), hunk(1)],
-			outside: [],
-			checks: [{ command: 'pnpm check:thing', ok: true }],
-			risks: 'none',
-		}),
-	);
-	mkdirSync(j.p.claude, { recursive: true });
-	writeFileSync(join(j.p.claude, 'stream.jsonl'), STREAM_OK);
-	const body = buildResult(j.p, j.input, 'sk-ant-fixture-key-0123456789');
-	const w = body.explanation?.written.find((x) => x.path === 'src/w.ts');
-	check(
-		body.outcome === 'proposed' &&
-			body.explanation.hunks.filter((h) => h.path === 'src/w.ts').every((h) => h.result === null) &&
-			json(w?.lines.map((l) => [l.n, l.text])) ===
-				json([
-					[2, '\tx(23);'],
-					[4, '\tgrantAll();'],
-					[5, '\tif (c) {'],
-					[6, `\t\tis${ZWJ}Admin(23);`],
-				]),
-		'written: with every hunk "not located" (a repeated `\\t}`), the card still lists the lines the run wrote itself — `grantAll();` and the joiner line — with their numbers in the resolved file',
-	);
-	// five hundred new lines are more than the card can show: nothing is proposed
-	const many = `function f() {\n\tx(23);\n\t}\n${Array.from({ length: 500 }, (_, i) => `\tnew_${i}();\n`).join('')}\ty(23);\n}\n`;
-	const job2 = scratch('many', {
-		base: { 'src/w.ts': code(1, 1) },
-		change: [['c', { 'src/w.ts': code(2, 2) }]],
-		main: [['m', { 'src/w.ts': code(3, 3) }]],
-	});
-	const j2 = propose(job2, jobMerge(job2).out);
-	j2.input.budget = 6;
-	stage(j2.p, j2.input);
-	apply(j2.p.workspace, { 'src/w.ts': many });
-	mkdirSync(j2.p.out, { recursive: true });
-	writeFileSync(
-		join(j2.p.out, 'result.json'),
-		json({
-			hunks: [hunk(0), hunk(1)],
-			outside: [],
-			checks: [{ command: 'pnpm check:thing', ok: true }],
-			risks: 'none',
-		}),
-	);
-	mkdirSync(j2.p.claude, { recursive: true });
-	writeFileSync(join(j2.p.claude, 'stream.jsonl'), STREAM_OK);
-	const big = buildResult(j2.p, j2.input, 'sk-ant-fixture-key-0123456789');
-	check(
-		big.outcome === 'no_proposal' &&
-			big.reason === 'The run wrote more new lines than the card can show.',
-		`written: more new lines than the card can show (${WRITTEN_LINES_CAP}) → no_proposal, so nothing pushed is unseen (${big.outcome})`,
-	);
-}
 {
 	// a result past the cap is cut, and says by how many lines: a long result made of lines the sides hold
 	const fill = (tag) =>
@@ -1476,6 +1363,7 @@ check(
 		cleanLines(gitText) === '\t\tconst v = 2;\n\t\treturn v;' &&
 			cleanLines('a\r\nb\n') === 'a\nb' &&
 			cleanLines('‮x\u0007y') === 'xy' &&
+			cleanLines('a\rb') === 'a\rb' &&
 			Array.from(cleanLines('z'.repeat(LINES_CAP + 5))).length === LINES_CAP,
 		'cleanLines: indentation kept, only the last line break dropped, hidden and control characters gone, capped',
 	);

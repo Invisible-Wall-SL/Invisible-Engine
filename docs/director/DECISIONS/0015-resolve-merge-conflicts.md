@@ -307,13 +307,13 @@ that the run's hunks were cut against another base.)
     "conflicted": [ { "path": "...", "met": [ { "pr": 1234 | null, "title": "..." } ] } ],
     "hunks": [ { "path": "...", "index": 0, "main": "<main's lines>", "change": "<this change's>",
                  "result": "<the resolved file's lines there>" | null,
+                 "resultCut": 0,
                  "kind": "lines" | "description",
                  "takes": "main" | "change" | "both" | "combined", "why": "...",
                  "nowDoes": "..." | null, "otherwise": "..." | null } ],
     "outside": [ { "path": "...", "what": "..." } ],
     "checks": [ { "command": "...", "ok": true } ],
-    "risks": "...",
-    "written": [ { "path": "...", "lines": [ { "n": 12, "text": "<the line>" } ] } ]
+    "risks": "..."
   },
   "usage": [ /* as a fix run's result: per model, tokens and the CLI's cost */ ]
 }
@@ -357,24 +357,30 @@ that the run's hunks were cut against another base.)
   refused, naming the file.
   They are shown as text only, to the proposal waiting for Accept, never as HTML and never in the
   other cards.
-- **Every line the run wrote itself is listed, whatever a hunk shows** (`explanation.written`;
-  amended after the 15C review). Per file, each line of the resolved file that is in neither side
-  (counted as `addedLines` counts, blank lines left out), with its line number there. `collect`
-  computes it from the real resolved file and git's own sides, never from the model's text; it does
-  not depend on where a hunk was placed, so ambiguity or a cut cannot hide a line. The launcher
-  checks it twice: at the result, every entry is a file the proposal lists and exactly that file's
-  own line at that number, and a line holding a format character (a zero-width joiner or
-  non-joiner, legal inside a JS or TS identifier, or a bidi mark) is refused, naming the file; at
-  Accept, the list must equal what the launcher itself computes from the two sides it reads
-  (`writtenOf`), or the resolution is `needs_person`. More than 400 lines or 20,000 characters over
-  the proposal is `no_proposal` ("the run wrote more new lines than the card can show"), so nothing
-  that is pushed is unseen. The card shows them under each file ("Lines the run wrote itself (N)")
-  with an **Open resolved file** link: `GET …/merge-runs/<id>/file?path=…`, `pipelineMerge`, the exact
-  text Accept would push from the run's own record (the branch is not fetched), `text/plain`,
-  `nosniff`, `inline`, only for a path the proposal lists and only while the run is `proposed` or
-  `accepting`. The card's other notices point at that link. Code shown on the card is never
-  stripped of a CI-skip token (the card is not a commit message), and the raw text is capped before
-  format characters are made visible, with any cut counted in `resultCut`.
+- **What Accept changes on this branch is a positional diff the launcher makes** (`explanation.diff`;
+  amended after the 15C review, replacing a per-hunk list of "lines the run wrote"). The job sends
+  no part of it. At the result the launcher reads the change's tree (at `headSha`) and `main`'s
+  itself, fetches each file's head blob, and diffs that, by lines, against the run's stored
+  `files[].content` (the bytes Accept pushes and the file route serves) with a small Myers O(ND)
+  diff (`pipelineMergeRunsDiff.ts`), three lines of context, real numbers on both sides. A copy, a
+  duplicate or a reorder is a `-`/`+` pair at its real position, and nothing depends on where a hunk
+  was placed. A deleted file is all removed, a file the branch no longer has all added. A path both
+  sides changed identically (Accept keeps main's entry) has no diff and no file to open; content that
+  is main's own version of the file is shown as taking it whole. Past 2,000 changed lines or 80,000
+  characters (or more changes than the diff looks for) the result is `no_proposal` ("The merge
+  changes more than the card can show: resolve it by hand"), so nothing Accept pushes is unseen. The
+  head blob is immutable under `headSha`, so the branch-tip check at Accept (a moved head is `stale`)
+  is the check that the diff is still the one for the file Accept replaces. For every line the merge
+  ADDS that neither side's version holds (membership, not a multiset): a lone CR, U+2028, U+2029,
+  U+0085 or any format character is refused, naming the file (a CR at the very end is a CRLF), and a
+  secret, as it is and with format characters removed, is refused; a secret-looking line a side does
+  hold is hidden on the card. On the card every control character but tab, every format character,
+  the line and paragraph separators, U+0085, U+FEFF and a no-break space is shown as what it is
+  (`⟨CR⟩`, `⟨U+200D⟩`), never dropped; the raw text is capped first; nothing is stripped of a CI-skip
+  token. Each file shows its diff under "What Accept changes on this branch" and an **Open resolved
+  file** link: `GET …/merge-runs/<id>/file?path=…`, `pipelineMerge`, the exact text Accept would push
+  from the run's own record (the branch is not fetched), `text/plain`, `nosniff`, `inline`, only for
+  a path that has a diff and only while the run is `proposed` or `accepting`.
 - **Accept's claim.** Accept takes `proposed → accepting` in the database, by the database's clock
   and with a 5-minute lease and a claim id, before any GitHub write; every later update, settle and
   release carries the claim id, and the merge commit's SHA is stored (with whoever built it) before

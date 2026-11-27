@@ -142,17 +142,39 @@ export interface MergeRunExplanation {
 	checks: { command: string; ok: boolean }[];
 	risks: string;
 	/**
-	 * Every line the run wrote itself, per file: a line of the resolved file that is in neither side
-	 * (`n` is its line number there). Computed by the job from the real resolved file and checked
-	 * again by Accept against the real sides, so it does not depend on where a hunk was placed, and
-	 * nothing pushed is unseen. Files with none are not listed.
+	 * What Accept changes on this branch, per file: a positional line diff of the change's own version
+	 * (`headSha:path`) against the content Accept would push. Computed by the LAUNCHER at the result,
+	 * from the head blob it fetched itself and the run's stored content; never part of what the job
+	 * posts (so `JobExplanation` has no such field).
 	 */
-	written: MergeRunWritten[];
+	diff: FileDiff[];
 }
 
-export interface MergeRunWritten {
+/** What the job posts as the explanation (§10): the same, but the launcher makes the diff. */
+export type JobExplanation = Omit<MergeRunExplanation, 'diff'>;
+
+export interface DiffLine {
+	/** A line both versions hold (context), one only the branch has (removed), or one only the merge has. */
+	k: 'ctx' | 'del' | 'add';
+	/** Its line number in the branch's version (null for an added line). */
+	o: number | null;
+	/** Its line number in the merged file (null for a removed line). */
+	n: number | null;
+	/** As the card shows it: a control or format character is rendered visibly (`⟨CR⟩`, `⟨U+200D⟩`). */
+	text: string;
+}
+
+export interface FileDiff {
 	path: string;
-	lines: { n: number; text: string }[];
+	/**
+	 * `run`: the merge writes the run's content, shown as a diff. `main`: the run's content IS main's
+	 * own version of the file, which replaces the branch's (a build rule's file left pending): the
+	 * change is main's whole file, not shown line by line.
+	 */
+	takes: 'run' | 'main';
+	added: number;
+	removed: number;
+	hunks: DiffLine[][];
 }
 
 /** The caps of §10. */
@@ -167,9 +189,9 @@ export const MERGE_CAPS = {
 	lines: 10_000,
 	/** Those lines over every hunk of a proposal. */
 	linesTotal: 120_000,
-	/** The lines the run wrote itself, over the whole proposal: past it nothing is proposed. */
-	writtenLines: 400,
-	writtenChars: 20_000,
+	/** The lines the merge changes on the branch, over the whole proposal: past it nothing is proposed. */
+	diffLines: 2_000,
+	diffChars: 80_000,
 	reason: 300,
 	path: 300,
 	hunks: 200,
@@ -251,7 +273,7 @@ export const MERGE_RUN_REASONS = {
 	timedOut: 'The run timed out.',
 	notExplained: 'The run did not explain its resolution.',
 	linesTooLong: 'The conflicting lines are too long to show for a person to read.',
-	writtenTooMany: 'The run wrote more new lines than the card can show.',
+	diffTooBig: 'The merge changes more than the card can show: resolve it by hand.',
 	budgetSpent:
 		"This month's fix-run budget is spent, so only the mechanical part could be kept; resolve the rest by hand.",
 	headMoved: 'The branch moved; resolve again.',
@@ -374,7 +396,7 @@ function proposalOnly(run: MergeRunRecord): MergeRunExplanation | null {
 	return {
 		...e,
 		hunks: e.hunks.map((h) => ({ ...h, main: '', change: '', result: null, resultCut: 0 })),
-		written: [],
+		diff: [],
 	};
 }
 

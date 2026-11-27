@@ -20,10 +20,11 @@ import {
 	mergeRunView,
 	refusalMessage,
 	startRefusal,
+	type FileDiff,
+	type JobExplanation,
 	type MergeRunExplanation,
 	type MergeRunFile,
 	type MergeRunRefusal,
-	type MergeRunWritten,
 	type MergeRunStatus,
 	type MergeRunView,
 	type MergeRunsAnswer,
@@ -55,11 +56,10 @@ import {
 	mergeWorkflowReady,
 } from './pipelineMergeRunsActions';
 import {
+	blobSha,
 	contentProblem,
-	hasFormatChar,
 	mergeMessage,
 	planMerge,
-	writtenOf,
 	type Files,
 	type Plan,
 	type Sides,
@@ -72,15 +72,19 @@ import {
 	explanationTexts,
 	filesProblem,
 	isExplainedMerge,
-	needsMainsTree,
 	parseMergeResult,
 	resultProblem,
 	resultSecretProblem,
 	textsProblem,
-	writtenProblem,
-	writtenSizeProblem,
 	type ParsedMergeResult,
 } from './pipelineMergeRunsResult';
+import {
+	diffText,
+	displayDiff,
+	hiddenInLine,
+	linesOf,
+	secretInLine,
+} from './pipelineMergeRunsDiff';
 import {
 	bindMergeRun,
 	claimAccept,
@@ -359,22 +363,116 @@ async function recordSpend(id: string, usage: ReturnType<typeof parseUsage>): Pr
 }
 
 /**
- * `main`'s tree at the run's SHA, read only when a file rests on `filesProblem`'s one exemption (a
- * protected path or a lockfile listed as `main`'s). Null when none does, or when the tree is too
- * large to list whole (the exemption is then not given). A GitHub error is a 502, so the job sends
- * the result again: a blip is not turned into a refusal with the wrong reason.
+ * The change's own tree (at the run's head SHA) and `main`'s (at its SHA), read here by the launcher
+ * and never taken from the job: the exemption of `filesProblem` needs `main`'s, and the diff needs
+ * the head's blobs. Null when either is too large for GitHub to list whole. A GitHub error is a 502,
+ * so the job sends the result again: a blip is not turned into a refusal with the wrong reason.
  */
-async function mainTreeFor(
+async function sideTrees(
 	app: GithubApp,
 	run: MergeMainRun,
-	files: MergeRunFile[],
-): Promise<Files | null> {
-	if (!files.some(needsMainsTree)) return null;
+): Promise<{ head: Files; main: Files } | null> {
 	try {
-		return (await readFiles(app, run.mainSha))?.files ?? null;
+		const [head, main] = await Promise.all([
+			readFiles(app, run.headSha),
+			readFiles(app, run.mainSha),
+		]);
+		return head && main ? { head: head.files, main: main.files } : null;
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
 	}
+}
+
+/** The text of a blob GitHub holds; 502 on a GitHub error, `null` for a binary one. */
+async function blobText(app: GithubApp, sha: string | undefined): Promise<string | null> {
+	if (sha === undefined) return null;
+	try {
+		return await readText(app, sha);
+	} catch (err) {
+		throw error(502, err instanceof Error ? err.message : String(err));
+	}
+}
+
+/**
+ * "What Accept changes on this branch" (ADR-0015 §5): for every file Accept takes from the run, the
+ * positional line diff of the change's own version (`headSha:path`, its blob fetched here) against
+ * the run's stored content, which is the exact text Accept pushes and the file route serves. A path
+ * both sides changed identically has no diff (Accept keeps `main`'s entry and takes nothing from the
+ * run). A file whose content IS `main`'s own version is shown as taking it whole. Every line the
+ * merge adds that neither side's version of the file holds is held to rules a person cannot check by
+ * eye: no lone CR, U+2028, U+2029, U+0085 or format character, and no secret. Past the caps in
+ * `MERGE_CAPS` (changed lines or characters, or more changes than the diff looks for) nothing is
+ * proposed: nothing Accept pushes is ever unseen.
+ */
+async function diffsOf(
+	app: GithubApp,
+	files: MergeRunFile[],
+	trees: { head: Files; main: Files },
+): Promise<{ diff: FileDiff[] } | { problem: string } | { tooBig: true }> {
+	type Found = { problem: string } | { tooBig: true } | { diff: FileDiff; chars: number } | null;
+	const found = await mapWithConcurrency(files, 4, async (f): Promise<Found> => {
+		const head = trees.head.get(f.path);
+		const main = trees.main.get(f.path);
+		if (head === undefined && main === undefined) return null;
+		if (
+			head !== undefined &&
+			main !== undefined &&
+			head.sha === main.sha &&
+			head.mode === main.mode
+		) {
+			return null;
+		}
+		if ((head && head.type !== 'blob') || (main && main.type !== 'blob')) {
+			return { problem: 'a path both sides changed is a link or a submodule' };
+		}
+		const takesMain =
+			f.content === null
+				? main === undefined
+				: main !== undefined && blobSha(f.content) === main.sha && f.mode === main.mode;
+		if (takesMain) {
+			return { diff: { path: f.path, takes: 'main', added: 0, removed: 0, hunks: [] }, chars: 0 };
+		}
+		const [before, other] = await Promise.all([blobText(app, head?.sha), blobText(app, main?.sha)]);
+		if ((head && before === null) || (main && other === null)) {
+			return { problem: 'a file both sides changed is binary' };
+		}
+		const text = diffText(head === undefined ? null : before, f.content);
+		if (text === null) return { tooBig: true as const };
+		const held = new Set([
+			...(before === null ? [] : linesOf(before)),
+			...(other === null ? [] : linesOf(other)),
+		]);
+		for (const line of text.hunks.flat()) {
+			if (line.k !== 'add' || held.has(line.text)) continue;
+			if (hiddenInLine(line.text)) {
+				return {
+					problem: `a line the run wrote holds a lone CR, a line separator or an invisible format character in ${f.path}`,
+				};
+			}
+			if (secretInLine(line.text))
+				return { problem: 'secret scan: a secret in a line neither side had' };
+		}
+		const chars = text.hunks
+			.flat()
+			.reduce((n, l) => n + (l.k === 'ctx' ? 0 : Array.from(l.text).length), 0);
+		return {
+			diff: {
+				path: f.path,
+				takes: 'run',
+				added: text.added,
+				removed: text.removed,
+				hunks: displayDiff(text.hunks),
+			},
+			chars,
+		};
+	});
+	for (const r of found) if (r && 'problem' in r) return { problem: r.problem };
+	if (found.some((r) => r && 'tooBig' in r)) return { tooBig: true };
+	const done = found.flatMap((r) => (r && 'diff' in r ? [r] : []));
+	const lines = done.reduce((n, r) => n + r.diff.added + r.diff.removed, 0);
+	const chars = done.reduce((n, r) => n + r.chars, 0);
+	if (lines > MERGE_CAPS.diffLines || chars > MERGE_CAPS.diffChars) return { tooBig: true };
+	return { diff: done.map((r) => r.diff) };
 }
 
 /** This calendar month's fix-run and merge-run spend, bar `own`: the run's own spend is not "before". */
@@ -407,6 +505,8 @@ async function decide(
 		};
 	}
 	const explanation = r.explanation && cleanExplanation(r.explanation);
+	// What is stored when nothing is proposed: the words, with no diff (the launcher makes one only for a proposal).
+	const kept = (e: JobExplanation | null): MergeRunExplanation | null => e && { ...e, diff: [] };
 	const reason = cleanLine(r.reason, MERGE_CAPS.reason);
 	const leak = textsProblem(
 		[r.reason, ...(r.explanation ? explanationTexts(r.explanation) : [])],
@@ -417,7 +517,7 @@ async function decide(
 		return {
 			status: outcome === 'no_proposal' ? 'no_proposal' : 'needs_person',
 			reason: capMergeReason(reason || OUTCOME_REASONS[outcome]),
-			explanation,
+			explanation: kept(explanation),
 		};
 	}
 	if (r.headSha !== run.headSha || r.mainSha !== run.mainSha) {
@@ -428,28 +528,55 @@ async function decide(
 		!r.files.length ||
 		explanationSize(explanation) > MERGE_CAPS.explanation
 	) {
-		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.notExplained, explanation };
+		return {
+			status: 'no_proposal',
+			reason: MERGE_RUN_REASONS.notExplained,
+			explanation: kept(explanation),
+		};
 	}
 	const secret = r.explanation && resultSecretProblem(r.explanation, explanation);
 	if (secret) return refused(secret);
 	const hunkPaths = new Set(explanation.hunks.map((h) => h.path));
 	const sent = r.explanation ?? explanation;
-	const problem =
-		filesProblem(r.files, hunkPaths, await mainTreeFor(app, run, r.files)) ??
-		writtenProblem(sent, r.files) ??
-		resultProblem(sent, r.files);
-	if (problem) return { ...refused(problem), explanation };
-	if (writtenSizeProblem(sent)) {
-		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.writtenTooMany, explanation };
+	const trees = await sideTrees(app, run);
+	if (trees === null) {
+		return {
+			...refused('the repository tree is too large for GitHub to list whole'),
+			explanation: kept(explanation),
+		};
 	}
+	const problem = filesProblem(r.files, hunkPaths, trees.main) ?? resultProblem(sent, r.files);
+	if (problem) return { ...refused(problem), explanation: kept(explanation) };
 	if (explanationLines(explanation) > MERGE_CAPS.linesTotal) {
-		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.linesTooLong, explanation };
+		return {
+			status: 'no_proposal',
+			reason: MERGE_RUN_REASONS.linesTooLong,
+			explanation: kept(explanation),
+		};
+	}
+	const shown = await diffsOf(app, r.files, trees);
+	if ('problem' in shown) return { ...refused(shown.problem), explanation: kept(explanation) };
+	if ('tooBig' in shown) {
+		return {
+			status: 'no_proposal',
+			reason: MERGE_RUN_REASONS.diffTooBig,
+			explanation: kept(explanation),
+		};
 	}
 	const byModel = r.files.some((f) => f.rule === null && hunkPaths.has(f.path));
 	if (byModel && (await monthSpendBefore(spendUsd)) >= (await getPipelineFixMonthlyCap())) {
-		return { status: 'needs_person', reason: MERGE_RUN_REASONS.budgetSpent, explanation };
+		return {
+			status: 'needs_person',
+			reason: MERGE_RUN_REASONS.budgetSpent,
+			explanation: kept(explanation),
+		};
 	}
-	return { status: 'proposed', files: r.files, explanation, baseSha: r.baseSha ?? undefined };
+	return {
+		status: 'proposed',
+		files: r.files,
+		explanation: { ...explanation, diff: shown.diff },
+		baseSha: r.baseSha ?? undefined,
+	};
 }
 
 // ── Accept ────────────────────────────────────────────────────────────────────
@@ -718,13 +845,7 @@ async function build(
 	}
 	const planned = planMerge(baseTree.files, headTree.files, mainTree.files, files);
 	if ('problem' in planned) return needsPerson(refusedChange(planned.problem));
-	const problem = await checkContent(
-		app,
-		planned.plan,
-		headTree.files,
-		mainTree.files,
-		run.explanation?.written ?? [],
-	);
+	const problem = await checkContent(app, planned.plan, headTree.files, mainTree.files);
 	if (problem) return needsPerson(refusedChange(problem));
 	try {
 		const writes = planned.plan.writes;
@@ -806,7 +927,6 @@ async function checkContent(
 	plan: Plan,
 	head: Files,
 	main: Files,
-	written: MergeRunWritten[],
 ): Promise<string | null> {
 	const found = await mapWithConcurrency(plan.resolved, 4, async (file) => {
 		const read = async (side: Files): Promise<string | null | 'binary'> => {
@@ -817,20 +937,8 @@ async function checkContent(
 		const [h, m] = await Promise.all([read(head), read(main)]);
 		if (h === 'binary' || m === 'binary') return 'a file both sides changed is binary';
 		const sides: Sides = { head: h, main: m };
-		const own = writtenOf(file, sides);
-		if (own.some((l) => hasFormatChar(l.text))) {
-			return `a line the run wrote holds an invisible format character in ${file.path}`;
-		}
-		const card = written.find((w) => w.path === file.path)?.lines ?? [];
-		if (JSON.stringify(own) !== JSON.stringify(card)) {
-			return 'the lines the run wrote itself, as the card listed them, are not the file’s';
-		}
 		return contentProblem(file, sides);
 	});
-	const unseen = written.find(
-		(w) => w.lines.length > 0 && !plan.resolved.some((f) => f.path === w.path),
-	);
-	if (unseen) return 'the card lists lines for a file the merge does not take from the run';
 	return found.find((p): p is string => p !== null) ?? null;
 }
 
@@ -922,6 +1030,10 @@ export async function resolvedFileOf(number: number, id: string, path: string): 
 	}
 	const file = run.files?.find((f) => f.path === path);
 	if (!file) throw error(404, 'The proposal does not hold that file.');
+	// A path both sides changed identically is main's: Accept takes nothing from the run for it.
+	if (!run.explanation?.diff.some((d) => d.path === path)) {
+		throw error(404, 'The merge takes nothing from the run for that file.');
+	}
 	if (file.content === null) throw error(404, 'The resolution deletes that file.');
 	return file.content;
 }

@@ -910,7 +910,6 @@ const explanation = (paths: string[] = ['src/a.ts'], extra: Json = {}) => ({
 	outside: [],
 	checks: [{ command: 'pnpm check:x', ok: true }],
 	risks: 'none found',
-	written: [],
 	...extra,
 });
 const usage = [
@@ -959,31 +958,11 @@ async function started(
 	return { id, gh: ghRunId };
 }
 let nextGh = 9100;
-/** The lines the run wrote itself in `f`, as the job lists them: against the two sides in the fake git. */
-function writtenFrom(w: World, f: MergeRunFile[]) {
-	const textOf = (commit: string, path: string): string | null => {
-		const entry = filesOfCommit(commit).get(path);
-		return entry ? (git.blobs.get(entry.sha) ?? null) : null;
-	};
-	return f.flatMap((file) => {
-		if (file.content === null) return [];
-		const lines = built.addedLinesAt(
-			`${textOf(w.main, file.path) ?? ''}\n${textOf(w.head, file.path) ?? ''}`,
-			file.content,
-		);
-		return lines.length ? [{ path: file.path, lines }] : [];
-	});
-}
-
 async function proposed(
 	w: World,
 	f: MergeRunFile[],
-	e0: Json = explanation(),
+	e: Json = explanation(),
 ): Promise<{ id: string; w: World }> {
-	const e = {
-		...e0,
-		written: (e0.written as unknown[]).length ? e0.written : writtenFrom(w, f),
-	};
 	const ghRunId = ++nextGh;
 	gh.dispatch = () => answer(200, { workflow_run_id: ghRunId });
 	const a = await resolve(ADMIN, w.n);
@@ -1660,7 +1639,6 @@ const dirty = parsed.cleanExplanation({
 	outside: [{ path: 'a', what: 'x'.repeat(5000) }],
 	checks: [{ command: 'pnpm `rm`', ok: true }],
 	risks: 'none',
-	written: [],
 });
 check(
 	'cleaning: tags shown as text, a CI-skip token kept in code (the card is not a commit message), a bidi mark shown as ⟨U+202E⟩, @ and # quieted, BUG- refs unlinked',
@@ -2052,9 +2030,9 @@ const NO_RESULT = { files: [], explanation: null };
 	gh.calls.length = 0;
 	const plain = await failFast({}, wl3);
 	check(
-		'result: with no such file main’s tree is not read',
-		[plain.run.status, gh.calls.some((c) => c.path.startsWith('/git/trees/'))],
-		[plain.run.status, false],
+		'result: the launcher reads the change’s tree and main’s itself, at every result (the diff needs the head’s blobs)',
+		[plain.run.status, gh.calls.filter((c) => c.path.startsWith('/git/trees/')).length],
+		['proposed', 2],
 	);
 	ledger.length = 0; // each posted result spends $6 of the month's $150: these runs are not what later checks count
 }
@@ -2150,7 +2128,9 @@ check(
 	const real =
 		'const key = process.env.ANTHROPIC_API_KEY ?? "sk-ant-api03-' + 'z'.repeat(40) + '";';
 	const big = 'x'.repeat(3_900);
-	const content = `${big}\n${real}\nconst a = 5;\n`;
+	const content = `${big}\nconst a = 5;\n`;
+	// the repository holds the key-mentioning line itself (as docs/INFRA.md and env.ts do)
+	const holder = () => world(SRC_BASE, { 'src/a.ts': `${real}\n` }, { 'src/a.ts': '2\n' });
 	const five = Array.from({ length: 5 }, (_, i) =>
 		hunkWith({ index: i, main: big, change: big, result: big }),
 	);
@@ -2163,10 +2143,13 @@ check(
 		long.run.status,
 		'proposed',
 	);
-	const secretLines = await failFast({
-		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content }),
-		explanation: withHunks([hunkWith({ main: real, change: 'const a = 1;', result: real })]),
-	});
+	const secretLines = await failFast(
+		{
+			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${real}\nx\n` }),
+			explanation: withHunks([hunkWith({ main: real, change: 'const a = 1;', result: real })]),
+		},
+		holder(),
+	);
 	check(
 		"result: a line of code that mentions sk-ant- (as docs/INFRA.md and env.ts do) in a hunk's sides is not a secret in the prose → proposed",
 		secretLines.run.status,
@@ -2224,10 +2207,15 @@ check(
 		splitSecret.run.status,
 		'needs_person',
 	);
-	const ownLine = await failFast({
-		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${keyLine}\n` }),
-		explanation: withHunks([hunkWith({ main: keyLine, change: 'const a = 2;', result: keyLine })]),
-	});
+	const ownLine = await failFast(
+		{
+			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${keyLine}\nx\n` }),
+			explanation: withHunks([
+				hunkWith({ main: keyLine, change: 'const a = 2;', result: keyLine }),
+			]),
+		},
+		world(SRC_BASE, { 'src/a.ts': `${keyLine}\n` }, { 'src/a.ts': '2\n' }),
+	);
 	check(
 		'result: a line a side already held is the repository’s own — proposed, with that line hidden on the page’s sides',
 		[
@@ -2237,81 +2225,254 @@ check(
 		],
 		['proposed', '[line hidden: it looks like a secret]', 'const a = 2;'],
 	);
-	// R4-S2: every line the run wrote itself is listed, and one with a format character is refused
-	// whether or not any hunk shows it (ambiguous placement, a cut result)
-	const zwj = `\tconst is${String.fromCodePoint(0x200d)}Admin = true;`;
-	const listing = (lines: { n: number; text: string }[], over: Json = {}) => ({
-		written: [{ path: 'src/a.ts', lines }],
-		...over,
-	});
-	for (const [label, hunkOver] of [
-		['shown in its hunk', { result: zwj }],
-		['no result shown (ambiguous placement)', { result: null }],
-		['past a cut result', { result: '\tfiller line…', resultCut: 2 }],
+	// R5: what Accept changes on the branch is a positional diff the launcher makes itself
+	const zwjLine = `\tconst is${String.fromCodePoint(0x200d)}Admin = true;`;
+	for (const [label, line] of [
+		['a zero-width joiner (legal in an identifier)', zwjLine],
+		['a lone CR (ends the line for JS, TS and Python)', '// note\rallowAll = true;'],
+		['U+2028', `// note${String.fromCharCode(0x2028)}allowAll = true;`],
+		['U+0085', `// note${String.fromCharCode(0x85)}allowAll = true;`],
 	] as const) {
-		const added = await failFast({
-			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `x\n${zwj}\ny\n` }),
-			explanation: explanation(['src/a.ts'], {
-				...listing([{ n: 2, text: zwj }]),
-				hunks: [
-					{
-						...explanation().hunks[0],
-						main: 'const a = 1;',
-						change: 'const a = 2;',
-						...hunkOver,
-					},
-				],
-			}),
+		const hidden = await failFast({
+			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${line}\nx\n` }),
 		});
 		check(
-			`result: a line the run wrote with a zero-width joiner (legal in an identifier), ${label} → needs_person, naming the file`,
-			[added.run.status, added.run.reason],
+			`result: a line the run wrote with ${label} → needs_person, naming the file`,
+			[hidden.run.status, hidden.run.reason],
 			[
 				'needs_person',
-				'The change was refused (a line the run wrote holds an invisible format character in src/a.ts).',
+				'The change was refused (a line the run wrote holds a lone CR, a line separator or an invisible format character in src/a.ts).',
 			],
 		);
+		ledger.length = 0;
 	}
-	const wrongLine = await failFast({
-		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'x\ny\n' }),
-		explanation: explanation(['src/a.ts'], listing([{ n: 2, text: 'grantAll();' }])),
-	});
-	check(
-		'result: a listed line that is not the file’s own line at that number → needs_person',
-		[wrongLine.run.status, wrongLine.run.reason],
-		[
-			'needs_person',
-			'The change was refused (the lines the run wrote itself are not the file’s own lines).',
-		],
-	);
-	const strangeFile = await failFast({
-		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'x\n' }),
-		explanation: explanation(['src/a.ts'], {
-			written: [{ path: 'src/other.ts', lines: [{ n: 1, text: 'x' }] }],
-		}),
-	});
-	check(
-		'result: lines listed for a file the proposal does not hold → needs_person',
-		[strangeFile.run.status],
-		['needs_person'],
-	);
-	const manyLines = await failFast({
+	const crlf = await failFast({
 		files: files({
 			path: 'src/a.ts',
 			rule: null,
 			choice: 'both',
-			content: `${Array.from({ length: 401 }, (_, i) => `l${i}`).join('\n')}\n`,
+			content: 'new one\r\nnew two\r\n',
 		}),
-		explanation: explanation(
-			['src/a.ts'],
-			listing(Array.from({ length: 401 }, (_, i) => ({ n: i + 1, text: `l${i}` }))),
-		),
 	});
 	check(
-		'result: more written lines than the card can show (401 > 400) → no_proposal, so nothing pushed is unseen',
-		[manyLines.run.status, manyLines.run.reason],
-		['no_proposal', 'The run wrote more new lines than the card can show.'],
+		'result: the CR of a CRLF line (at the very end) is not a lone CR → proposed',
+		crlf.run.status,
+		'proposed',
 	);
+	ledger.length = 0;
+	const lineOf = (run: { explanation: unknown }, path: string) =>
+		(
+			run.explanation as {
+				diff: {
+					path: string;
+					hunks: { k: string; o: number | null; n: number | null; text: string }[][];
+				}[];
+			}
+		).diff
+			.find((d) => d.path === path)!
+			.hunks.flat();
+	const sideCr = await failFast(
+		{
+			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'keep\rme\nextra\n' }),
+		},
+		world(SRC_BASE, { 'src/a.ts': 'keep\rme\n' }, { 'src/a.ts': '2\n' }),
+	);
+	check(
+		'result: a CR inside a side’s own line is that side’s: proposed, and the card shows it as ⟨CR⟩ (never as a line break)',
+		[
+			sideCr.run.status,
+			lineOf(sideCr.run, 'src/a.ts').some((l) => l.text === 'keep⟨CR⟩me'),
+			lineOf(sideCr.run, 'src/a.ts').some((l) => l.k === 'add' && l.text === 'extra'),
+		],
+		['proposed', true, true],
+	);
+	ledger.length = 0;
+	// the secret rule: a line neither side holds is refused; one a side holds is hidden on the card
+	const ghs = `\tconst t = 'ghs_${'A1b2C3d4E5'.repeat(4)}';`;
+	const secretNew = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${ghs}\n` }),
+	});
+	check(
+		'result: a secret (ghs_) in a line the run wrote that neither side holds → needs_person',
+		[secretNew.run.status, secretNew.run.reason],
+		['needs_person', 'The change was refused (secret scan: a secret in a line neither side had).'],
+	);
+	ledger.length = 0;
+	const secretOwn = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${ghs}\nmore\n` }) },
+		world(SRC_BASE, { 'src/a.ts': `${ghs}\n` }, { 'src/a.ts': '2\n' }),
+	);
+	check(
+		'result: the same line a side already holds is the repository’s own: proposed, hidden on the card',
+		[
+			secretOwn.run.status,
+			lineOf(secretOwn.run, 'src/a.ts').some(
+				(l) => l.text === '[line hidden: it looks like a secret]',
+			),
+			JSON.stringify(secretOwn.run.explanation).includes('ghs_'),
+		],
+		['proposed', true, false],
+	);
+	ledger.length = 0;
+	// the reviewer's two cases: an early return, and a reorder, appear at their real positions
+	const early = await failFast(
+		{
+			files: files({
+				path: 'src/a.ts',
+				rule: null,
+				choice: 'both',
+				content: 'function f(u) {\n\treturn true;\n\tcheck(u);\n\treturn true;\n}\n',
+			}),
+		},
+		world(
+			SRC_BASE,
+			{ 'src/a.ts': 'function f(u) {\n\tcheck(u);\n\treturn true;\n}\n' },
+			{ 'src/a.ts': 'function f(u) {\n\tcheck(u);\n\treturn true;\n\t// main\n}\n' },
+		),
+	);
+	check(
+		'diff: a copied `return true;` above `check(u);` appears as a + at line 2 (not as the original line)',
+		lineOf(early.run, 'src/a.ts')
+			.filter((l) => l.k !== 'ctx')
+			.map((l) => [l.k, l.o, l.n, l.text]),
+		[['add', null, 2, '\treturn true;']],
+	);
+	ledger.length = 0;
+	const reorder = await failFast(
+		{
+			files: files({
+				path: 'src/a.ts',
+				rule: null,
+				choice: 'both',
+				content: 'a\ngrant(u);\ndeny();\nz\n',
+			}),
+		},
+		world(
+			SRC_BASE,
+			{ 'src/a.ts': 'a\ndeny();\ngrant(u);\nz\n' },
+			{ 'src/a.ts': 'a\ndeny();\ngrant(u);\nz\nm\n' },
+		),
+	);
+	check(
+		'diff: moving `grant(u);` above `deny();` is a -/+ pair at the real positions (a reorder is a change)',
+		(() => {
+			const moved = lineOf(reorder.run, 'src/a.ts').filter((l) => l.k !== 'ctx');
+			const del = moved.filter((l) => l.k === 'del');
+			const add = moved.filter((l) => l.k === 'add');
+			return [del.length, add.length, del[0]?.text === add[0]?.text, del[0]?.o !== add[0]?.n];
+		})(),
+		[1, 1, true, true],
+	);
+	ledger.length = 0;
+	const dup = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'x();\nx();\ny\n' }) },
+		world(SRC_BASE, { 'src/a.ts': 'x();\ny\n' }, { 'src/a.ts': 'x();\ny\nm\n' }),
+	);
+	check(
+		'diff: a line both sides hold, duplicated, is a + at the new position (membership does not hide it)',
+		lineOf(dup.run, 'src/a.ts')
+			.filter((l) => l.k === 'add')
+			.map((l) => [l.n, l.text]),
+		[[2, 'x();']],
+	);
+	ledger.length = 0;
+	// a deleted file shows as all removed; a file the branch deleted and the merge brings back as all added
+	const gone = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: null }) },
+		world(SRC_BASE, { 'src/a.ts': 'one\ntwo\n' }, { 'src/a.ts': 'one\ntwo\nthree\n' }),
+	);
+	check(
+		'diff: a file the run deletes is all removed lines, with their numbers in the branch’s version',
+		lineOf(gone.run, 'src/a.ts').map((l) => [l.k, l.o, l.n, l.text]),
+		[
+			['del', 1, null, 'one'],
+			['del', 2, null, 'two'],
+			['del', 3, null, ''],
+		],
+	);
+	ledger.length = 0;
+	const fresh = world(SRC_BASE, { 'src/a.ts': 'one\n' }, { 'src/a.ts': 'one\nthree\n' });
+	git.trees.get(git.commits.get(fresh.head)!.tree)!.delete('src/a.ts');
+	const brought = await failFast(
+		{
+			files: files({
+				path: 'src/a.ts',
+				rule: null,
+				choice: 'both',
+				content: 'one\nthree\nextra\n',
+			}),
+		},
+		fresh,
+	);
+	check(
+		'diff: a file the branch no longer has and the merge writes is all added lines',
+		lineOf(brought.run, 'src/a.ts').map((l) => [l.k, l.o, l.n, l.text]),
+		[
+			['add', null, 1, 'one'],
+			['add', null, 2, 'three'],
+			['add', null, 3, 'extra'],
+			['add', null, 4, ''],
+		],
+	);
+	ledger.length = 0;
+	// a path both sides changed identically: Accept keeps main's, so there is no diff and no file to open
+	const same = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'main', content: 'same\n' }) },
+		world(SRC_BASE, { 'src/a.ts': 'same\n' }, { 'src/a.ts': 'same\n' }),
+	);
+	check(
+		'diff: a path both sides changed identically has no diff, and the file route answers 404 for it',
+		[
+			same.run.status,
+			(same.run.explanation as { diff: unknown[] }).diff.length,
+			(await readFile(ADMIN, runOf(same.id).prNumber, same.id, 'src/a.ts')).status,
+		],
+		['proposed', 0, 404],
+	);
+	ledger.length = 0;
+	// a file that IS main's own version replaces the branch's whole
+	const takesMain = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'main', content: '2\n' }) },
+		world(SRC_BASE, { 'src/a.ts': '1\n' }, { 'src/a.ts': '2\n' }),
+	);
+	check(
+		'diff: content that is main’s own version is shown as taking it whole, not line by line',
+		(takesMain.run.explanation as { diff: { takes: string; hunks: unknown[] }[] }).diff.map((d) => [
+			d.takes,
+			d.hunks.length,
+		]),
+		[['main', 0]],
+	);
+	ledger.length = 0;
+	// the cap: more changes than the card can show → no_proposal, so nothing pushed is unseen
+	const huge = await failFast({
+		files: files({
+			path: 'src/a.ts',
+			rule: null,
+			choice: 'both',
+			content: `${Array.from({ length: 2_100 }, (_, i) => `line ${i}`).join('\n')}\n`,
+		}),
+	});
+	check(
+		'diff: over 2,000 changed lines → no_proposal, “resolve it by hand”',
+		[huge.run.status, huge.run.reason],
+		['no_proposal', 'The merge changes more than the card can show: resolve it by hand.'],
+	);
+	ledger.length = 0;
+	const wide = await failFast({
+		files: files({
+			path: 'src/a.ts',
+			rule: null,
+			choice: 'both',
+			content: `${Array.from({ length: 100 }, (_, i) => `// ${i} ${'w'.repeat(900)}`).join('\n')}\n`,
+		}),
+	});
+	check(
+		'diff: over 80,000 changed characters (a hundred 900-character lines) → no_proposal too',
+		[wide.run.status, wide.run.reason],
+		['no_proposal', 'The merge changes more than the card can show: resolve it by hand.'],
+	);
+	ledger.length = 0;
 	// R4-S1: the card caps the raw text first, and keeps every character it is given
 	const sideZ =
 		`\t// ${'z' + String.fromCodePoint(0x200d)}`.repeat(1) +
@@ -2359,10 +2520,15 @@ check(
 		[subject, subject],
 	);
 	ledger.length = 0; // each posted result spends $6 of the month's $150
-	const ownZwj = await failFast({
-		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zwj}\n` }),
-		explanation: withHunks([hunkWith({ main: zwj, change: 'const a = 2;', result: zwj })]),
-	});
+	const ownZwj = await failFast(
+		{
+			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zwjLine}\nx\n` }),
+			explanation: withHunks([
+				hunkWith({ main: zwjLine, change: 'const a = 2;', result: zwjLine }),
+			]),
+		},
+		world(SRC_BASE, { 'src/a.ts': `${zwjLine}\n` }, { 'src/a.ts': '2\n' }),
+	);
 	const ownHunk = (ownZwj.run.explanation as { hunks: { main: string; result: string }[] })
 		.hunks[0];
 	check(
@@ -2845,16 +3011,24 @@ await refuse9(
 	'a choice of main whose content is not main’s',
 	"a file's choice does not match its content",
 );
-await refuse9(
-	files({
-		path: 'src/a.ts',
-		rule: null,
-		choice: 'combined',
-		content: 'x'.repeat(10) + `\nconst k = "ghp_${'E'.repeat(36)}";\n`,
-	}),
-	'a secret in a line neither side had',
-	'secret scan: a secret in a line neither side had',
-);
+{
+	// the result already refuses a secret in a line neither side holds; Accept reads it again against the sides
+	const p = await proposed(w9n(), both);
+	(runOf(p.id).files as { content: string }[])[0].content =
+		`x\nconst k = "ghp_${'E'.repeat(36)}";\n`;
+	gh.calls.length = 0;
+	const a = await accept(ADMIN, p.w.n, p.id, p.w.head);
+	check(
+		'accept: a secret in a line neither side had (found again at Accept) → needs_person naming the rule, nothing written',
+		[a.status, runOf(p.id).status, runOf(p.id).reason, writesOf()],
+		[
+			409,
+			'needs_person',
+			'The change was refused (secret scan: a secret in a line neither side had).',
+			[],
+		],
+	);
+}
 await refuse9(
 	files({
 		path: 'src/a.ts',
@@ -3958,7 +4132,91 @@ const lapse = (id: string) => {
 	);
 }
 
-// R4-S2: Accept checks the card's list of written lines against the real sides, and the file is readable
+// The line diff itself: exact against a brute-force LCS on random small inputs, bounded, and visible
+{
+	const dm = await import(src('lib/server/pipelineMergeRunsDiff.ts'));
+	let seed = 20_261_127;
+	const rnd = (n: number) => ((seed = (seed * 1_103_515_245 + 12_345) & 0x7fffffff), seed % n);
+	const lcs = (a: string[], b: string[]): number => {
+		const t = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
+		for (let i = 1; i <= a.length; i++) {
+			for (let j = 1; j <= b.length; j++) {
+				t[i][j] = a[i - 1] === b[j - 1] ? t[i - 1][j - 1] + 1 : Math.max(t[i - 1][j], t[i][j - 1]);
+			}
+		}
+		return t[a.length][b.length];
+	};
+	let bad = 0;
+	for (let c = 0; c < 500; c++) {
+		const alphabet = 1 + rnd(4);
+		const a = Array.from({ length: rnd(14) }, () => String(rnd(alphabet)));
+		const b = Array.from({ length: rnd(14) }, () => String(rnd(alphabet)));
+		const ops = dm.myers(a, b, 100) as { k: string; text: string }[];
+		const { before, after } = dm.applyEdits(ops);
+		const eq = ops.filter((o) => o.k === 'eq').length;
+		// applying the diff to a gives exactly b (and the removed and kept lines give exactly a), and
+		// the kept lines are a longest common subsequence: it is a shortest script
+		if (
+			JSON.stringify(before) !== JSON.stringify(a) ||
+			JSON.stringify(after) !== JSON.stringify(b) ||
+			eq !== lcs(a, b)
+		) {
+			bad++;
+		}
+		// the hunks carry the same lines at the real numbers: rebuilding b from a and them is exact
+		const shown = dm.hunksOf(ops);
+		const wrong = shown.hunks
+			.flat()
+			.some(
+				(l: { k: string; o: number | null; n: number | null; text: string }) =>
+					(l.k !== 'add' && a[(l.o as number) - 1] !== l.text) ||
+					(l.k !== 'del' && b[(l.n as number) - 1] !== l.text),
+			);
+		if (wrong) bad++;
+	}
+	check(
+		'diff: 500 random small inputs: applying the diff to a gives exactly b, shortest, numbers true',
+		bad,
+		0,
+	);
+	check(
+		'diff: a bound on the changes is a null, never a partial diff',
+		[
+			dm.myers(['a', 'b', 'c'], ['x', 'y', 'z'], 2),
+			dm.myers(['a', 'b', 'c'], ['x', 'y', 'z'], 6)?.length,
+		],
+		[null, 6],
+	);
+	check(
+		'diff: what a line may hold — a lone CR, U+2028, U+0085 and a joiner are hidden; the CR of a CRLF and plain text are not',
+		[
+			dm.hiddenInLine('a\rb'),
+			dm.hiddenInLine(`a${String.fromCharCode(0x2028)}b`),
+			dm.hiddenInLine(`a${String.fromCharCode(0x85)}b`),
+			dm.hiddenInLine(`a${String.fromCodePoint(0x200d)}b`),
+			dm.hiddenInLine('a\r'),
+			dm.hiddenInLine('\tplain();'),
+		],
+		[true, true, true, true, false, false],
+	);
+	check(
+		'diff: shown visibly — CR, a no-break space, a BOM, U+2028 and a joiner; a tab and a line break stay',
+		dm.visibleText(
+			`a\rb${String.fromCharCode(0xa0)}${String.fromCharCode(0xfeff)}${String.fromCharCode(0x2028)}${String.fromCodePoint(0x200d)}\tc\nd`,
+		),
+		'a⟨CR⟩b⟨U+00A0⟩⟨U+FEFF⟩⟨U+2028⟩⟨U+200D⟩\tc\nd',
+	);
+	const crSide = parsed.cleanExplanation({
+		...explanation(),
+		hunks: [{ ...explanation().hunks[0], main: 'a\rb\nc', change: 'x', result: 'p\rq' }],
+	}).hunks[0];
+	check(
+		'cleaning: a lone CR in a side’s own line is shown as ⟨CR⟩ and does not end the line on the card',
+		[crSide.main, crSide.result],
+		['a⟨CR⟩b\nc', 'p⟨CR⟩q'],
+	);
+}
+// R5: the proposal's diff, the head moving before Accept, and the resolved file
 {
 	const grant = '\tgrantAll();';
 	const bothGrant = files({
@@ -3967,55 +4225,34 @@ const lapse = (id: string) => {
 		choice: 'combined',
 		content: `const a = 5;\n${grant}\n`,
 	});
-	// complete list → accepted
 	const w = w0();
 	const p = await proposed(w, bothGrant);
-	const run = runOf(p.id);
-	const listed = (run.explanation as { written: { lines: { text: string }[] }[] }).written[0].lines;
+	const diff = (runOf(p.id).explanation as { diff: { hunks: { k: string; text: string }[][] }[] })
+		.diff;
 	check(
-		'written: the list a proposal is kept with holds every line the run wrote (`grantAll();` included)',
-		listed.map((l) => l.text),
+		'diff: the proposal is kept with the lines Accept adds, `grantAll();` among them, each at its place',
+		diff[0].hunks
+			.flat()
+			.filter((l) => l.k === 'add')
+			.map((l) => l.text),
 		['const a = 5;', '\tgrantAll();'],
 	);
-	// a list that leaves one out (the model's own account is the card's only review) → refused at Accept
 	const w2 = w0();
 	const p2 = await proposed(w2, bothGrant);
-	(runOf(p2.id).explanation as { written: unknown[] }).written = [
-		{ path: 'src/a.ts', lines: [{ n: 1, text: 'const a = 5;' }] },
-	];
+	const other = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 9;\n' }), [w2.base]);
+	git.refs.set(w2.pull.head.ref, other);
+	w2.pull.head.sha = other;
 	gh.calls.length = 0;
 	const a2 = await accept(ADMIN, w2.n, p2.id, w2.head);
 	check(
-		'accept: a card list that leaves a written line out (`grantAll();`) → needs_person, nothing written',
-		[a2.status, runOf(p2.id).status, runOf(p2.id).reason, writesOf()],
-		[
-			409,
-			'needs_person',
-			'The change was refused (the lines the run wrote itself, as the card listed them, are not the file’s).',
-			[],
-		],
+		'accept: the head moved after the diff was made (its blob is not the one diffed) → stale, nothing written',
+		[a2.status, a2.body.code, runOf(p2.id).status, writesOf()],
+		[409, 'stale', 'stale', []],
 	);
-	// a joiner the card's list does not show (the file changed after it was listed) → refused
-	const w3 = w0();
-	const p3 = await proposed(w3, both);
-	const joiner = `\tconst is${String.fromCodePoint(0x200d)}Admin = true;`;
-	(runOf(p3.id).files as { content: string }[])[0].content = `const a = 5;\n${joiner}\n`;
-	gh.calls.length = 0;
-	const a3 = await accept(ADMIN, w3.n, p3.id, w3.head);
-	check(
-		'accept: a line the run wrote with an invisible format character, over any list → needs_person naming the file',
-		[a3.status, runOf(p3.id).reason, writesOf()],
-		[
-			409,
-			'The change was refused (a line the run wrote holds an invisible format character in src/a.ts).',
-			[],
-		],
-	);
-	// the complete list goes
 	const w4 = w0();
 	const p4 = await proposed(w4, bothGrant);
 	const a4 = await accept(ADMIN, w4.n, p4.id, w4.head);
-	check('accept: with the complete list the merge goes', [a4.status], [200]);
+	check('accept: with the diff made at the result the merge goes', [a4.status], [200]);
 }
 {
 	// the resolved file is readable before Accept: the exact text, as plain text, only while it is waiting
@@ -4190,9 +4427,7 @@ await wf('PATCH /git/refs/heads/', 'GitHub refusing the ref update over a workfl
 		ghRunId,
 		body(w, id, {
 			files: skipFiles,
-			explanation: explanation(['src/a.ts', '[skip ci].md'], {
-				written: writtenFrom(w, skipFiles),
-			}),
+			explanation: explanation(['src/a.ts', '[skip ci].md']),
 		}),
 	);
 	await accept(SKIPPER, w.n, id, w.head);
@@ -4294,18 +4529,11 @@ await wf('PATCH /git/refs/heads/', 'GitHub refusing the ref update over a workfl
 			answer1.body.behindNow,
 			answer1.body.headCommittedAt,
 			JSON.stringify(answer1.body).includes('"content"'),
-			JSON.stringify(
-				(answer1.body.run as { explanation: { written: unknown } }).explanation.written,
+			(answer1.body.run as { explanation: { diff: { path: string }[] } }).explanation.diff.map(
+				(d) => d.path,
 			),
 		],
-		[
-			200,
-			p.id,
-			1,
-			new Date(clock - 20 * MIN).toISOString(),
-			false,
-			'[{"path":"src/a.ts","lines":[{"n":1,"text":"const a = 5;"}]}]',
-		],
+		[200, p.id, 1, new Date(clock - 20 * MIN).toISOString(), false, ['src/a.ts']],
 	);
 	check(
 		'GET merge-runs: a tester who may see Changes but not merge reads it (200); a role without the tool does not (403)',
@@ -4409,8 +4637,8 @@ check(
 		'It is five.',
 		view.RESULT_NOT_LOCATED,
 		view.RESULT_NOT_LOCATED,
-		'a\nb\n[3 lines of the result are not shown: use "Open resolved file" below to read it before accepting.]',
-		'a\nb\n[1 line of the result is not shown: use "Open resolved file" below to read it before accepting.]',
+		'a\nb\n[3 lines of the result are not shown: read the diff under the file below, or open the resolved file, before accepting.]',
+		'a\nb\n[1 line of the result is not shown: read the diff under the file below, or open the resolved file, before accepting.]',
 	],
 );
 {
@@ -4576,7 +4804,7 @@ const sections = view.proposalSections({
 	risks: 'r',
 });
 const withFollowUps = view.proposalSections(
-	{ conflicted: [], hunks: [], outside: [], checks: [], risks: '', written: [] },
+	{ conflicted: [], hunks: [], outside: [], checks: [], risks: '' },
 	[
 		{ path: 'scripts/runtime-bytes/lines.json', rule: 'runtime-bytes' },
 		{ path: 'apps/launcher-api/static/rigger/vendor/rigger-fx.js', rule: 'vendored-bundle' },

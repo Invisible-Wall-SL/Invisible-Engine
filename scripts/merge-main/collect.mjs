@@ -555,13 +555,14 @@ export function clean(value, cap = TEXT_CAP) {
 }
 
 /**
- * Code as a person reads it: CRLF as LF, no hidden or control characters (tab and newline stay),
+ * Code as a person reads it: CRLF as LF (a lone CR stays, the card shows it as ⟨CR⟩), no hidden or
+ * control characters (tab and newline stay),
  * indentation kept, only the last line break dropped, cut at `cap` with a `…`.
  */
 export function cleanLines(value, cap = LINES_CAP) {
 	if (typeof value !== 'string') return '';
-	const text = Array.from(value.replace(/\r\n?/g, '\n').replace(HIDDEN, ''))
-		.filter((c) => !control(c))
+	const text = Array.from(value.replace(/\r\n/g, '\n').replace(HIDDEN, ''))
+		.filter((c) => c === '\r' || !control(c))
 		.join('')
 		.replace(/\n$/, '');
 	const points = Array.from(text);
@@ -754,39 +755,7 @@ const proseOf = (explanation) =>
 	measure({
 		...explanation,
 		hunks: explanation.hunks.map((h) => [h.path, h.index, h.takes, h.why, h.nowDoes, h.otherwise]),
-		written: [],
 	});
-
-/** Every line the run wrote itself, over a whole proposal: past either cap nothing is proposed. */
-export const WRITTEN_LINES_CAP = 400;
-export const WRITTEN_CHARS_CAP = 20_000;
-
-/**
- * The lines of `after` that `before` does not hold, counted as the launcher's `addedLinesAt`
- * counts them (a line `before` has twice is held twice), with their line numbers, blank lines left
- * out. The join check holds this to the launcher's.
- */
-export function addedLinesAt(before, after) {
-	const left = new Map();
-	for (const line of before.split('\n')) left.set(line, (left.get(line) ?? 0) + 1);
-	const out = [];
-	after.split('\n').forEach((line, i) => {
-		const n = left.get(line) ?? 0;
-		if (n) left.set(line, n - 1);
-		else if (line.trim() !== '') out.push({ n: i + 1, text: line.replace(/\r$/, '') });
-	});
-	return out;
-}
-
-/** What the run wrote itself in each file it resolved: from the real final file and git's own sides. */
-function writtenOf(plan, files) {
-	return files.flatMap((f) => {
-		const x = plan.paths.find((y) => y.path === f.path);
-		if (typeof f.content !== 'string' || !x) return [];
-		const lines = addedLinesAt(`${x.texts.main ?? ''}\n${x.texts.change ?? ''}`, f.content);
-		return lines.length ? [{ path: f.path, lines }] : [];
-	});
-}
 
 /** The code points of every hunk's real lines. */
 const linesOf = (explanation) =>
@@ -799,7 +768,7 @@ const linesOf = (explanation) =>
  * Fitted into 16,000 characters by naming fewer of main's commits per file; null when even none
  * does not fit.
  */
-function explanationOf(plan, own, finals, written) {
+function explanationOf(plan, own, finals) {
 	const ruled = plan.paths.filter((x) => x.rule && (x.status === 'mechanical' || x.pending));
 	const resultsOf = (path) => {
 		const x = plan.paths.find((y) => y.path === path);
@@ -840,7 +809,6 @@ function explanationOf(plan, own, finals, written) {
 			outside: own?.outside ?? [],
 			checks: [...(own?.checks ?? []), ...plan.checks],
 			risks: risks || 'none found',
-			written,
 		};
 		if (proseOf(explanation) <= EXPLANATION_CAP) return explanation;
 	}
@@ -909,21 +877,7 @@ function proposalBody(input, plan, { finals, modes }, own, usage) {
 	if (sizes.some((n) => n > MAX_FILE_BYTES) || sizes.reduce((a, b) => a + b, 0) > MAX_TOTAL_BYTES) {
 		return refuse('The merged files are over 2 MB a file or 4 MB in all.');
 	}
-	const written = writtenOf(plan, files);
-	const writtenLines = written.flatMap((w) => w.lines);
-	if (
-		writtenLines.length > WRITTEN_LINES_CAP ||
-		writtenLines.reduce((n, l) => n + Array.from(l.text).length, 0) > WRITTEN_CHARS_CAP
-	) {
-		return refusalBody(
-			input,
-			plan.baseSha,
-			'no_proposal',
-			'The run wrote more new lines than the card can show.',
-			usage,
-		);
-	}
-	const explanation = explanationOf(plan, own, finals, written);
+	const explanation = explanationOf(plan, own, finals);
 	if (!explanation) return refuse('The explanation would be longer than 16,000 characters.');
 	if (linesOf(explanation) > LINES_TOTAL_CAP) {
 		return refuse(

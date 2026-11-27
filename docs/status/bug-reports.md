@@ -288,14 +288,17 @@ server module, routes, page components, triage, screenshots, the pull-request li
     pieces, never from the model's `result.json`. They are their own field, outside the prose cap
     and scan (10,000 each, 120,000 in all); the page gets no whole-file content, and only the
     proposal waiting gets the lines (ADR-0015 §4, §10).
-  - **The card cannot hide a line that is pushed** (R4): `explanation.written` lists every line the
-    run wrote itself (in the resolved file, in neither side) per file with its line number,
-    computed by the job from the real resolved file and re-computed by Accept from the real sides
-    (a mismatch is `needs_person`), so ambiguous placement or a cut result cannot hide one; a line
-    with a format character is refused; over 400 lines is `no_proposal`. Each file on the card has
-    "Open resolved file" (`GET …/merge-runs/<id>/file?path=…`, plain text, `pipelineMerge`). The
-    raw text is capped before format characters are made visible, and code on the card is never
-    stripped of `[skip ci]`.
+  - **The card shows what Accept changes on the branch, exactly** (R4–R6): per file, a positional
+    line diff (Myers, 3 lines of context, both line numbers) of the branch's own version of the file
+    against the content Accept would push, made by the LAUNCHER at the result from the head blob it
+    fetched itself (`explanation.diff`; the job sends nothing for it, and the earlier "lines the run
+    wrote" list is gone). A copy, a duplicate or a reorder is a `-`/`+` pair at its real position;
+    over 2,000 changed lines or 80,000 characters is `no_proposal`; a line the merge adds that
+    neither side holds is refused for a lone CR, U+2028/9, U+0085, a format character or a secret;
+    control and format characters are shown as `⟨CR⟩` / `⟨U+200D⟩`. "Open resolved file"
+    (`GET …/merge-runs/<id>/file?path=…`, plain text, `pipelineMerge`) serves the exact bytes, only
+    for a path Accept takes from the run. The raw text is capped before characters are made visible,
+    and code on the card is never stripped of `[skip ci]`.
   - **Accept takes a database claim** (`proposed → accepting`, a claim id, a 5-minute lease on the
     database's clock, migration 0053) before any GitHub write; every update, settle and release
     carries the id, and the push needs the claim with 90 s of lease left (one slow GitHub call is ~60 s); a claim that holds an earlier holder's commit is kept by any failure that has not read the tip. Discard acts only from

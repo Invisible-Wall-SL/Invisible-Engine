@@ -10,10 +10,9 @@ import {
 	isMergeRunOutcome,
 	type MergeChoice,
 	type MergeRule,
-	type MergeRunExplanation,
+	type JobExplanation,
 	type MergeRunFile,
 	type MergeRunHunk,
-	type MergeRunWritten,
 	type MergeRunOutcome,
 } from '$lib/mergeMainRuns';
 
@@ -30,6 +29,7 @@ import {
 	unmarked,
 } from './bugFixRunsChange';
 import { blobSha, type Files } from './pipelineMergeRunsBuild';
+import { visibleText } from './pipelineMergeRunsDiff';
 
 /**
  * Reading what a merge run's job posts (ADR-0015 §10) and judging the part of it that needs no
@@ -62,7 +62,7 @@ export interface ParsedMergeResult {
 	failure: string | null;
 	reason: string;
 	files: MergeRunFile[];
-	explanation: MergeRunExplanation | null;
+	explanation: JobExplanation | null;
 	/** `usage`, unread: `parseUsage` judges it. */
 	usage: unknown;
 }
@@ -91,7 +91,7 @@ const REQUIRED_KEYS = [
 	'usage',
 ];
 const FILE_KEYS = ['path', 'choice', 'rule', 'content', 'mode'];
-const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks', 'written'];
+const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks'];
 const HUNK_KEYS = [
 	'path',
 	'index',
@@ -106,8 +106,6 @@ const HUNK_KEYS = [
 	'otherwise',
 ];
 const MAX_LIST = 100;
-/** The lines of one file's list read before the proposal's own cap (400) judges them. */
-const MAX_WRITTEN_PARSED = 2_000;
 const TITLE_CAP = 300;
 const COMMAND_CAP = 300;
 
@@ -166,7 +164,7 @@ function parseFiles(v: unknown): MergeRunFile[] {
 	});
 }
 
-function parseExplanation(v: unknown): MergeRunExplanation {
+function parseExplanation(v: unknown): JobExplanation {
 	const e = record(v, 'explanation');
 	only(e, EXPLANATION_KEYS, 'explanation');
 	const conflicted = list(e.conflicted, 'conflicted').map((raw) => {
@@ -231,23 +229,7 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 		if (typeof c.ok !== 'boolean') return bad('checks has an entry whose ok is not true or false');
 		return { command: text(c.command, 'a check', COMMAND_CAP), ok: c.ok };
 	});
-	const written = list(e.written, 'written', MERGE_CAPS.files).map((raw): MergeRunWritten => {
-		const w = record(raw, 'written');
-		only(w, ['path', 'lines'], 'written');
-		return {
-			path: text(w.path, 'a path', MERGE_CAPS.path),
-			lines: list(w.lines, 'written lines', MAX_WRITTEN_PARSED).map((l) => {
-				const line = record(l, 'written lines');
-				only(line, ['n', 'text'], 'written lines');
-				const n = line.n;
-				if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1 || n > 10_000_000) {
-					return bad('written has a line number that is not a whole number');
-				}
-				return { n, text: text(line.text, 'a written line', MERGE_CAPS.writtenChars) };
-			}),
-		};
-	});
-	return { conflicted, hunks, outside, checks, risks: text(e.risks, 'risks'), written };
+	return { conflicted, hunks, outside, checks, risks: text(e.risks, 'risks') };
 }
 
 /**
@@ -288,7 +270,7 @@ export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResu
 	const baseSha = sha('baseSha', outcome !== 'proposed');
 	let reason = '';
 	let files: MergeRunFile[] = [];
-	let explanation: MergeRunExplanation | null = null;
+	let explanation: JobExplanation | null = null;
 	if (outcome === 'proposed') {
 		if (body.reason !== null) bad('reason is not null in a proposal');
 		files = parseFiles(body.files);
@@ -320,18 +302,6 @@ export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResu
 // ── Cleaning ──────────────────────────────────────────────────────────────────
 
 const FORMAT = /\p{Cf}/gu;
-const HAS_FORMAT = /\p{Cf}/u;
-
-/**
- * A format character (a zero-width joiner, a bidi mark) shown as what it is, `⟨U+200D⟩`, never
- * dropped: the pushed file keeps it, and a legal identifier may hold one, so a card that hid it
- * would differ from what Accept writes.
- */
-const visibleFormat = (text: string): string =>
-	text.replace(
-		FORMAT,
-		(c) => `⟨U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}⟩`,
-	);
 
 /**
  * A code excerpt as the card shows it, and how many lines the launcher cut from it. The RAW text is
@@ -342,12 +312,13 @@ const visibleFormat = (text: string): string =>
  * last line break is dropped.
  */
 function cleanExcerpt(excerpt: string, max: number): { text: string; cut: number } {
-	const kept = excerpt.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+	// Only a CRLF is a line break here: a lone CR stays in its line and is shown as ⟨CR⟩.
+	const kept = excerpt.replace(/\r\n/g, '\n').replace(/\n$/, '');
 	const points = Array.from(kept);
-	if (points.length <= max) return { text: visibleFormat(kept), cut: 0 };
+	if (points.length <= max) return { text: visibleText(kept), cut: 0 };
 	const shown = points.slice(0, max - 1);
 	return {
-		text: visibleFormat(`${shown.join('')}…`),
+		text: visibleText(`${shown.join('')}…`),
 		cut: kept.split('\n').length - shown.filter((c) => c === '\n').length,
 	};
 }
@@ -376,7 +347,7 @@ function cleanedResult(h: MergeRunHunk): Pick<MergeRunHunk, 'result' | 'resultCu
 }
 
 /** Every text of the explanation cleaned as a fix run's are: plain, capped, unlinked and quiet. */
-export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
+export function cleanExplanation(e: JobExplanation): JobExplanation {
 	return {
 		conflicted: e.conflicted.map((c) => ({
 			path: c.path,
@@ -400,10 +371,6 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 			ok: c.ok,
 		})),
 		risks: cleanText(e.risks, MERGE_CAPS.text),
-		written: e.written.map((w) => ({
-			path: w.path,
-			lines: w.lines.map((l) => ({ n: l.n, text: visibleFormat(l.text) })),
-		})),
 	};
 }
 
@@ -413,7 +380,7 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
  * capped on their own ({@link explanationLines}), and a `result` must be inside its file, which
  * Accept's content scan reads.
  */
-export function explanationTexts(e: MergeRunExplanation): string[] {
+export function explanationTexts(e: JobExplanation): string[] {
 	return [
 		...e.conflicted.flatMap((c) => [c.path, ...c.met.map((m) => m.title)]),
 		...e.hunks.flatMap((h) => [h.path, h.why, h.nowDoes ?? '', h.otherwise ?? '']),
@@ -424,7 +391,7 @@ export function explanationTexts(e: MergeRunExplanation): string[] {
 }
 
 /** The code points of every hunk's real lines, for their own cap. */
-export const explanationLines = (e: MergeRunExplanation): number =>
+export const explanationLines = (e: JobExplanation): number =>
 	e.hunks.reduce(
 		(n, h) =>
 			n +
@@ -442,10 +409,7 @@ const linesOf = (text: string): string[] => text.replace(/\r\n?/g, '\n').split('
  * scan misses). A line a side already held is the repository's own and is not the result's to
  * answer for.
  */
-export function resultSecretProblem(
-	raw: MergeRunExplanation,
-	cleaned: MergeRunExplanation,
-): string | null {
+export function resultSecretProblem(raw: JobExplanation, cleaned: JobExplanation): string | null {
 	for (const [i, h] of raw.hunks.entries()) {
 		const c = cleaned.hunks[i];
 		const theirs = new Set([h.main, h.change, c.main, c.change].flatMap(linesOf));
@@ -462,46 +426,6 @@ export function resultSecretProblem(
 	return null;
 }
 
-/** Whether the lines the run wrote itself are more than the card can show (400 lines or 20,000 characters). */
-export function writtenSizeProblem(e: MergeRunExplanation): boolean {
-	const lines = e.written.flatMap((w) => w.lines);
-	return (
-		lines.length > MERGE_CAPS.writtenLines ||
-		lines.reduce((n, l) => n + Array.from(l.text).length, 0) > MERGE_CAPS.writtenChars
-	);
-}
-
-/**
- * The list of lines the run wrote itself, as the job sent it, against the files it sent: every entry
- * is a file the proposal lists, its lines ascend, and each is exactly the file's own line at that
- * number (so it cannot be a line the file does not hold). A line that holds a format character (a
- * zero-width joiner or non-joiner, which are legal inside a JS or TS identifier, or a bidi mark) is
- * refused, naming the file: the card could not show it as it is. That the list is COMPLETE needs the
- * two sides, so Accept checks it again (`pipelineMergeRunsBuild.ts`, `writtenOf`).
- */
-export function writtenProblem(e: MergeRunExplanation, files: MergeRunFile[]): string | null {
-	const seen = new Set<string>();
-	for (const w of e.written) {
-		const file = files.find((f) => f.path === w.path);
-		if (!file || file.content === null || seen.has(w.path)) {
-			return 'the lines the run wrote itself are listed for a file it does not propose';
-		}
-		seen.add(w.path);
-		const own = file.content.split('\n');
-		let last = 0;
-		for (const l of w.lines) {
-			if (l.n <= last || own[l.n - 1]?.replace(/\r$/, '') !== l.text) {
-				return 'the lines the run wrote itself are not the file’s own lines';
-			}
-			if (HAS_FORMAT.test(l.text)) {
-				return `a line the run wrote holds an invisible format character in ${w.path}`;
-			}
-			last = l.n;
-		}
-	}
-	return null;
-}
-
 const flat = (text: string): string => text.replace(/\r\n?/g, '\n').replace(FORMAT, '');
 
 /**
@@ -509,7 +433,7 @@ const flat = (text: string): string => text.replace(/\r\n?/g, '\n').replace(FORM
  * result is cut at the cap with a trailing `…`, so that cut is allowed for; a file the files do not
  * list, a deletion, or text the file does not hold is not.
  */
-export function resultProblem(e: MergeRunExplanation, files: MergeRunFile[]): string | null {
+export function resultProblem(e: JobExplanation, files: MergeRunFile[]): string | null {
 	for (const h of e.hunks) {
 		if (h.result === null) continue;
 		const file = files.find((f) => f.path === h.path);
@@ -524,11 +448,11 @@ export function resultProblem(e: MergeRunExplanation, files: MergeRunFile[]): st
 }
 
 /** The characters an explanation holds in all, in code points. */
-export const explanationSize = (e: MergeRunExplanation): number =>
+export const explanationSize = (e: JobExplanation): number =>
 	explanationTexts(e).reduce((n, t) => n + Array.from(t).length, 0);
 
 /** A proposal must say something under every heading that always has content (§10). */
-export function isExplainedMerge(e: MergeRunExplanation | null): e is MergeRunExplanation {
+export function isExplainedMerge(e: JobExplanation | null): e is JobExplanation {
 	return (
 		e !== null &&
 		e.risks.length > 0 &&
@@ -569,13 +493,6 @@ function isMainsEntry(f: MergeRunFile, main: Files | null): boolean {
 	}
 	return entry !== undefined && entry.sha === blobSha(f.content) && entry.mode === f.mode;
 }
-
-/**
- * Whether `f` rests on the exemption of {@link filesProblem}: a protected path or a lockfile listed
- * as `main`'s own. The caller reads `main`'s tree only when one does.
- */
-export const needsMainsTree = (f: MergeRunFile): boolean =>
-	f.choice === 'main' && f.rule === null && (protectedEntry(f.path) !== null || isLockfile(f.path));
 
 /**
  * The first rule the files break that needs no GitHub: their count in the model's hands, their size,
