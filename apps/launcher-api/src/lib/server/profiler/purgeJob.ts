@@ -1,15 +1,35 @@
-import { and, eq, exists, gt, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	eq,
+	exists,
+	gt,
+	gte,
+	inArray,
+	isNotNull,
+	lt,
+	notExists,
+	or,
+	sql,
+} from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { getDb } from '../db';
-import { perfBuilds, perfFindingBugs, perfReports, projects } from '../db/schema';
+import { appSettings, perfBuilds, perfFindingBugs, perfReports, projects } from '../db/schema';
 import {
 	perfBuildsPrefix,
 	perfReportsPrefix,
 	perfUploadsPrefix,
 	UNASSIGNED_CLIENT,
 } from '../projectPaths';
-import { deleteObject, listAllObjects } from '../r2';
+import {
+	ConflictError,
+	deleteObject,
+	getObjectTextWithEtag,
+	listAllObjects,
+	putObjectText,
+} from '../r2';
 import { purgeExpired, sweepOrphanFiles, sweepStaleUploads, type PurgeStore } from './purge';
+import { scrubStoredReadings, type TokenScrubStore } from './tokenScrub';
 
 /**
  * The daily Invisible Profiler purge (`purge.ts`) — expired readings, expired build records, then
@@ -131,6 +151,74 @@ export const sqlBuildPurgeStore: PurgeStore = {
 	},
 };
 
+export const sqlTokenScrubStore: TokenScrubStore = {
+	rows(afterId, limit) {
+		return getDb()
+			.select({
+				id: perfReports.id,
+				r2Key: perfReports.r2Key,
+				network: perfReports.network,
+				facts: perfReports.facts,
+			})
+			.from(perfReports)
+			.where(
+				and(gte(perfReports.perfVersion, 9), afterId ? gt(perfReports.id, afterId) : undefined),
+			)
+			.orderBy(asc(perfReports.id))
+			.limit(limit);
+	},
+	read: getObjectTextWithEtag,
+	async write(key, text, etag) {
+		if (!etag) return false;
+		try {
+			await putObjectText(key, text, 'application/json', { ifMatch: etag });
+			return true;
+		} catch (e) {
+			if (e instanceof ConflictError) return false;
+			throw e;
+		}
+	},
+	async updateRow(id, set) {
+		await getDb()
+			.update(perfReports)
+			.set(set as Partial<typeof perfReports.$inferInsert>)
+			.where(eq(perfReports.id, id));
+	},
+};
+
+/** Set once a token scrub pass ({@link scrubStoredReadings}) skipped nothing. */
+export const TOKEN_SCRUB_KEY = 'profilerTokenScrub';
+const TOKEN_SCRUB_DONE = 'v1';
+
+/**
+ * The one-off clean of readings kept before #1949 redacted route tokens on receipt, run before the
+ * first purge after a boot until a pass completes with nothing skipped.
+ */
+export async function runTokenScrubOnce(): Promise<void> {
+	try {
+		const [done] = await getDb()
+			.select({ value: appSettings.value })
+			.from(appSettings)
+			.where(eq(appSettings.key, TOKEN_SCRUB_KEY));
+		if (done?.value === TOKEN_SCRUB_DONE) return;
+		const r = await scrubStoredReadings(sqlTokenScrubStore);
+		console.log(
+			`profiler token scrub: ${r.scanned} reading(s) read, ${r.files} file(s) and ${r.rows} row(s) ` +
+				`cleaned, ${r.skipped} left for the next boot`,
+		);
+		if (r.skipped) return;
+		await getDb()
+			.insert(appSettings)
+			.values({ key: TOKEN_SCRUB_KEY, value: TOKEN_SCRUB_DONE })
+			.onConflictDoUpdate({
+				target: appSettings.key,
+				set: { value: TOKEN_SCRUB_DONE, updatedAt: new Date() },
+			});
+	} catch (e) {
+		console.error('profiler token scrub: run failed; retried on the next boot', e);
+	}
+}
+
 /** One purge pass. Exported so it can be run directly (a check, an operator) rather than waited for. */
 export async function runPerfPurge(now = new Date()): Promise<void> {
 	for (const [what, store] of [
@@ -235,7 +323,7 @@ async function registeredPerfKeys(keys: string[]): Promise<Set<string>> {
 export function startPerfPurge(): void {
 	if (started) return;
 	started = true;
-	const first = setTimeout(() => void runPerfPurge(), FIRST_RUN_MS);
+	const first = setTimeout(() => void runTokenScrubOnce().then(() => runPerfPurge()), FIRST_RUN_MS);
 	const daily = setInterval(() => void runPerfPurge(), EVERY_MS);
 	for (const timer of [first, daily]) if (typeof timer.unref === 'function') timer.unref();
 }

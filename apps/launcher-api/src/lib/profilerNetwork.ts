@@ -218,13 +218,14 @@ export function redactTokens(text: string): string {
 const pathOnly = (v: unknown): string =>
 	redactTokens((str(v, 400) ?? '?').split(/[?#]/)[0]).slice(0, 200) || '/';
 
-const scrub = (v: unknown): unknown =>
+/** Any JSON value with every string in it, keys included, through {@link redactTokens}. */
+export const redactValue = (v: unknown): unknown =>
 	typeof v === 'string'
 		? redactTokens(v)
 		: Array.isArray(v)
-			? v.map(scrub)
+			? v.map(redactValue)
 			: isObj(v)
-				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), scrub(x)]))
+				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), redactValue(x)]))
 				: v;
 
 /**
@@ -239,7 +240,7 @@ export function redactReportText(text: string): string {
 	} catch {
 		return text;
 	}
-	const kept = JSON.stringify(scrub(json));
+	const kept = JSON.stringify(redactValue(json));
 	return kept === JSON.stringify(json) ? text : kept;
 }
 
