@@ -57,6 +57,7 @@ export const netTraffic: Rule = (ctx) => {
 				];
 				out.push({
 					id: `netTraffic:rgs:${key}:${newest.r.buildVersion ?? ''}`,
+					subject: `netTraffic:rgs:${key}`,
 					rule: 'netTraffic',
 					severity: p95 >= NET_TRAFFIC.rgsVerySlowMs ? 'medium' : 'low',
 					title: slow
@@ -89,6 +90,7 @@ export const netTraffic: Rule = (ctx) => {
 		const s = newest.net.socket;
 		out.push({
 			id: `netTraffic:socket:${key}:${newest.r.buildVersion ?? ''}`,
+			subject: `netTraffic:socket:${key}`,
 			rule: 'netTraffic',
 			severity: perSecond >= NET_TRAFFIC.socketHeavyBytesPerSecond ? 'medium' : 'low',
 			title:

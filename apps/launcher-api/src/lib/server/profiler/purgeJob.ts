@@ -7,14 +7,25 @@ import {
 	gte,
 	inArray,
 	isNotNull,
+	isNull,
 	lt,
 	notExists,
 	or,
 	sql,
 } from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
+import { BUG_ACTIVE_STATUSES } from '$lib/bugReports';
+import { ARCHIVE_RETENTION_MS, PERF_RETENTION_MS } from '$lib/profiler';
 import { getDb } from '../db';
-import { appSettings, perfBuilds, perfFindingBugs, perfReports, projects } from '../db/schema';
+import {
+	appSettings,
+	bugReports,
+	perfBuilds,
+	perfFindingBugs,
+	perfReports,
+	projects,
+} from '../db/schema';
 import {
 	perfBuildsPrefix,
 	perfReportsPrefix,
@@ -55,12 +66,32 @@ const uncited = (projectKey: AnyPgColumn, id: AnyPgColumn, list: AnyPgColumn) =>
 			.where(and(eq(perfFindingBugs.projectKey, projectKey), sql`${id} = any(${list})`)),
 	);
 
+/**
+ * When an archived row's hold ends, from the purge's own cutoff (`now − 15 days`): an archived row
+ * is kept 90 days from its archiving (`ARCHIVE_RETENTION_DAYS`), whatever its age.
+ */
+const archiveCutoff = (cutoff: Date) =>
+	new Date(cutoff.getTime() + PERF_RETENTION_MS - ARCHIVE_RETENTION_MS);
+
+/** Past its retention: a live row 15 days from `at`, an archived one 90 days from its archiving. */
+const expired = (
+	at: AnyPgColumn,
+	archivedAt: AnyPgColumn,
+	cutoff: Date,
+	/** An extra condition on the live branch only (a build must have a newer one). */
+	live?: SQL,
+) =>
+	or(
+		and(isNull(archivedAt), lt(at, cutoff), live),
+		and(isNotNull(archivedAt), lt(archivedAt, archiveCutoff(cutoff))),
+	);
+
 export const claimableReport = (cutoff: Date) =>
 	or(
 		isNotNull(perfReports.purgingAt),
 		and(
 			eq(perfReports.keep, false),
-			lt(perfReports.capturedAt, cutoff),
+			expired(perfReports.capturedAt, perfReports.archivedAt, cutoff),
 			uncited(perfReports.projectKey, perfReports.id, perfFindingBugs.readingIds),
 		),
 	);
@@ -97,32 +128,39 @@ export const sqlPurgeStore: PurgeStore = {
 const newer = alias(perfBuilds, 'newer_build');
 
 /**
- * `buildPurgeable` in SQL: unkept, registered before the cutoff, and a newer build of the same
- * game key and kind exists in the project — so the newest of each line is never claimed. Ties on
- * the time break on the id, as `buildPurgeable` does. A row already claimed is picked up again.
+ * `buildPurgeable` in SQL: unkept, registered before the cutoff, and a newer LIVE (not archived)
+ * build of the same game key and kind exists in the project — so the newest of each line is never
+ * claimed, and the page, which lists live builds, agrees which that is. Ties on the time break on
+ * the id, as `buildPurgeable` does. An archived build needs no newer one: it goes 90 days after
+ * its archiving. A row already claimed is picked up again.
  */
 export const claimableBuild = (cutoff: Date) =>
 	or(
 		isNotNull(perfBuilds.purgingAt),
 		and(
 			eq(perfBuilds.keep, false),
-			lt(perfBuilds.registeredAt, cutoff),
 			uncited(perfBuilds.projectKey, perfBuilds.id, perfFindingBugs.buildIds),
-			exists(
-				getDb()
-					.select({ one: sql`1` })
-					.from(newer)
-					.where(
-						and(
-							eq(newer.projectKey, perfBuilds.projectKey),
-							eq(newer.gameKey, perfBuilds.gameKey),
-							eq(newer.kind, perfBuilds.kind),
-							or(
-								gt(newer.registeredAt, perfBuilds.registeredAt),
-								and(eq(newer.registeredAt, perfBuilds.registeredAt), gt(newer.id, perfBuilds.id)),
+			expired(
+				perfBuilds.registeredAt,
+				perfBuilds.archivedAt,
+				cutoff,
+				exists(
+					getDb()
+						.select({ one: sql`1` })
+						.from(newer)
+						.where(
+							and(
+								eq(newer.projectKey, perfBuilds.projectKey),
+								eq(newer.gameKey, perfBuilds.gameKey),
+								eq(newer.kind, perfBuilds.kind),
+								isNull(newer.archivedAt),
+								or(
+									gt(newer.registeredAt, perfBuilds.registeredAt),
+									and(eq(newer.registeredAt, perfBuilds.registeredAt), gt(newer.id, perfBuilds.id)),
+								),
 							),
 						),
-					),
+				),
 			),
 		),
 	);
@@ -327,3 +365,137 @@ export function startPerfPurge(): void {
 	const daily = setInterval(() => void runPerfPurge(), EVERY_MS);
 	for (const timer of [first, daily]) if (typeof timer.unref === 'function') timer.unref();
 }
+
+/**
+ * The bugs of a project that cite a row, as a SELECT to test with `exists`: by default any bug
+ * (the purge's guard above), or only one still being worked (`open`, `working`) — what holds a
+ * Delete (`manage.ts`): a bug that is closed lets its evidence go.
+ */
+const citedBy = (
+	projectKey: AnyPgColumn,
+	id: AnyPgColumn,
+	list: AnyPgColumn,
+	activeOnly: boolean,
+) =>
+	getDb()
+		.select({ one: sql`1` })
+		.from(perfFindingBugs)
+		.innerJoin(bugReports, eq(bugReports.number, perfFindingBugs.bugNumber))
+		.where(
+			and(
+				eq(perfFindingBugs.projectKey, projectKey),
+				sql`${id} = any(${list})`,
+				activeOnly ? inArray(bugReports.status, [...BUG_ACTIVE_STATUSES]) : undefined,
+			),
+		);
+
+/**
+ * What a person's Delete may claim (`manage.ts`), or a row already claimed (finished): the named
+ * rows of the project that no OPEN bug cites, and are not kept — except a kept row a closed bug
+ * cites, whose Keep was that bug's (Keep cannot be taken off while a bug exists). Re-read on the
+ * locked row by the claim's UPDATE, so a bug filed or a Keep set meanwhile still wins.
+ */
+export const deletableReport = (projectKey: string, ids: readonly string[]) =>
+	and(
+		eq(perfReports.projectKey, projectKey),
+		inArray(perfReports.id, [...ids]),
+		or(
+			isNotNull(perfReports.purgingAt),
+			and(
+				notExists(
+					citedBy(perfReports.projectKey, perfReports.id, perfFindingBugs.readingIds, true),
+				),
+				or(
+					eq(perfReports.keep, false),
+					exists(
+						citedBy(perfReports.projectKey, perfReports.id, perfFindingBugs.readingIds, false),
+					),
+				),
+			),
+		),
+	);
+
+export const deletableBuild = (projectKey: string, ids: readonly string[]) =>
+	and(
+		eq(perfBuilds.projectKey, projectKey),
+		inArray(perfBuilds.id, [...ids]),
+		or(
+			isNotNull(perfBuilds.purgingAt),
+			and(
+				notExists(citedBy(perfBuilds.projectKey, perfBuilds.id, perfFindingBugs.buildIds, true)),
+				or(
+					eq(perfBuilds.keep, false),
+					exists(citedBy(perfBuilds.projectKey, perfBuilds.id, perfFindingBugs.buildIds, false)),
+				),
+			),
+		),
+	);
+
+/** A repeat send nobody pinned or cites: what a fuller send of its window replaces (`store.ts`). */
+export const supersededReport = (projectKey: string, ids: readonly string[]) =>
+	and(
+		eq(perfReports.projectKey, projectKey),
+		inArray(perfReports.id, [...ids]),
+		eq(perfReports.keep, false),
+		uncited(perfReports.projectKey, perfReports.id, perfFindingBugs.readingIds),
+	);
+
+/** The database or a transaction on it: a Delete locks its rows, then claims them, in one. */
+export type Executor = Pick<ReturnType<typeof getDb>, 'update'>;
+
+type Claim = (
+	where: SQL | undefined,
+	now: Date,
+	db: Executor,
+) => Promise<{ id: string; r2Key: string }[]>;
+
+const claimReports: Claim = async (where, now, db) =>
+	db
+		.update(perfReports)
+		.set({ purgingAt: sql`coalesce(${perfReports.purgingAt}, ${now.toISOString()}::timestamptz)` })
+		.where(where)
+		.returning({ id: perfReports.id, r2Key: perfReports.r2Key });
+
+const claimBuilds: Claim = async (where, now, db) =>
+	db
+		.update(perfBuilds)
+		.set({ purgingAt: sql`coalesce(${perfBuilds.purgingAt}, ${now.toISOString()}::timestamptz)` })
+		.where(where)
+		.returning({ id: perfBuilds.id, r2Key: perfBuilds.r2Key });
+
+/** Claims, then removes, a person's Delete of readings or builds: the purge's own steps. */
+export const sqlDeleteClaims = {
+	reading: {
+		claim: (projectKey: string, ids: readonly string[], now: Date, db: Executor = getDb()) =>
+			claimReports(deletableReport(projectKey, ids), now, db),
+		claimSuperseded: (projectKey: string, ids: readonly string[], now: Date) =>
+			claimReports(supersededReport(projectKey, ids), now, getDb()),
+		/** Takes the row locks a claim must wait on, so it reads the bugs filed up to then. */
+		lock: (
+			db: Pick<ReturnType<typeof getDb>, 'select'>,
+			projectKey: string,
+			ids: readonly string[],
+		) =>
+			db
+				.select({ id: perfReports.id })
+				.from(perfReports)
+				.where(and(eq(perfReports.projectKey, projectKey), inArray(perfReports.id, [...ids])))
+				.for('update'),
+		store: sqlPurgeStore,
+	},
+	build: {
+		claim: (projectKey: string, ids: readonly string[], now: Date, db: Executor = getDb()) =>
+			claimBuilds(deletableBuild(projectKey, ids), now, db),
+		lock: (
+			db: Pick<ReturnType<typeof getDb>, 'select'>,
+			projectKey: string,
+			ids: readonly string[],
+		) =>
+			db
+				.select({ id: perfBuilds.id })
+				.from(perfBuilds)
+				.where(and(eq(perfBuilds.projectKey, projectKey), inArray(perfBuilds.id, [...ids])))
+				.for('update'),
+		store: sqlBuildPurgeStore,
+	},
+} as const;

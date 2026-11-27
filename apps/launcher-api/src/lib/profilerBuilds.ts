@@ -150,6 +150,8 @@ export interface PerfBuildListItem extends PerfBuildSummary {
 	gameKey: string;
 	registeredAt: string;
 	keep: boolean;
+	/** When it was archived (ISO), null while it is live. */
+	archivedAt: string | null;
 	/** Null while kept, or while it is the newest of its game and kind (never purged then). */
 	expiresAt: string | null;
 }

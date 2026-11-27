@@ -1,14 +1,21 @@
 import { error } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { bugRef, type BugKind } from '$lib/bugReports';
 import { effectiveBudgets } from '$lib/profilerBudgets';
+import type { PerfReportListItem } from '$lib/profiler';
+import type { PerfBuildListItem } from '$lib/profilerBuilds';
 import type { Finding } from '$lib/profilerFindings';
 import {
 	findingBugDescription,
 	findingBugTarget,
 	findingBugTitle,
-	type FiledFinding,
 } from '$lib/profilerFindings/bug';
+import {
+	activeBugFor,
+	filedViews,
+	type FiledView,
+	type FindingLinkRow,
+} from '$lib/profilerFindings/filed';
 import type { BugTx } from '../bugReportsStore';
 import { getDb } from '../db';
 import { bugReports, perfFindingBugs } from '../db/schema';
@@ -57,20 +64,69 @@ export async function loadProjectFindings(projectKey: string): Promise<Finding[]
 	return projectFindings(projectKey, readings, builds, effectiveBudgets(overrides));
 }
 
-/** Every finding of the project filed as a bug that still exists, by finding id. */
-export async function filedFindings(projectKey: string): Promise<Record<string, FiledFinding>> {
+/** Every finding of the project filed as a bug that still exists. */
+async function findingLinks(projectKey: string): Promise<FindingLinkRow[]> {
 	const rows = await getDb()
 		.select({
 			findingId: perfFindingBugs.findingId,
+			subject: perfFindingBugs.subject,
+			filedAt: perfFindingBugs.filedAt,
 			number: bugReports.number,
 			kind: bugReports.kind,
 			status: bugReports.status,
+			statusAt: bugReports.statusAt,
 		})
 		.from(perfFindingBugs)
 		.innerJoin(bugReports, eq(bugReports.number, perfFindingBugs.bugNumber))
 		.where(eq(perfFindingBugs.projectKey, projectKey));
-	return Object.fromEntries(
-		rows.map((r) => [r.findingId, { number: r.number, kind: r.kind, status: r.status }]),
+	return rows.map((r) => ({
+		findingId: r.findingId,
+		subject: r.subject,
+		filedAt: r.filedAt.toISOString(),
+		bug: {
+			number: r.number,
+			kind: r.kind,
+			status: r.status,
+			statusAt: r.statusAt?.toISOString() ?? null,
+		},
+	}));
+}
+
+/**
+ * Which findings are already bugs, and where each stands (`filed.ts`): by finding id, for the
+ * Findings tab. A link filed before subjects gets its subject the first time its finding is seen
+ * again, so from then on its bug follows the finding to the next build.
+ */
+export async function filedFindings(
+	projectKey: string,
+	findings: readonly Finding[],
+	readings: readonly Pick<PerfReportListItem, 'id' | 'capturedAt'>[],
+	builds: readonly Pick<PerfBuildListItem, 'id' | 'registeredAt'>[],
+): Promise<Record<string, FiledView>> {
+	const links = await findingLinks(projectKey);
+	for (const link of links) {
+		if (link.subject) continue;
+		const finding = findings.find((f) => f.id === link.findingId);
+		if (!finding) continue;
+		link.subject = finding.subject;
+		await getDb()
+			.update(perfFindingBugs)
+			.set({ subject: finding.subject })
+			.where(
+				and(
+					eq(perfFindingBugs.projectKey, projectKey),
+					eq(perfFindingBugs.findingId, link.findingId),
+					isNull(perfFindingBugs.subject),
+				),
+			)
+			.catch(() => undefined);
+	}
+	const readingAt = new Map(readings.map((r) => [r.id, r.capturedAt]));
+	const buildAt = new Map(builds.map((b) => [b.id, b.registeredAt]));
+	return filedViews(
+		findings,
+		links,
+		(e) => (e.type === 'reading' ? readingAt : buildAt).get(e.id) ?? null,
 	);
 }
 
@@ -127,6 +183,10 @@ export async function findingDraft(
 	if (!finding) {
 		return { refused: 'The Profiler no longer finds this — reload its Findings tab.' };
 	}
+	const active = activeBugFor(finding, await findingLinks(projectKey));
+	if (active) {
+		return { refused: `This finding is already filed as ${bugRef(active)}.`, filed: active };
+	}
 	const target = findingBugTarget(finding, OWNERS);
 	return {
 		finding: { id: finding.id, project: projectKey },
@@ -182,6 +242,8 @@ export async function prepareFindingBug(
 	if (already) throw error(409, `This finding is already filed as ${bugRef(already)}.`);
 	const finding = (await loadProjectFindings(projectKey)).find((f) => f.id === findingId);
 	if (!finding) throw error(409, 'The Profiler no longer finds this — reload its Findings tab.');
+	const active = activeBugFor(finding, await findingLinks(projectKey));
+	if (active) throw error(409, `This finding is already filed as ${bugRef(active)}.`);
 	const target = findingBugTarget(finding, OWNERS);
 	if (target.kind !== kind) {
 		throw error(400, `This finding is filed as a ${target.kind} bug, not a ${kind} bug.`);
@@ -190,7 +252,13 @@ export async function prepareFindingBug(
 	return {
 		projectKey,
 		within: (tx, bug) =>
-			linkFinding(sqlLinkStore(tx), { projectKey, findingId, bugNumber: bug.number, ...evidence }),
+			linkFinding(sqlLinkStore(tx), {
+				projectKey,
+				findingId,
+				subject: finding.subject,
+				bugNumber: bug.number,
+				...evidence,
+			}),
 		async settle(e) {
 			if (e instanceof EvidenceGone) {
 				throw error(

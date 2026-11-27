@@ -31,6 +31,7 @@ export const uncompressedText: Rule = (ctx) => {
 		const hosts = [...new Set(files.map((f) => f.host ?? 'the game’s own host'))];
 		out.push({
 			id: `uncompressedText:${game}:${hit.r.buildVersion ?? ''}`,
+			subject: `uncompressedText:${game}`,
 			rule: 'uncompressedText',
 			severity: bytes >= UNCOMPRESSED_MEDIUM_BYTES ? 'medium' : 'low',
 			title: `${files.length} text file${files.length === 1 ? '' : 's'} served uncompressed (${toMb(bytes)} MB)`,

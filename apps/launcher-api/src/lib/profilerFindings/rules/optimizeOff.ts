@@ -41,6 +41,7 @@ export const optimizeOff: Rule = (ctx) => {
 		];
 		out.push({
 			id: `optimizeOff:${b.id}`,
+			subject: `optimizeOff:${b.gameKey}:${b.kind}`,
 			rule: 'optimizeOff',
 			severity: verdict === 'fail' || verdict === 'warn' ? 'medium' : 'low',
 			title: `v${b.build} (${b.gameKey}) was built without 🗜 Optimize`,

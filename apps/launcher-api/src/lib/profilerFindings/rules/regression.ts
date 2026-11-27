@@ -89,6 +89,7 @@ export const regression: Rule = (ctx) => {
 			if (s.delta < Math.max(s.min, REGRESSION_MIN.share * s.before)) continue;
 			out.push({
 				id: `regression:${s.id}:${b.id}`,
+				subject: `regression:${s.id}:${b.gameKey}:${b.kind}`,
 				rule: 'regression',
 				severity: 'medium',
 				title: `v${b.build} ${s.what} +${mbOf(s.delta)} MB over v${prev.build} (${b.gameKey})`,
@@ -138,6 +139,7 @@ export const regression: Rule = (ctx) => {
 				const g = grown(ctx, list[0], old[0]);
 				out.push({
 					id: `regression:fps:${game}:${old[0].buildVersion}>${list[0].buildVersion}:${device}:${phase}`,
+					subject: `regression:fps:${game}:${device}:${phase}`,
 					rule: 'regression',
 					severity: 'high',
 					title: `${phase} fps ${round1(b)} → ${round1(a)} on ${device} (${stampLabel(old[0])} → ${stampLabel(list[0])})`,
@@ -169,6 +171,7 @@ export const regression: Rule = (ctx) => {
 				const g = grown(ctx, labNow, labBefore);
 				out.push({
 					id: `regression:counts:${game}:${labBefore.buildVersion}>${labNow.buildVersion}`,
+					subject: `regression:counts:${game}`,
 					rule: 'regression',
 					severity: 'medium',
 					title: `Lab counts up in ${stampLabel(labNow)} over ${stampLabel(labBefore)}${game ? ` (${game})` : ''}`,

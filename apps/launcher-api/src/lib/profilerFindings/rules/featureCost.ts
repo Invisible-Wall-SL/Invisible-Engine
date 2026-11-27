@@ -123,6 +123,7 @@ export const featureCost: Rule = (ctx) => {
 		if (!useFps) detail.push('Lab readings: fps not compared, draws only.');
 		out.push({
 			id: `featureCost:${switched.id}`,
+			subject: `featureCost:${base.gameKey ?? ''}:${deviceOf(base)}:${name}`,
 			rule: 'featureCost',
 			severity: fpsWorth && bestFps!.gain >= 5 ? 'medium' : 'low',
 			title: `${s.what} cost ${fpsWorth ? `${bestFps!.gain} fps ${bestFps!.phase}` : `${bestDraws!.saved} draws a frame`} on ${deviceOf(base)}`,
