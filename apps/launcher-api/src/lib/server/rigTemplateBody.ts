@@ -1,6 +1,8 @@
+import type { Drawing } from '../rig2p5d';
 import type { RigMotionMap } from '../rigMotion';
-import type { Bone3dMotion, FollowLimb, FollowMark } from '../rigMotion3d';
-import { VIEW_SUFFIXES } from '../rig3dViews';
+import type { Bone3dMotion, FingerSegment, FollowLimb, FollowMark } from '../rigMotion3d';
+import type { HandMotionEntry } from '../rigMotionHand';
+import { VIEW_SUFFIXES, angleDrawings } from '../rig3dViews';
 import { faceBlock, part, sides } from './rigTemplateFace';
 import type {
 	RigTemplateBone,
@@ -486,5 +488,313 @@ export function arms(d: ArmDims) {
 				pole: `elbow_pole_${s}`,
 			};
 		},
+	};
+}
+
+/**
+ * A hand's drawings by angle: turned about the arm (its face toward the picture's right or left,
+ * edge-on, and from behind on a full turnaround), `front` being the drawing it starts on.
+ */
+const handViews = (s: Side, front: string): Drawing[] => angleDrawings(front, `hand_${s}`);
+
+const HAND_POSES = ['open', 'fist', 'point'];
+
+/**
+ * Simple hands, per side: one image on the wrist's bone, its drawn poses swapped by the hand
+ * control (open, fist, pointing).
+ */
+export function posedHands(size: [number, number]) {
+	return {
+		slots: (s: Side): RigTemplateSlot[] => [
+			{ name: `hand_${s}`, bone: `hand_${s}`, setup: `hand_${s}_open` },
+		],
+		parts: (s: Side): RigTemplatePart[] =>
+			HAND_POSES.map((h) => part(`hand_${s}_${h}`, `hand_${s}`, size, h === 'open')),
+		channels: (s: Side): RigTemplateChannel[] => [
+			{
+				id: `hand_${s}`,
+				label: `${SIDE_FIRST[s]} hand`,
+				tip: '0 open, ½ fist, 1 pointing (needs those images).',
+				min: 0,
+				max: 1,
+				rest: 0,
+				slot: `hand_${s}`,
+				swaps: [
+					{ at: 0, part: `hand_${s}_open` },
+					{ at: 0.34, part: `hand_${s}_fist` },
+					{ at: 0.67, part: `hand_${s}_point` },
+				],
+			},
+		],
+		angles: (s: Side) => angleParts(`hand_${s}`, `hand_${s}`, size),
+		views: (s: Side) => handViews(s, `hand_${s}_open`),
+		/** Its slots, back to front. */
+		drawn: (s: Side) => [`hand_${s}`],
+	};
+}
+
+export const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
+const DIGITS = ['thumb', ...FINGERS] as const;
+type Digit = (typeof DIGITS)[number];
+const SEGMENTS = [1, 2, 3] as const;
+
+/**
+ * Each digit's knuckle on the hand bone and its three segments, the hand hanging with its back to
+ * the viewer: x across the hand toward the thumb (mirrored per side), y up. The third segment only
+ * sizes its image.
+ */
+const HAND: Record<Digit, { at: [number, number]; seg: [number, number][]; w: number }> = {
+	thumb: {
+		at: [30, -22],
+		seg: [
+			[10, -22],
+			[6, -19],
+			[4, -16],
+		],
+		w: 18,
+	},
+	index: {
+		at: [26, -80],
+		seg: [
+			[0, -26],
+			[0, -20],
+			[0, -16],
+		],
+		w: 16,
+	},
+	middle: {
+		at: [9, -82],
+		seg: [
+			[0, -29],
+			[0, -22],
+			[0, -17],
+		],
+		w: 17,
+	},
+	ring: {
+		at: [-8, -80],
+		seg: [
+			[0, -27],
+			[0, -20],
+			[0, -16],
+		],
+		w: 16,
+	},
+	pinky: {
+		at: [-24, -76],
+		seg: [
+			[-2, -21],
+			[-1, -16],
+			[0, -13],
+		],
+		w: 14,
+	},
+};
+/** Each segment's fold when its finger curls: scale Y along the finger, read as bending toward the
+ * viewer or away from them, which is how a hand facing the picture closes. */
+const CURL_FOLD = [-0.7, -0.5, -0.4];
+const HAND_POSE_IMAGES = ['open', 'fist', 'point', 'thumbs_up'];
+const bone = (d: Digit, n: number, s: string) => `${d}_${n}_${s}`;
+const segmentSlots = (s: string) =>
+	(['pinky', 'ring', 'middle', 'index', 'thumb'] as const).flatMap((d) =>
+		SEGMENTS.map((n) => bone(d, n, s)),
+	);
+/** A hand's digit bones in bone order: thumb to pinky, each knuckle to tip. */
+export const digitBones = (s: string) => DIGITS.flatMap((d) => SEGMENTS.map((n) => bone(d, n, s)));
+/** Each digit's first bone, on the hand: what a hand without fingers takes away with the rest. */
+export const fingerRoots = (s: Side) => DIGITS.map((d) => bone(d, 1, s));
+
+/**
+ * Hands with fingers, per side (`k` the side's sign): the hand's image on the wrist's bone and a
+ * bone and an image for every finger segment, so a hand can count, point, wave and close. Its
+ * controls turn the wrist, curl each finger (or all at once), fold the thumb and spread the
+ * fingers; whole drawn poses (open, fist, point, thumbs up) swap in for a pose the segments cannot
+ * draw, hiding them. The hand tracker keys the fingers, in 2D on the hand as played and as 3D
+ * finger segments (§5.9).
+ */
+export function fingerHands(size: { hand: [number, number]; poses: [number, number] }) {
+	return {
+		bones: (s: Side, k: number): RigTemplateBone[] =>
+			DIGITS.flatMap((d) => {
+				const h = HAND[d];
+				return [
+					{ name: bone(d, 1, s), parent: `hand_${s}`, x: -k * h.at[0], y: h.at[1] },
+					{ name: bone(d, 2, s), parent: bone(d, 1, s), x: -k * h.seg[0][0], y: h.seg[0][1] },
+					{ name: bone(d, 3, s), parent: bone(d, 2, s), x: -k * h.seg[1][0], y: h.seg[1][1] },
+				];
+			}),
+		slots: (s: Side): RigTemplateSlot[] => [
+			{ name: `hand_${s}`, bone: `hand_${s}`, setup: `hand_${s}` },
+			...segmentSlots(s).map((n) => ({ name: n, bone: n, setup: n })),
+		],
+		parts: (s: Side): RigTemplatePart[] => [
+			part(`hand_${s}`, `hand_${s}`, size.hand, true),
+			...HAND_POSE_IMAGES.map((h) => part(`hand_${s}_${h}`, `hand_${s}`, size.poses)),
+			...segmentSlots(s).map((n) => {
+				const [d, i] = n.split('_') as [Digit, string];
+				const h = HAND[d];
+				const [dx, dy] = h.seg[Number(i) - 1];
+				return part(n, n, [h.w + Math.abs(dx), Math.round(Math.abs(dy) + h.w / 2)]);
+			}),
+		],
+		channels: (s: Side, k: number): RigTemplateChannel[] => [
+			{
+				id: `wrist_${s}`,
+				label: `${SIDE_FIRST[s]} wrist`,
+				tip: 'Degrees; positive turns the hand counter-clockwise.',
+				min: -90,
+				max: 90,
+				rest: 0,
+				drives: [{ bone: `hand_${s}`, prop: 'rotate', per: 1 }],
+			},
+			{
+				id: `hand_${s}`,
+				label: `${SIDE_FIRST[s]} hand pose`,
+				tip: '0 the finger rig; 1 open, 2 fist, 3 pointing, 4 thumbs up when those images exist (each hides the fingers).',
+				min: 0,
+				max: 4,
+				rest: 0,
+				slot: `hand_${s}`,
+				swaps: [
+					{ at: 0, part: `hand_${s}` },
+					...HAND_POSE_IMAGES.map((h, i) => ({ at: i + 1, part: `hand_${s}_${h}` })),
+				],
+				hides: segmentSlots(s).map((n) => ({ slot: n, part: n })),
+			},
+			{
+				id: `curl_${s}`,
+				label: `Curl ${SIDE[s]} hand`,
+				tip: 'Close every finger and the thumb together; 1 is a fist.',
+				min: 0,
+				max: 1,
+				rest: 0,
+				sets: [
+					...FINGERS.map((f) => ({ channel: `curl_${f}_${s}`, per: 1 })),
+					{ channel: `thumb_${s}`, per: 1 },
+				],
+			},
+			{
+				id: `thumb_${s}`,
+				label: `${SIDE_FIRST[s]} thumb`,
+				tip: '1 folds the thumb across the palm; below 0 sticks it out (thumbs up).',
+				min: -0.5,
+				max: 1,
+				rest: 0,
+				drives: [
+					{ bone: bone('thumb', 1, s), prop: 'rotate', per: 40 * k },
+					{ bone: bone('thumb', 2, s), prop: 'rotate', per: 25 * k },
+					{ bone: bone('thumb', 3, s), prop: 'rotate', per: 20 * k },
+				],
+			},
+			...FINGERS.map((f): RigTemplateChannel => ({
+				id: `curl_${f}_${s}`,
+				label: `Curl ${SIDE[s]} ${f}`,
+				tip: `Close the ${f} finger: each segment folds toward the palm.`,
+				min: 0,
+				max: 1,
+				rest: 0,
+				drives: SEGMENTS.map((n) => ({
+					bone: bone(f, n, s),
+					prop: 'scaleY' as const,
+					per: CURL_FOLD[n - 1],
+				})),
+			})),
+			{
+				id: `spread_${s}`,
+				label: `Spread ${SIDE[s]} fingers`,
+				tip: 'Fan the fingers apart; below 0 closes them together.',
+				min: -0.3,
+				max: 1,
+				rest: 0,
+				drives: (
+					[
+						['index', 12],
+						['middle', 3],
+						['ring', -5],
+						['pinky', -12],
+					] as const
+				).map(([f, deg]) => ({ bone: bone(f, 1, s), prop: 'rotate' as const, per: -k * deg })),
+			},
+		],
+		motion: (s: Side): BodyMotionEntryOf[] => [
+			{
+				kind: 'bone',
+				channel: `wrist_${s}`,
+				bone: `hand_${s}`,
+				from: POSE_SIDE[s].wrist,
+				to: POSE_SIDE[s].knuckles,
+				rest: [0, -1],
+			},
+		],
+		// Hand Landmarker's 21 points: 0 wrist; 1–4 thumb; 5–8 index, 9–12 middle, 13–16 ring,
+		// 17–20 pinky, each knuckle to tip. Read in the hand's own 3D points, so a finger curling
+		// toward the camera reads as fully as one curling across the picture.
+		hand: {
+			smooth: 0.03,
+			follow: 20,
+			entries: sides<HandMotionEntry>((s) => [
+				...FINGERS.map((f, i): HandMotionEntry => {
+					const b = 5 + 4 * i;
+					return {
+						kind: 'curl',
+						channel: `curl_${f}_${s}`,
+						side: s,
+						joints: [
+							[0, b, b + 1],
+							[b, b + 1, b + 2],
+							[b + 1, b + 2, b + 3],
+						],
+						// Straight reads 0, a fist's ~240° reads 1: a relaxed hand keys a light curl, as it shows.
+						rest: 0,
+						full: 240,
+					};
+				}),
+				{
+					kind: 'curl',
+					channel: `thumb_${s}`,
+					side: s,
+					joints: [
+						[1, 2, 3],
+						[2, 3, 4],
+					],
+					rest: 30,
+					full: 120,
+				},
+				{
+					kind: 'spread',
+					channel: `spread_${s}`,
+					side: s,
+					from: [5, 6],
+					to: [17, 18],
+					rest: 15,
+					full: 55,
+				},
+			]),
+		},
+		angles: (s: Side) => angleParts(`hand_${s}`, `hand_${s}`, size.hand),
+		views: (s: Side) => handViews(s, `hand_${s}`),
+		/** Its slots, back to front: its layer in depth, and what goes behind with the arm. */
+		drawn: (s: Side) => [`hand_${s}`, ...segmentSlots(s)],
+		/**
+		 * Its finger segments in a 3D import (§5.9): each along its two points of the hand Hand
+		 * Landmarker finds on that wrist. The tip segment has no child to point at: it ends where its
+		 * image does.
+		 */
+		fingers: (s: Side, k: number): FingerSegment[] =>
+			DIGITS.flatMap((d) => {
+				const base = d === 'thumb' ? 1 : 5 + 4 * FINGERS.indexOf(d);
+				const [x, y] = HAND[d].seg[2];
+				return SEGMENTS.map((n): FingerSegment => ({
+					bone: bone(d, n, s),
+					side: s,
+					from: base + n - 1,
+					to: base + n,
+					...(n === 3 ? { rest: [-k * x, y] as [number, number] } : {}),
+				}));
+			}),
+		cannot: [
+			'The drawn hand poses: the fingers are keyed instead.',
+			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
+		],
 	};
 }

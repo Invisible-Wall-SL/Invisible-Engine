@@ -14,13 +14,12 @@ import {
 import type { Drawing, Turnaround } from '../rig2p5d';
 import type {
 	Bone3dMotion,
-	FingerSegment,
 	FollowMark,
 	FollowPoint,
 	RigMotion3d,
 	RigPositions3d,
 } from '../rigMotion3d';
-import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
+import { HAND_LANDMARK_COUNT } from '../rigMotionHand';
 import { angleDrawings } from '../rig3dViews';
 import {
 	FACE_BOARD,
@@ -40,6 +39,7 @@ import {
 import {
 	FACE,
 	FACE_HEAD,
+	FINGERS,
 	HEAD_NOD,
 	HIPS,
 	NECK_BONES,
@@ -48,7 +48,11 @@ import {
 	SIDE,
 	angleParts,
 	arms,
+	digitBones,
+	fingerHands,
+	fingerRoots,
 	neck,
+	posedHands,
 	shortening,
 	type BodyMotionEntryOf,
 } from './rigTemplateBody';
@@ -653,8 +657,6 @@ BUST_FACE.clips = [
 	]),
 ];
 
-const HAND_POSES = ['open', 'fist', 'point'];
-
 const FULL_NECK = neck(90, 30, [60, 50]);
 const FULL_ARMS = arms({
 	shoulder: [70, 70],
@@ -670,6 +672,7 @@ const FULL_ARMS = arms({
 		fold: '+ with the arm raised to the side lifts the hand (a flex), − brings the hand in across the body',
 	},
 });
+const FULL_HANDS = posedHands([55, 60]);
 
 /**
  * A whole standing character, drawn facing the viewer or facing right (the game flips it). Every
@@ -704,10 +707,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
 		FULL_NECK.slot,
 		{ name: 'head', bone: 'head', setup: 'head' },
-		...sides((s) => [
-			...FULL_ARMS.slots(s),
-			{ name: `hand_${s}`, bone: `hand_${s}`, setup: `hand_${s}_open` },
-		]),
+		...sides((s) => [...FULL_ARMS.slots(s), ...FULL_HANDS.slots(s)]),
 	],
 	parts: [
 		...sides((s) => [
@@ -719,10 +719,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		part('torso', 'torso', [200, 240], true),
 		FULL_NECK.part,
 		part('head', 'head', [180, 200], true),
-		...sides((s) => [
-			...FULL_ARMS.parts(s),
-			...HAND_POSES.map((h) => part(`hand_${s}_${h}`, `hand_${s}`, [55, 60], h === 'open')),
-		]),
+		...sides((s) => [...FULL_ARMS.parts(s), ...FULL_HANDS.parts(s)]),
 	],
 	channels: [
 		{
@@ -755,23 +752,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'root', prop: 'x', per: 100 }],
 		},
-		...sides<RigTemplateChannel>((s, k) => [
-			...FULL_ARMS.channels(s, k),
-			{
-				id: `hand_${s}`,
-				label: `${SIDE[s] === 'left' ? 'Left' : 'Right'} hand`,
-				tip: '0 open, ½ fist, 1 pointing (needs those images).',
-				min: 0,
-				max: 1,
-				rest: 0,
-				slot: `hand_${s}`,
-				swaps: [
-					{ at: 0, part: `hand_${s}_open` },
-					{ at: 0.34, part: `hand_${s}_fist` },
-					{ at: 0.67, part: `hand_${s}_point` },
-				],
-			},
-		]),
+		...sides((s, k) => [...FULL_ARMS.channels(s, k), ...FULL_HANDS.channels(s)]),
 		...sides<RigTemplateChannel>((s) => [
 			{
 				id: `step_${s}`,
@@ -920,75 +901,6 @@ FLAT_FULL_BODY.clips = [
 	]),
 ];
 
-const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
-const DIGITS = ['thumb', ...FINGERS] as const;
-type Digit = (typeof DIGITS)[number];
-const SEGMENTS = [1, 2, 3] as const;
-
-/**
- * Each digit's knuckle on the hand bone and its three segments, the hand hanging with its back to
- * the viewer: x across the hand toward the thumb (mirrored per side), y up. The third segment only
- * sizes its image.
- */
-const HAND: Record<Digit, { at: [number, number]; seg: [number, number][]; w: number }> = {
-	thumb: {
-		at: [30, -22],
-		seg: [
-			[10, -22],
-			[6, -19],
-			[4, -16],
-		],
-		w: 18,
-	},
-	index: {
-		at: [26, -80],
-		seg: [
-			[0, -26],
-			[0, -20],
-			[0, -16],
-		],
-		w: 16,
-	},
-	middle: {
-		at: [9, -82],
-		seg: [
-			[0, -29],
-			[0, -22],
-			[0, -17],
-		],
-		w: 17,
-	},
-	ring: {
-		at: [-8, -80],
-		seg: [
-			[0, -27],
-			[0, -20],
-			[0, -16],
-		],
-		w: 16,
-	},
-	pinky: {
-		at: [-24, -76],
-		seg: [
-			[-2, -21],
-			[-1, -16],
-			[0, -13],
-		],
-		w: 14,
-	},
-};
-/** Each segment's fold when its finger curls: scale Y along the finger, read as bending toward the
- * viewer or away from them, which is how a hand facing the picture closes. */
-const CURL_FOLD = [-0.7, -0.5, -0.4];
-const HAND_POSE_IMAGES = ['open', 'fist', 'point', 'thumbs_up'];
-const bone = (d: Digit, n: number, s: string) => `${d}_${n}_${s}`;
-const segmentSlots = (s: string) =>
-	(['pinky', 'ring', 'middle', 'index', 'thumb'] as const).flatMap((d) =>
-		SEGMENTS.map((n) => bone(d, n, s)),
-	);
-/** A hand's digit bones in bone order: thumb to pinky, each knuckle to tip. */
-const digitBones = (s: string) => DIGITS.flatMap((d) => SEGMENTS.map((n) => bone(d, n, s)));
-
 const HALF_NECK = neck(130, 40, [90, 90]);
 const HALF_ARMS = arms({
 	clavicle: { at: [25, 110], size: [110, 70] },
@@ -1006,6 +918,7 @@ const HALF_ARMS = arms({
 	},
 	reach: true,
 });
+const HALF_HANDS = fingerHands({ hand: [80, 85], poses: [90, 120] });
 
 /**
  * The upper body of a character beside the reels, drawn facing the viewer: torso, arms, and hands
@@ -1028,17 +941,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		{ name: 'chest', parent: 'spine', x: 0, y: 150 },
 		...HALF_NECK.bones,
 		...FACE_HEAD.bones,
-		...sides((s, k) => [
-			...HALF_ARMS.bones(s, k),
-			...DIGITS.flatMap((d) => {
-				const h = HAND[d];
-				return [
-					{ name: bone(d, 1, s), parent: `hand_${s}`, x: -k * h.at[0], y: h.at[1] },
-					{ name: bone(d, 2, s), parent: bone(d, 1, s), x: -k * h.seg[0][0], y: h.seg[0][1] },
-					{ name: bone(d, 3, s), parent: bone(d, 2, s), x: -k * h.seg[1][0], y: h.seg[1][1] },
-				];
-			}),
-		]),
+		...sides((s, k) => [...HALF_ARMS.bones(s, k), ...HALF_HANDS.bones(s, k)]),
 	],
 	slots: [
 		...FACE_HEAD.back.slots,
@@ -1046,11 +949,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
 		HALF_NECK.slot,
 		...FACE_HEAD.front.slots,
-		...sides((s) => [
-			...HALF_ARMS.slots(s),
-			{ name: `hand_${s}`, bone: `hand_${s}`, setup: `hand_${s}` },
-			...segmentSlots(s).map((n) => ({ name: n, bone: n, setup: n })),
-		]),
+		...sides((s) => [...HALF_ARMS.slots(s), ...HALF_HANDS.slots(s)]),
 	],
 	parts: [
 		...FACE_HEAD.back.parts,
@@ -1058,17 +957,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		part('torso', 'torso', [360, 380], true),
 		HALF_NECK.part,
 		...FACE_HEAD.front.parts,
-		...sides((s) => [
-			...HALF_ARMS.parts(s),
-			part(`hand_${s}`, `hand_${s}`, [80, 85], true),
-			...HAND_POSE_IMAGES.map((h) => part(`hand_${s}_${h}`, `hand_${s}`, [90, 120])),
-			...segmentSlots(s).map((n) => {
-				const [d, i] = n.split('_') as [Digit, string];
-				const h = HAND[d];
-				const [dx, dy] = h.seg[Number(i) - 1];
-				return part(n, n, [h.w + Math.abs(dx), Math.round(Math.abs(dy) + h.w / 2)]);
-			}),
-		]),
+		...sides((s) => [...HALF_ARMS.parts(s), ...HALF_HANDS.parts(s)]),
 	],
 	channels: [
 		{
@@ -1092,90 +981,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		BREATH,
 		HEAD_NOD,
 		...FACE.channels,
-		...sides<RigTemplateChannel>((s, k) => {
-			const side = SIDE[s];
-			const Side = side === 'left' ? 'Left' : 'Right';
-			return [
-				...HALF_ARMS.channels(s, k),
-				{
-					id: `wrist_${s}`,
-					label: `${Side} wrist`,
-					tip: 'Degrees; positive turns the hand counter-clockwise.',
-					min: -90,
-					max: 90,
-					rest: 0,
-					drives: [{ bone: `hand_${s}`, prop: 'rotate', per: 1 }],
-				},
-				{
-					id: `hand_${s}`,
-					label: `${Side} hand pose`,
-					tip: '0 the finger rig; 1 open, 2 fist, 3 pointing, 4 thumbs up when those images exist (each hides the fingers).',
-					min: 0,
-					max: 4,
-					rest: 0,
-					slot: `hand_${s}`,
-					swaps: [
-						{ at: 0, part: `hand_${s}` },
-						...HAND_POSE_IMAGES.map((h, i) => ({ at: i + 1, part: `hand_${s}_${h}` })),
-					],
-					hides: segmentSlots(s).map((n) => ({ slot: n, part: n })),
-				},
-				{
-					id: `curl_${s}`,
-					label: `Curl ${side} hand`,
-					tip: 'Close every finger and the thumb together; 1 is a fist.',
-					min: 0,
-					max: 1,
-					rest: 0,
-					sets: [
-						...FINGERS.map((f) => ({ channel: `curl_${f}_${s}`, per: 1 })),
-						{ channel: `thumb_${s}`, per: 1 },
-					],
-				},
-				{
-					id: `thumb_${s}`,
-					label: `${Side} thumb`,
-					tip: '1 folds the thumb across the palm; below 0 sticks it out (thumbs up).',
-					min: -0.5,
-					max: 1,
-					rest: 0,
-					drives: [
-						{ bone: bone('thumb', 1, s), prop: 'rotate', per: 40 * k },
-						{ bone: bone('thumb', 2, s), prop: 'rotate', per: 25 * k },
-						{ bone: bone('thumb', 3, s), prop: 'rotate', per: 20 * k },
-					],
-				},
-				...FINGERS.map((f): RigTemplateChannel => ({
-					id: `curl_${f}_${s}`,
-					label: `Curl ${side} ${f}`,
-					tip: `Close the ${f} finger: each segment folds toward the palm.`,
-					min: 0,
-					max: 1,
-					rest: 0,
-					drives: SEGMENTS.map((n) => ({
-						bone: bone(f, n, s),
-						prop: 'scaleY' as const,
-						per: CURL_FOLD[n - 1],
-					})),
-				})),
-				{
-					id: `spread_${s}`,
-					label: `Spread ${side} fingers`,
-					tip: 'Fan the fingers apart; below 0 closes them together.',
-					min: -0.3,
-					max: 1,
-					rest: 0,
-					drives: (
-						[
-							['index', 12],
-							['middle', 3],
-							['ring', -5],
-							['pinky', -12],
-						] as const
-					).map(([f, deg]) => ({ bone: bone(f, 1, s), prop: 'rotate' as const, per: -k * deg })),
-				},
-			];
-		}),
+		...sides((s, k) => [...HALF_ARMS.channels(s, k), ...HALF_HANDS.channels(s, k)]),
 	],
 	clips: [],
 	motion: {
@@ -1198,67 +1004,10 @@ const FLAT_HALF_BODY: RigTemplate = {
 					rest: [-1, 0],
 					minSpan: 0.6,
 				},
-				...sides<BodyMotionEntryOf>((s) => {
-					const p = POSE_SIDE[s];
-					return [
-						...HALF_ARMS.motion(s),
-						{
-							kind: 'bone',
-							channel: `wrist_${s}`,
-							bone: `hand_${s}`,
-							from: p.wrist,
-							to: p.knuckles,
-							rest: [0, -1],
-						},
-					];
-				}),
+				...sides((s) => [...HALF_ARMS.motion(s), ...HALF_HANDS.motion(s)]),
 			],
 		},
-		// Hand Landmarker's 21 points: 0 wrist; 1–4 thumb; 5–8 index, 9–12 middle, 13–16 ring,
-		// 17–20 pinky, each knuckle to tip. Read in the hand's own 3D points, so a finger curling
-		// toward the camera reads as fully as one curling across the picture.
-		hand: {
-			smooth: 0.03,
-			follow: 20,
-			entries: sides<HandMotionEntry>((s) => [
-				...FINGERS.map((f, i): HandMotionEntry => {
-					const b = 5 + 4 * i;
-					return {
-						kind: 'curl',
-						channel: `curl_${f}_${s}`,
-						side: s,
-						joints: [
-							[0, b, b + 1],
-							[b, b + 1, b + 2],
-							[b + 1, b + 2, b + 3],
-						],
-						// Straight reads 0, a fist's ~240° reads 1: a relaxed hand keys a light curl, as it shows.
-						rest: 0,
-						full: 240,
-					};
-				}),
-				{
-					kind: 'curl',
-					channel: `thumb_${s}`,
-					side: s,
-					joints: [
-						[1, 2, 3],
-						[2, 3, 4],
-					],
-					rest: 30,
-					full: 120,
-				},
-				{
-					kind: 'spread',
-					channel: `spread_${s}`,
-					side: s,
-					from: [5, 6],
-					to: [17, 18],
-					rest: 15,
-					full: 55,
-				},
-			]),
-		},
+		hand: HALF_HANDS.hand,
 		cannot: [],
 	},
 };
@@ -1671,11 +1420,6 @@ const poleDepths = (legs: boolean): Record<string, number> =>
  * left, and on a full turnaround its ¾-back and back views. A rig keeps those its art has.
  */
 const TORSO_VIEWS: Drawing[] = angleDrawings('torso');
-/**
- * A hand's drawings by angle: turned about the arm (its face toward the picture's right or left,
- * edge-on, and from behind on a full turnaround), `front` being the drawing it starts on.
- */
-const handViews = (s: 'l' | 'r', front: string): Drawing[] => angleDrawings(front, `hand_${s}`);
 
 /**
  * The body in 3D. Its bones lean with the spine line (hips → shoulders) and roll about it to face the
@@ -1716,35 +1460,12 @@ const leg3d = (s: 'l' | 'r'): Bone3dMotion[] => {
  */
 const NECK_BEND = 35;
 
-/**
- * A hand's finger segments in a 3D import (§5.9): each along its two points of the hand Hand
- * Landmarker finds on that wrist. The tip segment has no child to point at: it ends where its image
- * does.
- */
-function fingerSegments(s: 'l' | 'r', k: number): FingerSegment[] {
-	return DIGITS.flatMap((d) => {
-		const base = d === 'thumb' ? 1 : 5 + 4 * FINGERS.indexOf(d);
-		const [x, y] = HAND[d].seg[2];
-		return SEGMENTS.map((n): FingerSegment => ({
-			bone: bone(d, n, s),
-			side: s,
-			from: base + n - 1,
-			to: base + n,
-			...(n === 3 ? { rest: [-k * x, y] as [number, number] } : {}),
-		}));
-	});
-}
-
 const TURN_CANNOT =
 	'A full turn: the body shows its ¾ and side images and narrows, but its back and other side need drawings of their own.';
 const TURN_3D_CANNOT =
 	'A full turn on a side turnaround: past its side view the torso shows a front-half drawing mirrored; its back is a full turnaround’s back drawings.';
 const CROSS_CANNOT =
 	'A hand crossing in front of the other arm: an arm goes in front of or behind the body and the head only.';
-const FINGERS_CANNOT = [
-	'The drawn hand poses: the fingers are keyed instead.',
-	'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
-];
 
 const FULL_BODY_IMAGES = withImageBones(FLAT_FULL_BODY, [
 	'pelvis',
@@ -1768,7 +1489,7 @@ export const FULL_BODY: RigTemplate = {
 		...FLAT_FULL_BODY.parts,
 		...angleParts('torso', 'torso', [200, 240]),
 		...angleParts('head', 'head', [180, 200]),
-		...sides((s) => angleParts(`hand_${s}`, `hand_${s}`, [55, 60])),
+		...sides(FULL_HANDS.angles),
 	],
 	channels: [
 		...FLAT_FULL_BODY.channels,
@@ -1796,7 +1517,7 @@ export const FULL_BODY: RigTemplate = {
 			['torso_image', 'pelvis_image'],
 		),
 		APPROACH,
-		...sides((s) => [FULL_ARMS.depth(s, [`hand_${s}`])]),
+		...sides((s) => [FULL_ARMS.depth(s, FULL_HANDS.drawn(s))]),
 	],
 	clips: FLAT_FULL_BODY.clips,
 	rig3d: {
@@ -1805,7 +1526,7 @@ export const FULL_BODY: RigTemplate = {
 		views: {
 			torso: TORSO_VIEWS,
 			head: HEAD_VIEWS,
-			...Object.fromEntries(sides((s) => [[`hand_${s}`, handViews(s, `hand_${s}_open`)]])),
+			...Object.fromEntries(sides((s) => [[`hand_${s}`, FULL_HANDS.views(s)]])),
 		},
 	},
 };
@@ -1929,7 +1650,7 @@ export const HALF_BODY: RigTemplate = {
 		...FLAT_HALF_BODY.parts,
 		...angleParts('torso', 'torso', [360, 380]),
 		...FACE_HEAD.angles,
-		...sides((s) => angleParts(`hand_${s}`, `hand_${s}`, [80, 85])),
+		...sides(HALF_HANDS.angles),
 	],
 	channels: [
 		...replaceChannels(
@@ -1944,7 +1665,7 @@ export const HALF_BODY: RigTemplate = {
 			['torso_image'],
 		),
 		APPROACH,
-		...sides((s) => [HALF_ARMS.depth(s, [`hand_${s}`, ...segmentSlots(s)])]),
+		...sides((s) => [HALF_ARMS.depth(s, HALF_HANDS.drawn(s))]),
 	],
 	clips: FLAT_HALF_BODY.clips,
 	rig3d: {
@@ -1954,12 +1675,12 @@ export const HALF_BODY: RigTemplate = {
 		views: {
 			torso: TORSO_VIEWS,
 			head: HEAD_VIEWS,
-			...Object.fromEntries(sides((s) => [[`hand_${s}`, handViews(s, `hand_${s}`)]])),
+			...Object.fromEntries(sides((s) => [[`hand_${s}`, HALF_HANDS.views(s)]])),
 		},
 		// A hand and its fingers move in depth as one, in the order they are drawn.
 		layers: {
 			...FACE_HEAD.layers,
-			...Object.fromEntries(sides((s) => [[`hand_${s}`, [`hand_${s}`, ...segmentSlots(s)]]])),
+			...Object.fromEntries(sides((s) => [[`hand_${s}`, HALF_HANDS.drawn(s)]])),
 		},
 	},
 };
@@ -1987,7 +1708,7 @@ HALF_BODY.motion = {
 			...FACE_HEAD.bones3d,
 			...sides(HALF_ARMS.bones3d),
 		],
-		fingers: sides(fingerSegments),
+		fingers: sides(HALF_HANDS.fingers),
 		// The hips are rarely in a waist-up shot (the tracker guesses them past the frame's edge): the
 		// shoulders place the body.
 		positions: {
@@ -2028,11 +1749,11 @@ HALF_BODY.motion = {
 			NEAR_CANNOT,
 			FACE_HEAD.cannot3d,
 			FACE.cannot[1],
-			...FINGERS_CANNOT,
+			...HALF_HANDS.cannot,
 			'Breathing.',
 		],
 	},
-	cannot: [TURN_CANNOT, CROSS_CANNOT, ...FACE.cannot, ...FINGERS_CANNOT, 'Breathing.'],
+	cannot: [TURN_CANNOT, CROSS_CANNOT, ...FACE.cannot, ...HALF_HANDS.cannot, 'Breathing.'],
 };
 
 // The control layer (rig-controls §6.1, T12a): a ring on each FK bone, the face board, layers, sets,
@@ -2180,7 +1901,7 @@ HALF_BODY.controls = withLimbs(halfControls, HALF_IK.limbs, { arm: [0.25, 0.75] 
  * wrist keep it).
  */
 function handsModule(fingers: boolean): RigTemplateModule {
-	const roots = fingers ? sides((s) => DIGITS.map((d) => bone(d, 1, s))) : [];
+	const roots = fingers ? sides(fingerRoots) : [];
 	return {
 		id: 'hands',
 		label: 'Hands',
