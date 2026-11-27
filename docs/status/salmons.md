@@ -2680,8 +2680,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     rebuilds on a merge that touches `services/game-server`): a deploy restarts the process and
     closes every running room, as any game-server deploy does; devices see the room lost and load
     again. Deploy order does not matter: old runtimes keep working on the new server and new
-    runtimes on the old one. (2) The live project does not pin `patchHz` (it reads the default,
-    20): in `/config` → **Online room** → **States per second** type **15**, then **Publish**.
+    runtimes on the old one. (2) Merging does not change the live rate: the room reads the
+    published snapshot's config, whose `arcade.online` has no `patchHz`, so the Game Config default
+    (20) fills it; `salmons.js` is only the export / playtest config. In `/config` → **Online room**
+    → **States per second** type **15**, then **Publish**.
     Rooms made after that (≤ 90 s: the launcher's and the server's config caches) send 15.
 - 2026-11-27 — **Performance T6: the net client applies the room's state once a frame**
   ([design/salmons-performance](../design/salmons-performance.md) §4 T6; branch
