@@ -268,6 +268,9 @@ function meanTurn(qs: Quat[]): Quat | null {
 	return n > 0 ? (s.map((v) => v / n) as Quat) : null;
 }
 
+/** `q`'s turn `gain` times over, about the same axis (2 = twice as far, 0.5 = half way). */
+const turnTimes = (q: Quat, gain: number): Quat => (gain === 1 ? q : slerp([1, 0, 0, 0], q, gain));
+
 /**
  * The samples a run of slerped `orient` keys needs to stay within `tol` degrees of every sample
  * (Ramer–Douglas–Peucker on the angle between the run and the sample); indices, first and last kept.
@@ -731,7 +734,18 @@ export function solveBones3d(
 	map: RigMotion3d,
 	track: MotionTrack,
 	times: number[],
-	{ neutral, trace = false, follow }: { neutral?: number; trace?: boolean; follow?: Follow3d } = {},
+	{
+		neutral,
+		trace = false,
+		follow,
+		headGain = 1,
+	}: {
+		neutral?: number;
+		trace?: boolean;
+		follow?: Follow3d;
+		/** The import's Head gain: the face's turn against its neutral, that many times over. */
+		headGain?: number;
+	} = {},
 ): Solve3d {
 	const { frames, width: W, height: H } = track;
 	const n = frames.length;
@@ -866,7 +880,7 @@ export function solveBones3d(
 	};
 
 	// The head: the face's rotation against its neutral (the first second it is seen, or the moment
-	// the author picked), as a turn of the world.
+	// the author picked), as a turn of the world, times the Head gain.
 	const faceRot = frames.map((f) => (f.face?.matrix ? faceRotation(f.face.matrix) : null));
 	const neutralAt = neutralFrames(
 		times,
@@ -875,7 +889,7 @@ export function solveBones3d(
 	);
 	const rest0 = meanTurn(neutralAt.map((i) => quatOf(faceRot[i]!)));
 	const faceTurn = faceRot.map((m) =>
-		m && rest0 ? quatOf(mul3(m, transpose3(matOf(rest0)))) : null,
+		m && rest0 ? turnTimes(quatOf(mul3(m, transpose3(matOf(rest0)))), headGain) : null,
 	);
 	const faceFilled = held(faceTurn);
 	const faceSmooth = faceFilled ? smoothTurns(faceFilled, times, map) : null;

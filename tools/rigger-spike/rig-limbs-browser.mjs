@@ -404,6 +404,8 @@ try {
 		await evaluate('window.confirm = () => true; window.alert = () => {}; true');
 		await evaluate('document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); true');
 		ok('W opens', await openRig('W'));
+		// its drags measure where a control lands, not where 🧲 Snap to bone would take it
+		await evaluate('boneSnap = false; true');
 		await setMode('setup');
 		await evaluate('fitView(); true');
 		await select(BONE);

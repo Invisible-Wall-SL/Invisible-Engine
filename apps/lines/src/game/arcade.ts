@@ -34,6 +34,7 @@ import { cameraZoom, mobileDevice, zoomedView } from 'engine-mechanics';
 import { normalizeGameConfigDoc, resolveArcade, type ArcadeCharacter } from 'game-config';
 
 import { bakedGameConfig } from '../editor-scenes';
+import { arcadePerf } from './arcadePerf';
 import { registerBoardEffects, registerBoardValues } from './flowBoardEffects';
 import { typingInto } from './flowKeys';
 import { getFlowV2 } from './flowV2InterpreterHolder';
@@ -237,6 +238,7 @@ export const startArcade = (
 		return { w: width, h: height };
 	};
 	windowScale = () => designSize().scale ?? 1;
+	arcadePerf.info = { online: false, fixedHz: rules.fixedHz };
 	loop = createArcadeLoop({
 		rules,
 		field: () => rules.field ?? world ?? view(),
@@ -246,6 +248,7 @@ export const startArcade = (
 		signal: (name, payload) => {
 			void getFlowV2()?.dispatch(name, payload);
 		},
+		perf: () => (arcadePerf.on ? arcadePerf.counts : undefined),
 		...characterIo,
 	});
 	registerBoardEffects(loop.effects);
@@ -316,6 +319,8 @@ export const tickArcade = (dtMs: number) => {
 		setWorldZoom(zoom);
 	}
 	loop.frame(dtMs);
+	// The level the frame just counted: a field with a body on it is playing.
+	if (arcadePerf.on) arcadePerf.phase = arcadePerf.counts.bodies > 0 ? 'play' : 'menu';
 	if (hops) {
 		const live = spawnStore();
 		const lifts = new Map<string, { z: number; shadow: number; foot: number }>();

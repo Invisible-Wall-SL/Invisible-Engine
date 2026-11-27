@@ -84,8 +84,8 @@ const FACE_CORE = 0.6;
 /** A head drawn without its face: the face's region reaches this share of the way to its ink. */
 const APART_REACH = 0.9;
 /** The furthest a 3D import turns and nods a drawn face (its cannot list: about 40°, and 25°). */
-const TURN_3D = (40 * Math.PI) / 180;
-const NOD_3D = (25 * Math.PI) / 180;
+export const TURN_3D = (40 * Math.PI) / 180;
+export const NOD_3D = (25 * Math.PI) / 180;
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
@@ -123,8 +123,13 @@ const MOVES: Record<string, string> = {
  * mesh `face` (rig units, y up: the rig's world in the frame's pose), and the head's regions there.
  * Null for a template without the face block's eyes, or a face the points do not span.
  */
-export function frameFace(t: RigTemplate, fit: RigFit, face: readonly P[]): FrameFace | null {
-	const under = faceBones(t.bones);
+export function frameFace(
+	t: RigTemplate,
+	fit: RigFit,
+	face: readonly P[],
+	optional: ReadonlySet<string> = new Set(),
+): FrameFace | null {
+	const under = faceBones(t.bones, optional);
 	if (!under.has('eye_l') || !under.has('eye_r') || face.length < MESH) return null;
 	const W = frameWorld(fitTemplate(t, fit).bones, fit.frame);
 	const Wf = W.get('face')!;
@@ -438,8 +443,13 @@ function drawIn(sp: RigSkinSpot, inFace: (p: P) => boolean, ex: P, up: P): void 
  * nod carry the head's middle with the face (and the features drawn on its bones) while its outline
  * stays; the face's move cut to the room that leaves (`roomScales`, from its fitted length's).
  */
-export function apartFace(t: RigTemplate, fit: RigFit, outline: readonly P[]): FrameFace | null {
-	const under = faceBones(t.bones);
+export function apartFace(
+	t: RigTemplate,
+	fit: RigFit,
+	outline: readonly P[],
+	optional: ReadonlySet<string> = new Set(),
+): FrameFace | null {
+	const under = faceBones(t.bones, optional);
 	if (!under.has('face') || outline.length < 3) return null;
 	const Wf = frameWorld(fitTemplate(t, fit).bones, fit.frame).get('face')!;
 	const e: P = [Wf[0], Wf[2]];
@@ -660,7 +670,7 @@ function roomScales(
 }
 
 /** The convex hull of `pts`, counter-clockwise (Andrew's monotone chain). */
-function convexHull(pts: readonly P[]): P[] {
+export function convexHull(pts: readonly P[]): P[] {
 	const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 	const cross = (o: P, a: P, b: P) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
 	const half = (list: P[]) => {
@@ -676,7 +686,7 @@ function convexHull(pts: readonly P[]): P[] {
 }
 
 /** Whether `p` lies inside the counter-clockwise convex polygon `hull`, or within `margin` of it. */
-function inside(hull: readonly P[], p: P, margin = 0): boolean {
+export function inside(hull: readonly P[], p: P, margin = 0): boolean {
 	for (let i = 0; i < hull.length; i++) {
 		const [a, b] = [hull[i], hull[(i + 1) % hull.length]];
 		const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);

@@ -34,6 +34,10 @@
 // resized to 2560 × 1440 with no reload it is sent those up to its edge and at its corners, and
 // not the one just past the edge. A 390 × 844 phone is sent what the box sends: the bear 25 cells
 // up-river, off its screen, as before the view; and none past the box.
+// The whole lobby clock (owner, 2026-11-26): from the room's first person the countdown screen
+// shows the seconds to round 1 at the latest (the wait and the countdown), the room's, white and
+// still and ticking down; when the second person fills the room it drops to the countdown, and in
+// its last 10 seconds it is red and pulses each second.
 // A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 (`room_size=10`) sees
 // a bot salmon win the game, its win screen naming the bot by its salmon's name ("Sockeye Sally
 // won!!!"), no "bot" in it: no eggs, no "You Won!".
@@ -606,9 +610,44 @@ const lobbyCounting = async (game, people) => {
 	}
 	return lobby;
 };
+/** The lobby clock's colours (`salmonsArt/screens.ts` `CLOCK`): white, and red at the end. */
+const CLOCK_WHITE = 0xffffff;
+const CLOCK_RED = 0xff3333;
+/**
+ * The lobby's clock on a page (its probe, as first read), the seconds its room says are left to
+ * round 1, and the number's scale while it shows over `samples` × 3 frames, every third frame (a
+ * pulse grows it as a second begins).
+ */
+const clockOf = async (game, samples = 20) => {
+	const scales = [];
+	let page;
+	let room = null;
+	for (let i = 0; i < samples; i++) {
+		await game.play([{ op: 'step', frames: 3 }]);
+		const now = (await game.state()).arcade?.online;
+		if (i === 0) {
+			page = now?.screens?.clock;
+			room = roomClock(now?.me);
+		}
+		if (now?.screens?.clock?.shown) scales.push(now.screens.clock.scale);
+	}
+	return { page, room: await room, scales };
+};
+/** The seconds the room holding session `me` says are left to the end of its phase. */
+const roomClock = async (me) => {
+	for (const listed of await matchMaker.query({})) {
+		const sim = matchMaker.getLocalRoomById(listed.roomId)?.sim;
+		if (sim?.players.has(me))
+			return sim.rules.endsAt
+				? Math.ceil((sim.rules.endsAt - sim.steps) / sim.game.online.tickHz)
+				: 0;
+	}
+	return null;
+};
 /** Whether a lobby has no form: none in the canvas, no field on the page, no start menu. */
 const noForm = (lobby) => lobby.menu === undefined && lobby.fields === 0 && !lobby.startMenu;
-const inRiver = (people) => new RegExp(`^${people} players in .+ River$`);
+const inRiver = (people) =>
+	new RegExp(`^${people} ${people === 1 ? 'player' : 'players'} in .+ River$`);
 /** The lobby once `test` holds of it (a pick's answer takes the room a moment), or as it is. */
 const lobbyWhen = async (game, test) => {
 	let lobby = await lobbyOf(game);
@@ -885,12 +924,31 @@ try {
 	await l1.settle(1500);
 	const waiting = await l1.shown();
 	const phase1 = (await l1.state()).arcade?.online?.phase;
+	// The whole clock (owner, 2026-11-26): from the first person, the seconds to round 1 at the
+	// latest (the wait and the countdown), white and still while more than 10 are left.
+	const l1Clock = await clockOf(l1);
+	const fullClock = LOBBY.maxWaitSeconds + LOBBY.countdownSeconds;
 	verdict(
-		'a room with a lobby: the first person waits on the lobby screen, no countdown yet',
+		`a room with a lobby: the first person waits on the lobby screen, with the whole clock to round 1 (≤ ${fullClock} s, the room's own), white and still`,
 		phase1 === 'waiting' &&
 			waiting.includes('salmonsLobby') &&
-			!waiting.includes('salmonsCountdown'),
-		{ phase: phase1, shown: waiting },
+			waiting.includes('salmonsCountdown') &&
+			l1Clock.page?.shown === true &&
+			l1Clock.page.seconds <= fullClock &&
+			l1Clock.page.seconds > fullClock - 30 &&
+			Math.abs(l1Clock.page.seconds - l1Clock.room) <= 1 &&
+			l1Clock.page.urgent === false &&
+			l1Clock.page.tint === CLOCK_WHITE &&
+			l1Clock.scales.every((scale) => scale === 1),
+		{ phase: phase1, shown: waiting, clock: l1Clock },
+	);
+	await l1.settle(2500);
+	const l1Later = await clockOf(l1);
+	verdict(
+		'…ticking down on the room’s clock',
+		l1Later.page?.seconds < l1Clock.page?.seconds &&
+			Math.abs(l1Later.page.seconds - l1Later.room) <= 1,
+		{ before: l1Clock.page, after: l1Later },
 	);
 	const alone = await lobbyCounting(l1, 1);
 	writeFileSync(join(out, 'lobby-waiting.png'), await l1.page.screenshot());
@@ -977,8 +1035,20 @@ try {
 		counting.every((ids) => ids.includes('salmonsLobby') && ids.includes('salmonsCountdown')),
 		{ shown: counting },
 	);
+	const cut = [await clockOf(l1, 1), await clockOf(l2, 1)];
 	const pair = [await lobbyCounting(l1, 2), await lobbyCounting(l2, 2)];
 	writeFileSync(join(out, 'lobby-countdown.png'), await l2.page.screenshot());
+	verdict(
+		`…and the room filled: both clocks drop to the countdown (≤ ${LOBBY.countdownSeconds} s), the room's, still white while more than 10 are left`,
+		cut.every(
+			(clock) =>
+				clock.page?.shown === true &&
+				clock.page.seconds <= LOBBY.countdownSeconds &&
+				Math.abs(clock.page.seconds - clock.room) <= 1 &&
+				(clock.page.seconds > 10 ? clock.page.tint === CLOCK_WHITE : true),
+		),
+		{ clocks: cut },
+	);
 	verdict(
 		'…and each lobby counts both people in the one river, still with no form',
 		pair.every((lobby) => inRiver(2).test(lobby.note?.river ?? '') && noForm(lobby)) &&
@@ -1007,6 +1077,22 @@ try {
 			l2Now.phase === 'waiting' &&
 			l2Now.players === 2,
 		{ note: counted.note, shown: l2Shown, room: l2Now },
+	);
+	// The last 10 seconds: red, each new second growing the number and easing back (a page stepped
+	// by the probe draws fewer frames than a second's, so it may not get back to its size).
+	let red = await clockOf(l1, 1);
+	for (let i = 0; i < 200 && !(red.page?.seconds <= 9); i++) red = await clockOf(l1, 1);
+	red = await clockOf(l1, 12);
+	writeFileSync(join(out, 'lobby-clock-red.png'), await l1.page.screenshot());
+	verdict(
+		'in the last 10 seconds the clock is red and pulses each second (it grows and eases back)',
+		red.page?.shown === true &&
+			red.page.seconds <= 10 &&
+			red.page.urgent === true &&
+			red.page.tint === CLOCK_RED &&
+			Math.max(...red.scales) > 1.15 &&
+			red.scales.some((scale, i) => i > 0 && scale < red.scales[i - 1]),
+		{ clock: red },
 	);
 	// At least a second of frames on both pages: each draws the state it holds by then.
 	const left = Math.max(1000, LOBBY.countdownSeconds * 1000 + 4000 - (Date.now() - countingFrom));
@@ -1472,6 +1558,10 @@ try {
 	verdict('no page error on the view pages', viewErrors.length === 0, { viewErrors });
 	for (const { game } of [wide, phone]) await game.page.close();
 
+	// The whole lobby clock (owner, 2026-11-26): from the room's first person the countdown screen
+	// shows the seconds to round 1 at the latest (the wait and the countdown), the room's, white and
+	// still and ticking down; when the second person fills the room it drops to the countdown, and in
+	// its last 10 seconds it is red and pulses each second.
 	// A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 on the export as it
 	// ships (`salmons-bots`). No person's salmon is in it, so the first bot salmon at the source
 	// wins the game: the page hears `gameWon` for the bot, by its salmon's name (no "bot" in it),

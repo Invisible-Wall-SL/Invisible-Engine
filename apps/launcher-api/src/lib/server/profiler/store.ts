@@ -3,6 +3,7 @@ import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import {
 	PERF_REPORT_MAX_BYTES,
 	PERF_RETENTION_MS,
+	phaseSetOf,
 	summarizePerfReport,
 	PERF_REPORT_SOURCES,
 	type PerfPhaseSummary,
@@ -11,6 +12,7 @@ import {
 	type PerfReportSummary,
 } from '$lib/profiler';
 import { reportFacts, type ReportFacts } from '$lib/profilerFindings/facts';
+import { redactReportText } from '$lib/profilerNetwork';
 import { getDb } from '../db';
 import { getGame, isOnlineRuntimeGameUrl } from '../games';
 import { currentPointer } from '../publishedRuntime';
@@ -138,6 +140,8 @@ async function insertRow(
 	const idle = phaseCols(s.phases.idle);
 	const spin = phaseCols(s.phases.spinning);
 	const round = phaseCols(s.phases.round);
+	const arcadePhases =
+		s.phaseSet === 'arcade' ? { menu: s.phases.menu, play: s.phases.play } : null;
 	const rows = await getDb()
 		.insert(perfReports)
 		.values({
@@ -179,9 +183,15 @@ async function insertRow(
 			roundP95: round.p95,
 			roundHitches: round.hitches,
 			roundFrames: round.frames,
+			gameKind: s.kind,
+			arcadePhases,
+			capped30: s.capped30,
 			drawsMean: s.drawsMean,
 			jsMs: s.jsMs,
 			textureMb: s.textureMb,
+			transferMb: s.network?.transferMb ?? null,
+			firstFrameMs: s.network?.firstFrameMs ?? null,
+			network: s.network,
 		})
 		.onConflictDoNothing({ target: perfReports.id })
 		.returning({ id: perfReports.id });
@@ -213,9 +223,12 @@ async function dropUnregistered(id: string, key: string): Promise<void> {
 }
 
 /** Keeps a report sent in the request body. Returns its id. */
-export async function saveReport(origin: ReportOrigin, text: string): Promise<string> {
+export async function saveReport(origin: ReportOrigin, sent: string): Promise<string> {
+	if (Buffer.byteLength(sent) > PERF_REPORT_MAX_BYTES) {
+		throw new ReportRefused(413, 'The report is too large.');
+	}
+	const text = redactReportText(sent);
 	const bytes = Buffer.byteLength(text);
-	if (bytes > PERF_REPORT_MAX_BYTES) throw new ReportRefused(413, 'The report is too large.');
 	const summary = parseReport(text);
 	await refuseFullSession(origin);
 	const id = randomUUID();
@@ -286,12 +299,13 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 		return new ReportRefused(413, 'The report is too large.');
 	};
 	if (head.size > PERF_REPORT_MAX_BYTES) throw await tooLarge();
-	const text = await getObjectTextBounded(staged, PERF_REPORT_MAX_BYTES, head.etag ?? undefined);
-	if (text === null) return missing();
-	if (text === 'large') throw await tooLarge();
-	if (text === 'changed') {
+	const read = await getObjectTextBounded(staged, PERF_REPORT_MAX_BYTES, head.etag ?? undefined);
+	if (read === null) return missing();
+	if (read === 'large') throw await tooLarge();
+	if (read === 'changed') {
 		throw new ReportRefused(409, 'The upload changed while it was read — send it again.');
 	}
+	const text = redactReportText(read);
 	let summary: ParsedReport;
 	try {
 		summary = parseReport(text);
@@ -350,12 +364,18 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		buildSha: r.buildSha,
 		runtimeRelease: r.runtimeRelease,
 		flags: r.flags,
+		kind: r.gameKind,
+		phaseSet: phaseSetOf(r.gameKind),
 		idle: phaseOf(r.idleFrames, r.idleFps, r.idleP50, r.idleP95, r.idleHitches),
 		spinning: phaseOf(r.spinFrames, r.spinFps, r.spinP50, r.spinP95, r.spinHitches),
 		round: phaseOf(r.roundFrames, r.roundFps, r.roundP50, r.roundP95, r.roundHitches),
+		menu: r.arcadePhases?.menu ?? null,
+		play: r.arcadePhases?.play ?? null,
+		capped30: r.capped30,
 		drawsMean: r.drawsMean,
 		textureMb: r.textureMb,
 		counts: r.counts,
+		network: r.network,
 		keep: r.keep,
 		expiresAt: r.keep ? null : new Date(r.capturedAt.getTime() + PERF_RETENTION_MS).toISOString(),
 	};

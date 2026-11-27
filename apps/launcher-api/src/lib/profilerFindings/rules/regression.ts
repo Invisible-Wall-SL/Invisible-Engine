@@ -163,8 +163,9 @@ export const regression: Rule = (ctx) => {
 			);
 			if (up.length) {
 				const draws =
-					up.find((row) => row.key === 'draws' && row.phase === 'spinning') ??
-					up.find((row) => row.key === 'draws');
+					up.find(
+						(row) => row.key === 'draws' && (row.phase === 'spinning' || row.phase === 'play'),
+					) ?? up.find((row) => row.key === 'draws');
 				const g = grown(ctx, labNow, labBefore);
 				out.push({
 					id: `regression:counts:${game}:${labBefore.buildVersion}>${labNow.buildVersion}`,

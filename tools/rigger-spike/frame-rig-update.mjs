@@ -733,7 +733,7 @@ const MUTANTS = [
 		'props',
 		"a new prop's slot left out",
 		'rigFrameUpdate.ts',
-		'doc.slots.splice(at, 0, { ...s, bone: has(s.bone) ? s.bone : nearest(s.bone) });',
+		'\tfor (const { at, slot } of newSlotPlaces(doc.slots, freshSlots, isProp))\n\t\tdoc.slots.splice(at, 0, { ...slot, bone: has(slot.bone) ? slot.bone : nearest(slot.bone) });\n',
 		'',
 	],
 	[

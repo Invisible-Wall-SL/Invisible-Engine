@@ -19,6 +19,107 @@ upload.
 
 ## Current state
 
+- **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
+  (2026-11-26; owner: "add rig as a zone art source"; in review; branch
+  `claude/wizardly-galileo-kjszii`; runtime and launcher change, no config change; Salmons draws
+  exactly as before until someone picks a rig).** Plan and the trees decision:
+  [design/zone-art](../design/zone-art.md) §1 "Rig", §3; the card:
+  [status/game-config](game-config.md), [tools/game-config](../tools/game-config.md) "Zone art".
+  - **What a person does.** In `/config` → Zone art, **Drawn with** → **Rig** on a family's row
+    (rocks, whirlpools, or any other), then the rig and one of its animations, with **Loop**. The
+    Trees row greys **Rig** out: trees are never a rig (below).
+  - **In the river** (`salmonsArt/river.ts`): a rock or a whirlpool whose stamp is a rig draws one
+    `RigView` in the built-in picture's place, depth and size times the scale, the rig's Bounds box
+    standing for the picture's (mirrored and squashed as the built-in one is). Any other family's
+    rig stands upright on its zone, fitted inside it. Each starts at the point of its animation the
+    room's seed picks for its zone (`zoneArtPhaseFor`), so neighbours do not move in step, and is
+    moved on by the river's ticker while it is in view. Every `random()` / `forestRandom()` call
+    is made as before, so nothing else moves. Unset, a rig not loaded, or the drawing not loaded,
+    the built-in piece draws.
+  - **Loaded only when named.** `online.ts` `roomZoneArt` hands the art a loader for
+    `engine-layout/zone-art-rig` (`zoneArtRig.ts`, a 930 B gzip chunk) only when zone art names a rig,
+    and `loadSalmonsArt` loads it beside its textures; the Salmons chunk never imports it. A rig
+    named only by zone art ships and is kept loaded at boot (`characterArt`), as a character
+    sheet's rig is.
+  - **Trees are never a rig (decision).** 430 rig trees on one screen measured +1.35 ms of JS a
+    frame in the browser and 2.2–2.7 ms (moving on plus mesh rebuilds) in Node on a 2.1 GHz Xeon
+    core with a modest 8-bone rig, ~75 ms to make them; a phone is 3–5 times slower. The river
+    moves only the rigs in view, but a forest view holds many, and every scattered tree is made
+    when the river mounts. So the normalizer drops a rig for `@trees`, the save warns, and the
+    card refuses it with why. Rocks (~47) and whirlpools (~13) are cheap. A family drawn with a rig
+    on more than 100 zones (the original's 318 sandbanks) is warned of on the card.
+  - **Gates:** `check:salmons-art` 44 (was 39: the river mounted in Node with a stand-in rig
+    drawing, on the band river and the original's map: with no drawing or a rig not loaded,
+    exactly as today; every rock and whirlpool its rig at the built-in place, depth and size times
+    the scale, a sandbank's upright and fitted, every other piece and region unchanged, each rig
+    started at its zone's phase and destroyed with the river; moved on by its ticker only in
+    view), `check:zone-art` 130, `check:room-levels` 15, `check:room-sim` 43,
+    `check:salmons-export` 39, `check:character-sheet` 90, `check:flipbook-characters` 254,
+    svelte-check at baseline.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux; all five runtimes pass): lines,
+    match-3 and card 0 B. arcade: its bundle +590 B gzip (the schema's rig, the stamp node, the
+    bound component), the lazy Salmons art chunk +217 B, the lazy sheet-rig chunk −84 B (its rig
+    box moved to a 328 B chunk the two rig drawings share), and the new lazy zone-art rig chunk
+    930 B, fetched only by a game whose zone art names a rig. arcade3d: its bundle +588 B, the
+    same chunks within 1 B.
+  - **Played** on the branch's arcade runtime (headless shell): `salmons-play.mjs --zone-rig`
+    (new, 4/4; [playtest/salmons](../playtest/salmons.md) "Zone art's rigs"): every rock and
+    whirlpool of page ZR's river is drawn by a stub rig and none built in, the rest of the river as
+    without it, and the rig is on screen and plays both of its drawings. `zone-art-play.mjs` 8/8
+    (was 5: a plain game's rig stamps on two zones, drawn, animating, not in lockstep) and
+    `--cost` 2/2 (430 rigs on one screen). `salmons-play.mjs --trees` 4/4, and with no zone art
+    102/102.
+  - **Owner steps:** none to keep Salmons as it is. To use it: put the rig in the project
+    (Invisible Rigger), pick it in `/config`, save, publish. It reaches rooms with the runtime
+    release of the merge.
+- **The whole lobby clock, and the next game by itself (2026-11-26; owner: "have the all
+  countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
+  starts automatically"; in review; design [salmons-levels §4.2](../design/salmons-levels.md)).**
+  - **The lobby shows the time to round 1 from its first person**, not only the last 10 s: with
+    Salmons' lobby that starts near 70 (60 s wait + 10 s countdown) and ticks on the room's clock;
+    a room that fills early drops to 10; a person who joins mid-wait sees the same number. The
+    number is white and still, and red in its last 10 seconds, each new second growing it 45 % and
+    easing back over 450 ms, faint for the end of each. The class picker is unchanged and usable to
+    the end.
+  - **Where the start time lives: the room's `endsAt`** (no new field). From the lobby's first
+    person it is round 1's start at the latest (`onlineRules.js` `joined`: `lobbyEndsAt` + the
+    countdown); the countdown makes it its own end as before; nobody in, or bots only, 0. No
+    schema, config, layout or flow change; `check:online-rules` traces, `check:room-sim`,
+    `check:room-bots`, `check:netcode` and the 3D room are unmoved (no trace has a lobby; the 3D
+    room has its own rules).
+  - **Drawn in code in place of `sm-countdown-seconds`** (`salmonsArt/screens.ts`
+    `createLobbyClock`, `SALMONS_SCREEN_ART.clock`), the countdown screen's text node every
+    published layout already has: no layout upload, and the plain number shows until the art is in.
+    The flow is the seed's: its lobby check already shows the countdown screen whenever
+    `secondsLeft` is above 0, so it now shows from the first person.
+  - **Either order of deploys.** A new runtime on a game server not yet redeployed gets no `endsAt`
+    before the countdown: the lobby looks as today. An old runtime (or a published flow made from
+    the seed) on the new server shows the whole clock as plain text, no red. A published flow that
+    shows the countdown screen only on `countdown` shows the clock from the countdown, as before.
+  - **The next game by itself.** On the win screen (winner and losers alike) of a person who
+    played the round, "Next game in N" counts 10 s (`NEXT_GAME_SECONDS`) over the button and then
+    does what the button does (`switchRoom`; a failed switch reloads, `failSwitch`). The button
+    stays and joins at once; joining, it reads "Joining…" and the count goes. **Played** = an input
+    of the device that moved, pressed a button or asked for a respawn while the round ran
+    (`online.ts` `Session.played`, cleared at `roundStart`): an idle device's screen counts nothing
+    and waits for its press, so an idle tab does not hop rooms for ever. **Only for someone
+    watching:** a page hidden when the screen comes, or hidden once while it counts, stops the
+    count for good; shown again, it does not join by surprise. The screen taken away (a
+    `roundStart` hiding it in a game of rounds) stops it too. In portrait and landscape the line
+    sits 16 px over the button, clear of the title, the subtitle and the button; eggs fall behind
+    it (outlined, it reads over them).
+  - **Proof.** `check:room-lobby` 35 → 42 (the clock in the sim from the first join, mid-wait
+    join, the cut, the wait run out, nobody in, bots only, no lobby; a live room's state; pins of
+    both device halves). Playtests, both netcodes: `salmons-levels-play.mjs` 54 → 57 (the clock;
+    "no countdown yet" rewritten), `salmons-rejoin-play.mjs` 43 → 58 (the count landscape and
+    portrait, a click while it counts, the join at 0, an idle page, a hidden page and shown
+    again, both buttons after) and `salmons-play.mjs` 102 → 103 (page W counts). Runs and
+    screenshots: Recent changes.
+  - **Bundle.** Arcade runtimes only: `arcade` +747 B gzip (2,127,836 → 2,128,583), `arcade3d`
+    +814 B (2,636,665 → 2,637,479), both re-recorded; `lines`, `match3` and `card` the same bytes
+    (`check:runtime-bytes --only lines,match3,card` ok, not re-recorded).
+  - **Deploy.** The clock needs the game server redeployed (closes running rooms: Owner steps);
+    the count is the runtime's, live with the arcade runtime release. No upload or publish.
 - **Every generator setting and authored biomes, from the config (2026-11-26; owner: "I would like
   to have more control over the level generation, so I can control all of its parameters. also I
   would like a way to be able to control and author the change in biome that happen in the
@@ -1641,6 +1742,25 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The whole lobby clock and the next game by itself (2026-11-26; on this branch, once it merges).
+Nothing to upload, export or publish: no config, layout or flow changed.**
+
+1. **The merge does both halves, and one of them closes rooms**: it releases the arcade runtime
+   and deploys the game server (`packages/engine-mechanics` and `services/game-server` are
+   touched), and **the game-server deploy closes every running room**. Merge when the rooms are
+   quiet.
+2. **Either order is safe.** New game server, old runtime: the lobby shows the whole clock as the
+   plain number, no red, and the win screen does not count. New runtime, old game server: the
+   lobby looks as today (no clock until the countdown, then red at the end), and the win screen
+   counts. Both out: compare `rooms.invisiblewall.org/healthz`'s commit and the runtime's release
+   with `main`.
+3. **To check it by hand:** open the published link when no river runs and join. The lobby shows
+   "STARTING IN" near 70 under the class row, white, counting down; with a second person in, it
+   drops to 10 and turns red, pulsing each second. Play the round (move once), win or lose: "Next
+   game in 10" counts over the button and the next river's lobby comes by itself. Do it again
+   without touching the game: nothing counts and the button waits. Switch tabs while it counts and
+   come back: it waits for the press.
+
 **A class picked in the lobby (2026-11-25; once `claude/upbeat-cray-fzmgxe` merges). Nothing to
 upload, export or publish: no config, layout or flow changed.**
 
@@ -2506,6 +2626,41 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
+  room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
+  gone. The line now rests at `room / 1.15` there (including canvases that only just fit it), so the whole pop fits inside the margins
+  (`riverLineScale`, `MENU.popGrow`; the start menu's pop reads the same value). Guard:
+  `check:salmons-art` "the lobby's players line pops inside the margins on a narrow canvas".
+
+- 2026-11-26 — **The lobby's lines fit a phone, and "1 player"**: on an iPhone 16 Pro Max
+  (BrowserStack Live) "1 players in Drunken Bear River" ran off both sides in the pixel font (the
+  playtests measured the fallback monospace). The river line and the "You are …" line now shrink
+  to the canvas like the class row (`createLobbyNote`), and `riverRows` says "player" for one, in
+  the lobby and the start menu. Playtest patterns follow. The same report fixed the page sliding
+  under iOS Safari's toolbar (profiler status). Not yet seen on the real phone.
+
+- 2026-11-26 — **The whole lobby clock, and the next game by itself** (owner: "have the all
+  countdown showing up, and just blink in red with a pulse the last 10 seconds"; "yes, it should
+  starts automatically"; branch `claude/upbeat-cray-fzmgxe`; in review). `onlineRules.js`
+  (`endsAt` from the lobby's first person), `schema.ts` (the field's comment only),
+  `salmonsArt/screens.ts` (`createLobbyClock` in place of `sm-countdown-seconds`),
+  `salmonsScreens.ts` (`SALMONS_SCREEN_ART.clock`, `SALMONS_CLOCK_URGENT`),
+  `salmonsArt/winAnimation.ts` (the count, `NEXT_GAME_SECONDS`, the page's visibility, the probe's
+  `next` / `count` / `boxes`), `online.ts` (`Session.played`, the clock fed from the state, the
+  probe's `played`). No config, layout, flow or `normalizeGameConfigDoc` change. Gates:
+  `check:room-lobby` 35 → 42; unmoved: `check:room-sim` 43, `check:room-bots` 56,
+  `check:room-size` 20, `check:online-rules` 40, `check:room-levels` 15, `check:netcode` 28,
+  `check:salmons-art` 34, `check:salmons-levels` 18, `check:room-sim-3d` 23, launcher
+  `check:room-flow` 2. Playtests on one arcade build, both netcodes: `salmons-rejoin-play.mjs` 58 / 58,
+  `salmons-levels-play.mjs` 57 / 57, `salmons-play.mjs` 103 / 103 (`engine` and `colyseus` each;
+  the first `colyseus` run of `salmons-play.mjs` failed "…the room's `golden` reached page G's
+  flow", which this change does not touch, and passed on the re-run). Looked at:
+  `win-count-landscape.png`, `win-count-portrait.png`, `win-idle.png`, `lobby-waiting.png`
+  (white "136"), `lobby-clock-red.png` (red "4"). Two playtest traps found on the way: from the
+  win screen's press the probe has no session, so what the screen shows then is read off the
+  stage (with the join sent 1.5 s late); and a page stepped faster than the clock sends inputs
+  faster than the room's message limit (twice the tick rate) and is disconnected (`4002`), so
+  long waits are stepped no faster than the clock.
 - 2026-11-26 — **Every generator setting and authored biomes** (owner; in review; branch
   `claude/salmons-authored-generator-biomes`). `engine-mechanics`: `salmonsMap.js`
   `SALMONS_GENERATOR` / `_LIMITS` / `_WHOLE` / `_PAIRS`, `generatorParams`, `biomeOrphans`, every

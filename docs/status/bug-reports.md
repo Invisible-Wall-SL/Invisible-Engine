@@ -150,12 +150,12 @@ server module, routes, page components, triage, screenshots, the pull-request li
     409 `{ message, code: 'fix_decision_mismatch' }`. The change detail carries `fixRun`
     (`ChangeFixRun`, `pipelineChanges.ts`), read from the database and never from the PR body, and
     its "why" is the run's `changed`.
-  - **Run names say diagnose or build (follow-up PR, not shipped with 14B).** `bug-fix.yml` is
-    unchanged here: one input, `fix_run`, named `Fix run <id>`. The follow-up PR, which edits the
-    workflow and so is merged by the owner by hand, adds a `mode` input (choice), names the run
-    `Fix run <id> · <mode>`, dispatches both inputs, and has `collect.mjs brief` fail when the
-    input and the brief's mode disagree. The binding (first contact, the backstop, Stop's search)
-    already accepts both titles (`isFixRunTitle`), so that PR can land at any time.
+  - **Run names say diagnose or build.** `bug-fix.yml` takes `fix_run` and `mode` (choice) and is
+    named `Fix run <id> · <mode>`; the launcher dispatches both. The job still trusts the brief's
+    mode: `collect.mjs brief` fails when the input and the brief disagree. The binding (first
+    contact, the backstop, Stop's search) accepts the new title for the run's own mode and, for the
+    runs already in flight when this shipped, the bare `Fix run <id>` (`isFixRunTitle`; a live run
+    lasts 90 minutes at most).
   - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
     One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).
     `reason` holds the launcher's own sentence and `summary` the run's words. `result_at` is the
@@ -275,6 +275,75 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
+  conflict with main a lot, and there is no way to fix it from the pipeline."
+  - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with
+    `expected_head_sha` (`pipelineUpdate.ts`). Offered in the detail when open, not held,
+    `mergeable: true` and behind `main` (`compare/main...<head>`, detail only). 409 codes:
+    `head_moved`, `conflict`, `workflow_refused` (any refusal naming a workflow file or the
+    `workflows` permission; links to the PR), plus `on_hold`, `up_to_date`, `not_clean`. GitHub's
+    text is kept, capped at 300 characters.
+  - `POST …/hold` `{ note? }` and `…/resume` (`pipelineHold.ts`): the `on-hold` label through the
+    issues labels API, plus one App comment. A label GitHub will not add (403/404/422) is
+    `label_missing`. Held changes sort last, read grey "On hold", and merge, Mark ready,
+    Re-record and Update refuse them on the server too. Labels come from the PR objects the list
+    already reads; "since <date>" (the newest `labeled` event) and the 14-day hint (head commit
+    date) are the detail's own reads.
+  - Not done: Resolve (15C). `BLOCKED_CONFLICT_TEXT` is unchanged.
+  - **Open for the owner:** create the label `on-hold` once in GitHub.
+  - **Spike (after deploy).** Needs the real App, so it runs once this is on `main`:
+    1. Make a scratch branch from `70bdbe7` (the commit before #1928, which changed
+       `.github/workflows/bug-fix.yml`): `git switch -c scratch/15a-spike 70bdbe7`, make one
+       trivial docs commit, push it.
+    2. Open a draft PR into `main` from it. Wait until Pipeline Changes lists it and shows
+       "N commits behind main".
+    3. Click **Update from main** as a Merge pipeline changes holder.
+    4. Record here whether GitHub refused it (409 `workflow_refused`) and GitHub's own message
+       (the red callout's source is in the response's `githubMessage`), or accepted it (the new
+       head has a merge commit that brings in the workflow change).
+    5. Close the PR and delete the branch. If refused, ADR-0015's item 10 default applies: the
+       person uses GitHub's own Update branch.
+- 2026-11-26 — **A failed check says what to do, and runtime bytes re-record from the page.**
+  BUG-20's fix run built the owner's option and opened #1930, which sat Blocked on
+  `runtime-bytes` with nothing on the page saying why or how forward: the fix changed
+  `packages/pixi-svelte`, so all five released runtimes no longer matched `scripts/runtime-bytes`.
+  - Check 1 shows a failed job's own instruction: the first `failure` annotation of its check run
+    that is not GitHub's "Process completed with exit code N" (`pipelineAnnotations.ts`; the App's
+    Checks read; failed jobs only, cached ten minutes by check-run id, about 500 characters, plain
+    text). GitHub not answering is a line on the job, never an error.
+  - `check-runtime-bytes.mjs` prints its closing sentence as `::error title=runtime-bytes::…` under
+    `GITHUB_ACTIONS`, so it becomes that annotation. No other `check:*` script was touched, and no
+    workflow.
+  - **Re-record runtime bytes** (`POST /api/pipeline/changes/<n>/runtime-bytes`, body `{ headSha }`,
+    `pipelineMerge`): downloads the `runtime-bytes` artifact of the head's failed run, validates it
+    (`pipelineRuntimeBytes.ts`: `<id>.json` for ids in `constants-shared/runtimes`, the gate's
+    shape, size caps) and commits the manifests that differ onto the PR's branch with the Git Data
+    API, the ref moved with `force: false`. 409 `{ message, code }`: `no_run`, `no_artifact`,
+    `head_moved`, `invalid_artifact`, `nothing_to_change`. CI builds the merge ref with `main`, so
+    a later change to the runtimes on `main` can need another re-record.
+  - The build prompt (`scripts/bug-fix/coordinator.md`) says a change under `packages/` or
+    `apps/lines/` must not re-record the manifests and must name the re-record in `risks`.
+  - Gates: `check:pipeline-changes` 8128, `check:bug-fix-runs` 172, `check:bug-fix-workflow`,
+    `check:svelte --only apps/launcher-api` 44 (baseline), `pnpm lint`, `check:undefined-names`.
+  - Not verified against real GitHub: the artifact download and the ref update ran only against
+    the fixture's fake.
+
+- 2026-11-26 — **A refused file is named, and a build cleans up after its tests.** Fix run
+  `9124c61f70` (Sheet Maker, option A) built a good fix that the launcher refused as "a file is not
+  UTF-8 text": a file in the change held a NUL byte, almost certainly something a test or export
+  left in the checkout. The launcher keeps no refused change, so which file it was is not known.
+  - The launcher's content refusals now name the file and tell a NUL apart:
+    "a file is not UTF-8 text (<path>)", "a file holds a NUL byte (<path>)", "a file holds Unicode
+    tag or bidi control characters (<path>)".
+  - `collect.mjs` refuses a NUL itself, naming the path ("A changed file holds a NUL byte (a binary
+    file): <path>."), so the job ends with the name instead of the launcher's review. It prints a
+    path only when it is printable ASCII, since the log is public and reads `::` commands.
+  - The build prompt's Gates step ends with **Then clean up**: run `git status` with every
+    untracked file listed, delete what the gates or tests made, build fixtures in a temporary
+    folder; checked once more before the result.
+  - Gates: `check:bug-fix-workflow` (a new case for a UTF-8 file with a NUL; it fails with the
+    check removed), `check:bug-fix-runs` 172, `pnpm lint`, `check:undefined-names`.
+
 - 2026-11-26 — **The change says what you are approving (ADR-0014 card 14B, UI side).** Pipeline
   Changes' detail opens with a "What you're approving" `SectionCard` for a fix-run change (reads
   `ChangeDetail.fixRun`): reported, cause, the chosen option (who, when, note), what changed,
@@ -290,8 +359,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
   `risks`; `parseResult`/`settleChange` refuse a result without them and a build with no recorded
   decision; `publication()` writes the PR body under the fixed headings; `fixDecisionState`,
   `ChangeFixRun`/`fixRunOfChange` and the 409 `fix_decision_mismatch` at `markReadyForReview` and
-  `mergeChange`; the binding accepts `Fix run <id>` and `Fix run <id> · <mode>`.
-  `check:bug-fix-workflow` gains `explanation-fields`;
+  `mergeChange`; `bug-fix.yml` gains the `mode` input and the `Fix run <id> · <mode>` name, with
+  the old name still bound. `check:bug-fix-workflow` gains `inputs-checked` and
+  `explanation-fields`, an input/brief mismatch mutant and mutants for the new trigger and name;
   `check:bug-fix-runs` (172), `check:pipeline-changes` (7,972) and `check:bug-reports` (144) cover
   the new paths. `prove-cli.mjs` and `bug-fix-proof.yml` are unchanged. **Open:** the Pipeline
   Changes "What you're approving" card (reads `ChangeDetail.fixRun`), and the Actions run-name in

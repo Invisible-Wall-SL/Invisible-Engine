@@ -156,8 +156,9 @@ import {
 	refuseOnlineBoot,
 	setRoomDocChange,
 } from '../editor-scenes';
+import { arcadePerf } from './arcadePerf';
 import { typingInto } from './flowKeys';
-import { zoneSceneryOf, zoneStampsOf } from './zoneArt';
+import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
 import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
@@ -271,16 +272,25 @@ const salmonsArt = async (
 	);
 
 /** The zone art a generator's own art draws the room's zones and its trees with
- *  (`game/zoneArt.ts`); none for a config with none, so the art draws as it does without. */
+ *  (`game/zoneArt.ts`), and how to load the rig drawing (`engine-layout/zone-art-rig`, a lazy chunk
+ *  no other game fetches) when it names a rig; none for a config with none, so the art draws as it
+ *  does without. A rig drawing that does not load leaves the rigs' pieces built in. */
 function roomZoneArt(zones: OnlineGame['zones'], seed: number): SalmonsZoneArt | undefined {
 	const stamps = zoneStampsOf(zones, seed);
 	const trees = zoneSceneryOf('@trees');
 	if (!stamps.length && !trees) return undefined;
-	return {
-		stamps,
-		trees,
-		assets: () => stateApp.loadedAssets as Record<string, unknown> | undefined,
-	};
+	const assets = () => stateApp.loadedAssets as Record<string, unknown> | undefined;
+	const loadRig = () =>
+		import('engine-layout/zone-art-rig').then(
+			(art) => art.zoneRigDraw(assets),
+			(error: unknown) => {
+				console.warn(
+					`[online] zone art's rigs are drawn built in: their drawing did not load (${error})`,
+				);
+				return undefined;
+			},
+		);
+	return { stamps, trees, assets, ...(zoneArtDrawsRig() ? { loadRig } : {}) };
 }
 
 /** How see-through a game draws its rules' marks (`arcade.online.rules.stains`, read off the
@@ -473,6 +483,10 @@ type Session = {
 	facing: { x: number; y: number } | undefined;
 	/** The buttons of the last input sent (a tap is a press). */
 	buttons: number;
+	/** Whether the person played the round now running or just ended: an input of its that moved,
+	 *  pressed or asked for a respawn while it ran. Only then does the win screen join the next game
+	 *  by itself (an idle tab does not hop rooms for ever). */
+	played: boolean;
 	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
 	 *  screen px, eased, and where it was drawn. */
 	lifts: Map<string, { lift: number; x: number; y: number }>;
@@ -484,6 +498,8 @@ type Session = {
 	closed: boolean;
 	/** It took another room's place on a mounted game ({@link switchRoom}). */
 	switched: boolean;
+	/** The last room state's arrival and step, while the `?perf=1` probe reads ({@link noteLate}). */
+	arrival: { atMs: number; step: number } | undefined;
 };
 
 /** What this page joins rooms of, read once at its boot: the config's own game, the server and the
@@ -882,11 +898,13 @@ async function enterRoom(
 		lookCharacters: new Map(),
 		facing: undefined,
 		buttons: 0,
+		played: false,
 		lifts: new Map(),
 		quit: false,
 		unlisten: () => {},
 		closed: false,
 		switched,
+		arrival: undefined,
 	};
 	if (switched && reloading) {
 		room.leave(true).catch(() => {});
@@ -903,6 +921,11 @@ async function enterRoom(
 		dropNextJoin();
 	}
 	session = current;
+	arcadePerf.info = {
+		online: true,
+		fixedHz: resolved.online.tickHz,
+		patchHz: resolved.online.patchHz,
+	};
 	if (level?.adopted && authoring) showLevelsNotice(level.differs);
 	const stains = onlineStainsOf(bakedGameConfig());
 	if (loadArt && field && played.made && seed !== undefined)
@@ -928,6 +951,7 @@ async function enterRoom(
 	if (current.field) setRoomDocChange(withRoomField);
 	const onState = () => received(current, performance.now());
 	room.onStateChange(onState);
+	meterMessages(room);
 	const offEvents = room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
@@ -1395,6 +1419,7 @@ function received(current: Session, nowMs: number) {
 	const state = stateOf(current.room);
 	const players = state.players;
 	if (!players || state.step === undefined) return;
+	if (arcadePerf.on) noteLate(current, state.step, nowMs);
 	current.view.observe(state.step, nowMs);
 	bindServerVariables(current, state);
 	current.others.retain(new Set(players.keys()));
@@ -1432,6 +1457,78 @@ function received(current: Session, nowMs: number) {
 			carryY: player.carryY,
 		});
 	});
+}
+
+/**
+ * How much later a room state came than the room's clock says it should have after the one before
+ * (`arcadePerf.ts`): none for the first, nor for one at a step already heard. The room patches on
+ * its own timer between its steps (20 patches to 30 steps in Salmons), so the gap it meant is the
+ * whole number of patch periods nearest the time its steps advanced — not that time itself, which
+ * would read ±half a step late on a perfect network.
+ */
+function noteLate(current: Session, step: number, nowMs: number) {
+	const last = current.arrival;
+	if (!last) {
+		current.arrival = { atMs: nowMs, step };
+		return;
+	}
+	if (step <= last.step) return;
+	const { tickHz, patchHz } = current.game.online;
+	const stepped = ((step - last.step) * 1000) / tickHz;
+	const period = patchHz > 0 ? 1000 / patchHz : 0;
+	const meant = period ? Math.max(1, Math.round(stepped / period)) * period : stepped;
+	arcadePerf.late(nowMs - last.atMs - meant);
+	last.atMs = nowMs;
+	last.step = step;
+}
+
+/** The SDK's frame codes (`@colyseus/shared-types` `Protocol`): a full state, a patch, and the
+ *  code's bits under the frame's modifiers (`PROTOCOL_CODE_MASK`). */
+const ROOM_STATE = 14;
+const ROOM_STATE_PATCH = 15;
+const PROTOCOL_CODE_MASK = 31;
+
+/**
+ * Count the room's states and their bytes, time the handling of its every message, and tally every
+ * message in and out (`arcadePerf.message`: the network block's room traffic), for the `?perf=1`
+ * probe (`arcadePerf.ts`). It reads the SDK's transport (`room.connection.events`), which looks its
+ * `onmessage` up afresh for each message and keeps the connection across a reconnect, so one wrap
+ * after the join holds for the room; what the client sends goes through the connection's `send` and
+ * `sendUnreliable`.
+ */
+function meterMessages(room: Room) {
+	const { connection } = room;
+	const { events } = connection;
+	const handle = events.onmessage;
+	if (!handle) return;
+	events.onmessage = (event: { data: ArrayBuffer | Uint8Array }) => {
+		if (!arcadePerf.on) {
+			handle(event);
+			return;
+		}
+		const { counts } = arcadePerf;
+		const bytes = event.data instanceof Uint8Array ? event.data : new Uint8Array(event.data);
+		const code = bytes[0] & PROTOCOL_CODE_MASK;
+		const state = code === ROOM_STATE || code === ROOM_STATE_PATCH;
+		if (state) {
+			counts.patches += 1;
+			counts.patchBytes += bytes.byteLength;
+		}
+		arcadePerf.message(false, bytes.byteLength, state);
+		const started = performance.now();
+		handle(event);
+		counts.netMs += performance.now() - started;
+	};
+	const send = connection.send.bind(connection);
+	const sendUnreliable = connection.sendUnreliable.bind(connection);
+	connection.send = (data) => {
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		send(data);
+	};
+	connection.sendUnreliable = (data) => {
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		sendUnreliable(data);
+	};
 }
 
 type Point = { x: number; y: number };
@@ -1871,6 +1968,7 @@ function draw(current: Session, dtMs: number) {
 			live.despawn(instance);
 			current.drawn.delete(id);
 		}
+		if (arcadePerf.on && instance) arcadePerf.counts.despawns += 1;
 		current.looks.delete(id);
 		current.codeLooks.get(id)?.destroy();
 		current.codeLooks.delete(id);
@@ -1883,6 +1981,7 @@ function draw(current: Session, dtMs: number) {
 		if (player && (shownInRoom(player) || keptForCatch(current, id, player))) continue;
 		live.despawn(instance);
 		current.drawn.delete(id);
+		if (arcadePerf.on) arcadePerf.counts.despawns += 1;
 		const look = current.looks.get(id);
 		if (look) restart(look);
 	}
@@ -1904,8 +2003,10 @@ function draw(current: Session, dtMs: number) {
 		const character = current.game.online.characters.find((c) => c.id === player.character);
 		if (!character) return;
 		const spawned = live.spawn(layer, character.body, shown);
-		if (spawned.ok) current.drawn.set(id, spawned.instance.id);
-		else if (!current.refused.has(character.body)) {
+		if (spawned.ok) {
+			current.drawn.set(id, spawned.instance.id);
+			if (arcadePerf.on) arcadePerf.counts.spawns += 1;
+		} else if (!current.refused.has(character.body)) {
 			current.refused.add(character.body);
 			console.warn(
 				`[online] cannot draw "${character.body}" in the layer "${layer}" (${spawned.reason})`,
@@ -1936,6 +2037,7 @@ function rigLookOf(current: Session, id: string): SheetRigLook | undefined {
 		looks.set(frame.rig, look);
 	}
 	look.frame(frame, current.clipClock);
+	if (arcadePerf.on) arcadePerf.counts.looks += 1;
 	return look;
 }
 
@@ -2043,6 +2145,7 @@ function drawCodeLooks(
 			carried: handsOf(current, players, player),
 			project: worldCamera?.projector?.project,
 		});
+		if (arcadePerf.on) arcadePerf.counts.looks += 1;
 		mounts.set(instance, waded(id, player, look.mount));
 	}
 	current.rigMounted = rigs;
@@ -2277,6 +2380,7 @@ function drawClips(
 		const player = players.get(id);
 		const look = player && lookOf(current, id, player);
 		if (!player || !look) continue;
+		if (arcadePerf.on) arcadePerf.counts.looks += 1;
 		const { trail } = look;
 		const at = places.get(id) ?? trail.at(-1) ?? placeOf(current, id, player);
 		trail.push({ x: at.x, y: at.y, atMs: now });
@@ -2378,6 +2482,7 @@ function drawClips(
 					}
 				: {}),
 		});
+		if (arcadePerf.on) arcadePerf.counts.looks += 1;
 	}
 	if (current.looks.size || clipsOn()) setClips(clips);
 }
@@ -2593,7 +2698,8 @@ const nameIn = (current: Session, id: string, carried?: string) =>
 /**
  * What the room's events show on Salmons' screens and looks: the own player caught (the death
  * screen, "by" its catcher), the own player's catch (its "you catch NAME!" over it), the game won
- * (the win animation) and the winner's pass (kept for the next join). A refused Respawn, or pick,
+ * (the win animation, which joins the next game by itself when the person played the round:
+ * {@link Session.played}) and the winner's pass (kept for the next join). A refused Respawn, or pick,
  * is not read off its event: the state says it ({@link drawScreens}).
  */
 function screenEvents(current: Session, events: readonly OnlineEvent[]) {
@@ -2614,15 +2720,21 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 			if (event.by === me) current.art?.float(me, 'tap to throw it!', current.clipClock);
 		} else if (event.type === 'gameWon') {
 			current.screens?.caught(undefined);
-			current.screens?.won({ winner: event.winnerName || DEFAULT_NAME, won: event.winner === me });
-		} else if (event.type === 'winnerPass') current.pass = event.pass;
+			current.screens?.won({
+				winner: event.winnerName || DEFAULT_NAME,
+				won: event.winner === me,
+				count: current.played,
+			});
+		} else if (event.type === 'roundStart') current.played = false;
+		else if (event.type === 'winnerPass') current.pass = event.pass;
 	}
 }
 
 /**
  * What the room's state shows on Salmons' screens each frame: the death screen only while the own
- * player is out, and the lobby's note (the room, who the device plays in it) while the room waits
- * for its players. While the room lets its people pick (`picking`: a lobby, until round 1 starts;
+ * player is out, and the lobby's note (the room, who the device plays in it) and its clock (the
+ * seconds to round 1, the flow's `secondsLeft`; none from a server older than the whole clock,
+ * which runs none before the countdown) while the room waits for its players. While the room lets its people pick (`picking`: a lobby, until round 1 starts;
  * a server older than the pick never says so, and the note has no classes there) the note offers
  * the classes.
  *
@@ -2658,6 +2770,11 @@ function drawScreens(current: Session) {
 					picking,
 					refused: picking && ask.refused,
 				}
+			: undefined,
+	);
+	screens.clock(
+		waiting
+			? serverValuesOf(state, current.room.sessionId, current.game.online.tickHz).secondsLeft
 			: undefined,
 	);
 }
@@ -2779,7 +2896,10 @@ function follow(current: Session, dtMs: number) {
 	worldCamera.size = size;
 	worldCamera.drawnZoom = zoom;
 	setWorldZoom(zoom);
+	const fromX = camera.x;
+	const fromY = camera.y;
 	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
+	if (arcadePerf.on) arcadePerf.counts.cameraPx += Math.hypot(camera.x - fromX, camera.y - fromY);
 	const me = current.room.sessionId;
 	const leap = current.codeLooks.get(me)?.drawn().lift ?? 0;
 	setWorldCameraView({
@@ -2839,7 +2959,7 @@ export function tickOnline(dtMs: number) {
 	current.viewStep = current.view.advance(now) ?? current.viewStep;
 	// The SDK's order: reconcile and decay, then send (its reconciler steps each send), then read.
 	current.sdk?.predict.tick(now);
-	current.clock.advance(dtMs, () => {
+	const ran = current.clock.advance(dtMs, () => {
 		current.seq += 1;
 		const raw = withPointer(
 			current,
@@ -2851,6 +2971,11 @@ export function tickOnline(dtMs: number) {
 		Object.assign(raw, worldCamera?.shown ?? NOTHING_SHOWN);
 		const input = clampInput(raw, current.game.field);
 		if (input.moveX || input.moveY) current.facing = { x: input.moveX, y: input.moveY };
+		if (
+			(input.moveX || input.moveY || input.buttons || input.respawn) &&
+			stateOf(current.room).phase === 'running'
+		)
+			current.played = true;
 		const handle = current.room.input();
 		Object.assign(handle.data, input);
 		handle.send();
@@ -2861,9 +2986,15 @@ export function tickOnline(dtMs: number) {
 		predictAbilities(current, input.buttons, input.seq);
 	});
 	current.me?.frame(dtMs);
+	if (arcadePerf.on) {
+		arcadePerf.counts.simSteps += ran;
+		arcadePerf.counts.simMs += performance.now() - now;
+		arcadePerf.phase = stateOf(current.room).phase === 'running' ? 'play' : 'menu';
+	}
 	draw(current, dtMs);
 	drawScreens(current);
 	follow(current, dtMs);
+	if (arcadePerf.on) arcadePerf.counts.bodies = current.drawn.size;
 }
 
 /** The room as the determinism probe reads it: the server's step and places, and how each player is
@@ -3002,6 +3133,7 @@ export function onlineProbe() {
 						screens: current.screens?.drawn() ?? null,
 						ask: current.ask.held(),
 						buttons: current.buttons,
+						played: current.played,
 						art: current.art
 							? {
 									regions: current.art.regions(),

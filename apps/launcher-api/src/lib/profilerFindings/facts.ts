@@ -2,13 +2,21 @@
  * The facts the Findings rules read that a reading's or a build's summary row does not hold: a
  * reading's per-phase frame timing, spike causes, largest textures and KTX2 fallbacks
  * (`apps/lines/src/components/PerfHud.svelte` `report()`, `perfStats.ts`, `perfSpikes.ts`,
- * `pixi-svelte` `glCounters.ts` `textureList`), and a build's oversize pages, never-loaded files,
- * duplicates and Optimize twins (`scripts/lib/build-breakdown.mjs`). Reduced from the full JSON at
+ * `pixi-svelte` `glCounters.ts` `textureList`), an arcade reading's sim and room work
+ * (`apps/lines/src/game/arcadePerf.ts`), and a build's oversize pages, never-loaded files,
+ * duplicates and Optimize twins (`scripts/lib/build-breakdown.mjs`), and a `perf: 9` reading's
+ * network (`profilerNetwork.ts` `readNetwork`). Reduced from the full JSON at
  * receipt into the rows' `facts` column, so the rules never read R2. Bounded: a few KB each.
  */
 
-import { PERF_PHASES, type PerfPhase } from '../profiler';
+import { phaseSetOf, setPhases, type PerfPhase } from '../profiler';
+import { readNetwork, type NetworkFacts } from '../profilerNetwork';
 
+/**
+ * Bump only when rows already filled need a refill from R2. `perf: 8` (arcade phases, `arcade`)
+ * did not: no stored reading is a v8 one (the launcher refused v8 until it read it), and a v7
+ * reading's facts come out the same. Nor did `perf: 9` (`network`): an older reading has none.
+ */
 export const FACTS_VERSION = 1;
 
 type Obj = Record<string, unknown>;
@@ -48,20 +56,73 @@ export interface TextureFact {
 	mb: number;
 }
 
+/** The arcade runtime's per-frame work (`work.<phase>.perFrame`, `arcadePerf.ts`), as the probe names it. */
+export const ARCADE_WORK_KEYS = [
+	'simSteps',
+	'simCatchUp',
+	'simDroppedMs',
+	'simMs',
+	'netMs',
+	'bodies',
+	'pairs',
+	'spawns',
+	'despawns',
+	'looks',
+	'patches',
+	'patchBytes',
+	'cameraPx',
+] as const;
+export type ArcadeWorkKey = (typeof ARCADE_WORK_KEYS)[number];
+
+export interface MeanMax {
+	mean: number;
+	max: number;
+}
+
+/** How much later each room state arrived than the room's own clock says (ms). */
+export interface LateStats {
+	count: number;
+	p50: number;
+	p95: number;
+	max: number;
+}
+
+export interface ArcadePhaseFact {
+	/** Per frame over every frame of the phase; null for a key the probe did not report. */
+	work: Record<ArcadeWorkKey, MeanMax | null>;
+	/** Online only (count 0 offline). */
+	lateMs: LateStats | null;
+}
+
+export interface ArcadeFacts {
+	online: boolean;
+	/** Fixed sim steps a second (the local loop's, or the room's tick online). */
+	fixedHz: number | null;
+	/** Online: room patches a second. */
+	patchHz: number | null;
+	menu: ArcadePhaseFact | null;
+	play: ArcadePhaseFact | null;
+}
+
 export interface ReportFacts {
 	v: number;
 	/** The full reading could not be read when the facts were filled: every fact rule is unmeasured. */
 	missing?: true;
 	refreshHz: number | null;
-	timing: Record<PerfPhase, PhaseTiming | null>;
+	/** Per phase of the reading's set (a row filled before arcade phases has the slot ones only). */
+	timing: Partial<Record<PerfPhase, PhaseTiming | null>>;
 	/** Spikes per phase and cause (`spikeCauses`); null when the reading has none recorded. */
-	spikeCauses: Record<PerfPhase, Record<string, number>> | null;
+	spikeCauses: Partial<Record<PerfPhase, Record<string, number>>> | null;
 	/** The longest spike records, longest first. */
 	spikes: SpikeFact[];
 	/** The largest textures held, largest first, plus every one over the side limit; null: no list. */
 	textures: TextureFact[] | null;
 	/** KTX2 pages that fell back to their WebP/PNG twin, with why. */
 	ktx2Fallbacks: { key: string; reason: string }[];
+	/** An arcade reading's sim and room work per phase (`perf: 8`, `kind: 'arcade'`). */
+	arcade?: ArcadeFacts;
+	/** What the page downloaded and its API traffic (`perf: 9`). */
+	network?: NetworkFacts;
 }
 
 /** A page larger than this on a side fails to load on many phones (`build-breakdown.mjs`). */
@@ -90,10 +151,10 @@ function timing(report: Obj, phase: PerfPhase): PhaseTiming | null {
 	};
 }
 
-function spikeCauses(v: unknown): ReportFacts['spikeCauses'] {
+function spikeCauses(v: unknown, phases: readonly PerfPhase[]): ReportFacts['spikeCauses'] {
 	if (!isObj(v)) return null;
-	const out = {} as Record<PerfPhase, Record<string, number>>;
-	for (const phase of PERF_PHASES) {
+	const out: Partial<Record<PerfPhase, Record<string, number>>> = {};
+	for (const phase of phases) {
 		const counts = isObj(v[phase]) ? v[phase] : {};
 		out[phase] = Object.fromEntries(
 			Object.entries(counts)
@@ -105,19 +166,71 @@ function spikeCauses(v: unknown): ReportFacts['spikeCauses'] {
 	return out;
 }
 
-function spikes(v: unknown): SpikeFact[] {
+/** A spike record's phase: an arcade one carries `play: true` in play; a slot one `spin` / `round`. */
+const spikePhase = (s: Obj, arcade: boolean): PerfPhase =>
+	arcade
+		? s.play === true
+			? 'play'
+			: 'menu'
+		: s.spin === true
+			? 'spinning'
+			: s.round === true
+				? 'round'
+				: 'idle';
+
+function spikes(v: unknown, arcade: boolean): SpikeFact[] {
 	if (!Array.isArray(v)) return [];
 	return v
 		.filter(isObj)
 		.map((s) => ({
 			at: num(s.at) ?? 0,
 			ms: num(s.ms) ?? 0,
-			phase: (s.spin === true ? 'spinning' : s.round === true ? 'round' : 'idle') as PerfPhase,
+			phase: spikePhase(s, arcade),
 			cause: str(s.cause, 40) ?? 'unknown',
 			why: str(s.why, 160) ?? '',
 		}))
 		.sort((a, b) => b.ms - a.ms)
 		.slice(0, KEEP_SPIKES);
+}
+
+function lateStats(v: unknown): LateStats | null {
+	if (!isObj(v)) return null;
+	const count = num(v.count);
+	if (count === null) return null;
+	return { count, p50: num(v.p50) ?? 0, p95: num(v.p95) ?? 0, max: num(v.max) ?? 0 };
+}
+
+function arcadePhase(report: Obj, phase: 'menu' | 'play', late: unknown): ArcadePhaseFact | null {
+	const work = isObj(report.work) ? report.work[phase] : undefined;
+	const bucket = report[phase];
+	const frames =
+		(isObj(work) ? num(work.frames) : null) ?? (isObj(bucket) ? num(bucket.frames) : 0);
+	if (!frames) return null;
+	const perFrame = isObj(work) && isObj(work.perFrame) ? work.perFrame : {};
+	const stat = (key: ArcadeWorkKey): MeanMax | null => {
+		const e = perFrame[key];
+		if (!isObj(e)) return null;
+		const mean = num(e.mean);
+		return mean === null ? null : { mean, max: num(e.max) ?? mean };
+	};
+	return {
+		work: Object.fromEntries(ARCADE_WORK_KEYS.map((k) => [k, stat(k)])) as Record<
+			ArcadeWorkKey,
+			MeanMax | null
+		>,
+		lateMs: lateStats(isObj(late) ? late[phase] : undefined),
+	};
+}
+
+function arcadeFacts(report: Obj): ArcadeFacts {
+	const a = isObj(report.arcade) ? report.arcade : {};
+	return {
+		online: a.online === true,
+		fixedHz: num(a.fixedHz),
+		patchHz: num(a.patchHz),
+		menu: arcadePhase(report, 'menu', a.lateMs),
+		play: arcadePhase(report, 'play', a.lateMs),
+	};
 }
 
 function textures(v: unknown): TextureFact[] | null {
@@ -138,24 +251,26 @@ function textures(v: unknown): TextureFact[] | null {
 	);
 }
 
-/** A probe report's facts (the parsed Copy JSON, `perf: 7`). Never throws. */
+/** A probe report's facts (the parsed Copy JSON, `perf: 7` / `8` / `9`). Never throws. */
 export function reportFacts(report: unknown): ReportFacts {
 	const r = isObj(report) ? report : {};
 	const list = Array.isArray(r.textureList) ? r.textureList : null;
+	const arcade = (num(r.perf) ?? 0) >= 8 && phaseSetOf(str(r.kind, 20)) === 'arcade';
+	const phases = setPhases(arcade ? 'arcade' : 'slot');
+	const network = (num(r.perf) ?? 0) >= 9 ? readNetwork(r) : null;
 	return {
 		v: FACTS_VERSION,
 		refreshHz: num(r.refreshHz),
-		timing: Object.fromEntries(PERF_PHASES.map((p) => [p, timing(r, p)])) as Record<
-			PerfPhase,
-			PhaseTiming | null
-		>,
-		spikeCauses: spikeCauses(r.spikeCauses),
-		spikes: spikes(r.spikes),
+		timing: Object.fromEntries(phases.map((p) => [p, timing(r, p)])),
+		spikeCauses: spikeCauses(r.spikeCauses, phases),
+		spikes: spikes(r.spikes, arcade),
 		textures: textures(list),
 		ktx2Fallbacks: (Array.isArray(r.ktx2Fallbacks) ? r.ktx2Fallbacks : [])
 			.filter(isObj)
 			.map((f) => ({ key: str(f.key, 200) ?? '?', reason: str(f.reason, 160) ?? '' }))
 			.slice(0, KEEP_FALLBACKS),
+		...(arcade ? { arcade: arcadeFacts(r) } : {}),
+		...(network ? { network } : {}),
 	};
 }
 

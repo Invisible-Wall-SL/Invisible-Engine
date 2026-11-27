@@ -159,6 +159,14 @@ change says in plain words what it is. Nothing starts until the owner approves A
 | 14B | Build mode, required plain-language sections, the "What you're approving" card, Mark-ready checks the decision | director-backend + director-frontend | built 2026-11-26 (#1923, the owner merges; not yet clicked through live) |
 | 14C | Pilot on the slow-phone bug; guides and status | regression-guardian + docs-keeper | next: a live Diagnose → Build on the slow-phone bug once #1923 merges |
 
+## Phase 12 — Resolve merge conflicts from Pipeline Changes · ADR-0015 (approved 2026-11-26, all defaults)
+
+Update from main when GitHub can merge cleanly; Resolve conflict otherwise: mechanical files by
+rules in code, real conflicts proposed by Claude Code, nothing lands until a person accepts. Cards
+15A–15D are in the ADR's phasing. 15A built 2026-11-26 (Update from main, On hold and Resume; branch
+`pipeline-15a`, the owner merges). Left: the workflows spike, which needs the real App after deploy
+(steps in `docs/status/bug-reports.md`), and the owner creating the `on-hold` label. Next: 15B1, 15C.
+
 ## Phase 6 — Pilot
 
 | # | Task | Owner | Status | Acceptance |

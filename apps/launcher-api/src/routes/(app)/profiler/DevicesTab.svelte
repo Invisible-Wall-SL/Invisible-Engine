@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PERF_PHASES, type PerfPhase, type PerfReportListItem } from '$lib/profiler';
+	import { PHASE_LABELS, phasesOf, type PerfPhase, type PerfReportListItem } from '$lib/profiler';
 	import {
 		deviceGroups,
 		readingsByBuild,
@@ -21,16 +21,16 @@
 	}
 	const { readings, builds, budgets }: Props = $props();
 
-	const PHASE_LABEL: Record<PerfPhase, string> = {
-		idle: 'Idle',
-		spinning: 'Spinning',
-		round: 'Round',
-	};
-
 	const groups = $derived(deviceGroups(readings, budgets));
 	const leftOut = $derived(readings.length - groups.reduce((n, g) => n + g.readings.length, 0));
+	/** Readings in the groups at a browser's 30 fps cap: their draws and MB count, their fps not. */
+	const capped = $derived(
+		groups.reduce((n, g) => n + g.readings.filter((r) => r.capped30).length, 0),
+	);
 	let openId = $state<string | null>(null);
 	const open = $derived(groups.find((g) => g.id === openId) ?? null);
+	const groupPhases = $derived(phasesOf(groups.flatMap((g) => g.readings)));
+	const openPhases = $derived(open ? phasesOf(open.readings) : []);
 
 	const metric = (ms: MetricVerdict[], m: BudgetMetric, phase: PerfPhase | '' = '') =>
 		ms.find((x) => x.metric === m && x.phase === phase);
@@ -55,8 +55,8 @@
 		new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
 </script>
 
-{#snippet phaseCells(ms: MetricVerdict[], rs: PerfReportListItem[])}
-	{#each PERF_PHASES as phase (phase)}
+{#snippet phaseCells(ms: MetricVerdict[], rs: PerfReportListItem[], phases: PerfPhase[])}
+	{#each phases as phase (phase)}
 		{@const fps = metric(ms, 'fps', phase)}
 		{@const p95 = metric(ms, 'p95', phase)}
 		<td class="num v-{fps?.verdict}" title={cellTitle(fps)}>{fmt(fps?.value)}</td>
@@ -67,22 +67,40 @@
 	{@const draws = metric(ms, 'draws')}
 	<td class="num v-{draws?.verdict}" title={cellTitle(draws)}>{fmt(draws?.value, 0)}</td>
 	<td class="num v-{gpu?.verdict}" title={cellTitle(gpu)}>{fmt(gpu?.value)}</td>
+	{@const transfer = metric(ms, 'transferMb')}
+	{@const file = metric(ms, 'fileMb')}
+	<td class="num v-{transfer?.verdict}" title={cellTitle(transfer)}>{fmt(transfer?.value)}</td>
+	<td class="num v-{file?.verdict}" title={cellTitle(file)}>{fmt(file?.value, 2)}</td>
 {/snippet}
 
-{#snippet head(first: string)}
+{#snippet head(first: string, phases: PerfPhase[])}
 	<thead>
 		<tr>
 			<th rowspan="2">{first}</th>
 			<th rowspan="2" class="num">Readings</th>
 			<th rowspan="2">Verdict</th>
-			{#each PERF_PHASES as phase (phase)}
-				<th colspan="3" class="group">{PHASE_LABEL[phase]}</th>
+			{#each phases as phase (phase)}
+				<th colspan="3" class="group">{PHASE_LABELS[phase]}</th>
 			{/each}
-			<th rowspan="2" class="num" title="Mean draw calls a frame (spinning, else idle)">Draws</th>
+			<th
+				rowspan="2"
+				class="num"
+				title="Mean draw calls a frame (spinning, else idle; for an arcade game play, else menu)"
+				>Draws</th
+			>
 			<th rowspan="2" class="num" title="Texture memory the GPU held (MB)">GPU MB</th>
+			<th
+				rowspan="2"
+				class="num"
+				title="What the game downloads, MB (median over the readings; cache hits counted at their size)"
+				>Transfer MB</th
+			>
+			<th rowspan="2" class="num" title="The heaviest single file, MB (median over the readings)"
+				>Largest file</th
+			>
 		</tr>
 		<tr>
-			{#each PERF_PHASES as phase (phase)}
+			{#each phases as phase (phase)}
 				<th class="num" title="Frames a second (median over the readings)">fps</th>
 				<th class="num" title="95th-percentile frame time, ms (median over the readings)">p95</th>
 				<th class="num" title="Frames over 33 ms, summed over the readings">&gt;33</th>
@@ -97,9 +115,11 @@
 			This project's readings grouped by device class and GPU, the worst first. Each number is the
 			median over the group's readings — a phase counts only from readings with at least
 			{MIN_PHASE_FRAMES} frames in it, otherwise it says "not enough data", never pass. A cell is coloured
-			by this project's budget (Budgets tab); hover it for the lines. Readings taken with a test switch
-			(particles off, …) measure a feature's cost, and lab runs' fps is a shared runner's, so both are
-			left out here. Click a device to see its readings build by build.
+			by this project's budget (Budgets tab); hover it for the lines. The phases are the readings' own:
+			idle, spinning and round for a slot, menu and play for an arcade game. Readings taken with a test
+			switch (particles off, …) measure a feature's cost, and lab runs' fps is a shared runner's, so both
+			are left out here; a reading at a browser's 30 fps cap counts for draws and GPU MB, never for fps
+			or p95. Click a device to see its readings build by build.
 		</p>
 	{/snippet}
 	{#if !groups.length}
@@ -109,7 +129,7 @@
 	{:else}
 		<div class="table-wrap">
 			<table>
-				{@render head('Device')}
+				{@render head('Device', groupPhases)}
 				<tbody>
 					{#each groups as g (g.id)}
 						<tr class:selected={openId === g.id}>
@@ -125,7 +145,7 @@
 							</td>
 							<td class="num">{g.readings.length}</td>
 							<td><VerdictBadge verdict={g.verdict} /></td>
-							{@render phaseCells(g.metrics, g.readings)}
+							{@render phaseCells(g.metrics, g.readings, groupPhases)}
 						</tr>
 					{/each}
 				</tbody>
@@ -136,6 +156,11 @@
 		<p class="sub">
 			{leftOut} reading{leftOut === 1 ? '' : 's'} left out: taken with a test switch, lab runs (their
 			fps is a shared runner's), or from a device class the probe did not name.
+		</p>
+	{/if}
+	{#if capped > 0}
+		<p class="sub">
+			{capped} reading{capped === 1 ? '' : 's'} at a browser's 30 fps cap: fps and p95 not judged.
 		</p>
 	{/if}
 </SectionCard>
@@ -151,7 +176,7 @@
 		{/snippet}
 		<div class="table-wrap">
 			<table>
-				{@render head('Build')}
+				{@render head('Build', openPhases)}
 				<tbody>
 					{#each readingsByBuild(open, builds, budgets) as b (b.id)}
 						<tr>
@@ -161,7 +186,7 @@
 							</td>
 							<td class="num">{b.readings.length}</td>
 							<td><VerdictBadge verdict={b.verdict} /></td>
-							{@render phaseCells(b.metrics, b.readings)}
+							{@render phaseCells(b.metrics, b.readings, openPhases)}
 						</tr>
 					{/each}
 				</tbody>

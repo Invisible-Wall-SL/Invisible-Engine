@@ -134,7 +134,7 @@ function poseProblem(t: RigTemplate, regions: TemplateRegion[], label: string): 
 			ch,
 			t.channels,
 			(p) => names.has(p),
-			t.slots.map((s) => s.name),
+			(skeleton.slots as { name: string }[]).map((s) => s.name),
 		);
 		plays.push([`control ${ch.id}`, `control "${ch.id}"`, [0, 0.5, 1]]);
 	}

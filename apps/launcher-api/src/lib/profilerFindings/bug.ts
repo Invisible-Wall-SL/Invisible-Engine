@@ -8,8 +8,11 @@
  *   Element FX. It names its project, and its area is a part of the game.
  * - A **pipeline** bug is the engine or a tool: the renderer's cost (fps, GPU- or CPU-bound),
  *   spikes (shader compiles, texture uploads, a tool's runtime), KTX2 assets that fell back, a
- *   fps or lab-count regression (most often a runtime release). Its area is the tool the owning
- *   agent owns in `owners.json`, else the engine.
+ *   fps or lab-count regression (most often a runtime release), and the arcade runtime's sim and
+ *   room work (catch-up, spawn churn, cost per body, patch stutter), and how the game is delivered
+ *   (text served uncompressed, files downloaded again, what loads before the first frame, slow or
+ *   heavy RGS and room messages). Its area is the tool the owning agent owns in `owners.json`, else
+ *   the engine. A heavy download is the game's own file (art, audio), unless it is the runtime's code.
  */
 
 import {
@@ -68,9 +71,21 @@ export function findingBugTarget(
 			return finding.id.startsWith('regression:fps:') || finding.id.startsWith('regression:counts:')
 				? pipeline
 				: game('loading');
+		case 'heavyTransfer':
+			return finding.owner.kind === 'agent' && finding.owner.id === ENGINE_AGENT
+				? pipeline
+				: game('loading');
 		case 'fpsBelowBudget':
 		case 'gpuCpuBound':
 		case 'spikes':
+		case 'simCatchUp':
+		case 'spawnChurn':
+		case 'bodyCost':
+		case 'patchStutter':
+		case 'uncompressedText':
+		case 'notCached':
+		case 'firstFrame':
+		case 'netTraffic':
 			return pipeline;
 	}
 }

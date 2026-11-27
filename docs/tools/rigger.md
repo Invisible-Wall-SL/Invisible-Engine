@@ -127,8 +127,9 @@ time field, and a **Speed** control.
 **Pen tablet (Wacom) and touch.** The pen drags wherever the mouse does: bones and the gizmo
 on the stage, keys and box selects in the dopesheet and the graph editor, the Picker, the
 frame-to-rig stage, both of 🗺 From my sheet's stages and the panel splitters. The tip is the left
-button, and so is the eraser end. On the stage the **barrel button pans**, like the middle mouse
-button, even over a bone,
+button, and so is the eraser end. On the stage and on the canvases of the two rig-building
+workspaces ([below](#the-rig-building-workspaces-zoom-pan-and-shortcuts)) the **barrel button
+pans**, like the middle mouse button, even over a bone or a joint,
 and neither the barrel's click nor a pen held still (Windows Ink's press-and-hold) opens the
 browser's menu. Elsewhere the barrel is the right button, so on a dopesheet key it opens the
 easing menu. Pressure is ignored. A finger on a touch screen works the same. Those surfaces no
@@ -416,6 +417,10 @@ Hover its header for a summary.
   the folder and its slots as a block (dropped inside another folder, it lands just above that
   folder). Each drop is one undo step. Every draw-order key keeps the order it was keyed with. The
   mouse, a pen and a finger all drag it. **Esc** cancels a drag.
+- **Key the draw order in Animate by dragging the ⋮⋮ grip**: the slot (or the selection) is drawn
+  just in front of the row you drop it above, from the order at the playhead, as a draw-order key
+  there (one undo step); the setup order stays. On a 3D clip this works when the rig's draw order is
+  **↕ as keyed** (🧊, below); by depth, the clip's draw order is the bake's and the drag says so.
 - **↑ / ↓** on a row move it one place to the front (up) or the back (down), each one undo step:
   - a slot in no folder passes the next slot, or a whole folder;
   - a slot in a folder moves among the folder's slots; at the folder's edge, ↑ or ↓ takes it out of
@@ -796,11 +801,30 @@ Three things to know before you use it:
   channel, plus a **◆ Key all transforms** button that keys all three at once for
   the selected bone. Bottom-bar tools: **◆ Key** (keys rotate+translate+scale of the
   selected bone, or attachment+colour — and the mesh shape — of the selected slot),
-  **◆ Key all** (keys _every_ bone's pose plus _every_ slot's attachment + colour at
-  the playhead, and the shape of every mesh the clip already shapes), **|◀ / ▶|**
-  prev/next key, **✕ Key** deletes the selected bone's key at the playhead, or the
-  selected slot's (its image, colour and shape keys there). The rotate/move gizmo
-  also keys on release.
+  **◆ Key children** (keys the selected bone(s) **and every bone under them** at the
+  playhead — a whole arm, or the whole body from its root, in one step; each bone only
+  what its control may key), **◆ Key all** (keys _every_ bone's pose plus _every_
+  slot's attachment + colour at the playhead, and the shape of every mesh the clip
+  already shapes), **|◀ / ▶|** prev/next key — of everything selected (its bones, its
+  slots' image, colour, shape and sequence keys, the selected constraint), or of every
+  key in the clip when nothing selected has keys —, **✕ Key** deletes the selected
+  bone's key at the playhead, or the selected slot's (its image, colour and shape keys
+  there). The rotate/move gizmo also keys on release.
+- **The Properties panel follows the keys.** It shows the selected bone's (or slot's,
+  or constraint's) values at the playhead, and the easing and **✕ Delete key** of the
+  key under it. It redraws whenever the playhead or the keys change — a pause, a key
+  dragged, deleted or eased in the dopesheet, an undo — except while you are dragging
+  or typing in one of its fields. **Clicking a key** in the dopesheet puts the playhead
+  on it and selects what it keys (its bone, slot or constraint), so Properties show
+  that key; a double-click still deletes it.
+- **🧲 Snap to bone** (in the bar above the stage, Setup and Animate; on by default).
+  A bone dragged on the stage puts its origin **on another bone's origin or tip** when
+  it comes within about 10 screen pixels of one — a cyan ring marks the joint and the
+  status line names it. Hold **Alt** while dragging to do the opposite for that drag
+  (place freely with 🧲 on, snap with it off). It never snaps onto the dragged bone's
+  own children (they move with it), nor onto a hidden bone, and a drag held to one
+  gizmo axis does not snap. A bone moved by a constraint still lands exactly on the
+  joint.
 - **Controls in Animate.** A control keys only the channels its **keys** allow: the gizmo shows only
   those parts (a ring control has just its ring), the other fields are greyed, and ◆ Key / ◆ Key
   all skip them. A drag is held inside the control's limits, and the bone's panel warns when the
@@ -876,6 +900,36 @@ Three things to know before you use it:
   copies will land while you drag; on release the copies drop there, the
   originals stay in place, and the new keys stay selected. A plain drag on a
   track scrubs the playhead (as does the ruler).
+- **The dopesheet is a tree** (the **tree** button in its corner; on by default, off
+  gives the flat list). Each bone's row sits under its parent's, a slot's rows under
+  its bone's, and a mesh's `deform` and `sequence` rows under their slot's; IK,
+  transform, path and physics rows stay flat below. A parent with no keys of its own
+  still gets a (dimmed) row, so the tree reads down from the root. **▾ folds** a
+  row's rows into it (**Alt-click** folds or unfolds every row under it too). A
+  folded row draws the keys folded into it as its own: a **grey** dot where only rows
+  inside it have keys, a normal-coloured one where the row has its own key there too
+  (the legend's `folded rows`). Grabbing one of those dots takes **every key at that
+  time** in the row and the rows inside it — drag retimes them together, Alt-drag
+  duplicates them, Shift-click adds them to the selection, double-click deletes them,
+  right-click eases them. Picking a bone (on the stage or in the tree) unfolds the
+  rows above it once, so its row shows. Drag the right edge of the names column to
+  widen it (double-click resets it).
+- **Select across rows** — besides Shift/Ctrl-clicking a row's name (all its keys):
+  - **Shift/Ctrl-click the ruler** at a time to select the **column**: every key at
+    that time on every row, folded ones included (again to deselect it).
+  - **T** — add every key at the **same time** as a selected key (with none selected,
+    the column at the playhead).
+  - **P** — from the selected keys of a bone, add the keys its **parents** have at the
+    same times, up to the root (bones only).
+  - **C** — add the keys of its **children** at the same times: every bone under it,
+    and the slots (image, colour, shape, sequence rows) on it and on them.
+  With no bone key selected, P and C start from the selected bone's key at the
+  playhead. The status line says how many keys each added.
+- **Snap (⇥ in the dopesheet's corner, on by default).** A dragged key snaps to the
+  playhead, the ruler's grid and **the other keys' times** (a key that is moving never
+  snaps to where it started), and so does a stretch grip. Scrubbing the playhead on
+  the ruler or a track lands it **on a key** within about 7 pixels; hold **Alt** to
+  scrub freely.
 - **Stretch the timing of a selection** — select **two or more keys** and a green
   **range bar** appears on the ruler spanning them, with a **⟺ grip at each end**
   and a yellow **pin** marking the **anchor**: the one time that will not move.
@@ -1004,6 +1058,18 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   rig turns is fixed once you save.
   On a 3D rig the box beside it is the bake's **tolerance** in rig units (empty = 0.45; hover it),
   and **🧊 Turn 3D off** keeps every 3D clip as baked, as a plain 2D clip (undo brings it back).
+  Next to it, the 3D clips' **draw order**:
+  - **↕ by depth** (the default): the bake draws the nearer part over the farther one — a hand
+    behind the back goes under the torso, a hand reaching forward over the other arm. The body (the
+    torso, pelvis, neck and head) is read at its back face, so an arm at its side, a little behind
+    its middle, stays over it. The number beside it is the **hysteresis** in rig units: how much
+    nearer a part must come before it is drawn over another, so a tracker's jitter never flickers
+    it. A capture import sets it, and the body's depth, at the rig's scale (about 4 cm of the
+    performer) where you have not.
+  - **🔒** opens the **locks**: pairs kept whatever the depths say (the watch always over the
+    forearm, a hand always over the body). Pick the two slots, **＋**; **✕** removes one.
+  - **↕ as keyed**: the bake keys no draw order, and each 3D clip keeps the one you key (drag a
+    slot in Animate, or the dopesheet's draw-order menu).
   Making a rig 3D changes no clip: they stay 2D until you make one 3D.
 - **The clip's settings** (Animate) — **🧊 3D from this clip** makes the open clip 3D: it keeps its
   keys (it plays exactly as before) and its bones can now turn in 3D. A 3D clip shows **🧊 3D clip ·
@@ -1017,8 +1083,8 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   tilt. In **Setup**, a 3D rig's bone has a **depth** field too.
 - **The dopesheet** lists each bone's keys as you made them — not the bake's — with **3D turn** and
   **depth** rows under **sel**; drag, Alt-drag, delete and easing work as on any key. The draw order
-  and a drawing slot's image keys are the bake's, so they are not listed (and keying them is
-  refused with a hint).
+  (with **↕ by depth**) and a drawing slot's image keys are the bake's, so keying them is refused
+  with a hint; with **↕ as keyed** the draw order is yours.
 - **The Graph view** draws a 3D bone's turn as three curves — **rotation 3D**, **tilt** and
   **twist** — and its **depth** (the legend lists them only for a bone that has them). Drag a point
   up or down to change that angle at its key (the others stay as drawn), sideways to move the key;
@@ -1271,6 +1337,59 @@ template** below), listed as `<name> (template v<n>)`.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
+#### The rig-building workspaces: zoom, pan and shortcuts
+
+**🎞 From a Flipbook frame** and **🗺 From my sheet** (both below) each open as a workspace over the
+whole Rigger window. The canvas fills the space on the left; the side panel on the right holds the
+lists — a foldable **Frames** (🎞) or **Regions** (🗺) section first, then the parts, props or
+mapping table. Drag the splitter between them to resize the side panel (a double-click resets it);
+**◨** at the right end of the bar above the canvas hides or shows it, and both are remembered.
+**✕** or **Esc** goes back to the rig.
+
+The bar above the canvas holds the view (**◧ Assembled / ▣ This frame**, or **▭ One part /
+◧ Arranged**), 🎞's **🖌 Brush** and **◌ Lasso**, 🗺's **⟲ ⇅ ⤺**, and the zoom: **−**, the zoom
+readout, **+**, **Fit** and **1:1**. 100% is one pixel of the picture to one pixel of your screen.
+Until you zoom or pan, the canvas keeps the picture fitted to the window. After that each workspace
+keeps its zoom while the page is open (◧ Arranged keeps its own), and the next drawing you pick in
+▭ One part opens at the same zoom, centred.
+
+| To | Do |
+| --- | --- |
+| Zoom at the pointer | Mouse wheel, Ctrl+wheel, or pinch (trackpad or touch screen) |
+| Pan | Hold **Space** and drag; or drag with the middle button, the pen's barrel button, or two fingers (trackpad or touch screen) |
+| Fit the picture | **F**, or **Fit** |
+| 100% | **1**, or **1:1** |
+| Zoom in / out | **+** (or **=**) / **−**, or the bar's + and − |
+| Move the picked joint, part or prop | **← ↑ → ↓**: one pixel of the picture; with **Shift**, ten |
+| Snap the other way while dragging | Hold **Alt** (see below) |
+| Brush size (🎞) | **[** smaller, **]** bigger |
+| Leave | **Esc**, or **✕** |
+
+Joint dots, handles and labels stay one size on the screen at any zoom. Past 200% the picture's
+pixels are drawn as squares, so you can see which pixel a joint is on. A dragged joint keeps the
+point you grabbed it by under the pointer, so at 400% it moves a quarter of a pixel at a time. A pan
+never moves a joint, even one under the pointer. The keys work anywhere in the workspace except
+while you type in a field.
+
+**Precise placing.**
+
+- **The selection.** The joint you clicked last (🎞, ▭ One part), or the part or prop picked in
+  ◧ Arranged, has a blue ring. The arrow keys move it, and its numbers sit at the top of the side
+  panel: **x** and **y** in the picture's pixels, and for an arranged part or prop its turn **↻** in
+  degrees. Type a number and leave the field to put it there; a turn typed for a part turns it about
+  its first joint, with the parts it holds.
+- **Names.** The joint or part under the pointer is named beside it, and ringed or outlined.
+- **The loupe.** While you drag a joint, a loupe beside the pointer shows the picture around the
+  joint, four times the zoom, one picture pixel to a square. The joint is where the cross's arms
+  meet.
+- **Alt while dragging.** In ◧ Arranged, a part dragged near the joint it meets snaps onto it; hold
+  Alt to place it near without snapping. In ▭ One part, joints do not snap; hold Alt to snap one
+  onto the drawing's edge (the middle of an inked pixel beside a clear one) or onto its other joint.
+  The snap reaches 12 screen pixels.
+- **🎞's brush** is a size on the screen, so zooming in paints finer. Its ring follows the pointer.
+
+An arranged part has no size of its own to set: every drawing keeps the size it was drawn at.
+
 #### Make a rig from a Flipbook frame (🎞 From a Flipbook frame)
 
 A character that already exists as a Flipbook clip can be split into the template's parts and made
@@ -1279,15 +1398,29 @@ into a rig, instead of drawn part by part. Pick **Half body** (or a template sav
 of the panel. What each step does is the tooltip on the dialog's title.
 
 1. **Pick the clip.** Its frames are tracked in this browser (face, body and hands, as 🎥 Motion
-   does), and the strip shows every frame with a score: 1 means every arm segment lies flat in the
-   picture, nothing covers the body and everything was found. The best frame (★) is picked; hover a
+   does), and the **Frames** section of the side panel (the strip) shows every frame with a score:
+   1 means every arm segment lies flat in the picture, nothing covers the body and everything was
+   found. The best frame (★) is picked; hover a
    frame for why it scores lower — `right forearm at 0.27 of its length` (pointing at the camera, so
    the part would be cut short), `right upper arm, right forearm out of the picture` (a joint past
    the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
    the face`, `an arm joint hard to see`, `no face found`, `one hand not found`. Click another frame
-   to use it instead. If the clip has **a kept cut** (✂ on its frame in the strip), the newest opens at
-   once, before the tracking ends, and goes straight to **🦴 Create rig**; picking a frame with a kept
-   cut opens it.
+   to use it instead. A new rig always starts here as the first time — the best frame, its joints as
+   tracked, each part's frame planned, no cut open — even when the clip was cut before. Closed and
+   opened again, the dialog starts over the same way, and **↶** brings back what you had.
+   - **↺ Reuse frame N's cut** (beside the clip) is offered when the clip has **a kept cut** (✂ on
+     its frame in the strip): the picked frame's, else the newest. It opens that cut as it was
+     kept — parts, touch-ups, props and the frames its parts are cut from — at once, before the
+     tracking ends, and goes straight to **🦴 Create rig**. From then on, a frame with a kept cut
+     opens it when picked.
+   - Until you reuse one, nothing kept opens by itself: picking a frame with a kept cut shows the
+     frame, ✂ Cut makes a new cut of it (the kept one stays as it was), and a part taken from
+     another frame is cut there anew.
+   - **↺ Start over** (the icon beside it) takes the dialog back to that first guess: the best
+     frame, no cut open. It asks first when you have touch-ups you did not 💾 keep, dragged joints or
+     picked a part's frame; **↶** brings back what it replaced. The cut that was open stays kept,
+     for ↺ Reuse.
+   - **✂ Edit cut** on a frame-made rig opens the cut it was made from (see below).
 2. **Check the joints.** The frame shows what the tracker found: yellow dots on the shoulders,
    elbows, wrists and hips, a cyan dot per hand (drags the whole hand) and a red dot on the face
    (drags the whole face). Drag any it got wrong before cutting.
@@ -1313,11 +1446,12 @@ of the panel. What each step does is the tooltip on the dialog's title.
    - The **bone** list on a prop's row picks the bone it hangs from (any bone of the template but the
      controls); left at "on …", it hangs from the bone its part is drawn on.
    - **🗑** removes one: each of its pixels goes back to the part it lies nearest.
-5. **Touch up with the brush or the lasso.** Tick **🖌 Brush**, pick the part (or prop) to paint as
-   and the radius, and paint on the frame: the pixels under the brush move to that part. Or tick
-   **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
-   never past the character's outline, and work on **▣ This frame** (step 6). With both off, the
-   joints drag again.
+5. **Touch up with the brush or the lasso.** Tick **🖌 Brush** in the bar above the canvas, pick the
+   part (or prop) to paint as and the brush's size (a size on the screen: zoom in to paint finer;
+   **[** and **]** change it), and paint on the frame: the pixels under the brush move to that
+   part. Or tick **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels
+   between parts, never past the character's outline, and work on **▣ This frame** (step 6). With
+   both off, the joints drag again.
 6. **Each part from its best frame.** Every part is scored on every frame of the clip too: whole
    (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its
    joints sure. The **Parts** list is that table: each part, the frame it is cut from, its score
@@ -1325,9 +1459,10 @@ of the panel. What each step does is the tooltip on the dialog's title.
    that frame's picture and number. A part this frame shows under 0.97 is planned from another frame
    that shows it clearly better — 0.15 more, or three quarters of what this frame lacks (a head turned
    23°, 0.92, moves for a face to the camera) — the nearest frame of those within 0.01 of its best.
-   **✂ Cut** cuts this frame, then takes each such part from its frame (its kept cut, or a cut made
-   for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
-   head; a hand stays on this frame unless you pick otherwise (its finger bones are this frame's).
+   **✂ Cut** cuts this frame, then takes each such part from its frame (a cut of that frame made in
+   this dialog, or a kept one once you reused a cut, or a cut made for it now), so the quick way
+   is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the head; a hand stays on this frame
+   unless you pick otherwise (its finger bones are this frame's).
    - **Where each part comes from shows everywhere.** Each frame a part is cut from gets a colour:
      the chip on that part's row is outlined in it, the frame in the strip is framed in it with the
      parts' own colours in its corner, and the stage shows the cut **◧ Assembled** — every part
@@ -1402,7 +1537,8 @@ part's frame, the touch-ups and the props). With it open, **✂** in the rig pan
 atlas and source…; hover it for which frame) opens the same dialog on that cut — that cut, even if a
 newer cut of its frame was made since — with its clip fixed. Everything works as when you made it:
 ✂ Re-cut, the brush and the lasso, a part taken from another frame, ＋ / 🗑 props and their bones,
-💾 Keep touch-ups. **🔄 Update rig** takes 🦴 Create rig's place:
+💾 Keep touch-ups. ↺ Start over goes back to the best frame with no cut open, and ↺ Reuse then offers
+the rig's cut again. **🔄 Update rig** takes 🦴 Create rig's place:
 
 - The parts are made again on the rig's other sheet (`<name>_parts` and `<name>_parts_b` take turns),
   so the rig games ship does not change until the update is saved. If another rig was pointed at that
@@ -1435,19 +1571,25 @@ renaming or redrawing anything. Pick a template in **＋ New rig → Apply saved
 (Half body for the full result), pick the sheet in **Atlas (images)**, then click **🗺 From my
 sheet…**. What each step does is the tooltip on the dialog's title.
 
-1. **The regions.** The strip shows every region of the sheet with the part it is mapped to under it.
+1. **The regions.** The **Regions** section of the side panel shows every region of the sheet with
+   the part it is mapped to under it.
    Each template part is matched to the region its name says, read as words in any order or case
    (`L_arm_upper`, `arm_upper_left`, `ArmL1` and `brazo_izq_1` are all `upper_arm_l`; `ArmR2` is
    `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is
    the picture's left. A region named like a worn thing (`Hat`, `Sunglasses`, `gold_chain`,
-   `watch_R`, `sword`) is suggested as a prop on the part it is worn on.
+   `watch_R`, `sword`) is suggested as a prop on the part it is worn on; a `Hood` on the torso (a
+   hoodie's, worn down: move a hood worn up to the head in Props). Photoshop **Export Layers** names
+   (`NellyAssetBreakdown1_0002s_0002s_0003_PupilL`) are read by their layer name, and a prop is named
+   after it (`prop_glasses`). `UnderEyelidL` is the lower lid, an eye named alone (`EyeL`) is its
+   white. The note above the stage counts what matched, the props, and the regions that match
+   nothing: each of those has **＋🦴** to make it a custom part.
    **⇄ Swap sides** (beside the sheet) is for a sheet whose names say the character's own left and
    right (`UpperArmL` is the arm on the picture's right of a character facing you): every part
    matched by name takes the other side's drawing — arms, hands, ears, eyes, lids, brows, cheeks —
    its joints guessed again as that side's (a joint you dragged stays where you dragged it on its
    drawing), each prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged
    starts over on its bones. Parts you mapped by hand are asked about first. The setting is kept with
-   the rig's mapping, and this browser remembers it for the sheet.
+   the rig's mapping; a new rig starts with it off.
 2. **The table.** Each part has a region list: change it, or pick **—** to leave the part out (it is
    left out of the rig, as any missing template part). A part marked `*` is one the template's
    controls and clips use: the rig is still made without it, and the report after **🦴 Create rig**
@@ -1469,10 +1611,33 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    head's middle with the features while its outline stays: the face no longer slides over a still
    head. Its turn is cut to what that skin has room for (about half the template's), and the lids and
    brows, at the face's corners, keep about 80% of the head's move under them.
+   **↻ Head turn** (the slider beside ⇄ Swap sides; hover it) makes the drawn head turn round with a
+   3D capture's turn and nod and with the **Head turn** and **Head up / down** controls: the head's
+   drawing bends in a dome about the face — the middle slides with the features, the round of the
+   head part-way on four `head_turn_*` bones, the chin and jaw line with the face, the skull's
+   outline stays — and what the head wears (glasses, an earring) turns with it at its depth, a prop
+   your Layers draw behind the head the other way. 1× is as round as the template's head, cut so a
+   40° turn never folds the drawing; past 1× it turns further and may fold on a big turn (2× past
+   about 20°); **off** is the face sliding alone. It is kept with the mapping: **🔄 Update rig** gives
+   a rig made before it the head turn too, and writes its depths into the rig's 3D data, so its 3D
+   clips bake the turn again.
 4. **Props.** **＋** on an unmapped region's thumbnail wears it on the part picked. In the **Props**
    list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
    that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just
    over its part (a watch over the hand's fingers).
+   **＋🦴 Custom part** (the second button on an unmapped region's thumbnail) is for a drawing the
+   template has no part for — a hood, a tail, an extra layer. It gets a bone of its own under the
+   template bone you pick, is named from its region (`…_0008_HoodBack` → `hood_back`; rename it in
+   the **Custom parts** list), drawn on the part picked and dragged there like a prop, and has its
+   own row in Layers. The template's own bones stay as they are.
+   **A jointed mouth.** A mouth drawn as its parts maps to the Face group's `lip_upper`,
+   `lip_lower`, `teeth_upper`, `teeth_lower` and `tongue` (names such as `UpperLip`, `LowerLip`,
+   `Teeth`, `TeethTop`, `TeethBottom`, `Tongue`, `LabioSuperior` are matched; `Teeth` alone is the
+   upper row). Jaw open drops the lower lip, the lower teeth and the tongue; Smile and Stretch bend
+   both lips at their corners; Upper / Lower lip lift and press them; Talk, lip-sync and 🎥 Motion
+   move it as they do a mouth drawn on the head. Map the mouth shapes or the parts: with both, the
+   shapes win (the Mouth control swaps them) and the parts are made with their slots empty, which the
+   report says. A rig drawing none of these has none of their slots.
 5. **◧ Arranged** (above the stage; **▭ One part** goes back). Every mapped part and prop is drawn
    put together, where the rig puts it, with its bones over it: at first each drawing turned onto
    its bones at rest. Drag a part into the character as you drew it — its first joint snaps to the
@@ -1484,7 +1649,19 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    the rig is bound in that pose — each chain bone turned to lie as its drawing does — and keeps it
    as its clip **frame**, as a rig made from a video frame does; a part left where it was rides its
    bones into that pose.
-6. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
+6. **Layers** (the side panel, under Props). Which drawing is in front of which: every mapped part
+   and prop, front at the top, in the slot it is drawn in (a hand pose shares its hand's row). It
+   starts as the template's order with each prop over its part (or behind it where your Photoshop
+   layers say so): a prop on the head — glasses, an earring — over every face part (each eye white
+   under its pupil, under its lids, all under the glasses) and under the front hair, a hat over the
+   hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
+   **Ctrl+]** / **Ctrl+[** to move it one place to the front / back (**Shift** goes all the way);
+   ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
+   draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
+   list: the template's arm-depth control moves the arm from in front of them to behind them, so
+   it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
+   draw what they drew, so a new order shows at setup and in the clips that key no draw order.
+7. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
    template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
    turned onto its bone (an arm drawn lying out hangs at rest) — or, arranged, sits where you put
@@ -1500,21 +1677,44 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
    does not map. When a rig cannot be made, the popup says why.
 
-The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
-the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left
-it and the arrangement as you left it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then
-drives it as any rig of the template.
+The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped). 🎥
+Motion then drives the rig as any rig of the template.
+
+**Every new rig starts from scratch.** **＋ New rig → 🗺 From my sheet** always opens on the first
+guess: each part the region its name says, its joints guessed, the worn things suggested as props,
+nothing arranged, ⇄ Swap sides off. This holds even with a rig of the same sheet and template open.
+A mapping made before is offered beside the sheet, never taken by itself:
+
+- **↺ Reuse “name”**: the mapping the open rig was made from (when it is of this sheet and
+  template), every joint where you left it and the arrangement as you left it. 🦴 Create rig then
+  makes a new rig from it.
+- **↺ Reuse what you left 10:42**: a mapping you changed, then closed without 🦴 Create rig (closed
+  right after ↺ Start over, the mapping Start over replaced). Only the last one you left is
+  remembered, and it is offered only on its own sheet and template.
+- **↺ Start over** (the icon) takes the open mapping back to the first guess (the Layers too),
+  reading the names as ⇄ Swap sides says. It asks first when you changed it; **↶** brings back what it replaced.
+
+To change the open rig itself, use 🗺 Edit mapping (below).
 
 **Change the rig you made, in place (🗺 Edit mapping → 🔄 Update rig).** A rig made from a sheet has
 **🗺** beside ⟳ source… in the rig panel. It opens the dialog on the rig's own mapping, with its sheet
 fixed (to map another sheet, make a new rig from it). Re-map a part, arrange the parts again, add or
-take off props, then **🔄 Update rig** (in 🦴 Create rig's place):
+take off props (↺ Start over puts the first guess in its place, ↶ the rig's mapping back), then
+**🔄 Update rig** (in 🦴 Create rig's place):
 
 - **What it rebuilds.** The parts are built as Create rig builds them and swapped into the open rig.
 - **What stays.** Its bones (yours too, where you put them), every clip and key, constraints and IK,
   the Controls and the 3D data, and your own slots.
 - **The arrangement.** The clip **frame** takes the new arrangement, unless you keyed that clip
   yourself: then yours stays and the report says so.
+- **The layers.** The Layers list opens as the rig draws its slots now, a reorder in Setup's
+  **Slots** included (a sheet's props are slots of their own there, so their **⋮⋮** drags them too).
+  The rig keeps its own order unless you change the list here — even an arm you drew behind the
+  head in Setup, which the list itself would refuse. Change the list and the slots it lists take its
+  order, held to the arm-depth controls as a new rig's is; each draw-order key you made still draws
+  what it drew, so the new order shows at setup and in the clips that key no draw order.
+  Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
+  refused, with why under the list, until you fix that order too (in the list, or in Setup).
 - **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
   taken off goes with the keys on its bone, and you are shown those keys before anything changes.
 - **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone
@@ -1627,7 +1827,8 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     Empty = the first second, so start a take with a resting face, or type the moment it has one.
   - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
     face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
-    **Head** also sets the head's turn and nod.
+    **Head** also sets the head's tilt, turn and nod — in 3D the head's whole 3D turn (2× turns it
+    twice as far from the neutral).
   - **Shorten / Behind / Turn / Nearer** (2D only) — the depth the performance has, each shown when the
     template takes it (hover one for what it does): **Shorten** a limb pointing toward or away from
     the camera (off, ½×, 1×, 1½×), **Behind** a hand passing behind the body or the head (on or

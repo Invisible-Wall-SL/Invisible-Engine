@@ -11,6 +11,7 @@ import { filedFindings } from '$lib/server/profiler/findingBugs';
 import { OWNERS, projectFindings } from '$lib/server/profiler/findings';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
 import { listReports } from '$lib/server/profiler/store';
+import { storedProjectGameType } from '$lib/server/projects';
 import { resolveToolScope } from '$lib/server/toolScope';
 import type { PageServerLoad } from './$types';
 
@@ -34,11 +35,12 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [readings, builds, games, overrides] = await Promise.all([
+	const [readings, builds, games, overrides, gameKind] = await Promise.all([
 		listReports(projectKey),
 		listBuilds(projectKey),
 		listGamesOwnedByProject(projectKey),
 		listBudgetOverrides(projectKey),
+		storedProjectGameType(projectKey),
 	]);
 	const budgets = effectiveBudgets(overrides);
 	// The other tabs never wait on a failure here: the Findings tab says it could not be read.
@@ -63,6 +65,8 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		readings,
 		builds,
 		budgets,
+		/** The project's game kind: the Budgets tab lists its phase set's lines. */
+		gameKind,
 		findings,
 		filed,
 		fileAs,

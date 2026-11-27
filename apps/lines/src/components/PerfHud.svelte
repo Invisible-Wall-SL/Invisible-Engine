@@ -12,27 +12,38 @@
 		renderQualitySnapshot,
 		renderSwitches,
 		renderTier,
+		type FrameWork,
 		type RenderQualitySnapshot,
 		type RendererInfo,
 		type RendererProbe,
 		type TextureFormatSummary,
 	} from 'pixi-svelte';
 	import { setFrameProbe } from 'pixi-svelte/frameClock';
+	import { normalizeGameConfigDoc, resolveFamily } from 'game-config';
 
-	import { artTierInForce } from '../editor-scenes';
+	import { artTierInForce, bakedGameConfig } from '../editor-scenes';
 
+	import {
+		ARCADE_WORK_KEYS,
+		arcadePerf,
+		takeArcadeFrame,
+		type ArcadePhase,
+	} from '../game/arcadePerf';
+	import { createNetworkMonitor, networkLines } from '../game/perfNetwork';
 	import {
 		WORK_KEYS,
 		createPerfStats,
 		type PerfBucketSnapshot,
 		type PerfSnapshot,
+		type WorkKey,
 		type WorkSnapshot,
 	} from '../game/perfStats';
 	import {
-		PERF_PHASES,
+		PHASE_SETS,
 		SPIKE_CAUSES,
 		stateLabel,
 		topCause,
+		type PerfPhase,
 		type SpikeCauseCounts,
 	} from '../game/perfSpikes';
 	import { stateApp } from '../game/stateApp';
@@ -56,13 +67,23 @@
 	 * what it built and threw away (`pixi-svelte` `churnProbe.ts`). With `&perfsession=<token>` (a
 	 * capture session from the Invisible Profiler) a Send button posts the reading to the launcher,
 	 * and it is also sent on its own before a Reset discards it and when the page is hidden
-	 * (`perfSend.ts`, loaded only then).
+	 * (`perfSend.ts`, loaded only then). An ARCADE game's frames are read in its own phases instead,
+	 * `menu` and `play`, with what its sim and its room did (`arcadePerf.ts`); the report says the
+	 * game's family (`kind`), so the Profiler knows which phases it holds. The report's `network`
+	 * block (`perfNetwork.ts`) is what the page downloaded since it loaded — each file's path and
+	 * sizes, by class and by load stage, the first frame, the RGS's requests and, online, the room's
+	 * messages; Reset does not clear it.
 	 */
 
 	const query = new URLSearchParams(location.search);
 	const waitForGpu = query.get('perfgpu') === '1';
 	const particlesOff = query.get('particles') === 'off';
-	const stats = createPerfStats();
+	const kind = resolveFamily(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+	const arcade = kind === 'arcade';
+	const phases: readonly PerfPhase[] = PHASE_SETS[arcade ? 'arcade' : 'slot'];
+	const stats = createPerfStats(undefined, arcade ? 'arcade' : 'slot');
+	/** The phase the last arcade tick was in: the next frame's interval counts there. */
+	let arcadePhase: ArcadePhase = 'menu';
 	let snapshot = $state<PerfSnapshot>();
 	const top = $derived(snapshot && topCause(snapshot.spikes.causes));
 	let quality = $state<RenderQualitySnapshot>();
@@ -98,6 +119,63 @@
 		typeof (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory
 			?.usedJSHeapSize === 'number';
 	let observer: PerformanceObserver | undefined;
+	const network = createNetworkMonitor(location.origin, performance.timeOrigin);
+	let resources: PerformanceObserver | undefined;
+	let net = $state<string[]>([]);
+	/** The game's first frame and the end of its boot load, noted on the frame each is first seen. */
+	let framed = false;
+	let booted = false;
+	const noteLoad = () => {
+		const now = performance.now();
+		if (!framed) {
+			framed = true;
+			network.firstFrame(now, 'tick');
+		}
+		if (stateApp.loaded) {
+			booted = true;
+			network.booted(now);
+		}
+	};
+	/**
+	 * Every file the page has fetched and will fetch. A Pixi tick already run means the first frame
+	 * came before this mounted, so First Contentful Paint stands in for it.
+	 */
+	const watchNetwork = () => {
+		if (
+			typeof PerformanceObserver === 'undefined' ||
+			!PerformanceObserver.supportedEntryTypes?.includes('resource')
+		) {
+			return;
+		}
+		if ((stateApp.pixiApplication?.ticker?.lastTime ?? -1) >= 0) {
+			framed = true;
+			const paint = performance.getEntriesByName('first-contentful-paint')[0];
+			if (paint) network.firstFrame(paint.startTime, 'paint');
+		}
+		if (stateApp.loaded) noteLoad();
+		network.navigation(
+			performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined,
+		);
+		// The browser keeps 250 entries before anyone observes; past that the earliest are gone.
+		if (performance.getEntriesByType('resource').length >= 250) network.bufferFull();
+		resources = new PerformanceObserver((list) => {
+			for (const entry of list.getEntries()) network.add(entry as PerformanceResourceTiming);
+		});
+		resources.observe({ type: 'resource', buffered: true });
+	};
+	/** None where the browser has no Resource Timing: an empty block would read as 0 MB downloaded. */
+	const networkBlock = (short = false) =>
+		resources ? network.block({ short, socket: arcadePerf.socket }) : undefined;
+	/**
+	 * Where the visible part of the page sits in the layout viewport. A fixed element is pinned to
+	 * the layout viewport, so a page iOS Safari has panned or zoomed hides it: the readout follows the
+	 * visual viewport instead, so Send can always be reached.
+	 */
+	let viewportOffset = $state({ x: 0, y: 0 });
+	const followViewport = () => {
+		const v = window.visualViewport;
+		if (v) viewportOffset = { x: v.offsetLeft, y: v.offsetTop };
+	};
 	const onVisibility = () => {
 		if (document.visibilityState !== 'hidden') return;
 		void send('leaving');
@@ -108,8 +186,18 @@
 	const ensureProbe = () => {
 		const app = stateApp.pixiApplication;
 		if (probe || !app?.renderer) return;
-		probe = instrumentApp(app, { onFrame: (work) => stats.work(work), waitForGpu });
+		probe = instrumentApp(app, {
+			onFrame: arcade ? arcadeWork : (work) => stats.work(work),
+			waitForGpu,
+		});
 		info = probe.info();
+	};
+	/** An arcade frame's work: the renderer's counts and what its sim and room did. */
+	const arcadeWork = (work: FrameWork) => {
+		const frame = takeArcadeFrame();
+		arcadePhase = frame.phase;
+		stats.work({ ...work, ...frame.work });
+		stats.lates(frame.lates);
 	};
 	let tick = 0;
 	const refresh = () => {
@@ -117,6 +205,8 @@
 		snapshot = stats.snapshot();
 		quality = renderQualitySnapshot();
 		if (probe && tick++ % 4 === 0) textures = probe.textures();
+		const block = open ? networkBlock(true) : undefined;
+		if (block) net = networkLines(block);
 	};
 
 	onMount(() => {
@@ -126,8 +216,17 @@
 				canSend = !!sender;
 			});
 		}
-		setFrameProbe((time, moving) => stats.frame(time, spinning(), moving, gameState()));
+		arcadePerf.on = arcade;
+		watchNetwork();
+		setFrameProbe((time, moving) => {
+			if (!booted) noteLoad();
+			if (arcade) stats.arcadeFrame(time, arcadePhase, gameState());
+			else stats.frame(time, spinning(), moving, gameState());
+		});
 		document.addEventListener('visibilitychange', onVisibility);
+		followViewport();
+		window.visualViewport?.addEventListener('resize', followViewport);
+		window.visualViewport?.addEventListener('scroll', followViewport);
 		if (longTasks) {
 			observer = new PerformanceObserver((list) => {
 				for (const entry of list.getEntries()) stats.longTask(entry.startTime, entry.duration);
@@ -149,8 +248,12 @@
 	});
 	onDestroy(() => {
 		setFrameProbe(undefined);
+		arcadePerf.on = false;
 		document.removeEventListener('visibilitychange', onVisibility);
+		window.visualViewport?.removeEventListener('resize', followViewport);
+		window.visualViewport?.removeEventListener('scroll', followViewport);
 		observer?.disconnect();
+		resources?.disconnect();
 		clearInterval(timer);
 		probe?.dispose();
 		window.__IE_PERF__ = undefined;
@@ -165,13 +268,17 @@
 		copyText = '';
 	};
 
-	const framesOf = (s: PerfSnapshot) => s.idle.frames + s.spinning.frames + s.round.frames;
+	const framesOf = (s: PerfSnapshot) =>
+		s.set === 'arcade'
+			? s.menu.frames + s.play.frames
+			: s.idle.frames + s.spinning.frames + s.round.frames;
 
 	/**
 	 * Posts the reading as it stands. A Reset or the page being hidden sends on its own, and only a
 	 * reading with frames it has not sent yet, so a tester who only plays still leaves one each time.
-	 * Leaving sends it without the per-texture list and the spike records, so it fits a `keepalive`
-	 * request that outlives the page; the summary the Profiler lists reads neither. The same short
+	 * Leaving sends it without the per-texture list, the spike records and the network block's file
+	 * list (its heaviest files stay), so it fits a `keepalive` request that outlives the page; the
+	 * summary the Profiler lists reads none of them. The same short
 	 * form is the fallback when a reading too large to post cannot be uploaded either.
 	 */
 	const send = async (why: 'tap' | 'reset' | 'leaving' = 'tap') => {
@@ -185,6 +292,7 @@
 			...full,
 			textureList: undefined,
 			spikes: undefined,
+			network: networkBlock(true),
 			trimmed: true,
 		});
 		const text = why === 'leaving' ? short : JSON.stringify(full);
@@ -258,8 +366,22 @@
 		const canvas = app?.canvas;
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
 		const now = renderQualitySnapshot();
+		const phased =
+			s.set === 'arcade'
+				? {
+						menu: bucket(s.menu),
+						play: bucket(s.play),
+						arcade: { ...arcadePerf.info, lateMs: s.lateMs },
+					}
+				: {
+						idle: bucket(s.idle),
+						spinning: bucket(s.spinning),
+						round: bucket(s.round),
+						reelStepErrorPx: s.reel,
+					};
 		return {
-			perf: 7,
+			perf: 9,
+			kind,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
 			device: device(),
@@ -278,16 +400,14 @@
 			refreshHz: s.refreshHz,
 			capped30: s.capped30,
 			seconds: s.seconds,
-			idle: bucket(s.idle),
-			spinning: bucket(s.spinning),
-			round: bucket(s.round),
-			reelStepErrorPx: s.reel,
+			...phased,
 			work: s.work,
 			churnApis: { builds: perfProbe.countsBuilds },
 			spikeOverMs: s.spikes.overMs,
 			spikeApis: { longtask: longTasks, heap: heapReported },
 			spikeCauses: s.spikes.causes,
 			spikes: s.spikes.records,
+			network: networkBlock(),
 			build: build && { version: build.version, sha: build.sha ?? build.engineSha },
 		};
 	};
@@ -330,7 +450,8 @@
 	const line = (b: PerfBucketSnapshot) =>
 		b.frames ? `${b.fps} fps · p50 ${b.p50} · p95 ${b.p95} · max ${b.max} ms` : 'no frames yet';
 
-	const LABELS: Record<(typeof WORK_KEYS)[number], string> = {
+	const ROWS: readonly WorkKey[] = [...WORK_KEYS, ...ARCADE_WORK_KEYS];
+	const LABELS: Record<WorkKey, string> = {
 		draws: 'draws',
 		vertices: 'vertices',
 		passes: 'render passes',
@@ -382,11 +503,28 @@
 		textMs: 'text render ms',
 		domAdded: 'DOM nodes added',
 		domRemoved: 'DOM nodes removed',
+		simSteps: 'sim steps',
+		simCatchUp: 'catch-up frames (share)',
+		simDroppedMs: 'sim time dropped ms',
+		simMs: 'sim ms',
+		netMs: 'room messages ms',
+		bodies: 'bodies',
+		pairs: 'collision pairs tested',
+		spawns: 'bodies spawned',
+		despawns: 'bodies despawned',
+		looks: 'looks animated',
+		patches: 'room states',
+		patchBytes: 'room state bytes',
+		cameraPx: 'camera moved px',
 	};
-	const cell = (w: WorkSnapshot, key: (typeof WORK_KEYS)[number]) => {
-		const v = w.perFrame[key];
+	const cell = (w: WorkSnapshot | undefined, key: WorkKey) => {
+		const v = w?.perFrame[key];
 		return v ? `${v.mean} / ${v.max}` : '–';
 	};
+	const workOf = (s: PerfSnapshot, phase: PerfPhase): WorkSnapshot | undefined =>
+		(s.work as Partial<Record<PerfPhase, WorkSnapshot>>)[phase];
+	const bucketOf = (s: PerfSnapshot, phase: PerfPhase): PerfBucketSnapshot | undefined =>
+		(s as Partial<Record<PerfPhase, PerfBucketSnapshot>>)[phase];
 	const causeList = (counts: SpikeCauseCounts) =>
 		SPIKE_CAUSES.filter((cause) => counts[cause])
 			.sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0))
@@ -394,14 +532,36 @@
 			.join(', ');
 	const total = (counts: SpikeCauseCounts) =>
 		Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0);
-	const PHASE_NAMES = { idle: 'idle', spinning: 'spin', round: 'round' } as const;
+	const PHASE_NAMES: Record<PerfPhase, string> = {
+		idle: 'idle',
+		spinning: 'spin',
+		round: 'round',
+		menu: 'menu',
+		play: 'play',
+	};
 	const spikesLine = (s: PerfSnapshot) => {
-		const parts = PERF_PHASES.flatMap((phase) => {
-			const counts = s.spikes.causes[phase];
+		const parts = phases.flatMap((phase) => {
+			const counts = s.spikes.causes[phase] ?? {};
 			return total(counts) ? [`${PHASE_NAMES[phase]} ${total(counts)}: ${causeList(counts)}`] : [];
 		});
 		return `over ${s.spikes.overMs} ms · ${parts.length ? parts.join(' · ') : 'none'}`;
 	};
+	/** What an arcade game's sim runs at and, online, how late its room states came while it played. */
+	const arcadeLine = (s: PerfSnapshot) => {
+		if (s.set !== 'arcade') return '';
+		const info = arcadePerf.info;
+		const late = s.lateMs.play;
+		return [
+			info ? `sim ${info.fixedHz} Hz` : 'sim not started',
+			...(info?.online ? [`online · patches ${info.patchHz ?? '?'} Hz`] : []),
+			...(late.count ? [`states late p50 ${late.p50} · p95 ${late.p95} · max ${late.max} ms`] : []),
+		].join(' · ');
+	};
+	/** The header's phase: spinning for a slot, play for an arcade game. */
+	const headPhase = (s: PerfSnapshot) =>
+		s.set === 'arcade'
+			? `play ${s.play.fps} fps p95 ${s.play.p95}`
+			: `spin ${s.spinning.fps} fps p95 ${s.spinning.p95} · reel ${s.reel.p95} px`;
 	const attrs = (i: RendererInfo) => {
 		const a = i.attributes;
 		return a
@@ -413,10 +573,15 @@
 </script>
 
 {#if snapshot}
-	<div class="ie-perf" data-testid="perf-hud">
+	<div
+		class="ie-perf"
+		data-testid="perf-hud"
+		style:transform={viewportOffset.x || viewportOffset.y
+			? `translate(${viewportOffset.x}px, ${viewportOffset.y}px)`
+			: undefined}
+	>
 		<button type="button" class="ie-perf-head" onclick={() => (open = !open)}>
-			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · spin {snapshot.spinning.fps} fps p95
-			{snapshot.spinning.p95} · reel {snapshot.reel.p95} px
+			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · {headPhase(snapshot)}
 			{#if snapshot.capped30}<b class="warn"> · 30 fps cap (Low Power Mode?)</b>{/if}
 			{#if quality?.level.index}<b class="warn"> · quality L{quality.level.index}</b>{/if}
 			{#if top}<b class="warn"> · spikes: {top[0]} ({top[1]})</b>{/if}
@@ -426,26 +591,28 @@
 		{#if open}
 			<div class="ie-perf-body">
 				<div>display ~{snapshot.refreshHz ?? '?'} Hz · {snapshot.seconds} s</div>
-				<div><b>idle</b> {line(snapshot.idle)}</div>
-				<div>
-					hitches &gt;33/50/100 ms: {snapshot.idle.hitches[33]}/{snapshot.idle
-						.hitches[50]}/{snapshot.idle.hitches[100]}
-				</div>
-				<div><b>spin</b> {line(snapshot.spinning)}</div>
-				<div>
-					hitches &gt;33/50/100 ms: {snapshot.spinning.hitches[33]}/{snapshot.spinning
-						.hitches[50]}/{snapshot.spinning.hitches[100]}
-				</div>
-				<div><b>round</b> {line(snapshot.round)}</div>
-				<div>
-					hitches &gt;33/50/100 ms: {snapshot.round.hitches[33]}/{snapshot.round
-						.hitches[50]}/{snapshot.round.hitches[100]}
-				</div>
-				<div>
-					<b>reel step error</b> mean {snapshot.reel.mean} · p95 {snapshot.reel.p95} · max {snapshot
-						.reel.max} px ({snapshot.reel.steps} steps)
-				</div>
+				{#each phases as phase (phase)}
+					{@const b = bucketOf(snapshot, phase)}
+					{#if b}
+						<div><b>{PHASE_NAMES[phase]}</b> {line(b)}</div>
+						<div>hitches &gt;33/50/100 ms: {b.hitches[33]}/{b.hitches[50]}/{b.hitches[100]}</div>
+					{/if}
+				{/each}
+				{#if snapshot.set === 'slot'}
+					<div>
+						<b>reel step error</b> mean {snapshot.reel.mean} · p95 {snapshot.reel.p95} · max {snapshot
+							.reel.max} px ({snapshot.reel.steps} steps)
+					</div>
+				{:else}
+					<div><b>arcade</b> {arcadeLine(snapshot)}</div>
+				{/if}
 				<div><b>spikes</b> {spikesLine(snapshot)}</div>
+				{#each net as text, i (i)}
+					<div>
+						{#if i === 0}<b>net</b>{/if}
+						{text}
+					</div>
+				{/each}
 				{#if snapshot.capped30}
 					<div class="warn">Frames never come faster than ~30 fps: Low Power Mode?</div>
 				{/if}
@@ -463,16 +630,18 @@
 				{/if}
 				<table>
 					<thead>
-						<tr><th>per frame, mean / max</th><th>idle</th><th>spin</th><th>round</th></tr>
+						<tr>
+							<th>per frame, mean / max</th>
+							{#each phases as phase (phase)}<th>{PHASE_NAMES[phase]}</th>{/each}
+						</tr>
 					</thead>
 					<tbody>
-						{#each WORK_KEYS as key (key)}
-							{#if PERF_PHASES.some((phase) => snapshot?.work[phase].perFrame[key])}
+						{#each ROWS as key (key)}
+							{#if phases.some((phase) => snapshot && workOf(snapshot, phase)?.perFrame[key])}
 								<tr>
 									<td>{LABELS[key]}</td>
-									<td>{cell(snapshot.work.idle, key)}</td>
-									<td>{cell(snapshot.work.spinning, key)}</td>
-									<td>{cell(snapshot.work.round, key)}</td>
+									{#each phases as phase (phase)}<td>{cell(workOf(snapshot, phase), key)}</td
+										>{/each}
 								</tr>
 							{/if}
 						{/each}

@@ -17,6 +17,8 @@
  *   bound in that pose, as a frame's is.
  */
 
+import { armTail, inDrawOrder, withSlotPlaces, type SlotPlace } from './rigSlotOrder';
+
 export type P = [number, number];
 
 /** A template part mapped to a region: its joints in the region's pixels (y down, untrimmed). */
@@ -30,6 +32,8 @@ export interface SheetPartMap {
 /**
  * A region worn as a prop: on `host`'s drawing with its middle at `at` (host pixels), on `bone`;
  * `turn`, degrees clockwise on the page against its host's drawing (none: turned as its host).
+ * `custom`: a part the template does not have (＋ Custom part), named freely (`CUSTOM_NAME`): a new
+ * bone of its own under `bone`, placed and drawn as a prop is.
  */
 export interface SheetProp {
 	name: string;
@@ -38,6 +42,24 @@ export interface SheetProp {
 	bone: string;
 	at: P;
 	turn?: number;
+	custom?: true;
+}
+
+/** A custom part's name: a lowercase letter, then up to 40 lowercase letters, digits or _. */
+export const CUSTOM_NAME = /^[a-z][a-z0-9_]{0,40}$/;
+
+/**
+ * A custom part's name from its region's, past a Photoshop layer's file and index
+ * (`Nelly_0008_HoodBack` → `hood_back`).
+ */
+export function customName(region: string): string {
+	const base = nameWords(layerName(region)).join('_').slice(0, 41);
+	return /^[a-z]/.test(base) ? base : `part_${base}`.slice(0, 41);
+}
+
+/** A region's own name past a Photoshop Export Layers file and index (`Nelly_0002s_0000_Glasses` → `Glasses`). */
+export function layerName(region: string): string {
+	return /(?:^|_)(?:\d{4}s_)*\d{4}_(.+)$/.exec(region)?.[1] ?? region;
 }
 
 /**
@@ -70,6 +92,18 @@ export interface SheetMapping {
 	 * left: its names are read mirrored. None: as the template's.
 	 */
 	swapSides?: true;
+	/**
+	 * The author's layers: the slots the mapping draws in (each mapped part's, each prop's), FRONT to
+	 * back, drawn in that order in the places they hold between them (`sheetSlotOrder`). None: the
+	 * template's order, each prop over its part (or behind it where the artist's file says so).
+	 */
+	layers?: string[];
+	/**
+	 * The head turn's strength (`rigHeadTurn.ts`): the drawn head turns round with a 3D capture's
+	 * yaw and nod and with the Head turn and Head up / down controls, 1 as round as the template's
+	 * head, 0 off (the face slides alone over a still head). None: 1.
+	 */
+	turn?: number;
 }
 
 export const SHEET_SIDECAR = 'sheet.json';
@@ -236,6 +270,16 @@ const SYNONYMS: Record<string, string[]> = {
 	lids: ['lid'],
 	lips: ['mouth'],
 	boca: ['mouth'],
+	under: ['lower'],
+	labio: ['lip'],
+	tooth: ['teeth'],
+	diente: ['teeth'],
+	dientes: ['teeth'],
+	lengua: ['tongue'],
+	superior: ['upper'],
+	inferior: ['lower'],
+	arriba: ['upper'],
+	abajo: ['lower'],
 	nariz: ['nose'],
 	fringe: ['hair', 'front'],
 	bangs: ['hair', 'front'],
@@ -287,6 +331,9 @@ const MEANINGFUL = new Set([
 	'cheek',
 	'shoulder',
 	'eyelid',
+	'lip',
+	'teeth',
+	'tongue',
 	'fist',
 	'point',
 	'open',
@@ -320,6 +367,9 @@ const KINDS = [
 	'brow',
 	'lid',
 	'mouth',
+	'lip',
+	'teeth',
+	'tongue',
 	'nose',
 	'cheek',
 	'shoulder',
@@ -370,6 +420,11 @@ export function canonicalWords(name: string, swap = false): Set<string> {
 	const digit = words.find((w) => w === '1' || w === '2');
 	if (limb.length === 1 && digit && !out.has('upper') && !out.has('lower'))
 		out.add(SEGMENTED[limb[0]][Number(digit) - 1]);
+	// Teeth named alone are the upper ones, the row a closed mouth shows.
+	if (out.has('teeth') && !out.has('upper') && !out.has('lower')) out.add('upper');
+	// An eye named alone is its white: the drawing the pupil and the lids sit on.
+	if (out.has('eye') && !['white', 'pupil', 'lid', 'brow'].some((w) => out.has(w)))
+		out.add('white');
 	// `3 q` (from `3q`) is one word in the template's names.
 	if (words.some((w, i) => w === '3' && words[i + 1] === 'q')) out.add('3q');
 	return out;
@@ -436,11 +491,40 @@ export function suggestSheetMap(
 
 /** Words naming a worn thing, and the part it is worn on (`_s` the side the name says, else `l`). */
 const PROP_HOSTS: [string[], string][] = [
-	[['hat', 'cap', 'helmet', 'crown', 'glasses', 'sunglasses', 'earring', 'mask', 'hood'], 'head'],
-	[['chain', 'necklace', 'pendant', 'scarf', 'tie', 'badge', 'medal'], 'torso'],
+	[['hat', 'cap', 'helmet', 'crown', 'glasses', 'sunglasses', 'earring', 'mask'], 'head'],
+	// A hood is a hoodie's, worn down over the shoulders (one worn up is moved to the head in Props).
+	[['chain', 'necklace', 'pendant', 'scarf', 'tie', 'badge', 'medal', 'hood'], 'torso'],
 	[['watch', 'bracelet', 'bangle', 'cuff'], 'lower_arm_s'],
 	[['sword', 'weapon', 'gun', 'staff', 'wand', 'shield', 'ring', 'cup', 'flag', 'axe'], 'hand_s'],
 ];
+
+/**
+ * The 🗺 dialog's first guess for a sheet: each template part's region by name (`suggestSheetMap`),
+ * each other region named like a worn thing as a prop on its part (`suggestProp`), and the regions
+ * left, which the dialog offers as ＋ Custom parts.
+ */
+export function suggestSheet(
+	parts: readonly string[],
+	regions: readonly string[],
+	swap = false,
+): {
+	parts: Record<string, string>;
+	props: { region: string; name: string; host: string }[];
+	left: string[];
+} {
+	const got = suggestSheetMap(parts, regions, swap);
+	const taken = new Set(Object.values(got));
+	const mapped = new Set(Object.keys(got));
+	const props: { region: string; name: string; host: string }[] = [];
+	const left: string[] = [];
+	for (const region of regions) {
+		if (taken.has(region)) continue;
+		const p = suggestProp(region, mapped, swap);
+		if (p) props.push({ region, ...p });
+		else left.push(region);
+	}
+	return { parts: got, props, left };
+}
 
 /**
  * A region named like a worn thing (`Hat_01`, `sword_R`): its prop name and the part it is on (its
@@ -464,11 +548,133 @@ export function suggestProp(
 /** A prop's name from its region's (`prop_` and up to 40 lowercase letters, digits and _). */
 export function propName(region: string): string {
 	const base =
-		nameWords(region)
+		nameWords(layerName(region))
 			.join('_')
 			.replace(/^prop_?/, '')
 			.slice(0, 40) || 'item';
 	return `prop_${base}`;
+}
+
+// ---- the draw order ----------------------------------------------------------------------------
+
+/**
+ * The layer a region was exported from by Photoshop's Export Layers (`<file>_0002s_0003s_0001_Lid`:
+ * the third set's fourth set's second layer), each index counted from the top of the layers panel,
+ * so a lower one is drawn in front. Sets (`0002s`) and layers (`0002`) are counted apart, so only
+ * two layers of one set compare; null for a name that is not one.
+ */
+export function psdLayer(name: string): string[] | null {
+	const m = /(?:^|_)((?:\d{4}s_)*\d{4})_./.exec(name);
+	return m ? m[1].split('_') : null;
+}
+
+/**
+ * Whether the artist's file draws region `a` behind region `b`: known only for two layers of one
+ * set (or both at the top), whose indices are counted together; null otherwise.
+ */
+export function psdBehind(a: string, b: string): boolean | null {
+	const [pa, pb] = [psdLayer(a), psdLayer(b)];
+	if (!pa || !pb || pa.length !== pb.length || pa.join() === pb.join()) return null;
+	const last = pa.length - 1;
+	if (pa.slice(0, last).join() !== pb.slice(0, last).join()) return null;
+	return parseInt(pa[last], 10) > parseInt(pb[last], 10);
+}
+
+/**
+ * `list` with the layers of each set put back to front among the places they hold (`psdBehind`);
+ * anything the file does not order keeps its place.
+ */
+function psdOrdered<T>(list: readonly T[], region: (x: T) => string): T[] {
+	const out = [...list];
+	const sets = new Map<string, number[]>();
+	list.forEach((x, i) => {
+		const layer = psdLayer(region(x));
+		if (!layer) return;
+		const set = `${layer.length}:${layer.slice(0, -1).join('_')}`;
+		sets.set(set, [...(sets.get(set) ?? []), i]);
+	});
+	const index = (x: T) => parseInt(psdLayer(region(x))!.at(-1)!, 10);
+	for (const at of sets.values()) {
+		const backToFront = at.map((i) => list[i]).sort((a, b) => index(b) - index(a));
+		at.forEach((i, k) => (out[i] = backToFront[k]));
+	}
+	return out;
+}
+
+/** A prop's slot drawn just before or after the slot it names, in the order they are inserted. */
+export type SheetPropPlace = SlotPlace & { prop: SheetProp };
+
+/** Worn over the hair, not under it: a prop on the head named so is drawn over `hair_front`. */
+const OVER_HAIR = new Set(['hat', 'cap', 'helmet', 'crown']);
+
+/**
+ * Where each prop's slot goes among the template's `slots` (back to front), in the order they are
+ * inserted: just over its host's slot (after an arm's last slot, so a watch covers the fingers'
+ * seam; on the head over every face part — eye whites, pupils, lids, brows, nose, mouth — and under
+ * the front hair, so glasses sit over the eyes, or over the hair for a hat), or just behind it where
+ * the artist's file draws it behind its part (`psdBehind`); the props on one part keep the file's
+ * order among themselves. `host` gives a mapped part's slot and region.
+ */
+export function sheetPropPlaces(
+	slots: readonly string[],
+	props: readonly SheetProp[],
+	host: (part: string) => { slot: string; region: string },
+): SheetPropPlace[] {
+	const behind = (p: SheetProp) => psdBehind(p.region, host(p.host).region) === true;
+	const backToFront = psdOrdered(props, (p) => p.region);
+	const after = new Map<string, string>();
+	const out: SheetPropPlace[] = [];
+	for (const prop of [
+		...backToFront.filter((q) => !behind(q)),
+		...backToFront.filter(behind).reverse(),
+	]) {
+		const slot = host(prop.host).slot;
+		const side = /^(hand|lower_arm)_([lr])$/.exec(slot)?.[2];
+		const onFace = slot === 'head' && slots.includes('hair_front');
+		const overHair = onFace && [...canonicalWords(prop.region)].some((w) => OVER_HAIR.has(w));
+		const beside = side ? armTail(slots, side) : overHair ? 'hair_front' : slot;
+		if (behind(prop)) {
+			const key = `-${slot}`;
+			out.push({ prop, name: prop.name, before: after.get(key) ?? slot });
+			after.set(key, prop.name);
+		} else if (onFace && !overHair) {
+			out.push({ prop, name: prop.name, before: 'hair_front' });
+		} else {
+			out.push({ prop, name: prop.name, after: after.get(beside) ?? beside });
+			after.set(beside, prop.name);
+		}
+	}
+	return out;
+}
+
+/**
+ * The slots a mapping makes, back to front: the template's `slots`, each prop's slot where
+ * `sheetPropPlaces` puts it, then the author's `layers` (front to back) drawn in that order in the
+ * places they hold. `slotOf` gives a template part's slot.
+ */
+export function sheetSlotOrder(
+	slots: readonly string[],
+	slotOf: (part: string) => string,
+	m: Pick<SheetMapping, 'parts' | 'props' | 'layers'>,
+): string[] {
+	const host = (part: string) => ({ slot: slotOf(part), region: m.parts[part]?.region ?? '' });
+	const made = withSlotPlaces(slots, sheetPropPlaces(slots, m.props, host));
+	return m.layers ? inDrawOrder(made, [...m.layers].reverse()) : made;
+}
+
+/**
+ * The slots a mapping draws in (each mapped part's, each prop's), FRONT to back as the 🗺 dialog's
+ * Layers list shows them: the order the rig is made with (`sheetSlotOrder`).
+ */
+export function sheetLayerList(
+	slots: readonly string[],
+	slotOf: (part: string) => string,
+	m: Pick<SheetMapping, 'parts' | 'props' | 'layers'>,
+): string[] {
+	const drawn = new Set([...Object.keys(m.parts).map(slotOf), ...m.props.map((p) => p.name)]);
+	return sheetSlotOrder(slots, slotOf, m)
+		.filter((n) => drawn.has(n))
+		.reverse();
 }
 
 // ---- joints from a drawing's shape ---------------------------------------------------------------

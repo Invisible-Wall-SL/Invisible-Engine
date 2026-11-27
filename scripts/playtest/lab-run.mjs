@@ -242,8 +242,9 @@ async function playOne(key, listedKind, base) {
 		result.run = run;
 		result.fps = {
 			note: 'not comparable: a shared runner swings ~2× run to run',
-			idle: report.idle?.fps,
-			spinning: report.spinning?.fps,
+			...(report.kind === 'arcade'
+				? { menu: report.menu?.fps, play: report.play?.fps }
+				: { idle: report.idle?.fps, spinning: report.spinning?.fps }),
 		};
 		result.counts = perfCounts(report);
 		writeFileSync(join(out, `${key}.report.json`), text);

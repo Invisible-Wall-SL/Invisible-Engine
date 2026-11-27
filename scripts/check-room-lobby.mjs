@@ -22,6 +22,11 @@
 // ONE ANSWER A PRESS (review, 2026-11-25): the room answers a run of inputs asking the same once
 // and does not test the place again within it, the device makes every press a run of its own, and
 // a caught person's Respawn reads its answer off the state as the lobby's pick does.
+// THE WHOLE CLOCK AND THE NEXT GAME BY ITSELF (owner, 2026-11-26): from the first person on, the
+// room's `endsAt` is round 1's start at the latest (the wait and the countdown), cut to the
+// countdown's end when the room fills early, and 0 with nobody in; the device's code-drawn clock
+// takes the place of the seconds node every published layout has; the win screen counts to the
+// next game only for a person who played the round (pins; the drawn half is the playtests').
 //
 //   pnpm check:room-lobby
 
@@ -39,7 +44,7 @@ import {
 	createRespawnAsk,
 	launchJoin,
 } from '../packages/engine-mechanics/src/online.js';
-import { flowSignalsOf } from '../packages/engine-mechanics/src/onlineFlow.js';
+import { flowSignalsOf, serverValuesOf } from '../packages/engine-mechanics/src/onlineFlow.js';
 import { SALMONS_LOBBY, salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 import {
@@ -47,7 +52,10 @@ import {
 	SALMONS_SCREENS,
 	salmonsReferenceLayout,
 } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
-import { SALMONS_RESPAWN_CHARACTERS } from '../packages/engine-layout/src/lib/referenceLayouts/salmonsScreens.ts';
+import {
+	SALMONS_CLOCK_URGENT,
+	SALMONS_RESPAWN_CHARACTERS,
+} from '../packages/engine-layout/src/lib/referenceLayouts/salmonsScreens.ts';
 import {
 	SALMONS_FLOW_SCREENS,
 	SALMONS_SEED_DOC,
@@ -91,6 +99,8 @@ const run = (sim, n) => {
 	return events;
 };
 const types = (events) => events.map((e) => e.type);
+/** The room's values as its state carries them to a device. */
+const stateLike = (sim) => ({ step: sim.steps, phase: sim.rules.phase, endsAt: sim.rules.endsAt });
 
 check('without a lobby, the first join starts round 1 (unchanged)', () => {
 	const sim = roomOf(undefined);
@@ -109,7 +119,78 @@ check('a person joining a lobby is told, and the room waits', () => {
 		[{ type: 'lobby', id: 'a' }],
 	);
 	assert.ok(!types(events).includes('roundStart'));
-	assert.equal(sim.rules.endsAt, 0, 'no clock until the countdown');
+});
+
+// THE WHOLE CLOCK (owner, 2026-11-26: "have the all countdown showing up"): from the first person
+// on, the room's `endsAt` is when round 1 starts at the latest, the wait and the countdown; the
+// countdown, once it runs, makes it its own end. A device reads the seconds off it.
+check('from the first person the clock runs to round 1: the wait and the countdown', () => {
+	const sim = roomOf(LOBBY);
+	const hz = sim.game.online.tickHz;
+	assert.equal(sim.rules.endsAt, 0, 'an empty lobby runs no clock');
+	const joinedAt = sim.steps;
+	sim.join('a', { character: 'salmon' });
+	const full = joinedAt + (LOBBY.maxWaitSeconds + LOBBY.countdownSeconds) * hz;
+	assert.equal(sim.rules.endsAt, full, 'the first join sets it');
+	const seconds = () => serverValuesOf(stateLike(sim), 'a', hz).secondsLeft;
+	assert.equal(seconds(), LOBBY.maxWaitSeconds + LOBBY.countdownSeconds);
+	run(sim, 3 * hz);
+	assert.equal(seconds(), LOBBY.maxWaitSeconds + LOBBY.countdownSeconds - 3, 'it ticks down');
+	sim.join('b', { character: 'salmon' });
+	run(sim, 1);
+	assert.equal(sim.rules.endsAt, full, 'a person joining mid-wait does not move it');
+	const counted = run(sim, (LOBBY.maxWaitSeconds - 3) * hz);
+	assert.ok(types(counted).includes('countdown'), 'the wait ran out');
+	assert.equal(sim.rules.endsAt, full, 'the countdown of a wait run out ends where the clock did');
+	assert.equal(seconds(), LOBBY.countdownSeconds);
+	let startedAt = 0;
+	for (let i = 0; i <= LOBBY.countdownSeconds * hz && !startedAt; i++)
+		if (types(run(sim, 1)).includes('roundStart')) startedAt = sim.steps;
+	assert.equal(startedAt, full, 'round 1 starts at the step the clock named from the first');
+});
+
+check('a room that fills early cuts the clock to the countdown', () => {
+	const sim = roomOf(LOBBY);
+	const hz = sim.game.online.tickHz;
+	for (const id of ['a', 'b']) sim.join(id, { character: 'salmon' });
+	run(sim, 4 * hz);
+	const seconds = () => serverValuesOf(stateLike(sim), 'a', hz).secondsLeft;
+	assert.equal(seconds(), LOBBY.maxWaitSeconds + LOBBY.countdownSeconds - 4);
+	sim.join('c', { character: 'salmon' });
+	run(sim, 1);
+	assert.equal(sim.rules.endsAt, sim.steps + LOBBY.countdownSeconds * hz);
+	assert.equal(seconds(), LOBBY.countdownSeconds, 'it drops to the countdown');
+});
+
+check('a lobby everyone left runs no clock, and its next person starts a fresh one', () => {
+	const sim = roomOf(LOBBY);
+	const hz = sim.game.online.tickHz;
+	sim.join('a', { character: 'salmon' });
+	run(sim, 5 * hz);
+	sim.leave('a');
+	run(sim, 1);
+	assert.equal(sim.rules.endsAt, 0);
+	assert.equal(serverValuesOf(stateLike(sim), 'a', hz).secondsLeft, 0);
+	run(sim, 2 * hz);
+	const joinedAt = sim.steps;
+	sim.join('b', { character: 'salmon' });
+	assert.equal(sim.rules.endsAt, joinedAt + (LOBBY.maxWaitSeconds + LOBBY.countdownSeconds) * hz);
+});
+
+check('bots alone open no lobby and run no clock', () => {
+	const sim = createRoomSim(gameOf({ ...LOBBY, minPlayers: 2 }), { seed: 7 });
+	run(sim, 10);
+	assert.ok([...sim.players.values()].some((p) => p.bot) || sim.players.size === 0);
+	assert.equal(sim.rules.endsAt, 0);
+});
+
+check('without a lobby the clock is the round’s, as before', () => {
+	const game = gameOf(undefined);
+	const sim = roomOf(undefined);
+	sim.join('a', { character: 'salmon' });
+	assert.equal(sim.rules.phase, 'running');
+	const seconds = game.online.rules.round.seconds;
+	assert.equal(sim.rules.endsAt, seconds ? sim.steps + seconds * game.online.tickHz : 0);
 });
 
 check('enough people start the countdown; round 1 starts when it ends', () => {
@@ -283,6 +364,51 @@ check("Salmons ships its lobby: the export's config, the screens and the flow", 
 	assert.ok(SALMONS_SEED_DOC.variables.some((v) => v.id === 'phase' && v.server === 'phase'));
 });
 
+check('the lobby’s clock is drawn in place of the seconds every published layout has', () => {
+	const countdown = salmonsReferenceLayout(river).scenes.find(
+		(scene) => scene.id === SALMONS_SCREENS.countdown,
+	);
+	const seconds = countdown.nodes.find((node) => node.id === SALMONS_SCREEN_ART.clock);
+	assert.equal(SALMONS_SCREEN_ART.clock, 'sm-countdown-seconds', 'the published node’s id');
+	assert.equal(seconds?.params?.source, 'var:secondsLeft', 'the plain number until the art is in');
+	assert.equal(SALMONS_CLOCK_URGENT, 10, 'red and pulsing for the last 10 seconds');
+	const screens = readFileSync(
+		join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/screens.ts'),
+		'utf8',
+	);
+	assert.match(screens, /\[SALMONS_SCREEN_ART\.clock, clock\.mount\]/);
+	assert.match(screens, /seconds !== undefined && seconds <= SALMONS_CLOCK_URGENT/);
+	// The device shows the room's seconds (the flow's `secondsLeft`) only while the room waits.
+	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
+	assert.match(
+		online,
+		/screens\.clock\(\s*waiting\s*\? serverValuesOf\(state, current\.room\.sessionId, current\.game\.online\.tickHz\)\s*\.secondsLeft\s*: undefined,\s*\);/,
+	);
+});
+
+check('the win screen joins the next game by itself only for a person who played the round', () => {
+	const win = readFileSync(
+		join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/winAnimation.ts'),
+		'utf8',
+	);
+	assert.match(win, /export const NEXT_GAME_SECONDS = 10;/);
+	// At 0 it does what the button does; a hidden page, or the screen taken away, stops it.
+	assert.match(win, /if \(count === 'running' && leftMs <= 0\) press\(\);/);
+	assert.match(win, /const button = pixelButton\(labelOf\(won\), press\);/);
+	assert.match(
+		win,
+		/if \(count === 'running' && \(!onScreen\(root\) \|\| !pageShown\(\)\)\) count = 'stopped';/,
+	);
+	assert.match(win, /count = next\?\.count \? \(pageShown\(\) \? 'pending' : 'stopped'\) : 'off';/);
+	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
+	assert.match(online, /won: event\.winner === me,\s*count: current\.played,/);
+	assert.match(online, /else if \(event\.type === 'roundStart'\) current\.played = false;/);
+	assert.match(
+		online,
+		/\(input\.moveX \|\| input\.moveY \|\| input\.buttons \|\| input\.respawn\) &&\s*stateOf\(current\.room\)\.phase === 'running'\s*\)\s*current\.played = true;/,
+	);
+});
+
 check('a new room’s lobby has no form: its note shows the room, who waits and the classes', () => {
 	const art = (file) =>
 		readFileSync(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt', file), 'utf8');
@@ -305,7 +431,13 @@ check('a new room’s lobby has no form: its note shows the room, who waits and 
 	assert.match(screens, /const full = label\(NO_PLACE, 12, 0xffaaaa\);/);
 	assert.match(note, /row\.view\.scale\.set\(fit\);/, 'the row fits a phone');
 	assert.match(note, /const fit = fitTo\(w, row\.width\);/);
-	assert.match(screens, /Math\.min\(1, \(w - 2 \* LOBBY\.margin\) \/ width\)/);
+	assert.match(screens, /Math\.max\(0\.01, \(w - 2 \* LOBBY\.margin\) \/ Math\.max\(width, 1\)\)/);
+	assert.match(
+		screens,
+		/const fitTo = \(w: number, width: number\) => Math\.min\(1, room\(w, width\)\);/,
+	);
+	assert.match(note, /room\(w, river\.getLocalBounds\(\)\.width\)/, 'the river line fits a phone');
+	assert.match(note, /you\.scale\.set\(fitTo\(w, you\.getLocalBounds\(\)\.width\)\);/);
 	for (const form of [/createElement/, /rejoin/, /<input|Join River/, /pixelButton\('/])
 		assert.doesNotMatch(note, form, `the lobby's note has ${form}`);
 	assert.match(
@@ -1097,6 +1229,14 @@ try {
 			assert.equal(a.room.state.phase, 'waiting');
 			assert.equal(a.room.state.picking, true, 'the state says so');
 			assert.equal(a.me().character, 'salmon');
+			const hz = sim.game.online.tickHz;
+			const fullClock = LIVE_LOBBY.maxWaitSeconds + LIVE_LOBBY.countdownSeconds;
+			await until('the clock in the state', () => a.room.state.endsAt > 0);
+			const waitSeconds = serverValuesOf(a.room.state, a.room.sessionId, hz).secondsLeft;
+			assert.ok(
+				waitSeconds <= fullClock && waitSeconds >= fullClock - 2,
+				`the state's clock runs to round 1 from the first person: ${waitSeconds} s`,
+			);
 			const pick = createRespawnAsk();
 			pick.press(PICK.fisherman);
 			const carried = await play(a, pick, () => pick.held() === null);
@@ -1132,6 +1272,12 @@ try {
 			const b = await joinRoom('lobby', 'salmon');
 			assert.equal(b.room.roomId, a.room.roomId);
 			assert.equal(b.room.state.picking, true, 'through the countdown');
+			await until(
+				'the clock cut to the countdown',
+				() =>
+					serverValuesOf(b.room.state, b.room.sessionId, hz).secondsLeft <=
+					LIVE_LOBBY.countdownSeconds,
+			);
 			await until('round 1', () => a.room.state.phase === 'running', 10000);
 			await until('the pick withdrawn', () => a.room.state.picking === false);
 			assert.equal(b.room.state.picking, false);

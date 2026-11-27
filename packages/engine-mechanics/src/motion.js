@@ -199,11 +199,13 @@ const gridCellFor = (bodies) => {
  * couple once. Ordered by the tag pair, then by the bodies' order. Above
  * `options.broadPhaseAbove` bodies (default {@link BROAD_PHASE_ABOVE}) the candidates come from a
  * uniform grid of `options.cellSize` px (default twice the largest body); the result is the same.
+ * Given `counts` (a profiler's), the candidate pairs it tests are added to `counts.pairs`.
  */
-export function overlaps(bodies, pairs, options = {}) {
+export function overlaps(bodies, pairs, options = {}, counts) {
 	const above = options.broadPhaseAbove ?? BROAD_PHASE_ABOVE;
 	const useGrid = bodies.length > above;
 	const candidates = candidatePairs(bodies, useGrid, options.cellSize ?? gridCellFor(bodies));
+	if (counts) counts.pairs += candidates.length;
 	const hits = [];
 	for (const [tagA, tagB] of pairs) {
 		for (const [i, j] of candidates) {

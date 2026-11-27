@@ -5,11 +5,13 @@ import {
 	LOADING_PHRASES,
 	LOADING_PHRASE_MS,
 	riverNameFor,
+	SALMONS_CLOCK_URGENT,
 	SALMONS_RESPAWN_CHARACTERS,
 	SALMONS_SCREEN_ART,
 } from '../referenceLayouts/salmonsScreens';
 import {
 	createWinAnimation,
+	onScreen,
 	PIXEL_FONT,
 	pixelButton,
 	type PixelButton,
@@ -21,7 +23,7 @@ import {
  * (`GuiltyForever/Salmon-` `client/src/components/*.svelte`, `client/style.css`), each in place of
  * its node on a screen the Flow shows (`referenceLayouts/salmonsScreens.ts`): the win animation,
  * the death screen (with what to respawn as, owner decision 4), the lobby's note (with what to
- * play as, owner 2026-11-25) and the loading phrases. The runtime says what each shows (`show`),
+ * play as, owner 2026-11-25), the lobby's clock and the loading phrases. The runtime says what each shows (`show`),
  * and does what their buttons ask through its {@link SalmonsScreenHost}: nothing here talks to the
  * room. The start menu is not one of them: it comes before the join, over the page
  * (`startMenu.ts`).
@@ -61,18 +63,14 @@ export type SalmonsScreens = {
 	/** The room refused the Respawn (the class picked is full): the death screen says so. */
 	refused: () => void;
 	lobby: (shown: LobbyShown | undefined) => void;
+	/** The whole seconds to round 1 on the lobby's clock, `undefined` when none runs. */
+	clock: (seconds: number | undefined) => void;
 	/** Whether a press at a point of the canvas is given to a button a screen offers over the game
 	 *  in play (the lobby's classes): that press is the screen's, not the game's. */
 	takes: (x: number, y: number) => boolean;
 	/** What each draws now (the probe's). */
 	drawn: () => Record<string, unknown>;
 	destroy: () => void;
-};
-
-/** Whether a container is drawn: it and every parent visible (its screen is shown). */
-const onScreen = (view: Container) => {
-	for (let at: Container | null = view; at; at = at.parent) if (!at.visible) return false;
-	return true;
 };
 
 /** A part drawn into the node's place with its own frame clock; `tick` gets ms and the canvas
@@ -287,15 +285,31 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
 }
 
 /** How a river list is asked for and shown (the start menu's, and the lobby's own river): how often,
- *  how long after no answer, how long an answer may take, how long a risen count pops, and the most
- *  rivers listed. */
-export const MENU = { pollMs: 3000, retryMs: 15000, timeoutMs: 5000, popMs: 400, rows: 5 };
+ *  how long after no answer, how long an answer may take, how long a risen count pops and how much
+ *  bigger it gets at the top of the pop, and the most rivers listed. */
+export const MENU = {
+	pollMs: 3000,
+	retryMs: 15000,
+	timeoutMs: 5000,
+	popMs: 400,
+	popGrow: 0.15,
+	rows: 5,
+};
+
+/** The river line's scale: at rest small enough that the whole pop stays inside the margins on a
+ *  narrow canvas (`room` is how many times the line fits there), and the pop on top of it. */
+export const riverLineScale = (room: number, pop: number) =>
+	Math.min(1, room / (1 + MENU.popGrow)) *
+	(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * MENU.popGrow : 1);
 
 /** A river list: the first {@link MENU.rows} of `sorted`, each named from its room id. */
 export const riverRows = (sorted: readonly RiverListing[]) =>
 	sorted
 		.slice(0, MENU.rows)
-		.map((r) => `${r.players} players in ${riverNameFor(r.roomId)} River`)
+		.map(
+			(r) =>
+				`${r.players} ${r.players === 1 ? 'player' : 'players'} in ${riverNameFor(r.roomId)} River`,
+		)
 		.join('\n');
 
 /** The lobby's note: where each line's middle sits from the canvas's (px), the row's top, how far
@@ -331,9 +345,13 @@ const noteLine = (fontSize: number, fill: number, text = '') =>
 const centreLine = (line: Text, x: number, y: number) =>
 	line.position.set(Math.round(x - line.width / 2), Math.round(y - line.height / 2));
 
+/** How many times `width` px fit between the note's margins on a canvas `w` px wide (never 0). */
+const room = (w: number, width: number) =>
+	Math.max(0.01, (w - 2 * LOBBY.margin) / Math.max(width, 1));
+
 /** The scale at which `width` px fit between the note's margins on a canvas `w` px wide: 1, or
- *  less on a canvas narrower than that (a phone, once the pixel font is shipped). */
-const fitTo = (w: number, width: number) => Math.min(1, (w - 2 * LOBBY.margin) / width);
+ *  less on a canvas narrower than that (a phone, with the pixel font). */
+const fitTo = (w: number, width: number) => Math.min(1, room(w, width));
 
 /**
  * The lobby's note, where a new room waits for its players, under the layout's own title: the
@@ -343,9 +361,9 @@ const fitTo = (w: number, width: number) => Math.min(1, (w - 2 * LOBBY.margin) /
  * While the room lets its people change that (`picking`: until round 1 starts), a row of the
  * classes under it, the one the ROOM has the device as lit: a press asks the room at once
  * (`onPick`), and the row follows what the room answers; a pick it refused (`refused`) says so
- * under the row, in the death screen's words, until the next press. The row and that line are
- * drawn smaller on a canvas narrower than they are. Nothing here leaves the room or types a name:
- * that was the start menu's, before the join (`startMenu.ts`).
+ * under the row, in the death screen's words, until the next press. The note's lines, the row and
+ * the refusal are drawn smaller on a canvas narrower than they are. Nothing here leaves the room or
+ * types a name: that was the start menu's, before the join (`startMenu.ts`).
  */
 function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character: string) => void) {
 	const root = new Container();
@@ -400,7 +418,8 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 		clock += dtMs;
 		root.visible = shown !== undefined;
 		const pop = (clock - popAt) / MENU.popMs;
-		river.scale.set(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1);
+		river.scale.set(riverLineScale(room(w, river.getLocalBounds().width), pop));
+		you.scale.set(fitTo(w, you.getLocalBounds().width));
 		centreLine(river, w / 2, h / 2 + LOBBY.riverY);
 		centreLine(you, w / 2, h / 2 + LOBBY.youY);
 		const picking = shown?.picking === true;
@@ -456,6 +475,75 @@ function createLobbyNote(rivers: SalmonsScreenHost['rivers'], onPick: (character
 	};
 }
 
+/** The lobby's clock: its middle under the canvas's (the published node's place), its size, and
+ *  in its last {@link SALMONS_CLOCK_URGENT} seconds its red, how much a new second grows it and
+ *  how fast that eases back, and how long of each second it is drawn faint. */
+const CLOCK = {
+	y: 250,
+	fontSize: 36,
+	fill: 0xffffff,
+	urgent: 0xff3333,
+	pulse: 0.45,
+	pulseMs: 450,
+	blinkFrom: 650,
+	faint: 0.45,
+};
+
+/**
+ * The lobby's clock (owner, 2026-11-26: "have the all countdown showing up, and just blink in red
+ * with a pulse the last 10 seconds"): the seconds the room says are left to round 1, still and
+ * white, then red, each new second growing it and easing back, drawn faint for the end of each.
+ * The second's beat is the number's own change (the room's clock), timed on the frames.
+ */
+function createLobbyClock() {
+	const root = new Container();
+	const number = noteLine(CLOCK.fontSize, CLOCK.fill);
+	number.anchor.set(0.5);
+	root.addChild(number);
+	let seconds: number | undefined;
+	let clock = 0;
+	let changedAt = 0;
+	const urgent = () => seconds !== undefined && seconds <= SALMONS_CLOCK_URGENT;
+	const part = screenPart(root, (dtMs, w, h) => {
+		clock += dtMs;
+		root.visible = seconds !== undefined;
+		if (seconds === undefined) return;
+		const age = clock - changedAt;
+		const beat = Math.max(0, 1 - age / CLOCK.pulseMs);
+		number.scale.set(urgent() ? 1 + CLOCK.pulse * beat * beat : 1);
+		number.alpha = urgent() && age >= CLOCK.blinkFrom ? CLOCK.faint : 1;
+		number.tint = urgent() ? CLOCK.urgent : CLOCK.fill;
+		// On whole px at its own size (an odd width centred by its anchor is drawn half a px off).
+		const width = number.width / number.scale.x;
+		const height = number.height / number.scale.y;
+		number.position.set(
+			Math.round(w / 2 - width / 2) + width / 2,
+			Math.round(h / 2 + CLOCK.y - height / 2) + height / 2,
+		);
+	});
+	return {
+		mount: part.mount,
+		show: (next: number | undefined) => {
+			const now = next !== undefined && next > 0 ? next : undefined;
+			if (now === seconds) return;
+			seconds = now;
+			changedAt = clock;
+			if (now !== undefined) number.text = String(now);
+		},
+		drawn: () => ({
+			seconds: seconds ?? null,
+			urgent: urgent(),
+			shown: seconds !== undefined && onScreen(root),
+			scale: Math.round(number.scale.x * 100) / 100,
+			tint: number.tint,
+		}),
+		destroy: () => {
+			part.stop();
+			root.destroy({ children: true });
+		},
+	};
+}
+
 /** The loading screen's phrase (`LoadingScreen.svelte`): a new one every 1.6 s, faded over 0.25 s. */
 function createLoadingPhrases() {
 	const root = new Container();
@@ -497,6 +585,7 @@ export function createSalmonsScreens(
 	const won = createWinAnimation(fish, () => host.rejoin());
 	const caught = createCaughtScreen(host.respawn);
 	const lobby = createLobbyNote(host.rivers, host.pick);
+	const clock = createLobbyClock();
 	const phrases = createLoadingPhrases();
 	return {
 		mounts: new Map([
@@ -504,22 +593,26 @@ export function createSalmonsScreens(
 			[SALMONS_SCREEN_ART.caught, caught.mount],
 			[SALMONS_SCREEN_ART.lobby, lobby.mount],
 			[SALMONS_SCREEN_ART.phrases, phrases.mount],
+			[SALMONS_SCREEN_ART.clock, clock.mount],
 		]),
 		won: won.show,
 		caught: caught.show,
 		refused: caught.refused,
 		lobby: lobby.show,
+		clock: clock.show,
 		takes: lobby.takes,
 		drawn: () => ({
 			won: won.drawn(),
 			caught: caught.drawn(),
 			lobby: lobby.drawn(),
+			clock: clock.drawn(),
 			phrases: phrases.drawn(),
 		}),
 		destroy: () => {
 			won.destroy();
 			caught.destroy();
 			lobby.destroy();
+			clock.destroy();
 			phrases.destroy();
 		},
 	};

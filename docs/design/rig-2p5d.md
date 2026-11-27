@@ -398,6 +398,27 @@ draw-order key with every moved slot's offset (well-formed: every slot once; the
 open item 20 cannot arise). Measured: an arm wobbling ±3 units across the torso's depth goes behind
 and comes back once each way; without the hysteresis it swaps 29 times.
 
+**As built for captures (2026-11-26, the owner's "a lot of clipping … that we can't control").**
+Reproduced on a sheet-made Half body rig and a synthetic performer (`capture-draw-order.mjs`): 6 rig
+units is under 1 cm of a performer at the template's scale (280 units of shoulders), and the torso,
+head and upper arms are flat cards at depth 0, so a hand 2–3 cm behind the body's mid-plane (a
+tracker's ordinary depth noise on relaxed arms) dropped behind the torso and everything in front of
+it, and a 3° lean put one forearm over the whole other arm for the rest of the clip. Not a mesh seam:
+a sheet's parts are rigid on their bones; the pops were the draw order.
+- **The body has depth.** `rig3d.json` `thick` (half a slot's depth, rig units): a unit is read at
+  its slots' mean depth minus their largest `thick` — its back face — so only what lies behind the
+  body passes under it; an arm at its side stays over it. A capture import sets it for `torso`,
+  `body`, `pelvis`, `neck` and `head` at `BODY_DEPTH` shares of the rig's shoulder width (0.33 for a
+  torso: 24 cm deep on 36 cm shoulders), where the author has not.
+- **The hysteresis is the rig's scale.** A capture import sets `hysteresis` to `CAPTURE_HYSTERESIS`
+  (0.11) of the shoulder width — about 4 cm — where the author has not; 🧊's number box edits it.
+- **Locks** (`locks`: `[front, back]` slot pairs): after each step's bubble passes, each lock's
+  front unit is moved just over its back one, so the depth order keeps the author's pairs.
+- **The switch** (`depthOrder: false`, 🧊 "↕ as keyed"): the bake keys no draw order
+  (`Bake2p5d.ordered`), `withBake` leaves the clip's own, and the save's edit check leaves draw order
+  out of `bakedParts` (with the setting the clip was baked under), so the author keys it — by dragging
+  a slot in Animate, which keys the draw order at the playhead on any clip it may.
+
 ### 4.6 Weighted meshes and constraints
 
 Linear-blend skinning commutes with an orthographic projection (both are linear), and each influence's

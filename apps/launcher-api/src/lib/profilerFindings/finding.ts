@@ -5,9 +5,17 @@
  */
 
 import type { PerfReportListItem } from '../profiler';
-import type { EffectiveBudget } from '../profilerBudgets';
+import { MIN_PHASE_FRAMES, type EffectiveBudget } from '../profilerBudgets';
 import { readingOnBuild, type PerfBuildListItem } from '../profilerBuilds';
-import type { BuildFacts, ReportFacts } from './facts';
+import type {
+	ArcadeFacts,
+	ArcadePhaseFact,
+	ArcadeWorkKey,
+	BuildFacts,
+	MeanMax,
+	ReportFacts,
+} from './facts';
+import type { NetworkFacts } from '../profilerNetwork';
 
 export const FINDING_RULES = [
 	'fpsBelowBudget',
@@ -18,6 +26,15 @@ export const FINDING_RULES = [
 	'unusedBytes',
 	'optimizeOff',
 	'regression',
+	'simCatchUp',
+	'spawnChurn',
+	'bodyCost',
+	'patchStutter',
+	'heavyTransfer',
+	'uncompressedText',
+	'notCached',
+	'firstFrame',
+	'netTraffic',
 ] as const;
 export type FindingRule = (typeof FINDING_RULES)[number];
 
@@ -30,6 +47,15 @@ export const RULE_TITLES: Record<FindingRule, string> = {
 	unusedBytes: 'Unused bytes',
 	optimizeOff: 'Optimize off',
 	regression: 'Regression',
+	simCatchUp: 'Sim catch-up',
+	spawnChurn: 'Spawn churn',
+	bodyCost: 'Cost per body',
+	patchStutter: 'Patch / jitter stutter',
+	heavyTransfer: 'Heavy downloads',
+	uncompressedText: 'Uncompressed text',
+	notCached: 'Downloaded again',
+	firstFrame: 'Before the first frame',
+	netTraffic: 'Slow or heavy messages',
 };
 
 /** `high`: a budget fails; `medium`: a warn, or a cost worth cutting; `low`: worth knowing. */
@@ -77,10 +103,14 @@ export interface Finding {
 	gameKey: string | null;
 }
 
-/** `docs/knowledge/owners.json`'s two maps, as the rules read them. */
+/**
+ * `docs/knowledge/owners.json`'s maps, as the rules read them: tools, game kinds, and the areas no
+ * tool owns (`assets`, `delivery` — caching and compression —, `rgs`, `gameServer`).
+ */
 export interface OwnerMap {
 	tools: Record<string, string[]>;
 	kinds: Record<string, string[]>;
+	areas?: Record<string, string[]>;
 }
 
 export interface FindingContext {
@@ -102,6 +132,11 @@ export const agent = (id: string): FindingOwner => ({ kind: 'agent', id, label: 
 /** The first agent owners.json names for a tool, else the fallback agent. */
 export function toolOwner(owners: OwnerMap, toolId: string, fallback: string): FindingOwner {
 	return agent(owners.tools[toolId]?.[0] ?? fallback);
+}
+
+/** The first agent owners.json names for an area no tool owns, else the fallback agent. */
+export function areaOwner(owners: OwnerMap, area: string, fallback: string): FindingOwner {
+	return agent(owners.areas?.[area]?.[0] ?? fallback);
 }
 
 /** The game kind's build agent (owners.json `kinds`); the engine's agent for a kind it lacks. */
@@ -288,4 +323,61 @@ export function factsOf(ctx: FindingContext, r: PerfReportListItem): ReportFacts
 export function buildFactsOf(ctx: FindingContext, b: PerfBuildListItem): BuildFacts | null {
 	const f = ctx.buildFacts.get(b.id);
 	return f && !f.missing ? f : null;
+}
+
+/** An arcade reading in play, with what its sim and room did. */
+export interface ArcadePlay {
+	r: PerfReportListItem;
+	arcade: ArcadeFacts;
+	play: ArcadePhaseFact;
+}
+
+/**
+ * What the arcade rules judge: per game and device, the as-shipped arcade readings of the current
+ * build with at least {@link MIN_PHASE_FRAMES} play frames and their arcade facts. Never a lab run.
+ */
+export function arcadePlayGroups(ctx: FindingContext): Map<string, ArcadePlay[]> {
+	const plays = currentReadings(fpsReadings(ctx.readings), ctx.builds).flatMap(
+		(r): ArcadePlay[] => {
+			const arcade = factsOf(ctx, r)?.arcade;
+			if (!arcade?.play || r.phaseSet !== 'arcade' || Object.keys(r.flags).length) return [];
+			return (r.play?.frames ?? 0) >= MIN_PHASE_FRAMES ? [{ r, arcade, play: arcade.play }] : [];
+		},
+	);
+	return groupBy(plays, (x) => `${x.r.gameKey ?? ''}|${deviceOf(x.r)}`);
+}
+
+/** The median over a group of one work key's per-frame mean; null when no reading reports it. */
+export const workMean = (group: readonly ArcadePlay[], key: ArcadeWorkKey): number | null =>
+	median(group.map((x) => x.play.work[key]?.mean).filter((v): v is number => v !== undefined));
+
+/** The largest per-frame value of one work key over a group; null when no reading reports it. */
+export function workMax(group: readonly ArcadePlay[], key: ArcadeWorkKey): number | null {
+	const maxes = group
+		.map((x) => x.play.work[key])
+		.filter((v): v is MeanMax => !!v)
+		.map((v) => v.max);
+	return maxes.length ? Math.max(...maxes) : null;
+}
+
+/** A `perf: 9` reading's network facts, when they were filled. */
+export const networkOf = (ctx: FindingContext, r: PerfReportListItem): NetworkFacts | null =>
+	factsOf(ctx, r)?.network ?? null;
+
+/**
+ * What the network rules judge: per game, the readings of its current build (`currentReadings`)
+ * that carry network facts, newest first. Sizes are not timing, so a lab run counts unless the rule
+ * says otherwise (`lab: false`: a fresh headless browser has no cache and a runner's network).
+ */
+export function networkReadings(
+	ctx: FindingContext,
+	opts: { lab?: boolean } = {},
+): { r: PerfReportListItem; net: NetworkFacts }[] {
+	const pool = opts.lab === false ? fpsReadings(ctx.readings) : ctx.readings;
+	return currentReadings(pool, ctx.builds)
+		.flatMap((r) => {
+			const net = networkOf(ctx, r);
+			return net ? [{ r, net }] : [];
+		})
+		.sort((a, b) => b.r.capturedAt.localeCompare(a.r.capturedAt));
 }

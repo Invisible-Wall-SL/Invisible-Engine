@@ -17,6 +17,16 @@
 // sockets alive are read: reported, not judged. Sockets that grow by one a switch are old
 // sessions still held.
 //
+// THE NEXT GAME BY ITSELF (owner, 2026-11-26: "it should starts automatically"): `jo` played each
+// round (keys), so its win screen counts "Next game in N" from 10 over the button, clear of the
+// title and the button; switches 1 and 2 are a click while it counts (the count goes, the button
+// reads "Joining…" at once), and switch 3 is no click at all: the page joins the next game when
+// the count reaches 0. In a room of two (`salmons-pair`, a lobby that waits for both), `ida`
+// joins first and never touches the game, and `al` (a 390 × 844 portrait window) wins: ida's
+// screen counts nothing and is still in its room long after 10 s; al's counts, and its page is
+// hidden while it does: the count stops, the page stays past 10 s hidden and after it is shown
+// again, and only its button then joins it, at once; ida's button joins it at once too.
+//
 // Page `fay` plays four switches that fail, one after the other: a join the server refuses (the
 // page's matchmaking request is refused), a join that never answers (the win screen's button must
 // read "Joining…" meanwhile), something thrown in the swap itself, and art that does not load for
@@ -99,7 +109,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const work = mkdtempSync(join(tmpdir(), 'salmons-rejoin-play-'));
 
 const KEY = 'salmons';
+/** A game whose lobby waits for two people (the idle page and the winner share a room). */
+const PAIR_GAME = 'salmons-pair';
 const COUNTDOWN_SECONDS = 5;
+/** How long the win screen counts before it joins by itself (`salmonsArt/winAnimation.ts`). */
+const NEXT_GAME_SECONDS = 10;
 const river = salmonsMapRiver(SALMONS_MAP_SEED);
 const authored = salmonsConfig(river);
 authored.arcade.online.netcode = opt.netcode;
@@ -132,6 +146,13 @@ writeFileSync(join(snapshot, 'runtime.json'), JSON.stringify(bundle));
 const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
+const pair = structuredClone(config);
+pair.arcade.online.rules.lobby = {
+	minPlayers: 2,
+	maxWaitSeconds: 600,
+	countdownSeconds: COUNTDOWN_SECONDS,
+};
+writeFileSync(join(configs, `${PAIR_GAME}.json`), JSON.stringify(pair));
 
 const tree = testServerTree(join(work, 'tree'), resolve(opt.runtime), KEY, {
 	protocol: 'freePlay',
@@ -157,6 +178,7 @@ await rooms.listen(roomsPort);
 
 /** Each document counts itself, so a page that loaded again says so. Until the document goes,
  *  `__ptRefuseJoins` refuses the page's matchmaking requests, `__ptStallJoins` never answers them,
+ *  `__ptSlowJoins` sends them that many ms late (so what the win screen shows meanwhile is read),
  *  and `__ptFailArt` fails the art's load (its first step waits on a list of the project's sheets,
  *  none here: an empty `Promise.all`). */
 const HOOK = `(() => {
@@ -171,6 +193,8 @@ const HOOK = `(() => {
 		if (!url.includes('/matchmake/')) return fetch(input, init);
 		if (window.__ptRefuseJoins) return Promise.reject(new TypeError('Failed to fetch'));
 		if (window.__ptStallJoins) return new Promise(() => {});
+		if (window.__ptSlowJoins)
+			return new Promise((r) => setTimeout(r, window.__ptSlowJoins)).then(() => fetch(input, init));
 		net.push(['matchmake', Date.now()]);
 		return fetch(input, init).finally(() => net.push(['seat', Date.now()]));
 	};
@@ -427,20 +451,75 @@ async function win(game) {
 	};
 }
 
-/** Click the win screen's button and step the page until it is another session's, or gives up. */
+/** The texts drawn on a page's stage now (each visible, with every parent). */
+const textsOn = (page) =>
+	page.evaluate(`(() => {
+		const texts = [];
+		const walk = (node) => {
+			if (!node.visible) return;
+			if (typeof node.text === 'string' && node.text) texts.push(node.text);
+			for (const child of node.children ?? []) walk(child);
+		};
+		if (globalThis.__PIXI_APP__) walk(globalThis.__PIXI_APP__.stage);
+		return texts;
+	})()`);
+/** Whether a page's stage shows the win screen joining: "Joining…" and no "Next game in". */
+const joiningOn = (texts) =>
+	!!texts?.includes('Joining…') && !texts.some((text) => text.startsWith('Next game in'));
+
+/** How late a join is sent while the win screen is watched, ms. */
+const SLOW_JOIN_MS = 1500;
+
+/**
+ * Click the win screen's button (none: let its count run out) and step the page until it is
+ * another session's, or gives up. `pressed` is the texts the page draws a frame after the click;
+ * `counted` the seconds "Next game in" showed, in order, until the page joined.
+ */
 async function joinNew(game, was, button) {
-	await clickCanvas(game.page, button);
+	await game.page.evaluate(`window.__ptSlowJoins = ${SLOW_JOIN_MS}`);
+	let pressed;
+	if (button) {
+		await clickCanvas(game.page, button);
+		await game.play([{ op: 'step', frames: 1 }]);
+		pressed = await textsOn(game.page);
+	}
+	const counted = [];
+	let joining = false;
 	let now = {};
-	for (let i = 0; i < 120 && !(now.me && now.me !== was.me); i++) {
+	for (let i = 0; i < 400 && !(now.me && now.me !== was.me); i++) {
 		await game.play([{ op: 'step', frames: 6 }]).catch(() => {});
 		await wait(50);
 		now = await game.online().catch(() => ({}));
+		const screen = now.me === was.me ? now.screens?.won : undefined;
+		if (typeof screen?.next === 'number' && counted.at(-1) !== screen.next)
+			counted.push(screen.next);
+		// From the press the page is in no room (the probe has no session) until the new one.
+		if (!now.me && (await textsOn(game.page).catch(() => [])).includes('Joining…')) joining = true;
 	}
-	return now;
+	await game.page.evaluate('window.__ptSlowJoins = 0').catch(() => {});
+	return { now, pressed, counted, joining };
 }
 
-/** One game won on page `jo` and the room after it: the verdicts of switch `n`. */
-async function switchVerdicts(game, n) {
+/** Whether two boxes on the canvas overlap. */
+const overlap = (a, b) =>
+	!!a && !!b && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+/** Whether the win screen's "Next game in" is drawn inside a `w` × `h` canvas, clear of its title,
+ *  subtitle and button. */
+const countClear = (screen, w, h) => {
+	const { next, title, subtitle, button } = screen?.boxes ?? {};
+	return (
+		!!next &&
+		next.x >= 0 &&
+		next.y >= 0 &&
+		next.x + next.w <= w &&
+		next.y + next.h <= h &&
+		![title, subtitle, button].some((box) => overlap(next, box))
+	);
+};
+
+/** One game won on page `jo` and the room after it: the verdicts of switch `n`, left by a click
+ *  on the button, or by the win screen's count (`auto`). */
+async function switchVerdicts(game, n, auto) {
 	const tag = `switch ${n}`;
 	const { before, room: oldRoom, won, pass, screen } = await win(game);
 	verdict(
@@ -449,9 +528,40 @@ async function switchVerdicts(game, n) {
 		{ won, pass, screen },
 	);
 	if (!screen?.button) return;
+	verdict(
+		`${tag}: it played the round, so “Next game in N” counts from ${NEXT_GAME_SECONDS} over the button, inside the window and clear of the title and the button`,
+		screen.count === 'running' &&
+			screen.next <= NEXT_GAME_SECONDS &&
+			screen.next >= NEXT_GAME_SECONDS - 3 &&
+			countClear(screen, 1280, 720),
+		{ count: screen.count, next: screen.next, boxes: screen.boxes },
+	);
+	if (n === 1) writeFileSync(join(out, 'win-count-landscape.png'), await game.page.screenshot());
 	await game.page.evaluate(`window.__ptMark = ${n}`);
 	const docsBefore = (await documentOf(game.page)).docs;
-	const joined = await joinNew(game, before, screen.button);
+	const {
+		now: joined,
+		pressed,
+		counted,
+		joining,
+	} = await joinNew(game, before, auto ? undefined : screen.button);
+	if (auto)
+		verdict(
+			`${tag}: no click: the count runs down to 1, the button reads “Joining…” and the page joins the next game by itself`,
+			counted.length >= NEXT_GAME_SECONDS - 3 &&
+				counted.every((s, i) => i === 0 || s === counted[i - 1] - 1) &&
+				counted.at(-1) === 1 &&
+				joining &&
+				!!joined.me &&
+				joined.me !== before.me,
+			{ counted, joining, me: [before.me, joined.me] },
+		);
+	else
+		verdict(
+			`${tag}: the click joins at once while it counts: the button reads “Joining…” the next frame and the count is gone`,
+			joiningOn(pressed) && counted.length === 0 && !!joined.me && joined.me !== before.me,
+			{ pressed, counted },
+		);
 	const shownAtOnce = await shownOn(game.page);
 	// The swap is made between two frames: the next one is the first the new room is drawn in.
 	await game.play([{ op: 'step', frames: 1 }]);
@@ -506,7 +616,7 @@ async function switchVerdicts(game, n) {
 		`${tag}: the lobby's note says who the page plays, in a river of one`,
 		note?.shown === true &&
 			note.you === 'You are Jo, a Salmon' &&
-			/^1 players in .+ River$/.test(note.river ?? '') &&
+			/^1 player in .+ River$/.test(note.river ?? '') &&
 			drawn.screens.won?.shown === false,
 		{ note, won: drawn.screens?.won },
 	);
@@ -627,6 +737,118 @@ const WIN_BUTTON = `(() => {
 	if (app) walk(app.stage);
 	return JSON.stringify(at);
 })()`;
+
+/** Hide a page from the game's view (`document.visibilityState`, and its event), or show it. */
+const hidePage = (page, hidden) =>
+	page.evaluate(`(() => {
+		if (${hidden}) Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+		else delete document.visibilityState;
+		document.dispatchEvent(new Event('visibilitychange'));
+		return document.visibilityState;
+	})()`);
+
+/**
+ * Pages `ida` (never touches the game) and `al` (portrait, plays and wins) in one room: an idle
+ * device's win screen counts nothing, and a hidden page's count stops for good; both buttons
+ * still join at once.
+ */
+async function idleAndHidden() {
+	const ida = await ready(await open('ida', { rooms_name: 'Ida', rooms_game: PAIR_GAME }));
+	const idaIn = await ida.when((o) => !!o.me && o.phase === 'waiting', 120);
+	const al = await ready(await open('al', { rooms_name: 'Al', rooms_game: PAIR_GAME }));
+	await al.page.page('Emulation.setDeviceMetricsOverride', {
+		width: 390,
+		height: 844,
+		deviceScaleFactor: 1,
+		mobile: false,
+	});
+	const alWon = await win(al);
+	const idaRoom = idaIn.me ? await roomWith(idaIn.me) : undefined;
+	verdict(
+		'ida and al play one room; al wins it',
+		!!idaRoom && idaRoom === alWon.room && alWon.won?.winner === alWon.before.me,
+		{ rooms: [idaRoom?.roomId, alWon.room?.roomId], won: alWon.won },
+	);
+	const alScreen = alWon.screen;
+	writeFileSync(join(out, 'win-count-portrait.png'), await al.page.screenshot());
+	verdict(
+		'al played (portrait): its count runs over the button, inside the window and clear of the title and the button',
+		alScreen?.count === 'running' &&
+			alScreen.next <= NEXT_GAME_SECONDS &&
+			countClear(alScreen, 390, 844),
+		{ count: alScreen?.count, next: alScreen?.next, boxes: alScreen?.boxes },
+	);
+	await ida.when((o) => !!o.screens?.won?.button, 120);
+	writeFileSync(join(out, 'win-idle.png'), await ida.page.screenshot());
+	const hidden = await hidePage(al.page, true);
+	await al.settle(400);
+	const alHidden = (await al.online()).screens?.won;
+	// Well past the count's 10 s on both pages' frames (a frame is 1/60 s under the probe), no
+	// faster than the clock: a page's inputs follow its frames, and a room disconnects a device
+	// that sends more than twice its tick rate in a second.
+	const frames = (NEXT_GAME_SECONDS + 4) * 60;
+	for (let f = 0; f < frames; f += 6) {
+		await ida.play([{ op: 'step', frames: 6 }]);
+		await al.play([{ op: 'step', frames: 6 }]);
+		await wait(100);
+	}
+	const idaLater = await ida.online();
+	const alLater = await al.online();
+	const idaScreen = idaLater.screens?.won;
+	verdict(
+		`ida never touched the game: its screen (“${idaScreen?.title}”) counts nothing, and ${NEXT_GAME_SECONDS + 4} s on it waits in its room with “Start New Session”`,
+		idaIn.played === false &&
+			idaLater.played === false &&
+			idaScreen?.count === 'off' &&
+			idaScreen.next === null &&
+			!idaScreen.boxes?.next &&
+			idaScreen.label === 'Start New Session' &&
+			idaLater.me === idaIn.me,
+		{ played: [idaIn.played, idaLater.played], screen: idaScreen, me: [idaIn.me, idaLater.me] },
+	);
+	verdict(
+		`al's page hidden while it counts: the count stops, and ${NEXT_GAME_SECONDS + 4} s on it is still in its room, its button “Join New Game”`,
+		hidden === 'hidden' &&
+			alHidden?.count === 'stopped' &&
+			alHidden.next === null &&
+			alLater.screens?.won?.count === 'stopped' &&
+			alLater.screens.won.label === 'Join New Game' &&
+			alLater.me === alWon.before.me,
+		{ hidden, at: alHidden, later: alLater.screens?.won, me: [alWon.before.me, alLater.me] },
+	);
+	await hidePage(al.page, false);
+	await al.settle(4000);
+	const alShown = await al.online();
+	verdict(
+		'…shown again, it does not join by surprise: still in its room, nothing counting',
+		alShown.me === alWon.before.me &&
+			alShown.screens?.won?.count === 'stopped' &&
+			alShown.screens.won.next === null &&
+			alShown.screens.won.label === 'Join New Game',
+		{
+			screen: alShown.screens?.won,
+			me: alShown.me,
+			docs: (await documentOf(al.page)).docs,
+			console: al.page.consoleLines.slice(-8),
+		},
+	);
+	for (const [name, game, was] of [
+		['al', al, alWon.before],
+		['ida', ida, idaIn],
+	]) {
+		const button = (await game.online()).screens?.won?.button;
+		const { now, pressed } = await joinNew(game, was, button);
+		const room = now.me ? await roomWith(now.me) : undefined;
+		verdict(
+			`${name}'s button still joins at once: “Joining…”, then another room's lobby`,
+			joiningOn(pressed) && !!now.me && now.me !== was.me && !!room && room !== alWon.room,
+			{ pressed, me: [was.me, now.me], room: room?.roomId },
+		);
+		const errors = await game.page.evaluate('window.__AR_ERRORS__');
+		verdict(`page ${name}: no page error`, errors.length === 0, errors);
+		await game.page.close();
+	}
+}
 
 /** Page `tim` on the real clock: how long each of `rounds` switches takes, as a player sees it. */
 async function timing(rounds) {
@@ -757,7 +979,7 @@ try {
 		const start = await heldBy(jo.page);
 		const switches = [];
 		for (let n = 1; n <= 3; n++) {
-			const made = await switchVerdicts(jo, n);
+			const made = await switchVerdicts(jo, n, n === 3);
 			if (!made) break;
 			switches.push(made);
 		}
@@ -769,6 +991,8 @@ try {
 		const joErrors = await jo.page.evaluate('window.__AR_ERRORS__');
 		verdict('page jo: no page error', joErrors.length === 0, joErrors);
 		await jo.page.close();
+
+		await idleAndHidden();
 
 		// Switches that fail. The page's launch names no character, so only a kept join spares it
 		// the start menu: its first boot finds one seeded, each later one the join a failed switch

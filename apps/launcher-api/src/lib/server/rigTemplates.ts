@@ -70,6 +70,8 @@ export interface RigTemplateBone {
 	length?: number;
 	scaleX?: number;
 	scaleY?: number;
+	/** Made only when a slot made rides it or a bone made hangs from it (a jointed mouth's teeth). */
+	optional?: true;
 }
 
 export interface RigTemplateSlot {
@@ -80,6 +82,8 @@ export interface RigTemplateSlot {
 	blend?: 'normal' | 'additive' | 'multiply' | 'screen';
 	/** `rrggbbaa`, as the rig format writes it. */
 	color?: string;
+	/** Made only when the art draws in it: a rig without it is the rig it was before it was added. */
+	optional?: true;
 }
 
 /** Where a part sits on its bone; none = centred on the bone, unturned. */
@@ -3302,6 +3306,8 @@ function bodyDepthProblem(
 /** Every joint and region a part is skinned across, those their shares are split across too. */
 const skinList = (list: readonly RigSkin[]): RigSkin[] =>
 	list.flatMap((j) => [j, ...skinList(j.then ?? [])]);
+/** The bones a joint or region hands its share to: its own, or the four it splits it across. */
+const skinTo = (j: RigSkin): readonly string[] => (isSpot(j) && j.split ? j.split : [j.bone]);
 
 /** Why a bending part could not be built, or null. */
 function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
@@ -3339,7 +3345,7 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 				reached.add(c.bones[k]);
 			}
 		}
-		const skinned = new Set(skinList(bend.skin ?? []).map((j) => j.bone));
+		const skinned = new Set(skinList(bend.skin ?? []).flatMap(skinTo));
 		if (bend.bones.some((b, i) => i > 0 && !reached.has(i) && !skinned.has(b.bone)))
 			return 'leaves a bone on no branch';
 	}
@@ -3360,8 +3366,9 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 	}
 	const above0 = (v: number) => v > 0 && v < Infinity;
 	for (const j of skinList(bend.skin ?? [])) {
-		if (j.bone === bend.bones[0].bone || !used.has(j.bone))
-			return `is skinned across a joint to "${j.bone}", not one of its other bones`;
+		for (const to of skinTo(j))
+			if (to === bend.bones[0].bone || !used.has(to))
+				return `is skinned across a joint to "${to}", not one of its other bones`;
 		const placed = [...j.at, ...j.dir].every(Number.isFinite) && Math.hypot(...j.dir) > 0;
 		if (isSpot(j)) {
 			if (
@@ -3605,6 +3612,8 @@ export interface TemplateRegion {
 export interface TemplateArt {
 	region: string;
 	matrix: Affine;
+	/** Made, but its slot starts empty: a jointed mouth's part beside mouth shapes, which win. */
+	hidden?: true;
 }
 
 export interface TemplateRig {
@@ -3626,6 +3635,21 @@ export function templateFitProblem(t: RigTemplate, fit: RigFit): string | null {
 	if (named) return named;
 	const fitted = rigTemplateProblem(fitTemplate(t, fit));
 	return fitted ? `the fitted template breaks: ${fitted}` : null;
+}
+
+/**
+ * Template `t` as a rig drawing in the slots `drawnIn` has it: an optional slot only when it is drawn
+ * in, an optional bone only when a slot made rides it or a bone made hangs from it, so a rig drawing
+ * none of them is the rig it was before they were added (a jointed mouth's lips, teeth and tongue).
+ */
+export function templateMade(t: RigTemplate, drawnIn: ReadonlySet<string>): RigTemplate {
+	const slots = t.slots.filter((s) => !s.optional || drawnIn.has(s.name));
+	const used = new Set([
+		...slots.map((s) => s.bone),
+		...t.bones.filter((b) => !b.optional).map((b) => b.name),
+	]);
+	for (const b of [...t.bones].reverse()) if (used.has(b.name) && b.parent) used.add(b.parent);
+	return { ...t, bones: t.bones.filter((b) => used.has(b.name)), slots };
 }
 
 /**
@@ -3652,15 +3676,20 @@ export function templateRig(
 		const bad = rigFitProblem(t, fit);
 		if (bad) throw new Error(`The fit does not fit rig template "${t.id}": ${bad}`);
 	}
-	const ft = fit ? fitTemplate(t, fit) : t;
-	const problem = rigTemplateProblem(ft);
+	const fitted = fit ? fitTemplate(t, fit) : t;
+	const problem = rigTemplateProblem(fitted);
 	if (problem) throw new Error(`Rig template "${t.id}" is broken: ${problem}`);
 	const byName = new Map(regions.map((r) => [r.name, r]));
+	const regionOf = (p: RigTemplatePart) =>
+		art ? (art[p.name] ? byName.get(art[p.name].region) : undefined) : byName.get(p.name);
+	// Dropped before anything is weighted: weighted vertices name bones by index.
+	const ft = templateMade(
+		fitted,
+		new Set(fitted.parts.filter((p) => regionOf(p)).map((p) => p.slot)),
+	);
 	const world = boneWorld(ft.bones);
 	// A skinned part is bound in the frame's pose (its setup's turns are the template's, not the art's).
 	const bind = frameWorld(ft.bones, fit?.frame);
-	const regionOf = (p: RigTemplatePart) =>
-		art ? (art[p.name] ? byName.get(art[p.name].region) : undefined) : byName.get(p.name);
 	const covered = new Set(ft.parts.filter((p) => regionOf(p)).flatMap((p) => p.bend?.covers ?? []));
 	const attachments: Record<string, Record<string, Record<string, unknown>>> = {};
 	const missing: string[] = [];
@@ -3688,6 +3717,7 @@ export function templateRig(
 					height: h,
 				};
 	}
+	const hidden = (s: RigTemplateSlot) => s.setup !== undefined && art?.[s.setup]?.hidden;
 	const skeleton = {
 		irig: IRIG_VERSION,
 		skeleton: {},
@@ -3700,7 +3730,9 @@ export function templateRig(
 			name: s.name,
 			bone: s.bone,
 			...(s.color !== undefined && s.color !== 'ffffffff' ? { color: s.color } : {}),
-			...(s.setup !== undefined && attachments[s.name]?.[s.setup] ? { attachment: s.setup } : {}),
+			...(s.setup !== undefined && attachments[s.name]?.[s.setup] && !hidden(s)
+				? { attachment: s.setup }
+				: {}),
 			...(s.blend !== undefined && s.blend !== 'normal' ? { blend: s.blend } : {}),
 		})),
 		skins: [{ name: 'default', attachments }],
@@ -3788,6 +3820,8 @@ export interface RigTemplateSummary {
 	 * `bone`: the bone that slot is on (what a prop worn on it hangs from).
 	 */
 	parts: { name: string; required: boolean; slot: string; bone: string }[];
+	/** The slots, back to front (🗺 From my sheet's Layers list starts from them). */
+	slots: string[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
 	/** The skeleton and the motion map, for the motion import's solve. */
@@ -3811,6 +3845,7 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 			slot: p.slot,
 			bone: t.slots.find((s) => s.name === p.slot)?.bone ?? '',
 		})),
+		slots: t.slots.map((s) => s.name),
 		channels: t.channels,
 		clips: t.clips,
 		bones: t.bones,

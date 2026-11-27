@@ -113,6 +113,12 @@ export interface Rig3dDoc {
 	tolerance?: number;
 	floor?: number;
 	hysteresis?: number;
+	/** False: the bake keys no draw order, and each 3D clip keeps the one it has (keyed by hand). */
+	depthOrder?: boolean;
+	/** Slot pairs the bake's draw order keeps [front, back] whatever the depths say. */
+	locks?: [string, string][];
+	/** Half a slot's depth, rig units (a torso's, a head's): see `Slot3d.thick`. */
+	thick?: Record<string, number>;
 	/** Fixed once set (§11.2): the art and every clip's drawing keys depend on it. */
 	turnaround?: Turnaround;
 	bones?: Record<string, Rig3dBone>;
@@ -207,6 +213,9 @@ const SIDECAR = obj(
 		tolerance: num(0, true),
 		floor: num(0),
 		hysteresis: num(0),
+		depthOrder: bool,
+		locks: list(pair(name)),
+		thick: map(num(0)),
 		turnaround: lit('side', 'full'),
 		bones: map(obj({ depth: num(), follow: name })),
 		views: map(
@@ -528,6 +537,8 @@ export function rigOf(irig: Json, doc: Rig3dDoc): Rig3d {
 		const slot: Slot3d = { name: n, bone: str(s.bone) ?? '' };
 		const layer = layerOf.get(n);
 		if (layer !== undefined) slot.layer = layer;
+		const thick = doc.thick?.[n];
+		if (thick !== undefined) slot.thick = thick;
 		const attachment = str(s.attachment);
 		if (attachment !== undefined) slot.attachment = attachment;
 		const view = doc.views?.[n];
@@ -570,6 +581,8 @@ export function rigOf(irig: Json, doc: Rig3dDoc): Rig3d {
 	if (doc.tolerance !== undefined) rig.tolerance = doc.tolerance;
 	if (doc.floor !== undefined) rig.floor = doc.floor;
 	if (doc.hysteresis !== undefined) rig.hysteresis = doc.hysteresis;
+	if (doc.depthOrder === false) rig.depthOrder = false;
+	if (doc.locks?.length) rig.locks = doc.locks.map(([a, b]): [string, string] => [a, b]);
 	if (doc.turnaround !== undefined) rig.turnaround = doc.turnaround;
 	return rig;
 }
@@ -767,7 +780,7 @@ export function withBake(
 	irig: Json,
 	name: string,
 	plan: Pick<ClipPlan, 'owned' | 'slots'>,
-	bake: Pick<Bake2p5d, 'animation' | 'setup'>,
+	bake: Pick<Bake2p5d, 'animation' | 'setup' | 'ordered'>,
 	followers: string[],
 ): Json {
 	const out = structuredClone(irig);
@@ -780,9 +793,11 @@ export function withBake(
 		else delete bones[b];
 	}
 	if (!Object.keys(bones).length) delete anim.bones;
-	delete anim.draworder;
-	if (bake.animation.drawOrder?.length) anim.drawOrder = bake.animation.drawOrder;
-	else delete anim.drawOrder;
+	if (bake.ordered) {
+		delete anim.draworder;
+		if (bake.animation.drawOrder?.length) anim.drawOrder = bake.animation.drawOrder;
+		else delete anim.drawOrder;
+	}
 	const slots = isObj(anim.slots) ? anim.slots : (anim.slots = {});
 	for (const s of plan.slots) {
 		const own = isObj(slots[s]) ? slots[s] : (slots[s] = {});
@@ -855,13 +870,14 @@ const normalBone = (t: unknown): Json | null => {
 
 /**
  * The parts of clip `name` a bake owns (`scope`), as one comparable value: its bones' timelines, its
- * draw order, its drawing slots' attachment keys and its followers' setup, with omitted key values
- * filled as the Rigger fills them on load — so a rig opened and saved unchanged compares equal.
+ * draw order (unless `scope.order` is false: the rig's depth order is off, so the author keys it),
+ * its drawing slots' attachment keys and its followers' setup, with omitted key values filled as the
+ * Rigger fills them on load — so a rig opened and saved unchanged compares equal.
  */
 export function bakedParts(
 	irig: Json,
 	name: string,
-	scope: { bones: string[]; slots: string[] },
+	scope: { bones: string[]; slots: string[]; order?: boolean },
 	followers: string[],
 ): Json {
 	const anim = animationOf(irig, name);
@@ -888,7 +904,7 @@ export function bakedParts(
 	return {
 		clip: anim !== undefined,
 		bones,
-		drawOrder: normalKeys(anim?.drawOrder ?? anim?.draworder),
+		...(scope.order === false ? {} : { drawOrder: normalKeys(anim?.drawOrder ?? anim?.draworder) }),
 		slots,
 		setup,
 	};

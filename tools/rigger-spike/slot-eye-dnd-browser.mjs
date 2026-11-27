@@ -17,7 +17,10 @@
 //     pointer, as ONE undo step, writing what ↑ ↓ write (draw-order keys kept); the list scrolls near
 //     its edge; a press without a move selects; Esc cancels;
 //   - the pen tip (CDP touch) and the pen as a mouse drag a row as the mouse does;
-//   - Ctrl+] / Ctrl+[ move the selection one place, with Shift to the front / back (Setup only).
+//   - Ctrl+] / Ctrl+[ move the selection one place, with Shift to the front / back (Setup only);
+//   - in Animate a drag on ⋮⋮ keys the draw order at the playhead (one undo step, the setup untouched);
+//     a 3D clip only with its rig's depth order off (↕ as keyed), else it keys nothing and says why;
+//     ↕, the hysteresis and 🔒 locks in 🧊 3D write the rig's 3D data.
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -483,6 +486,60 @@ async function suite(quiet) {
 		ok('in Animate the keys reorder nothing', same(await T('names()'), a0));
 		await setMode('setup');
 	});
+
+	await step('11. Animate: ⋮⋮ keys the draw order at the playhead; a 3D clip only with ↕ as keyed; ↕ and 🔒 in 🧊 3D', async () => {
+		await setMode('animate');
+		await evaluate('animTime = 0.25; syncPlayhead(); renderSlotList(); true');
+		await frames(2);
+		const anim = await evaluate('curAnim');
+		const atT = () => evaluate('resolveDrawOrder(animTime).map((i) => skeletonData.slots[i].name)');
+		const keyCount = () => evaluate('(rawDoc.animations[curAnim].drawOrder || []).length');
+		const before = await atT();
+		const shown = await T('shown()');
+		const src = shown[6], under = shown[2];
+		const setup0 = await T('names()'), s0 = await T('steps()'), k0 = await keyCount();
+		await drag('mouse', ...(await pair(src, under)));
+		const rest = before.filter((n) => n !== src);
+		const want = [...rest.slice(0, rest.indexOf(under) + 1), src, ...rest.slice(rest.indexOf(under) + 1)];
+		const keyed = await atT();
+		ok('in Animate ⋮⋮ keys the draw order at the playhead: the slot just in front of the row it is dropped above', same(keyed, want), q({ src, under, at: keyed.indexOf(src), want: want.indexOf(src) }));
+		ok('…as one undo step, with a key at the playhead, the setup order untouched', (await T('steps()')) === s0 + 1 && (await evaluate('(rawDoc.animations[curAnim].drawOrder || []).some((k) => Math.abs(k.time - 0.25) < 1e-4)')) && same(await T('names()'), setup0), q({ steps: (await T('steps()')) - s0 }));
+		await evaluate('rigUndo(); true');
+		await frames(2);
+		// A 3D clip: its draw order is the bake's while the depth order is on.
+		await evaluate(`rig3d.doc = { rig3d: 1, rig: "W", clips: { ${q(anim)}: { bones: {} } } }; renderSlotList(); true`);
+		await frames(2);
+		const k3 = await keyCount();
+		await drag('mouse', ...(await pair(src, under)));
+		const hint = await evaluate('document.getElementById("hint").textContent');
+		ok('a 3D clip with the depth order on: the drag keys nothing and says why', (await keyCount()) === k3 && /comes from depth/.test(hint), hint);
+		await evaluate('rig3d.doc.depthOrder = false; true');
+		await drag('mouse', ...(await pair(src, under)));
+		ok('…with ↕ as keyed, the drag keys it', same(await atT(), want), q((await atT()).indexOf(src)));
+		await evaluate('rigUndo(); true');
+		// ↕ and 🔒 in 🧊 3D write the rig's 3D data.
+		const ctl = await evaluate(`(() => {
+			rig3d.doc = { rig3d: 1, rig: "W", clips: { ${q(anim)}: { bones: {} } } };
+			const [ord, hy] = rig3dOrderControls();
+			ord.value = "keyed"; ord.dispatchEvent(new Event("change"));
+			const off = rig3d.doc.depthOrder;
+			hy.value = "31"; hy.dispatchEvent(new Event("change"));
+			openOrderLocks();
+			const f = document.getElementById("orderLockFront"), b = document.getElementById("orderLockBack");
+			f.value = ${q(src)}; b.value = ${q(under)};
+			document.getElementById("orderLockAdd").click();
+			const locked = JSON.stringify(rig3d.doc.locks);
+			const rows = document.querySelectorAll("#orderLocks .orderLock").length;
+			document.querySelector("#orderLocks .orderLock button").click();
+			const after = rig3d.doc.locks;
+			closeCurveMenu();
+			return { off, hyst: rig3d.doc.hysteresis, locked, rows, after: after === undefined };
+		})()`);
+		ok('↕ as keyed turns the depth order off, the hysteresis is the rig’s, 🔒 ＋ locks a pair and ✕ unlocks it', ctl.off === false && ctl.hyst === 31 && ctl.locked === q([[src, under]]) && ctl.rows === 1 && ctl.after, q(ctl));
+		await evaluate('rig3d.doc = null; renderSlotList(); true');
+		await setMode('setup');
+		ok('nothing keyed stays: the clip’s draw order as it was', (await keyCount()) === k0, String(await keyCount()));
+	});
 	return { pass, fail };
 }
 
@@ -509,6 +566,13 @@ const MUTANTS = [
 	['a press on the grip drags at once', 'if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;', ''],
 	['Shift does not reach the front', '(fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1)', '(fwd ? 1 : -1)'],
 	['the keys reorder in Animate too', 'makeSlotFolder(); return; }\n  if (!editMode) return;', 'makeSlotFolder(); return; }'],
+	['an Animate drag reorders the setup instead of keying', '    if (!editMode) return keySlotDrop(d);\n', ''],
+	['an Animate drag lands a place late', 'const at = under ? rest.indexOf(under.dataset.slot) + 1 : 0;', 'const at = under ? rest.indexOf(under.dataset.slot) + 2 : 0;'],
+	['no grip in Animate', 'else if (animMode && curAnim) row.appendChild(slotGrip(', 'else if (false) row.appendChild(slotGrip('],
+	['a 3D clip keyed by hand with its depth order on', 'if (clip3d(curAnim) && rig3d.doc.depthOrder !== false){', 'if (false){'],
+	['a 3D clip refused with its depth order off', 'if (clip3d(curAnim) && rig3d.doc.depthOrder !== false){', 'if (clip3d(curAnim)){'],
+	['↕ as keyed not written', 'if (ord.value === "keyed") rig3d.doc.depthOrder = false;', 'if (false) rig3d.doc.depthOrder = false;'],
+	['🔒 ＋ locks nothing', '    set([...locks, [f, k]]);', '    set(locks);'],
 ];
 
 let code;

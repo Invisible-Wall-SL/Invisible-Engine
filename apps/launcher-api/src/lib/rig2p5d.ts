@@ -149,6 +149,11 @@ export interface Slot3d {
 	 * A layer's slots are next to each other in the setup order.
 	 */
 	layer?: string;
+	/**
+	 * Half its depth, rig units (a torso's, a head's): what moves in the draw order against it is read
+	 * against its back face, so an arm at the body's side is never drawn behind it.
+	 */
+	thick?: number;
 }
 
 /** A constraint, as far as the bake cares: the bones whose world it writes, and its setup mix. */
@@ -271,6 +276,10 @@ export interface Rig3d {
 	tolerance?: number;
 	floor?: number;
 	hysteresis?: number;
+	/** False: the bake keys no draw order, so each clip keeps the one it has (`rig3d.json`). */
+	depthOrder?: boolean;
+	/** Slot pairs the draw order keeps [front, back] whatever the depths say (`rig3d.json`). */
+	locks?: [string, string][];
 	/** Required once a slot has drawings by angle. */
 	turnaround?: Turnaround;
 }
@@ -406,6 +415,8 @@ export interface Bake2p5d {
 	drawings: Record<string, DrawingKey[]>;
 	/** The slots' draw order at `t`, as keyed. */
 	orderAt: (t: number) => string[];
+	/** Whether it keys the clip's draw order (`Rig3d.depthOrder`): off, the clip keeps its own. */
+	ordered: boolean;
 }
 
 /** A 3D frame: a row-major 3×3 linear part and an origin. */
@@ -2718,7 +2729,10 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 	}
 
 	// Draw order: each card's centre depth on the dense grid; two cards swap only past the hysteresis.
-	// A layer moves as one card at its slots' mean depth, its slots in their setup order.
+	// A layer moves as one card at its slots' mean depth, its slots in their setup order. A thick card
+	// (a torso, a head) is read at its back face, so only what lies behind the body passes under it.
+	// A lock keeps its front slot over its back one whatever the depths say. With `depthOrder` off the
+	// bake keys none: the clip keeps its own.
 	const slotNames = rig.slots.map((s) => s.name);
 	const units: number[][] = [];
 	const unitOf = new Map<string, number[]>();
@@ -2736,15 +2750,44 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		const bw = frame(w, slot.bone);
 		return bw.m[6] * ((c.x0 + c.x1) / 2) + bw.o[2];
 	};
+	const unitAt = new Map<number, number>();
+	units.forEach((u, k) => u.forEach((i) => unitAt.set(i, k)));
+	const thick = units.map((u) => Math.max(0, ...u.map((i) => rig.slots[i].thick ?? 0)));
+	const locks = (rig.locks ?? [])
+		.map(([front, back]) => [
+			unitAt.get(slotNames.indexOf(front)),
+			unitAt.get(slotNames.indexOf(back)),
+		])
+		.filter(
+			(l): l is [number, number] => l[0] !== undefined && l[1] !== undefined && l[0] !== l[1],
+		);
+	/** `units` (an order of unit indices) with every lock's front unit after its back one. */
+	const locked = (at: number[]): number[] => {
+		const out = [...at];
+		for (let pass = 0; pass < locks.length; pass++) {
+			let moved = false;
+			for (const [front, back] of locks) {
+				const f = out.indexOf(front);
+				if (f > out.indexOf(back)) continue;
+				out.splice(f, 1);
+				out.splice(out.indexOf(back) + 1, 0, front);
+				moved = true;
+			}
+			if (!moved) break;
+		}
+		return out;
+	};
 	const orderKeys: DrawOrderKey[] = [];
 	const orderSched: { time: number; order: number[] }[] = [];
 	let order = slotNames.map((_, i) => i);
 	let unitOrder = units.map((_, i) => i);
-	for (let i = 0; i <= N; i += every) {
+	const ordered = rig.depthOrder !== false;
+	if (!ordered) orderSched.push({ time: 0, order: [...order] });
+	for (let i = 0; ordered && i <= N; i += every) {
 		// A card's depth is its bone's as the clip moves it, before any drawing is turned to face.
 		const w = world3d(rig, motion, grid[i]);
 		const zs = rig.slots.map((s) => depthOf(w, s));
-		const z = units.map((u) => u.reduce((sum, k) => sum + zs[k], 0) / u.length);
+		const z = units.map((u, k) => u.reduce((sum, j) => sum + zs[j], 0) / u.length - thick[k]);
 		const nextUnits = [...unitOrder];
 		for (let moved = true; moved;) {
 			moved = false;
@@ -2754,8 +2797,8 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 					moved = true;
 				}
 		}
-		unitOrder = nextUnits;
-		const next = nextUnits.flatMap((u) => units[u]);
+		unitOrder = locked(nextUnits);
+		const next = unitOrder.flatMap((u) => units[u]);
 		if (i === 0 || next.join() !== order.join()) {
 			order = next;
 			orderSched.push({ time: held(grid[i]), order: [...order] });
@@ -2880,6 +2923,7 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		baked,
 		report,
 		drawings,
+		ordered,
 		orderAt: (t: number) => {
 			let cur = orderSched[0].order;
 			for (const e of orderSched) if (e.time <= t) cur = e.order;

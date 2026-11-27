@@ -1092,6 +1092,7 @@ try {
 		config: GameConfigDoc,
 		gameType = 'lines',
 		pickSheets: { key: string; name: string }[] = [],
+		spines: { name: string; key: string; shared: boolean }[] = [],
 	) => {
 		const data = {
 			clientKey: 'c',
@@ -1109,7 +1110,7 @@ try {
 			serverGameKeys: [],
 			components: [],
 			pickSheets,
-			spines: [],
+			spines,
 			issues: [],
 		};
 		const { body } = render(page.default, { props: { data } } as never);
@@ -1637,6 +1638,98 @@ try {
 			/>\s*Scenery\s*</.test(renderPage(salmonsLike).body),
 		],
 		[true, true, 6, [true, true, true], false],
+	);
+
+	// Zone art's rig source: "Drawn with" offers Rig, greyed with why when the project has no rigs,
+	// and never on the Trees row; a family drawn with a rig shows the character sheet's rig picker,
+	// its animation and Loop, and the frame and clip rows render as before. 318 sandbanks drawn as
+	// a rig are warned of.
+	const RIGS = [
+		{ name: 'R_Rock', key: 'c/p/spines/R_Rock/', shared: false },
+		{ name: 'R_Moss', key: '_shared/spines/R_Moss/', shared: true },
+	];
+	const rowOf = (body: string, chip: string) =>
+		new RegExp(
+			`<tr[^>]*>\\s*<td[^>]*><span class="chip[^"]*"[^>]*>${chip.replace(/[#×]/g, '.')}[^<]*<\\/span>([\\s\\S]*?)<\\/tr>`,
+		).exec(body)?.[1] ?? '';
+	const rigOption = (row: string) =>
+		/<option value="rig"([^>]*)>Rig<\/option>/.exec(row)?.[1] ?? '';
+	const plainRig = structuredClone(salmonsLike);
+	plainRig.arcade!.zones = [
+		{ id: 'rock1', x: 0, y: 0, w: 10, h: 10 },
+		{ id: 'reef1', x: 0, y: 0, w: 10, h: 10 },
+		{ id: 'pond', x: 0, y: 0, w: 10, h: 10 },
+	];
+	delete plainRig.arcade!.online;
+	plainRig.arcade!.zoneArt = {
+		'rock#': {
+			source: { kind: 'rig', rig: 'R_Rock', animation: 'idle', loop: false },
+			placement: 'stamp',
+		},
+		'reef#': { source: { kind: 'sprite', region: `${props}::rock_1` }, placement: 'stamp' },
+		pond: { source: { kind: 'flipbook', clip: 'pond_ripple' }, placement: 'stamp' },
+	};
+	const noRigs = renderPage(plainRig).body;
+	const withRigs = renderPage(plainRig, 'lines', [], RIGS).body;
+	const rigRow = rowOf(withRigs, 'rock# ×');
+	same(
+		'3. Zone art: Rig is offered, greyed with why when the project has no rigs',
+		[
+			rigOption(rowOf(noRigs, 'reef# ×')),
+			rigOption(rowOf(withRigs, 'reef# ×')),
+			rigOption(rowOf(withRigs, 'pond ×')),
+		],
+		[' disabled="" title="This project has no rigs yet"', ' title=""', ' title=""'],
+	);
+	same(
+		'3. Zone art: a family drawn with a rig shows its rig (the sheets’ picker), its animation and Loop',
+		[
+			/<option value="rig"[^>]*selected=""[^>]*>Rig</.test(rigRow),
+			/<select data-rig-select="true" aria-label="Rig">[\s\S]*?<option value="R_Rock" selected="">R_Rock<\/option>\s*<option value="R_Moss">R_Moss \(shared\)<\/option>/.test(
+				rigRow,
+			),
+			/<select aria-label="Animation"[^>]*>(?:\s|<!--[^>]*-->)*<option value="idle" selected="">idle<\/option>/.test(
+				rigRow,
+			),
+			/<input type="checkbox"[^>]*\/>Loop/.test(rigRow) && !/checked=""[^>]*\/>Loop/.test(rigRow),
+			/<option value="R_Rock" selected="">R_Rock \(not in this project\)/.test(
+				rowOf(noRigs, 'rock# ×'),
+			),
+		],
+		[true, true, true, true, true],
+	);
+	same(
+		'3. Zone art: the frame and clip rows render as before',
+		[
+			/<option value="sprite"[^>]*selected=""[^>]*>Sheet frame</.test(rowOf(withRigs, 'reef# ×')),
+			rowOf(withRigs, 'reef# ×').includes('region-picker'),
+			/<select aria-label="Clip"/.test(rowOf(withRigs, 'pond ×')),
+			/aria-label="Animation"|data-rig-select/.test(
+				rowOf(withRigs, 'reef# ×') + rowOf(withRigs, 'pond ×'),
+			),
+		],
+		[true, true, true, false],
+	);
+	const salmonsRigs = structuredClone(salmonsBare);
+	salmonsRigs.arcade!.zoneArt = {
+		'sandbank#': { source: { kind: 'rig', rig: 'R_Rock', animation: 'idle' }, placement: 'stamp' },
+	};
+	const salmonsRigPage = renderPage(
+		salmonsRigs,
+		'lines',
+		[{ key: props, name: 'salmons_props' }],
+		RIGS,
+	).body;
+	same(
+		'3. Zone art: the Trees row never offers Rig (as many rigs are too heavy); 318 rig sandbanks are warned of',
+		[
+			rigOption(treesRow(salmonsRigPage)).startsWith(' disabled="" title="Trees cannot be a rig'),
+			rigOption(rowOf(salmonsRigPage, 'rock# ×')),
+			/class="inline-issue warning crowd[^"]*">318 zones drawn as rigs/.test(
+				rowOf(salmonsRigPage, 'sandbank# ×'),
+			),
+		],
+		[true, ' title=""', true],
 	);
 
 	// A hand-built game keeps its tables, paged, with one list of zone ids for every rule's picker.
