@@ -45,10 +45,11 @@ Counters (draws, passes, created, uploads, socket bytes) are trustworthy. These 
 
 1. **The river is ~48k loose sprites, culled by walking all of them every moved frame**
    (`salmonsArt/river.ts` `cull` 1038–1071). Each `visible` flip rebuilds the render group's
-   instructions (`invalidations` = 1 every frame); the camera container is not a render group, so
-   its whole subtree is re-transformed and re-packed (35k vertices a frame). Nothing is chunked,
-   pooled or cached. Every client builds the river from the seed (correct — no per-player copy), but
-   it is rebuilt on every `{#key}` re-mount.
+   draw list (measured in T4: the scene's was rebuilt every frame; the probe's `invalidations` = 1
+   is not this — it counts `invalidateFramebuffer`, the back buffer's attachments once a frame);
+   the camera container is not a render group, so its whole subtree is re-transformed and
+   re-packed (35k vertices a frame). Nothing is chunked, pooled or cached. Every client builds the
+   river from the seed (correct — no per-player copy), but it is rebuilt on every `{#key}` re-mount.
 2. **One filter per body:** a `ColorMatrixFilter` per underwater salmon (`looks.ts` 220–235), a
    `WadeFilter` per wading bear (`wade.ts` 206), a gold filter, plus the full-screen displacement on
    the bed at resolution 2 + MSAA. On a tiler each is a store/load of the MSAA target — most of the
@@ -78,7 +79,7 @@ for the owner (§5).
 | T1 | **Probe accuracy** — busy p50/p95 vs budget, hidden/throttled frames excluded + reading marked, p95 per work counter, arcade `loading` / `lobby` / `play` / `spectate` phases, arcade room phase as spike state, `refreshHz` → achieved, per-layer draw / pass / node / culled sample, socket bytes per message code; launcher reads and shows them | `engine-pixi-svelte` + `launcher-studio` | `apps/lines/src/game/perf*.ts`, `arcadePerf.ts`, `PerfHud.svelte`, `pixi-svelte/glCounters.ts`, `launcher-api/src/lib/profiler*.ts` | `check-profiler*` pass; a slot reading unchanged; HUD shows busy / 16.7 ms |
 | T2 | **Salmons lab run** — arcade step in `lab-sequence` joining a room with N bots, a scripted 60 s input loop, pinned seed, keep `play` counts; the before/after harness for T4–T6 | `arcade-games` | `scripts/playtest/lab-sequence.mjs`, `lab-run.mjs`, `salmons-play.mjs` | a local lab reading of Salmons with non-empty `play` |
 | T3 | **Arcade boot diet + ladder** — family-aware `analyseStockAssets` / `stockSoundReach`; no coded slot `<Background>` / board for play-field and card mechanics; quality ladder `measuring` = arcade `play`, `quiet` = menu | `engine-pixi-svelte` | `stockAssets.ts`, `stockAssetRules.ts`, `stockSounds.ts`, `stockSoundRules.ts`, `Game.svelte` | slot games load the same files (fixtures); Salmons loads no slot stock; ladder history non-empty on a slow arcade run |
-| T4 | **River chunks** — ground in ~8×8-cell chunk containers, culled on chunk crossing; `turn` / `upright` / `cliffs` as render groups; keep the river across rounds and re-keys, build chunks lazily; spawn layer sorts only moved bodies; displacement sprite not rendered | `arcade-games` | `salmonsArt/river.ts`, `IsoWorld.svelte`, `SpawnLayer.svelte` | pixel-identical river (`check:salmons-art`, screenshots), no 48k-sprite frame, `invalidations` ≪ 1 / frame |
+| T4 | **River chunks** — ground in ~8×8-cell chunk containers, culled on chunk crossing; `turn` / `upright` / `cliffs` as render groups; keep the river across rounds and re-keys, build chunks lazily; spawn layer sorts only moved bodies; displacement sprite not rendered | `arcade-games` | `salmonsArt/river.ts`, `IsoWorld.svelte`, `SpawnLayer.svelte` | pixel-identical river (`check:salmons-art`, screenshots), no 48k-sprite frame, the ground's draw list rebuilt ≪ 1 / frame (not `invalidations`: see §3) |
 | T5 | **Filters into shaders** — the salmon's under-water tint in its MeshRope shader, the bear's waterline in its own, gold likewise; no per-body filter | `arcade-games` | `salmonsArt/looks.ts`, `wade.ts`, `SpawnLayer.svelte` (gold only) | side-by-side pixel match; filter passes in play ≤ 2 |
 | T6 | **Net client once per frame** — `onStateChange` records step + places only; bind / push / reconcile once per frame from the newest state; confirm input is one per fixed step (two reviews disagree) | `arcade-games` | `apps/lines/src/game/online.ts` (net half), `engine-mechanics/src/netcode.js` | `check:netcode`, `check:room-sim`, both online playtests pass; a forced stall runs one pass |
 

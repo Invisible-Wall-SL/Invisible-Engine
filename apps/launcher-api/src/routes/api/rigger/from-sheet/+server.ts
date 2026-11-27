@@ -9,6 +9,7 @@ import { requestSheet } from '$lib/server/riggerNewRig';
 import { bundlePrefixOf, liveArtKey } from '$lib/server/rigFrameSourceStore';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { parseSheetMapping, sheetRig } from '$lib/server/rigSheetFit';
+import { asMapped } from '$lib/server/rigSheetUpdate';
 import { RIG_TEMPLATE_SIDECAR } from '$lib/server/rigTemplates';
 import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
@@ -64,13 +65,19 @@ export const PUT: RequestHandler = async ({ request, locals, cookies }) => {
 			'application/json',
 			precondition(baseEtag),
 		);
-		const template = await rigTemplateForNewRig(mapping.template.id);
+		const whole = await rigTemplateForNewRig(mapping.template.id);
+		const template = whole && asMapped(whole, mapping);
 		const { regions } = template ? await loadRegionSet(mapping.manifestKey) : { regions: [] };
 		const made = template && regions.length ? sheetRig(template, regions, mapping) : null;
 		if (template && made?.ok)
 			await putObjectText(
 				`${bundlePrefixOf(target)}/${RIG_TEMPLATE_SIDECAR}`,
-				JSON.stringify({ id: template.id, version: template.version, fit: made.value.fit }),
+				JSON.stringify({
+					id: template.id,
+					version: template.version,
+					...(mapping.template.modules ? { modules: mapping.template.modules } : {}),
+					fit: made.value.fit,
+				}),
 				'application/json',
 			);
 		return json({ ok: true, etag });

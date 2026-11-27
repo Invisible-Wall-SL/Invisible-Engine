@@ -87,6 +87,14 @@ export interface MsStats {
 	max: number;
 }
 
+/** One kind of room message (`perf: 10`): how many, their bytes, the largest. */
+export interface SocketKindFact {
+	code: string;
+	messages: number;
+	bytes: number;
+	largest: number;
+}
+
 export interface SocketFacts {
 	seconds: number;
 	inMessages: number;
@@ -100,6 +108,11 @@ export interface SocketFacts {
 	inBytesPerSecond: number;
 	inMessagesPerSecond: number;
 	outBytesPerSecond: number;
+	/** `perf: 10`: bytes by kind of message, heaviest first, in and out (empty before it). */
+	inByKind: SocketKindFact[];
+	outByKind: SocketKindFact[];
+	/** `perf: 10`: fixed sim steps run while metered, and what went out and came in per step. */
+	perStep: { steps: number; outMessages: number; outBytes: number; inMessages: number } | null;
 }
 
 export interface RepeatFact {
@@ -218,14 +231,30 @@ export function redactTokens(text: string): string {
 const pathOnly = (v: unknown): string =>
 	redactTokens((str(v, 400) ?? '?').split(/[?#]/)[0]).slice(0, 200) || '/';
 
-const scrub = (v: unknown): unknown =>
+/** Any JSON value with every string in it, keys included, through {@link redactTokens}. */
+export const redactValue = (v: unknown): unknown =>
 	typeof v === 'string'
 		? redactTokens(v)
 		: Array.isArray(v)
-			? v.map(scrub)
+			? v.map(redactValue)
 			: isObj(v)
-				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), scrub(x)]))
+				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), redactValue(x)]))
 				: v;
+
+/** Each route not followed by its token segments already read `…`. */
+const UNREDACTED_ROUTE_RES = Object.entries(TOKEN_ROUTES).map(
+	([route, n]) => new RegExp(`${escapeRe(route)}/(?!${'…/'.repeat(n - 1)}…(?:[/"?#\\\\]|$))`, 'i'),
+);
+
+/**
+ * Whether a JSON text can hold a {@link TOKEN_ROUTES} token anywhere (any slash spelling, a JSON
+ * `/` escape, doubled slashes): a route whose segments are not all `…` yet. Linear, so a clean
+ * report, redacted or never carrying one, is not parsed.
+ */
+export function mayHoldToken(text: string): boolean {
+	const slashes = text.replace(/%2F|\\+u002f|\\+\//gi, '/').replace(/\/{2,}/g, '/');
+	return UNREDACTED_ROUTE_RES.some((re) => re.test(slashes));
+}
 
 /**
  * A report's text as the launcher keeps it in R2: every string in it, keys included, with its route
@@ -233,13 +262,14 @@ const scrub = (v: unknown): unknown =>
  * returned as it came (the summary refuses it).
  */
 export function redactReportText(text: string): string {
+	if (!mayHoldToken(text)) return text;
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
 	} catch {
 		return text;
 	}
-	const kept = JSON.stringify(scrub(json));
+	const kept = JSON.stringify(redactValue(json));
 	return kept === JSON.stringify(json) ? text : kept;
 }
 
@@ -278,6 +308,22 @@ function msStats(v: unknown): MsStats {
 	return { count: count(m.count), p50: count(m.p50), p95: count(m.p95), max: count(m.max) };
 }
 
+const KEEP_KINDS = 12;
+
+function kinds(v: unknown): SocketKindFact[] {
+	if (!Array.isArray(v)) return [];
+	return v
+		.filter(isObj)
+		.map((k) => ({
+			code: typeof k.code === 'string' ? k.code.slice(0, 40) : '?',
+			messages: count(k.messages),
+			bytes: count(k.bytes),
+			largest: count(k.largest),
+		}))
+		.sort((a, b) => b.bytes - a.bytes)
+		.slice(0, KEEP_KINDS);
+}
+
 function socket(v: unknown): SocketFacts | null {
 	if (!isObj(v)) return null;
 	const inn = isObj(v.in) ? v.in : {};
@@ -297,6 +343,16 @@ function socket(v: unknown): SocketFacts | null {
 		inBytesPerSecond: rate(per.inBytes),
 		inMessagesPerSecond: rate(per.inMessages),
 		outBytesPerSecond: rate(per.outBytes),
+		inByKind: kinds(isObj(v.byCode) ? v.byCode.in : undefined),
+		outByKind: kinds(isObj(v.byCode) ? v.byCode.out : undefined),
+		perStep: isObj(v.perStep)
+			? {
+					steps: count(v.perStep.steps),
+					outMessages: rate(v.perStep.outMessages),
+					outBytes: rate(v.perStep.outBytes),
+					inMessages: rate(v.perStep.inMessages),
+				}
+			: null,
 	};
 }
 

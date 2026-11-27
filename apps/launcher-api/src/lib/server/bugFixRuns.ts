@@ -45,6 +45,13 @@ import {
 } from '$lib/roles';
 import { getPipelineDiagnoseBudget, getPipelineFixBudget } from './appSettings';
 import {
+	issueResultUpload,
+	readUploadedResult,
+	resultPointer,
+	type ResultUpload,
+	type RunKind,
+} from './pipelineRunResultUpload';
+import {
 	actionsRunUrl,
 	cancelActionsRun,
 	cancelListedRun,
@@ -432,66 +439,97 @@ export interface FixRunJobDeps {
 	sleep?: (ms: number) => Promise<void>;
 }
 
-const JOB_WORKFLOW_SUFFIX = `/${FIX_RUN_WORKFLOW_PATH}@refs/heads/main`;
-
 const sameRepo = (v: unknown): boolean =>
 	typeof v === 'string' && v.toLowerCase() === repo().toLowerCase();
 
-/** `<repo>/.github/workflows/bug-fix.yml@refs/heads/main`, the repository's case aside. */
-const isFixWorkflowRef = (v: unknown): boolean =>
-	typeof v === 'string' &&
-	sameRepo(v.slice(0, repo().length)) &&
-	v.slice(repo().length) === JOB_WORKFLOW_SUFFIX;
+/** What a job's OIDC token must say beyond what `githubOidc` verifies, and how a refusal names it. */
+export interface JobTokenSpec {
+	audience: string;
+	/** The workflow file, from the repository root: the token's `workflow_ref` and `job_workflow_ref`. */
+	workflowPath: string;
+	environment: string;
+	/** "a fix run's": the refusals read "The token's <claim> is not <whose>." */
+	whose: string;
+	/** The 401 sentence for a call with no token. */
+	missing: string;
+}
+
+const FIX_RUN_TOKEN: JobTokenSpec = {
+	audience: FIX_RUN_AUDIENCE,
+	workflowPath: FIX_RUN_WORKFLOW_PATH,
+	environment: FIX_RUN_ENVIRONMENT,
+	whose: "a fix run's",
+	missing: 'A fix run calls with its GitHub OIDC token (Authorization: Bearer).',
+};
 
 /**
- * The claims a fix run's token must carry, beyond what `githubOidc` verifies. Each names the claim
- * it refuses: the log is public, but claim names are not secret. Both workflow refs are
- * `bug-fix.yml` on `main` (the caller's and the job's own); `actor` is the App's bot, so a run a
- * person dispatched by hand is refused; `run_attempt` is 1, as a person re-running the job keeps
- * the bot as `actor`; `environment` and `runner_environment` pin where the key lives.
+ * The claims a job's token must carry, beyond what `githubOidc` verifies. Each names the claim it
+ * refuses: the log is public, but claim names are not secret. Both workflow refs are the workflow on
+ * `main` (the caller's and the job's own), the repository's case aside; `actor` is the App's bot, so
+ * a run a person dispatched by hand is refused; `run_attempt` is 1, as a person re-running the job
+ * keeps the bot as `actor`; `environment` and `runner_environment` pin where the key lives.
  */
-const FIX_RUN_CLAIMS: [string, (v: unknown) => boolean][] = [
-	['repository', sameRepo],
-	['workflow_ref', isFixWorkflowRef],
-	['job_workflow_ref', isFixWorkflowRef],
-	['ref', (v) => v === 'refs/heads/main'],
-	['event_name', (v) => v === 'workflow_dispatch'],
-	['environment', (v) => v === FIX_RUN_ENVIRONMENT],
-	['run_attempt', (v) => v === '1'],
-	['runner_environment', (v) => v === 'github-hosted'],
-];
+function jobClaims(spec: JobTokenSpec): [string, (v: unknown) => boolean][] {
+	const suffix = `/${spec.workflowPath}@refs/heads/main`;
+	const isWorkflowRef = (v: unknown): boolean =>
+		typeof v === 'string' &&
+		sameRepo(v.slice(0, repo().length)) &&
+		v.slice(repo().length) === suffix;
+	return [
+		['repository', sameRepo],
+		['workflow_ref', isWorkflowRef],
+		['job_workflow_ref', isWorkflowRef],
+		['ref', (v) => v === 'refs/heads/main'],
+		['event_name', (v) => v === 'workflow_dispatch'],
+		['environment', (v) => v === spec.environment],
+		['run_attempt', (v) => v === '1'],
+		['runner_environment', (v) => v === 'github-hosted'],
+	];
+}
 
-const wrongClaim = (claim: string) => error(403, `The token's ${claim} is not a fix run's.`);
+export const wrongJobClaim = (spec: JobTokenSpec, claim: string) =>
+	error(403, `The token's ${claim} is not ${spec.whose}.`);
 
-async function verifiedClaims(
+/** The token's claims once it proves it is the job of `spec`'s workflow, dispatched by the App. */
+export async function verifiedJobClaims(
 	request: Request,
 	app: GithubApp,
 	oidc: GithubOidc,
+	spec: JobTokenSpec,
 ): Promise<GithubOidcClaims & { run_id: string }> {
 	const auth = /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '');
-	if (!auth) {
-		throw error(401, 'A fix run calls with its GitHub OIDC token (Authorization: Bearer).');
-	}
+	if (!auth) throw error(401, spec.missing);
 	let claims: GithubOidcClaims;
 	try {
-		claims = await oidc.verify(auth[1], FIX_RUN_AUDIENCE);
+		claims = await oidc.verify(auth[1], spec.audience);
 	} catch (err) {
 		if (err instanceof OidcError) throw error(err.status, err.message);
 		throw err;
 	}
-	for (const [claim, ok] of FIX_RUN_CLAIMS) if (!ok(claims[claim])) throw wrongClaim(claim);
+	for (const [claim, ok] of jobClaims(spec)) {
+		if (!ok(claims[claim])) throw wrongJobClaim(spec, claim);
+	}
 	let bot: string;
 	try {
 		bot = await fixRunBot(app);
 	} catch (err) {
 		throw error(503, err instanceof Error ? err.message : String(err));
 	}
-	if (claims.actor !== bot) throw wrongClaim('actor');
+	if (claims.actor !== bot) throw wrongJobClaim(spec, 'actor');
 	if (typeof claims.run_id !== 'string' || !/^\d{1,15}$/.test(claims.run_id)) {
-		throw wrongClaim('run_id');
+		throw wrongJobClaim(spec, 'run_id');
 	}
 	return { ...claims, run_id: claims.run_id };
 }
+
+const wrongClaim = (claim: string) => wrongJobClaim(FIX_RUN_TOKEN, claim);
+
+const verifiedClaims = (
+	request: Request,
+	app: GithubApp,
+	oidc: GithubOidc,
+): Promise<GithubOidcClaims & { run_id: string }> =>
+	verifiedJobClaims(request, app, oidc, FIX_RUN_TOKEN);
 
 const isWorkflowPath = (path: unknown): boolean =>
 	path === FIX_RUN_WORKFLOW_PATH ||
@@ -697,7 +735,7 @@ export async function acceptFixRunResult(
 	deps: FixRunJobDeps = {},
 ): Promise<FixRunResultAnswer> {
 	const run = await jobRun(request, id, deps);
-	const body = await readResultBody(request);
+	const body = await readResultBody(request, MAX_RESULT_BYTES, { kind: 'fix', id: run.id });
 	const spendUsd = await recordSpend(run.id, parseUsage(body.usage));
 	const result = parseResult(body, run.mode);
 	const claimed = await claimFixRunResult(run.id, new Date(Date.now() - CLAIM_STALE_MS));
@@ -727,16 +765,39 @@ export async function acceptFixRunResult(
 	};
 }
 
-async function readResultBody(request: Request): Promise<Record<string, unknown>> {
+/**
+ * The address a live run's job uploads a large result to (`POST …/result-upload`, ADR-0013 §4):
+ * the same token and run binding as the result, and only a live run gets one.
+ */
+export async function issueFixRunResultUpload(
+	request: Request,
+	id: string,
+	deps: FixRunJobDeps = {},
+): Promise<ResultUpload> {
+	const run = await jobRun(request, id, deps);
+	requireLive(run);
+	return issueResultUpload('fix', run.id, MAX_RESULT_BYTES);
+}
+
+/**
+ * The result's JSON object: plain, gzipped, or a pointer to the gzipped file the job put in R2
+ * (`upload`) — the last only for the run named in `uploaded`.
+ */
+export async function readResultBody(
+	request: Request,
+	maxBytes: number = MAX_RESULT_BYTES,
+	uploaded?: { kind: RunKind; id: string },
+): Promise<Record<string, unknown>> {
+	const mb = `${maxBytes / (1024 * 1024)} MB`;
 	const raw = Buffer.from(await request.arrayBuffer());
-	if (raw.length > MAX_RESULT_BYTES) throw error(413, 'A result is at most 8 MB.');
+	if (raw.length > maxBytes) throw error(413, `A result is at most ${mb}.`);
 	const encoding = (request.headers.get('content-encoding') ?? '').trim().toLowerCase();
 	let bytes: Buffer;
 	if (encoding === 'gzip') {
 		try {
-			bytes = gunzipSync(raw, { maxOutputLength: MAX_RESULT_BYTES });
+			bytes = gunzipSync(raw, { maxOutputLength: maxBytes });
 		} catch (err) {
-			if (err instanceof RangeError) throw error(413, 'A result unpacks to at most 8 MB.');
+			if (err instanceof RangeError) throw error(413, `A result unpacks to at most ${mb}.`);
 			throw error(400, 'The result is not gzip.');
 		}
 	} else if (encoding === '' || encoding === 'identity') {
@@ -744,6 +805,15 @@ async function readResultBody(request: Request): Promise<Record<string, unknown>
 	} else {
 		throw error(415, 'A result is JSON, plain or gzipped.');
 	}
+	let value = jsonObject(bytes);
+	const pointer = uploaded ? resultPointer(value) : null;
+	if (uploaded && pointer !== null) {
+		value = jsonObject(await readUploadedResult(uploaded.kind, uploaded.id, pointer, maxBytes));
+	}
+	return value;
+}
+
+function jsonObject(bytes: Buffer): Record<string, unknown> {
 	let value: unknown;
 	try {
 		value = JSON.parse(bytes.toString('utf8'));
@@ -755,12 +825,12 @@ async function readResultBody(request: Request): Promise<Record<string, unknown>
 }
 
 /** A 400 naming the field, in the launcher's words: never a value the result chose. */
-function bad(what: string): never {
+export function bad(what: string): never {
 	throw error(400, `The result's ${what}.`);
 }
 
 /** The usage per model, one entry per model (repeats are summed), whole non-negative counts. */
-function parseUsage(value: unknown): FixRunUsage[] {
+export function parseUsage(value: unknown): FixRunUsage[] {
 	if (!Array.isArray(value)) bad('usage is not a list');
 	if (value.length > MAX_MODELS) bad(`usage names more than ${MAX_MODELS} models`);
 	const byModel = new Map<string, FixRunUsage>();
@@ -797,7 +867,7 @@ function parseUsage(value: unknown): FixRunUsage[] {
  * dearest one priced, so the monthly ceiling errs high (money fails closed, ADR-0006) without
  * losing the result; its ledger row keeps the model's real name, which says it was unpriced.
  */
-function priceOf(u: FixRunUsage, pricing: DirectorPricing): number {
+export function priceOf(u: FixRunUsage, pricing: DirectorPricing): number {
 	const usage = {
 		input_tokens: u.inputTokens,
 		output_tokens: u.outputTokens,
@@ -822,7 +892,7 @@ async function recordSpend(id: string, usage: FixRunUsage[]): Promise<number> {
 }
 
 /** A text field, refused unread past {@link TEXT_SLACK} times what is kept of it. */
-function textOf(v: unknown, field: string, cap: number): string {
+export function textOf(v: unknown, field: string, cap: number): string {
 	if (v === undefined || v === null) return '';
 	if (typeof v !== 'string') return bad(`${field} is not text`);
 	if (v.length > cap * TEXT_SLACK) bad(`${field} is far longer than the launcher keeps`);

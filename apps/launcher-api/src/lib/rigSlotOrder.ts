@@ -40,6 +40,42 @@ export function inDrawOrder(slots: readonly string[], order: readonly string[]):
 	return slots.map((n) => (named.has(n) ? listed[next++] : n));
 }
 
+/** A draw-order key's whole order, by slot name, read as engine-rig reads its `offsets`. */
+export function drawOrderOf(slots: readonly string[], offsets: unknown): string[] {
+	if (!Array.isArray(offsets)) return [...slots];
+	const index = new Map(slots.map((s, i) => [s, i]));
+	const order = new Array<number>(slots.length).fill(-1);
+	const unchanged: number[] = [];
+	let original = 0;
+	for (const o of offsets) {
+		const rec = typeof o === 'object' && o !== null ? (o as Record<string, unknown>) : null;
+		const at = rec ? index.get(String(rec.slot)) : undefined;
+		if (rec === null || at === undefined || at < original || typeof rec.offset !== 'number')
+			continue;
+		while (original < at) unchanged.push(original++);
+		const to = original + rec.offset;
+		if (to >= 0 && to < slots.length && order[to] === -1) order[to] = original;
+		else unchanged.push(original);
+		original++;
+	}
+	while (original < slots.length) unchanged.push(original++);
+	let u = unchanged.length;
+	for (let i = slots.length - 1; i >= 0; i--) if (order[i] === -1) order[i] = unchanged[--u];
+	return order.map((i) => slots[i]);
+}
+
+/**
+ * A whole draw order (`order`, every slot of `slots` once) as a key's offsets over `slots`: each
+ * slot drawn away from its setup place, by how far.
+ */
+export function offsetsOf(
+	slots: readonly string[],
+	order: readonly string[],
+): { slot: string; offset: number }[] {
+	const at = new Map(order.map((n, i) => [n, i]));
+	return slots.flatMap((n, i) => (at.get(n) === i ? [] : [{ slot: n, offset: at.get(n)! - i }]));
+}
+
 /**
  * Each draw-order layer (slots that move in the draw order as one, `rig3d.layers`) cut to its slots
  * that are still together in `slots`: the longest run of them, the first on a tie. A slot the author

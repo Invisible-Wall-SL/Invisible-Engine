@@ -35,6 +35,7 @@ import { resolveGrid } from './grid';
 import { swapStyleUsesColumnStagger } from './reelBehaviour';
 import { configSectionsOf } from './familySections';
 import { validateFamily } from './familyValidate';
+import { validateServerSymbolNames } from './serverSymbolNames';
 
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
@@ -89,7 +90,10 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 				'A column alignment is set but every reel is the same height, so there is nothing to align. Give the reels different row counts for it to do anything.',
 		});
 	}
-	if (sections.has('symbols')) issues.push(...symbolIssues(doc, inPlay));
+	if (sections.has('symbols')) {
+		issues.push(...symbolIssues(doc, inPlay));
+		issues.push(...validateServerSymbolNames(doc));
+	}
 	if (sections.has('betModes')) issues.push(...betModeIssues(doc));
 	if (sections.has('winLevels')) issues.push(...winLevelIssues(doc));
 	if (sections.has('freeSpins')) issues.push(...validateFreeSpins(doc));

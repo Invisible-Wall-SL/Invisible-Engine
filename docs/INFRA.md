@@ -717,6 +717,13 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
     their Postgres row (`bug_report_screenshots`) to someone who may see the bug; no shipped asset
     class reads them. A purged project's game bugs take theirs with them. See
     [status/bug-reports](status/bug-reports.md).
+  - `_runs/fix/<id>/result.json.gz`, `_runs/merge/<id>/result.json.gz` — a fix run's or a merge run's
+    result too large for the launcher's 512 KB request limit (ADR-0013 §4, ADR-0015 §10; 2026-11-27).
+    The Actions job PUTs it to a 15-minute presigned URL from `POST /api/pipeline/{fix,merge}-runs/<id>/result-upload`;
+    the launcher reads it once, deletes it, and the once-a-minute backstop deletes a leftover when it
+    ends a run. **Lifetime: minutes.** **Owner action (optional, belt and braces):** a lifecycle rule
+    expiring the `_runs/` prefix after 1 day in the main bucket catches an object a stopped run left.
+    No new secret or env var: the launcher signs with its existing `R2_*` credentials.
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — rig assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
@@ -871,6 +878,15 @@ code default, so the dashboard need not set it):
   - **Caps:** the per-run budget is Admin › Settings `PIPELINE_FIX_BUDGET_USD` for a build run and
     `PIPELINE_DIAGNOSE_BUDGET_USD` (default $5) for a diagnose run (ADR-0014), passed to
     `--max-budget-usd`; 150 turns; step 4 times out at 60 minutes, the job at 75.
+  - **Resolve conflict runs (ADR-0015, card 15C)** share the `bug-fix` environment and
+    `ANTHROPIC_BUG_FIX_API_KEY`. Admin › Settings `PIPELINE_MERGE_MAIN_BUDGET_USD` (default $6) caps
+    one run; its spend is recorded in `director_spend` as `run_id` `merge:<id>`, agent `merge-main`,
+    and counts toward `PIPELINE_FIX_MONTHLY_USD`. `merge-main.yml` posts its result to
+    `POST /api/pipeline/merge-runs/<id>/result` with a GitHub OIDC token for the audience
+    `invisible-launcher-merge-main` (its `job_workflow_ref` is `merge-main.yml` on `main`,
+    environment `bug-fix`, dispatched by the App's bot, first attempt). The launcher shows no
+    Resolve button until GitHub has an active `merge-main.yml` on `main` (card 15B2). A run that
+    dies is settled by the fix runs' once-a-minute link sync: there is no new loop.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and

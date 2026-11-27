@@ -24,7 +24,7 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 
 /** The modules a mutant may be planted in. */
 const SHIPPED =
-	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigTemplateFit|rigTemplates|rig2p5d|rig3d|rig3dImport)\.ts$/;
+	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigRegionSlots|rigRename|rigTemplateFit|rigTemplates|rigTemplateBody|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
 let bundles = 0;
 /**
  * The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first; `page`
@@ -37,9 +37,14 @@ export async function load(mutate = []) {
 			contents: [
 				"export * from './server/rigSheetFit.ts';",
 				"export * from './server/rigSheetUpdate.ts';",
+				"export { changeModules, frameSourceOf, madeAttachments, madeParts, planModules, updateFrameRig } from './server/rigFrameUpdate.ts';",
+				"export { framePartsRequest, propPivots } from './server/rigFrameFit.ts';",
 				"export * from './rigSheetMap.ts';",
 				"export * from './server/rigTemplates.ts';",
+				"export * from './server/rigTemplateModules.ts';",
 				"export * from './server/rigTemplateFit.ts';",
+				"export { rigTemplateForSidecar } from './server/rigTemplateStore.ts';",
+				"export { resolveNewRigBody } from './server/riggerNewRig.ts';",
 				"export { solveMotion } from './rigMotion.ts';",
 				"export * as I from './rig3dImport.ts';",
 				"export * as R3 from './rig3d.ts';",
@@ -52,6 +57,10 @@ export async function load(mutate = []) {
 		format: 'esm',
 		platform: 'node',
 		outfile: out,
+		// What a bundled package requires of Node itself (the server modules' SDKs) at load.
+		banner: {
+			js: "import { createRequire as __nodeRequire } from 'node:module'; const require = __nodeRequire(import.meta.url);",
+		},
 		nodePaths: [join(APP, 'node_modules')],
 		logLevel: 'silent',
 		plugins: [
@@ -62,8 +71,25 @@ export async function load(mutate = []) {
 						path: 'env',
 						namespace: 'stub',
 					}));
+					// A native image library the server's art paths load: nothing here draws with it.
+					build.onResolve({ filter: /^sharp$/ }, () => ({ path: 'sharp', namespace: 'stub' }));
+					build.onLoad({ filter: /^sharp$/, namespace: 'stub' }, () => ({
+						contents: "export default () => { throw new Error('no sharp in the gate'); };",
+						loader: 'js',
+					}));
 					build.onLoad({ filter: /^env$/, namespace: 'stub' }, () => ({
 						contents: 'export const env = {};',
+						loader: 'js',
+					}));
+					// R2 is not here: every export of `server/r2.ts` throws if called (a built-in never reads it).
+					build.onLoad({ filter: /[\\/]server[\\/]r2\.ts$/ }, (args) => ({
+						contents: [
+							...readFileSync(args.path, 'utf8').matchAll(
+								/^export (?:async )?(?:function|const|class) (\w+)/gm,
+							),
+						]
+							.map((m) => `export const ${m[1]} = () => { throw new Error('no R2 in the gate'); };`)
+							.join('\n'),
 						loader: 'js',
 					}));
 					build.onLoad({ filter: SHIPPED }, (args) => {
@@ -88,6 +114,8 @@ export async function load(mutate = []) {
 	const mod = await import(pathToFileURL(out).href);
 	return {
 		...mod,
+		/** A function of the page's script as written there (a mutant swapped in), by name. */
+		pageSource: (name) => pageFn(name, page),
 		/** The page's functions `names` (and its consts `consts`), by name. */
 		page: (names, consts = []) =>
 			new Function(
@@ -107,7 +135,8 @@ const src = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/
 	.join('\n');
 /** A function of the page's script (`from`: the script, mutated), by name, as written there. */
 export const pageFn = (name, text = src) => {
-	const at = text.indexOf(`\nfunction ${name}(`);
+	const plain = text.indexOf(`\nfunction ${name}(`);
+	const at = plain === -1 ? text.indexOf(`\nasync function ${name}(`) : plain;
 	if (at === -1) throw new Error(`view.html has no function ${name}`);
 	let depth = 0;
 	let j = text.indexOf('{', at);
@@ -211,15 +240,17 @@ export const ATLAS =
  * its true joints (with its face found on the head when `face`), each feature by its middle, each
  * prop where the fixture wears it (a hood at the collar); `more` merged over it (a head turn).
  */
-export function ownerMapping(M, { face = false, more = {} } = {}) {
-	const t = M.HALF_BODY;
+export function ownerMapping(M, { face = false, more = {}, modules } = {}) {
+	const t = M.templateWithModules(M.HALF_BODY, modules);
 	const slotOf = (part) => t.parts.find((p) => p.name === part)?.slot ?? part;
 	const boneOfSlot = (slot) => t.slots.find((s) => s.name === slot).bone;
 	const sug = M.suggestSheet(
 		t.parts.map((p) => p.name),
 		REGIONS.map((r) => r.name),
 	);
-	if (sug.left.length) throw new Error(`the owner's sheet leaves ${sug.left.join(', ')}`);
+	// A module left out (no hands) leaves its drawings unmapped, as the dialog would.
+	if (sug.left.length && !modules)
+		throw new Error(`the owner's sheet leaves ${sug.left.join(', ')}`);
 	const truthOf = (region) =>
 		Object.values(TRUTH.parts).find((x) => owned(x.region) === region) ??
 		TRUTH.props.find((x) => owned(x.region) === region);
@@ -241,7 +272,7 @@ export function ownerMapping(M, { face = false, more = {} } = {}) {
 	return {
 		sheet: 1,
 		manifestKey: 'fixture/manifests/atlas_manifest_S_NellyAnimTest.json',
-		template: { id: t.id, version: t.version },
+		template: { id: t.id, version: t.version, ...(modules ? { modules } : {}) },
 		parts,
 		props,
 		...more,
@@ -251,12 +282,18 @@ export function ownerMapping(M, { face = false, more = {} } = {}) {
 /** The sheet's regions as the launcher reads them (names and sizes). */
 export const SIZED = REGIONS.map(({ name, w, h }) => ({ name, w, h }));
 
+/**
+ * The slot a rig made from a sheet draws template slot `role` in: its region's name (one slot per
+ * region, frame-to-rig §13.1h), read through the fit's role map.
+ */
+export const slotOf = (rig, role) => rig.sr.fit.slots?.[role] ?? role;
+
 /** What 🦴 Create rig makes of `mapping` (the owner's by default), and its fitted template. */
 export function ownerRig(M, opts = {}) {
-	const t = M.HALF_BODY;
 	const mapping = opts.mapping ?? ownerMapping(M, opts);
 	const parsed = M.parseSheetMapping(JSON.parse(JSON.stringify(mapping)));
 	if ('problem' in parsed) throw new Error(parsed.problem);
+	const t = M.asMapped(M.HALF_BODY, parsed.mapping);
 	const sr = M.sheetRig(t, SIZED, parsed.mapping);
 	if (!sr.ok) throw new Error(sr.problem);
 	const tpl = M.fitTemplate(t, sr.value.fit);
@@ -421,7 +458,7 @@ export async function runGate(name, guards, mutants) {
 	for (const [g, guard] of Object.entries(guards)) {
 		if (only && g !== only) continue;
 		const before = fails;
-		guard(M, ok, (line) => console.log(`  ${g}: ${line}`));
+		await guard(M, ok, (line) => console.log(`  ${g}: ${line}`));
 		console.log(`${fails === before ? 'ok  ' : 'FAIL'}  ${g}`);
 	}
 	let caught = 0;
@@ -435,7 +472,7 @@ export async function runGate(name, guards, mutants) {
 			quiet = true;
 			let red;
 			try {
-				red = !guards[g](Mm, ok, () => {});
+				red = !(await guards[g](Mm, ok, () => {}));
 			} catch {
 				red = true;
 			}

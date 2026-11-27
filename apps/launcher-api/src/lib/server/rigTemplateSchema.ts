@@ -27,6 +27,7 @@ const shapes = z
 		talk: z.array(name).max(64),
 		lipsync: z.record(z.string(), name).optional(),
 		pose: z.record(name, z.record(name, num)).optional(),
+		drawn: z.literal(true).optional(),
 	})
 	.strict();
 

@@ -489,7 +489,9 @@ const simulate = ({
 				device.others.push(p.id, state.step, at.x, at.y);
 				continue;
 			}
-			device.newest = { p, step: state.step };
+			// The runtime's room state is always the newest; a datagram can arrive after a later one.
+			if (!device.newest || state.step > device.newest.step)
+				device.newest = { p, step: state.step };
 			if (!perFrame) applyState(device);
 		}
 	};
@@ -1198,15 +1200,20 @@ await check(
 		const joining = body('enterRoom');
 		assert.ok(/onMessage\(ONLINE_EVENT[\s\S]*flowSignalsOf\([\s\S]*raise\(/.test(joining));
 		assert.ok(body('raise').includes('getFlowV2()?.dispatch(signal.name, signal.payload)'));
-		// Each state records what interpolation needs; the rest is applied once a frame, from the newest.
+		// Each state records what interpolation and Flow need; the rest is applied once a frame, from
+		// the newest.
 		const record = body('recordState');
 		const apply = body('applyState');
-		assert.ok(record.includes('others.push('));
-		for (const once of ['bindServerVariables(', '.reconcile(', 'abilities.acked(', 'retain('])
+		assert.ok(
+			record.includes('others.push(') && record.includes('bindServerVariables(current, state)'),
+		);
+		for (const once of ['.reconcile(', 'abilities.acked(', 'retain('])
 			assert.ok(apply.includes(once) && !record.includes(once), `${once} runs once a frame`);
+		assert.ok(
+			/onMessage\(ONLINE_EVENT[\s\S]*touchesOwn\([\s\S]*applyState\(current\)/.test(joining),
+		);
 		assert.ok(/onStateChange\(onState\)/.test(joining) && joining.includes('recordState(current'));
 		assert.ok(/^[^]*?applyState\(current\);[^]*?clock\.advance\(/.test(body('tickOnline')));
-		assert.ok(apply.includes('bindServerVariables(current, state)'));
 		assert.ok(body('bindServerVariables').includes('serverValuesOf('));
 		assert.ok(body('bindServerVariables').includes('serverVariablesOf('));
 		// Raised in the fixed step that sends the input, not when the room answers.

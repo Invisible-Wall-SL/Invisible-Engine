@@ -159,7 +159,7 @@ import {
 	refuseOnlineBoot,
 	setRoomDocChange,
 } from '../editor-scenes';
-import { arcadePerf } from './arcadePerf';
+import { arcadePerf, messageLabel } from './arcadePerf';
 import { typingInto } from './flowKeys';
 import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
@@ -178,8 +178,8 @@ import { stateModes } from './stateModes.svelte';
  * decides a place: it sends inputs only. Its own player is PREDICTED (`engine-mechanics`
  * `createPredictor`: stepped at once with the room's own step, reconciled with the newest state the
  * room sent, once a frame), and everyone else is INTERPOLATED about 100 ms behind the room
- * (`createSnapshotClock`, `createInterpolator`, which take every state as it arrives). Each input names the room step the device was drawing everyone else at
- * (`view`), so an ability is tested against what the player saw. On a world screen it also says how
+ * (`createSnapshotClock`, `createInterpolator`, which take every state as it arrives). Each input
+ * names the room step the device was drawing everyone else at (`view`), so an ability is tested against what the player saw. On a world screen it also says how
  * much of the world the window shows about the own player ({@link follow}; `engine-mechanics`
  * `shown.js`): a room whose `nearby` has a `max` sends it the players in that view as well as the
  * box's.
@@ -190,7 +190,7 @@ import { stateModes } from './stateModes.svelte';
  * interpolated the same way in both, so `view` means the same.
  *
  * FLOW (P11.2): the room's events reach the flow as its online events (`flowSignalsOf`), and the
- * room's scores and round are written, from the newest state each frame, into the variables the flow declares the
+ * room's scores and round are written, on each state, into the variables the flow declares the
  * room owns (`FlowVariable.server`), which its HUD binds as `var:<id>`. The own player's abilities
  * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
  * drawn at once. A player that is out is not drawn until it respawns. A player the room marks
@@ -946,6 +946,7 @@ async function enterRoom(
 		dropNextJoin();
 	}
 	session = current;
+	arcadePerf.mount();
 	arcadePerf.info = {
 		online: true,
 		fixedHz: resolved.online.tickHz,
@@ -958,6 +959,7 @@ async function enterRoom(
 			.then((art) => {
 				if (session !== current || left !== undefined) return art.destroy();
 				current.art = art;
+				arcadePerf.mount();
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
@@ -978,6 +980,9 @@ async function enterRoom(
 	room.onStateChange(onState);
 	meterMessages(room);
 	const offEvents = room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
+		// A step's events come after the patch that shows it: one that resets the own player's
+		// cooldowns or places it reads that patch's ack and place, not the last frame's.
+		if (events.some((event) => touchesOwn(event, room.sessionId))) applyState(current);
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
 		current.lines.events(events);
@@ -1441,11 +1446,12 @@ function reconcilerOf(
 }
 
 /**
- * A state from the room, as it arrives: its arrival and everyone else's place at its step — what
- * interpolating them needs, which each state carries anew. Everything else (the flow's values, the
- * own player's reconcile) reads only the newest state, so it waits for the frame
- * ({@link applyState}): after a stall a burst of states lands between two frames, and each would
- * otherwise be applied whole only for the next to replace it.
+ * A state from the room, as it arrives: its arrival, everyone else's place at its step (what
+ * interpolating them needs, which each state carries anew) and the flow's values the room owns (a
+ * flow reads them in an event chain or before the play field ticks a frame: Salmons' lobby check
+ * at the start screen's tap). The own player's reconcile reads only the newest state, so it waits
+ * for the frame ({@link applyState}): after a stall a burst of states lands between two frames,
+ * and each would otherwise be reconciled only for the next to replace it.
  */
 function recordState(current: Session, nowMs: number) {
 	const state = stateOf(current.room);
@@ -1455,6 +1461,7 @@ function recordState(current: Session, nowMs: number) {
 	current.net.states += 1;
 	if (arcadePerf.on) noteLate(current, step, nowMs);
 	current.view.observe(step, nowMs);
+	bindServerVariables(current, state);
 	const own = current.room.sessionId;
 	const scale = state.posScale ?? 0;
 	players.forEach((player, id) => {
@@ -1465,8 +1472,16 @@ function recordState(current: Session, nowMs: number) {
 	current.unapplied = true;
 }
 
-/** The newest state the room sent since the last frame: the flow's values bound, the players gone
- *  forgotten, the own player reconciled — once, however many states came. */
+/** Whether a room event is about the own player (`own`), or starts a round (which clears its
+ *  cooldowns). */
+function touchesOwn(event: OnlineEvent, own: string): boolean {
+	if (event.type === 'roundStart') return true;
+	const { id, by, target } = event as { id?: string; by?: string; target?: string };
+	return id === own || by === own || target === own;
+}
+
+/** The newest state the room sent since the last frame: the players gone forgotten, the own player
+ *  reconciled — once, however many states came. */
 function applyState(current: Session) {
 	if (!current.unapplied) return;
 	current.unapplied = false;
@@ -1474,7 +1489,6 @@ function applyState(current: Session) {
 	const players = state.players;
 	if (!players || state.step === undefined) return;
 	current.net.applied += 1;
-	bindServerVariables(current, state);
 	current.others.retain(new Set(players.keys()));
 	const player = players.get(current.room.sessionId) as OwnPlayerState | undefined;
 	if (!player) return;
@@ -1563,7 +1577,7 @@ function meterMessages(room: Room) {
 			counts.patches += 1;
 			counts.patchBytes += bytes.byteLength;
 		}
-		arcadePerf.message(false, bytes.byteLength, state);
+		arcadePerf.message(false, bytes.byteLength, state, messageLabel(bytes));
 		const started = performance.now();
 		handle(event);
 		counts.netMs += performance.now() - started;
@@ -1571,11 +1585,11 @@ function meterMessages(room: Room) {
 	const send = connection.send.bind(connection);
 	const sendUnreliable = connection.sendUnreliable.bind(connection);
 	connection.send = (data) => {
-		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength, false, messageLabel(data));
 		send(data);
 	};
 	connection.sendUnreliable = (data) => {
-		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength, false, messageLabel(data));
 		sendUnreliable(data);
 	};
 }
@@ -3040,9 +3054,14 @@ export function tickOnline(dtMs: number) {
 	});
 	current.me?.frame(dtMs);
 	if (arcadePerf.on) {
+		const room = stateOf(current.room);
+		const me = room.players?.get(current.room.sessionId);
 		arcadePerf.counts.simSteps += ran;
 		arcadePerf.counts.simMs += performance.now() - now;
-		arcadePerf.phase = stateOf(current.room).phase === 'running' ? 'play' : 'menu';
+		arcadePerf.steps(ran);
+		arcadePerf.room = room.phase;
+		arcadePerf.phase =
+			room.phase !== 'running' ? 'lobby' : !me || me.status === STATUS.out ? 'spectate' : 'play';
 	}
 	draw(current, dtMs);
 	drawScreens(current);

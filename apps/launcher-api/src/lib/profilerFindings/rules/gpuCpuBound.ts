@@ -68,7 +68,10 @@ export const gpuCpuBoundAgainst =
 			const shipped = group.filter((r) => Object.keys(r.flags).length === 0);
 			const gpuRuns = group.filter((r) => r.flags.perfgpu === '1');
 			for (const phase of phasesOf(group)) {
+				// An arcade reading that reports busy time is judged on that (`fpsBelowBudget`), not on
+				// the fps its display and browser leave it.
 				const rows = shipped
+					.filter((r) => !(r.phaseSet === 'arcade' && r.counts?.timing))
 					.map((r) => ({ r, p: r[phase], t: factsOf(ctx, r)?.timing[phase] }))
 					.filter(
 						(

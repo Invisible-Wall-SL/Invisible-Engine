@@ -16,6 +16,12 @@ import {
 	type TemplateRegion,
 	type TemplateRig,
 } from './rigTemplates';
+import {
+	moduleChoiceProblem,
+	parseModuleChoice,
+	templateWithModules,
+	type RigModuleChoice,
+} from './rigTemplateModules';
 import type { SheetMapping } from '../rigSheetMap';
 
 /** The minimal blank rig both `new` and `upload` write when no rig is applied, as irig v1. */
@@ -110,13 +116,21 @@ export function requestSheet(raw: unknown): SheetMapping | undefined {
 	return parsed.mapping;
 }
 
+/** A request's `modules` (docs/design/rig-modules.md): undefined when none, else the choice (a 400 otherwise). */
+export function requestModules(raw: unknown): RigModuleChoice | undefined {
+	const parsed = parseModuleChoice(raw);
+	if (parsed === null) throw error(400, 'bad modules: { module: option }');
+	return parsed;
+}
+
 /**
  * What `new` and `upload` write: a template rig over `regions` when `templateId` is set (a built-in,
  * or a template made in the Rigger at its current version), fitted to the character when `fit` is
  * given, else `resolveRigSkeletonBody(rigId)`. A template and a saved rig together are refused (400):
  * both are a whole skeleton; so is a fit without a template, or one that does not fit it. With a
- * `sheet` mapping the fit and each part's art are the mapping's (`sheetRig`), never a request's. A
- * rig that would not load, or a build that throws over this art, is a 422 saying why.
+ * `sheet` mapping the fit and each part's art are the mapping's (`sheetRig`), never a request's. With
+ * `modules` (a sheet's are its mapping's) the template is built with that module set. A rig that would
+ * not load, or a build that throws over this art, is a 422 saying why.
  */
 export async function resolveNewRigBody(
 	rigId: string,
@@ -124,14 +138,19 @@ export async function resolveNewRigBody(
 	regions: readonly TemplateRegion[],
 	fit?: RigFit,
 	sheet?: SheetMapping,
+	modules?: RigModuleChoice,
 ): Promise<NewRigBody> {
 	if ((fit || sheet) && !templateId) throw error(400, 'a fit is made to a template: pick one');
 	if (!templateId)
 		return { skeleton: await resolveRigSkeletonBody(rigId), template: null, sheet: null };
 	if (rigId) throw error(400, 'pick a saved rig or a template, not both');
 	if (fit && sheet) throw error(400, "a sheet's rig is fitted from its mapping: send no fit");
-	const t = await rigTemplateForNewRig(templateId);
-	if (!t) throw error(404, `no rig template "${templateId}"`);
+	const whole = await rigTemplateForNewRig(templateId);
+	if (!whole) throw error(404, `no rig template "${templateId}"`);
+	const choice = sheet ? (sheet.template.modules ?? {}) : (modules ?? {});
+	const unchosen = moduleChoiceProblem(whole, choice);
+	if (unchosen) throw error(400, unchosen);
+	const t = templateWithModules(whole, choice);
 	return refuseOnThrow(`The "${t.label}" template could not be made over this art`, () => {
 		let art: Record<string, TemplateArt> | undefined;
 		let made: NewRigBody['sheet'] = null;
@@ -141,7 +160,14 @@ export async function resolveNewRigBody(
 				throw error(400, `The sheet does not fit the "${t.label}" template: ${fitted.problem}.`);
 			({ fit, art } = fitted.value);
 			made = {
-				mapping: { ...sheet, template: { id: t.id, version: t.version } },
+				mapping: {
+					...sheet,
+					template: {
+						id: t.id,
+						version: t.version,
+						...(t.choice && Object.keys(t.choice).length ? { modules: { ...t.choice } } : {}),
+					},
+				},
 				scale: fitted.value.scale,
 				face: fitted.value.face,
 				hidden: fitted.value.hidden,

@@ -5,6 +5,7 @@ What has bitten the page every game boots in before, newest first. Format and ru
 only keeps the traps. It covers `apps/lines/src/app.html` (the shell of every runtime build), the
 embed loader `scripts/build-embed.mjs` (a delivery's `game.js`, on the partner's page) and the
 page-level overlays (`PerfHud`). Traps that hit every game in play: [current-games.md](current-games.md).
+The runtime's rendering (`pixi-svelte`, render quality): [engine.md](engine.md).
 
 ### A profiler reading stored a published game's read token
 

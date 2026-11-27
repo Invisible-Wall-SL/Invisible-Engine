@@ -21,8 +21,10 @@ import type { WaterAt } from './looks';
  *
  * WHOEVER DRAWS THE BEAR: the wading is the player's, not its look's. It wraps the mount the
  * runtime publishes for the player (`arcadeArt.svelte.ts`: its code look's, its sheet's rig's or
- * its clip's turned by its sheet), so the filter is on the container that mount draws into. A clip
- * published as a clip has no mount and is not covered (`docs/status/salmons.md`).
+ * its clip's turned by its sheet). A look that draws its own water ({@link WadingMount}: the code
+ * look, `looks.ts`, in its own programs, `bodyShaders.ts`) is told the line each frame and takes
+ * no pass; any other has the filter on the container its mount draws into. A clip published as a
+ * clip has no mount and is not covered (`docs/status/salmons.md`).
  */
 export const WADE = Object.freeze({
 	/** How high the waterline's ends stand, as a share of how high the look's middle is: a little
@@ -96,6 +98,18 @@ export function waterlineOf(depth: number, body: WadeBody, atMs: number): Waterl
 	};
 }
 
+/**
+ * A look that draws its own water: told each frame the line about its place and the colour matrix
+ * under it ({@link underTint}), or `undefined` on land; `false` when it cannot (its GPU refused
+ * its programs), and the pass draws it instead.
+ */
+export type OwnWater = (
+	under: { line: Waterline; under: readonly number[] } | undefined,
+) => boolean;
+
+/** A mount whose look may draw its own water. */
+export type WadingMount = ArtMount & { water?: OwnWater };
+
 /** What draws a wader's water: a filter for the container its look is mounted in. */
 export type WadeSurface = {
 	readonly filter: Filter;
@@ -122,8 +136,10 @@ export type WadeDrawn = {
 	/** The tint it is half under, and its waterline; `null` on land. */
 	tint: number | null;
 	line: Waterline | null;
-	/** Whether its look is drawn through the filter now. */
-	filtered: boolean;
+	/** Whether its look is drawn half under now: by its own programs or through the filter. */
+	drawnUnder: boolean;
+	/** Whether through the filter (a pass of its own). */
+	pass: boolean;
 };
 
 export type Wading = {
@@ -133,7 +149,7 @@ export type Wading = {
 	 * and draws it half under the water it stands in. That mount is the same from frame to frame
 	 * while `look` is: whoever keys on it does not mount the look again.
 	 */
-	mount: (id: string, look: ArtMount, frame: WadeFrame) => ArtMount;
+	mount: (id: string, look: WadingMount, frame: WadeFrame) => ArtMount;
 	/** Let go of every player `drawn` does not hold: its filter with it. */
 	keep: (drawn: (id: string) => boolean) => void;
 	/** Each wading character whose look is mounted, as it is drawn now (the probe's). */
@@ -142,7 +158,7 @@ export type Wading = {
 };
 
 type Wader = {
-	look: ArtMount;
+	look: WadingMount;
 	mount: ArtMount;
 	/** The container its look is mounted in, and the app that draws it, while it is. */
 	into: Container | undefined;
@@ -160,6 +176,8 @@ type Wader = {
 	line: Waterline | undefined;
 	/** Its filter, made when it first wades; `null` when it cannot be drawn. */
 	surface: WadeSurface | null | undefined;
+	/** Whether its look drew this frame's water itself. */
+	own: boolean;
 };
 
 /**
@@ -174,12 +192,17 @@ export function createWading(
 ): Wading {
 	const waders = new Map<string, Wader>();
 
-	const bare = (wader: Wader) => {
+	const unfilter = (wader: Wader) => {
 		if (wader.filtered) {
 			wader.filtered.filters = [];
 			wader.filtered.filterArea = undefined;
 		}
 		wader.filtered = undefined;
+	};
+	const bare = (wader: Wader) => {
+		if (wader.own) wader.look.water?.(undefined);
+		wader.own = false;
+		unfilter(wader);
 	};
 	/**
 	 * Put the wader's water on the container its look is in, or take it off on land. The pass
@@ -190,6 +213,12 @@ export function createWading(
 	const draw = (wader: Wader) => {
 		const { into, app, line } = wader;
 		if (!into || !app || !line) return bare(wader);
+		if (wader.look.water?.({ line, under: wader.under })) {
+			unfilter(wader);
+			wader.own = true;
+			return;
+		}
+		wader.own = false;
 		const box = into.getLocalBounds();
 		if (!(box.width > 0 && box.height > 0)) return bare(wader);
 		if (wader.surface === undefined) wader.surface = surface(app) ?? null;
@@ -261,11 +290,14 @@ export function createWading(
 					bottom: 0,
 					line: undefined,
 					surface: undefined,
+					own: false,
 				};
 				made.mount = mountOf(made, look);
 				waders.set(id, made);
 				wader = made;
 			} else if (wader.look !== look) {
+				if (wader.own) wader.look.water?.(undefined);
+				wader.own = false;
 				wader.look = look;
 				wader.mount = mountOf(wader, look);
 			}
@@ -305,7 +337,8 @@ export function createWading(
 										depth: wadeDepth(wader.progress),
 										tint: wader.line ? wader.tint : null,
 										line: wader.line ?? null,
-										filtered: (wader.into.filters?.length ?? 0) > 0,
+										drawnUnder: wader.own || (wader.into.filters?.length ?? 0) > 0,
+										pass: (wader.into.filters?.length ?? 0) > 0,
 									},
 								],
 							]

@@ -104,7 +104,7 @@ export function controlAnimation(
 				offsets: orderOffsets(slotNames, orderAt(slotNames, [{ order, value }])),
 			})),
 		};
-	if (ch.shapes) {
+	if (ch.shapes && !ch.shapes.drawn) {
 		const shown = [ch.shapes.rest, ...Object.keys(ch.shapes.open)].filter(has);
 		slots[ch.shapes.slot] = {
 			attachment: shown.map((name, i) => ({ time: i / Math.max(1, shown.length - 1), name })),

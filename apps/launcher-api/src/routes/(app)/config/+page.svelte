@@ -38,6 +38,8 @@
 		isScatterSymbol,
 		partnerPaytableDrift,
 		planPaytableImport,
+		renameNames,
+		renameSymbols,
 		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
 		SWAP_STYLES,
 		swapStyleUsesColumnStagger,
@@ -58,6 +60,12 @@
 		type PayEntry,
 		type PaytableImportPlan,
 	} from 'game-config';
+	import {
+		PAY_TIER_SHARES,
+		tierSymbolNames,
+		type PayTier,
+		type TierInput,
+	} from 'rgs-translator-eagaming/game-mappings';
 	import { findCapturedConfig } from 'rgs-translator-eagaming/paytable';
 	import { familyOfKind } from 'constants-shared/gameKinds';
 	import {
@@ -714,6 +722,10 @@
 		 *  capture keeps as the partner reference. */
 		declared: PayEntry[];
 		dealt: string[];
+		/** The server's line symbols, in its names, with what each pays at its longest run. */
+		tierInputs: TierInput[];
+		/** Symbols with art in Invisible Symbols, which a rename would leave under the old name. */
+		withArt: string[];
 	};
 	let importOpen = $state(false);
 	let importBusy = $state(false);
@@ -722,8 +734,85 @@
 	 *  the drift banner and the publish gate compare against. */
 	let importFrom = $state<'server' | 'capture'>('server');
 	let importSource = $state.raw<ServerPaytable | null>(null);
-	let importPlan = $state.raw<PaytableImportPlan | null>(null);
+	/** Plan against the doc as it was when the read landed — so a typed edit mid-review cannot
+	 *  shift the rows the author is looking at. */
+	let importBase = $state.raw<GameConfigDoc | null>(null);
+
+	/**
+	 * Name the server's line symbols by what it pays (H high, M medium, L low — `tierSymbolNames`),
+	 * renaming them everywhere in the doc on Apply and storing which server symbol each name stands
+	 * for (`serverSymbolNames`), so the game maps the wire through the same names. On for a project
+	 * that already names them that way: a re-read keeps the names in step with the server.
+	 */
+	let nameByPay = $state(false);
+	/** Symbols moved to another tier by hand, by server name. */
+	let tierOverrides = $state<Record<string, PayTier>>({});
+	const PAY_TIERS: PayTier[] = ['H', 'M', 'L'];
+	const autoTierNames = $derived(importSource ? tierSymbolNames(importSource.tierInputs) : {});
+	const tierNames = $derived(
+		importSource ? tierSymbolNames(importSource.tierInputs, tierOverrides) : {},
+	);
+	/** What each server line symbol is called in the doc now → what it would be called. */
+	const tierRows = $derived.by(() => {
+		if (!importSource) return [];
+		const current = Object.fromEntries(
+			Object.entries(importSource.serverNames).map(([ours, server]) => [server, ours]),
+		);
+		return importSource.tierInputs.map(({ server, topPay }) => ({
+			server,
+			topPay,
+			now: current[server] ?? server,
+			next: tierNames[server] ?? server,
+			tier: (tierNames[server]?.[0] ?? 'L') as PayTier,
+		}));
+	});
+	const symbolRenames = $derived(
+		nameByPay
+			? Object.fromEntries(tierRows.filter((r) => r.now !== r.next).map((r) => [r.now, r.next]))
+			: {},
+	);
+	const renamed = $derived(importBase ? renameSymbols(importBase, symbolRenames) : null);
+	const renameError = $derived(renamed && 'error' in renamed ? renamed.error : '');
+	/** Renamed symbols whose art in Invisible Symbols stays under the old name. */
+	const artLeftBehind = $derived(
+		importSource ? Object.keys(symbolRenames).filter((n) => importSource?.withArt.includes(n)) : [],
+	);
+	/** The rows as they read once renamed — what Apply writes and the partner reference keeps. */
+	const importRows = $derived(
+		importSource
+			? renameNames(
+					{
+						lines: importSource.lines,
+						scatter: importSource.scatter,
+						declared: importSource.declared,
+						dealt: importSource.dealt,
+						serverNames: importSource.serverNames,
+					},
+					symbolRenames,
+				)
+			: null,
+	);
+	const importPlan = $derived<PaytableImportPlan | null>(
+		renamed && 'doc' in renamed && importRows
+			? planPaytableImport(renamed.doc.symbols, importRows)
+			: null,
+	);
+	const namesToStore = $derived(
+		nameByPay ? Object.fromEntries(tierRows.map((r) => [r.next, r.server])) : null,
+	);
+	const namesChange = $derived(
+		!!namesToStore &&
+			JSON.stringify(namesToStore) !== JSON.stringify(importBase?.serverSymbolNames ?? {}),
+	);
 	const importChanges = $derived(importPlan?.rows.filter((row) => !row.unchanged) ?? []);
+	const importApplyCount = $derived(importChanges.length + (namesChange ? 1 : 0));
+
+	function setTier(server: string, tier: PayTier) {
+		const next = { ...tierOverrides };
+		if (autoTierNames[server]?.[0] === tier) delete next[server];
+		else next[server] = tier;
+		tierOverrides = next;
+	}
 
 	function openServerImport(game?: string) {
 		importFrom = 'server';
@@ -776,7 +865,7 @@
 		importBusy = true;
 		importError = '';
 		importSource = null;
-		importPlan = null;
+		importBase = null;
 		try {
 			const res = await request();
 			const body = (await res.json().catch(() => ({}))) as Partial<ServerPaytable> & {
@@ -788,8 +877,24 @@
 				return;
 			}
 			const source = body as ServerPaytable;
-			importSource = source;
-			importPlan = planPaytableImport($state.snapshot(doc).symbols, source);
+			const base = $state.snapshot(doc) as GameConfigDoc;
+			const stored = base.serverSymbolNames;
+			const auto = tierSymbolNames(source.tierInputs ?? []);
+			nameByPay = !!stored;
+			tierOverrides = Object.fromEntries(
+				Object.entries(stored ?? {}).flatMap(([ours, server]) => {
+					const tier = ours[0] as PayTier;
+					return PAY_TIERS.includes(tier) && auto[server] && auto[server][0] !== tier
+						? [[server, tier]]
+						: [];
+				}),
+			);
+			importBase = base;
+			importSource = {
+				...source,
+				tierInputs: source.tierInputs ?? [],
+				withArt: source.withArt ?? [],
+			};
 		} catch (e) {
 			importError = `Couldn't reach the launcher: ${e instanceof Error ? e.message : String(e)}`;
 		} finally {
@@ -797,16 +902,21 @@
 		}
 	}
 	function applyServerImport() {
+		if (!importSource || !importRows || !renamed || 'error' in renamed) return;
+		if (nameByPay && namesToStore) {
+			if (Object.keys(symbolRenames).length) doc = structuredClone(renamed.doc);
+			doc.serverSymbolNames = namesToStore;
+		}
 		for (const row of importChanges) {
 			const symbol = doc.symbols[row.symbol];
 			if (symbol) symbol.paytable = row.server.map((r) => ({ ...r }));
 		}
-		if (importFrom === 'capture' && importSource) {
+		if (importFrom === 'capture') {
 			doc.partnerPaytable = {
 				capturedAt: new Date().toISOString(),
 				source: pasteSource.trim() || 'pasted capture',
-				entries: importSource.declared,
-				...(importSource.dealt.length ? { dealt: importSource.dealt } : {}),
+				entries: importRows.declared,
+				...(importRows.dealt.length ? { dealt: importRows.dealt } : {}),
 			};
 		}
 		importOpen = false;
@@ -3233,16 +3343,16 @@
 			: 'Import paytable from server'}
 		busy={importBusy}
 		busyLabel="Reading the paytable…"
-		blocked={!importChanges.length && importFrom === 'server'}
+		blocked={!!renameError || (!importApplyCount && importFrom === 'server')}
 		error={importError}
 		confirmLabel={importFrom === 'capture'
-			? importChanges.length
-				? `Apply ${importChanges.length} ${importChanges.length === 1 ? 'change' : 'changes'} and keep as reference`
+			? importApplyCount
+				? `Apply ${importApplyCount} ${importApplyCount === 1 ? 'change' : 'changes'} and keep as reference`
 				: 'Keep as reference'
-			: importChanges.length
-				? `Apply ${importChanges.length} ${importChanges.length === 1 ? 'change' : 'changes'}`
+			: importApplyCount
+				? `Apply ${importApplyCount} ${importApplyCount === 1 ? 'change' : 'changes'}`
 				: 'Nothing to apply'}
-		cancelLabel={importChanges.length || importFrom === 'capture' ? 'Cancel' : 'Close'}
+		cancelLabel={importApplyCount || importFrom === 'capture' ? 'Cancel' : 'Close'}
 		onconfirm={applyServerImport}
 		oncancel={() => (importOpen = false)}
 	>
@@ -3279,6 +3389,63 @@
 						(PIC1 → H1 …). Check the rows below name the symbols you expect.
 					</p>
 				{/if}
+				{#if importSource.tierInputs.length}
+					<label class="name-by-pay">
+						<input
+							type="checkbox"
+							bind:checked={nameByPay}
+							disabled={!!importBase?.serverSymbolNames}
+						/>
+						<span>Name symbols by what the server pays</span>
+						<InfoTip>
+							H pays at least {PAY_TIER_SHARES.H * 100}% of the top symbol, M at least
+							{PAY_TIER_SHARES.M * 100}%, L the rest, numbered by pay within a tier. Apply renames
+							them everywhere in this config, and the game reads the server through these names.
+						</InfoTip>
+					</label>
+				{/if}
+				{#if nameByPay && tierRows.length}
+					<div class="grid-wrap">
+						<table class="grid">
+							<thead>
+								<tr><th>Server</th><th>Top pay</th><th>Tier</th><th>Name</th></tr>
+							</thead>
+							<tbody>
+								{#each tierRows as row (row.server)}
+									<tr>
+										<th class="row-head">{row.server}</th>
+										<td class="pays">{row.topPay}</td>
+										<td>
+											<select
+												value={row.tier}
+												onchange={(e) => setTier(row.server, e.currentTarget.value as PayTier)}
+											>
+												{#each PAY_TIERS as tier (tier)}<option value={tier}>{tier}</option>{/each}
+											</select>
+										</td>
+										<td class="pays">
+											{#if row.now === row.next}
+												{row.next}
+											{:else}
+												{row.now} → <span class="changed">{row.next}</span>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					{#if renameError}
+						<p class="inline-issue error">{renameError}</p>
+					{/if}
+					{#if artLeftBehind.length}
+						<p class="inline-issue warning">
+							Art in Invisible Symbols stays under the old name for
+							{#each artLeftBehind as name, i (name)}{#if i},&#32;{/if}<code>{name}</code>{/each}.
+							Move it to the new name there.
+						</p>
+					{/if}
+				{/if}
 				{#if importPlan.rows.length}
 					<div class="grid-wrap">
 						<table class="grid">
@@ -3287,7 +3454,7 @@
 							</thead>
 							<tbody>
 								{#each importPlan.rows as row (row.symbol)}
-									{@const serverName = importSource.serverNames[row.symbol]}
+									{@const serverName = importRows?.serverNames[row.symbol]}
 									<tr>
 										<th class="row-head">
 											{row.symbol}
@@ -4044,6 +4211,12 @@
 	}
 	.inline-issue.warning {
 		color: #d3b483;
+	}
+	.name-by-pay {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 10px 0;
 	}
 	.paylines {
 		display: flex;

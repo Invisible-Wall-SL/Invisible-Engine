@@ -59,6 +59,7 @@ import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
 import { normalizeFreeSpins } from './freeSpins';
 import { normalizePartnerPaytable } from './serverPaytable';
+import { normalizeServerSymbolNames } from './serverSymbolNames';
 import { normalizeCard } from './cardGame';
 import { normalizeArcade, normalizeFamily, normalizeMatch3, normalizeOutcome } from './family';
 
@@ -476,6 +477,9 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 
 	const partnerPaytable = normalizePartnerPaytable(raw.partnerPaytable);
 	if (partnerPaytable) doc.partnerPaytable = partnerPaytable;
+
+	const serverSymbolNames = normalizeServerSymbolNames(raw.serverSymbolNames);
+	if (serverSymbolNames) doc.serverSymbolNames = serverSymbolNames;
 
 	const updatedAt = str(raw.updatedAt);
 	if (updatedAt) doc.updatedAt = updatedAt;

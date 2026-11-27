@@ -718,6 +718,7 @@
         <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from its remembered source atlas (e.g. after recolouring it, or adding a sprite to it). Keeps your bones + animations." style="flex:1;font-size:11px;" disabled>⟳ Re-sync atlas</button>
         <button id="repickAtlasBtn" title="Re-sync from a DIFFERENT atlas — pick the source again. Use this when the rig is pinned to an older atlas (e.g. it was created before you added a sprite to the sheet), so a plain re-sync keeps missing the new image. Keeps your bones + animations." style="font-size:11px;white-space:nowrap;" disabled>source…</button>
         <button id="editCutBtn" aria-label="Edit cut" style="font-size:11px;display:none;" title="">✂</button>
+        <button id="modulesBtn" aria-label="Modules" style="font-size:11px;display:none;" title="🧩 Modules: change the pieces this rig's template is made of (Hands: with fingers, simple, none), in place. What a choice leaves out goes with its keys; what it adds is made over the rig's art. A rig made from a sheet changes them in 🗺 Edit mapping, one cut from a frame in ✂ Edit cut.">🧩</button>
         <button id="editMapBtn" aria-label="Edit mapping" style="font-size:11px;display:none;" title="🗺 Edit mapping: open the sheet mapping this rig was made from (re-map a part, arrange it again, add or take off props), then 🔄 Update rig rebuilds the parts in this rig, keeping its bones, clips, keys, constraints and controls.">🗺</button>
       </div>
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
@@ -725,6 +726,7 @@
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
         <label title="A template is a fixed skeleton that expects images by name (mouth_A, eyelid_l_closed…): art named that way attaches itself, and any missing part is listed after Create.">Apply saved rig or template (optional)</label>
         <select id="newRigApply"></select>
+        <div id="newRigModules" style="display:none;margin-top:6px;"></div>
         <label style="margin-top:6px;">Atlas (images)</label>
         <select id="newRigAtlas"></select>
         <div style="display:flex;gap:6px;margin-top:6px;">
@@ -1016,6 +1018,7 @@
         <button id="f2rReuse" style="display:none;flex:0 0 auto;"></button>
         <button id="f2rStartOver" class="f2rIcon" title="↺ Start over: the clip's best frame again, its joints as tracked and each part's frame as planned, with no cut open (✂ Cut makes a fresh one; the cut that was open stays kept, for ↺ Reuse). Asks first when you touched it up and did not 💾 keep it, dragged a joint or picked a part's frame; ↶ brings it back." aria-label="Start over">↺</button>
         <button id="f2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The cut as it was before ↺ Start over, touch-ups and all." aria-label="Undo start over">↶</button>
+        <span id="f2rModules" style="display:none;"></span>
         <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
       </div>
       <div id="f2rPickBar" role="status"><span id="f2rPickText" style="flex:1;min-width:0;"></span><button id="f2rPickCancel" class="f2rIcon" style="padding:0 5px;" title="Stop picking (Esc)" aria-label="Stop picking">✕</button></div>
@@ -1076,6 +1079,7 @@
         <select id="s2rSheet" style="flex:1;min-width:0;" title="One of this project's sheets or atlases."></select>
         <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping; a new rig starts with it off.">⇄ Swap sides</button></span>
         <label class="s2rTurn" title="↻ Head turn — how round the drawn head turns with a 3D capture's turn and nod, and with the Head turn and Head up / down controls. The head's drawing is weighted in a dome about the face: the face slides with its features, the head's round part-way on four head_turn bones, the skull's outline stays; what the head wears (glasses, an earring) turns with it at its depth, a prop drawn behind it the other way. 1× is as round as the template's head (the face's slide is cut where a 40° turn would fold the skin); off leaves the face sliding alone over a still head. Kept with the rig's mapping: 🔄 Update rig gives a rig made before it the head turn too." style="display:flex;align-items:center;gap:4px;white-space:nowrap;">↻ Head turn <input type="range" id="s2rTurn" min="0" max="2" step="0.25" value="1" style="width:64px;margin:0;"><span id="s2rTurnVal" style="min-width:24px;">1×</span></label>
+        <span id="s2rModules" style="display:none;"></span>
         <span id="s2rReuse" style="display:contents;"></span>
         <button id="s2rStartOver" class="f2rIcon" title="↺ Start over: the mapping back to the first guess. Every part takes the region its name says (as ⇄ Swap sides reads them), its joints guessed from its drawing, the worn things suggested as props, nothing arranged. Asks first when you changed it; ↶ brings it back." aria-label="Start over">↺</button>
         <button id="s2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The mapping as it was before ↺ Start over." aria-label="Undo start over">↶</button>
@@ -1168,6 +1172,23 @@
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
         <button id="textModalCancel">Cancel</button>
         <button id="textModalCreate" style="padding:5px 18px;">Bake + place</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🧩 Modules: the open rig's template pieces, changed in place (docs/design/rig-modules.md §4) -->
+  <div id="modulesModal" class="rigModal">
+    <div class="modal-box" style="width:min(380px,92vw);">
+      <div class="modal-head">
+        <b title="The pieces this rig's template is made of. A choice that leaves a piece out takes its bones, slots and keys out of the rig; one that adds it makes it over the rig's art. One ↶ undo, then saved.">🧩 Modules</b>
+        <span style="flex:1;"></span>
+        <button id="modulesClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div id="modulesRows"></div>
+      <div id="modulesNote" style="color:var(--accent2);font-size:11px;min-height:14px;margin-top:6px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+        <button id="modulesCancel">Cancel</button>
+        <button id="modulesApply" style="padding:5px 18px;">Apply</button>
       </div>
     </div>
   </div>
@@ -4171,11 +4192,74 @@ async function deleteRigFromLibrary(a){
   } catch (e){ alert("Delete failed: " + (e && e.message ? e.message : e)); }
 }
 
-// The New-rig "Apply" choice as request fields: a saved rig's id, or a template's.
+// The New-rig "Apply" choice as request fields: a saved rig's id, or a template's (with the modules
+// picked off their default, docs/design/rig-modules.md).
 function newRigApplyChoice(){
   const v = ($("#newRigApply") && $("#newRigApply").value) || "";
-  if (v.startsWith("template:")) return { templateId: v.slice("template:".length) };
+  if (v.startsWith("template:")){
+    const modules = newRigModuleChoice();
+    return Object.assign({ templateId: v.slice("template:".length) }, Object.keys(modules).length ? { modules } : {});
+  }
   return v ? { rigId: v } : {};
+}
+
+// The template picked in the New-rig panel (a summary), or null.
+function newRigTemplate(){
+  const v = ($("#newRigApply") && $("#newRigApply").value) || "";
+  return v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) || null : null;
+}
+
+// The Modules row under the template: one picker per module (Hands: with fingers, simple, none). The
+// three ways to make a rig from a template (Create, 🗺 From my sheet, 🎞 Frame to rig) all read it.
+function renderNewRigModules(){
+  const box = $("#newRigModules"); if (!box) return;
+  const tpl = newRigTemplate();
+  box.innerHTML = "";
+  box.style.display = tpl && tpl.modules && tpl.modules.length ? "" : "none";
+  if (!tpl || !tpl.modules) return;
+  for (const m of tpl.modules){
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:3px;";
+    const lab = document.createElement("label");
+    lab.textContent = m.label; lab.title = m.tip; lab.style.cssText = "margin:0;min-width:52px;";
+    const sel = document.createElement("select");
+    sel.className = "newRigModule"; sel.dataset.module = m.id; sel.title = m.tip; sel.style.flex = "1";
+    for (const o of m.options){
+      const op = document.createElement("option");
+      op.value = o.id; op.textContent = o.label;
+      if (o.parts.length) op.title = "Leaves out " + o.parts.length + " part" + (o.parts.length > 1 ? "s" : "") + ": " + o.parts.slice(0, 12).join(", ") + (o.parts.length > 12 ? "…" : "");
+      sel.appendChild(op);
+    }
+    sel.value = m.default;
+    row.append(lab, sel);
+    box.appendChild(row);
+  }
+}
+
+// The modules picked in the New-rig panel off their template's default ({ module: option }).
+function newRigModuleChoice(){
+  const tpl = newRigTemplate(), out = {};
+  for (const sel of document.querySelectorAll("#newRigModules .newRigModule")){
+    const m = tpl && (tpl.modules || []).find((x) => x.id === sel.dataset.module);
+    if (m && sel.value !== m.default) out[m.id] = sel.value;
+  }
+  return out;
+}
+
+// A template summary as module set `choice` leaves it: the parts its options leave out gone, and the
+// slots left with no part. (The server builds with `templateWithModules`; this is what a dialog shows.)
+function templateAsChosen(tpl, choice){
+  const taken = new Set(), gone = new Set();
+  for (const m of tpl.modules || []){
+    const o = m.options.find((x) => x.id === (choice[m.id] || m.default));
+    for (const p of (o && o.parts) || []) taken.add(p);
+    for (const b of (o && o.bones) || []) gone.add(b);
+  }
+  if (!taken.size && !gone.size) return tpl;
+  const parts = tpl.parts.filter((p) => !taken.has(p.name));
+  const emptied = new Set(tpl.parts.filter((p) => taken.has(p.name)).map((p) => p.slot));
+  for (const p of parts) emptied.delete(p.slot);
+  return Object.assign({}, tpl, { parts, slots: tpl.slots.filter((s) => !emptied.has(s)), bones: tpl.bones.filter((b) => !gone.has(b.name)), choice: Object.assign({}, choice) });
 }
 
 // After a create from a template: name the parts the art lacked (the rig leaves them out).
@@ -4203,7 +4287,9 @@ async function useRigInNew(a){
 // the library.
 async function loadNewRigApplyOptions(){
   const sel = $("#newRigApply"); if (!sel) return;
+  sel.onchange = renderNewRigModules;
   sel.innerHTML = '<option value="">— none (blank skeleton) —</option>';
+  renderNewRigModules();
   try {
     const t = await (await fetch("/api/rigger/templates")).json();
     newRigTemplates = t.templates || [];
@@ -4590,18 +4676,19 @@ function faceShapeControls(ch){
 }
 
 // A rig with no mouth image at all: its mouth is drawn on the head (made from a frame, whose head
-// bends to the jaw, corners and lips; frame-to-rig §12 F2i).
+// bends to the jaw, corners and lips; frame-to-rig §12 F2i), or jointed with no mouth slot at all
+// (`drawn`: a sheet's rig, one slot per region, §13.1h).
 function faceDrawnMouth(ch, has){
-  return ![ch.shapes.rest, ...Object.keys(ch.shapes.open)].some((p) => has(ch.shapes.slot, p));
+  return !!ch.shapes.drawn || ![ch.shapes.rest, ...Object.keys(ch.shapes.open)].some((p) => has(ch.shapes.slot, p));
 }
 
 // A mouth shape, plus the jaw opened by that shape's amount and the corners and lips it poses (each
-// back to rest on a shape that does not name it); on a drawn mouth, those moves alone. `skip`:
-// controls the caller keys itself.
+// back to rest on a shape that does not name it); on a drawn mouth, those moves alone (and no image
+// key where the rig has no mouth slot). `skip`: controls the caller keys itself.
 function faceKeyShape(anim, ch, part, t, channels, has, skip){
   const shown = faceShapePart(ch, part, has);
   const posed = shown || (faceDrawnMouth(ch, has) ? part : null);
-  faceKeyAttachment(anim, ch.shapes.slot, shown, t);
+  if (!ch.shapes.drawn) faceKeyAttachment(anim, ch.shapes.slot, shown, t);
   for (const id of faceShapeControls(ch)){
     if (skip && skip.has(id)) continue;
     const c = channels.find((x) => x.id === id);
@@ -4828,7 +4915,7 @@ async function loadRigTemplate(){
     capFit.base = j.template || null;
     rigTemplate = captureFitTemplate();
   } catch (e){ console.warn("[Controls] could not read the rig's template", e); }
-  if (gen === rigGen){ renderFacePanel(); renderPickerPanel(); renderSlotGroups(); }
+  if (gen === rigGen){ renderFacePanel(); renderPickerPanel(); renderSlotGroups(); renderModulesBtn(); }
 }
 
 // ---- ⤢ Fit rig to the capture (docs/design/frame-to-rig.md §4.6a) ---------------------------------
@@ -10829,6 +10916,8 @@ function openFrameToRig(){
     $("#newRigNote").textContent = "pick Half body (or a template with its parts) above, then cut a frame";
     return;
   }
+  // The modules picked under the template (rig-modules): the parts made and the rig follow them.
+  f2r.modules = newRigModuleChoice();
   // A cut opened by ✂ Edit cut belongs to its rig: a new rig starts from a clip of its own.
   if (f2r.edit){ f2r.edit = null; f2rPickClip(""); }
   const same = !!f2r.tpl && f2r.tpl.id === tpl.id;
@@ -10959,6 +11048,43 @@ function f2rModeUi(){
   $("#f2rCreate").title = e
     ? "Make the cut's parts again and swap them into “" + e.stem + "”: its bones (yours too), clips, keys, constraints, controls, 3D data and your own slots stay; a part or prop the cut no longer makes is removed, asking first when something names it. One ↶ undo, then saved."
     : "Make the cut into a sheet and a rig, keeping the touch-ups first, and open it.";
+  f2rModulesUi();
+}
+
+// ✂ Edit cut's Modules (docs/design/rig-modules.md §5): the rig's own set, changed here — 🔄 Update rig
+// makes the parts for the new set (a part it leaves out drawn into the one above it: a hand into its
+// forearm), takes out of the rig what it lacks (keys and all) and puts in what it adds. A new rig's set
+// is the ＋ New rig panel's.
+function f2rModulesUi(){
+  const box = $("#f2rModules"); if (!box) return;
+  const whole = f2r.edit && f2r.modules && f2r.tpl && newRigTemplates.find((t) => t.id === f2r.tpl.id);
+  box.innerHTML = "";
+  box.style.display = whole && whole.modules && whole.modules.length ? "contents" : "none";
+  if (!box.style.display.startsWith("c")) return;
+  for (const m of whole.modules){
+    const sel = document.createElement("select");
+    sel.className = "f2rModule"; sel.dataset.module = m.id;
+    sel.title = m.label + " — " + m.tip + " Changing it here, then 🔄 Update rig, makes the parts for the new choice (a part it leaves out is drawn into the one above it: a hand into its forearm), takes out of the rig what it leaves out (its bones, slots and keys) and puts in what it adds.";
+    sel.setAttribute("aria-label", m.label);
+    for (const o of m.options){
+      const op = document.createElement("option");
+      op.value = o.id; op.textContent = m.label + ": " + o.label;
+      sel.appendChild(op);
+    }
+    sel.value = (f2r.modules && f2r.modules[m.id]) || m.default;
+    sel.onchange = () => { f2r.modules = f2rModulesPicked(whole); };
+    box.appendChild(sel);
+  }
+}
+
+// The Modules row's set, off each module's default.
+function f2rModulesPicked(whole){
+  const out = {};
+  for (const sel of document.querySelectorAll("#f2rModules .f2rModule")){
+    const m = whole.modules.find((x) => x.id === sel.dataset.module);
+    if (m && sel.value !== m.default) out[m.id] = sel.value;
+  }
+  return out;
 }
 
 function closeFrameToRig(){
@@ -12012,14 +12138,14 @@ async function f2rCreate(){
   try {
     const r = await fetch("/api/rigger/from-frame/sheet", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ job: cut.job, etag: cut.etag, name }),
+      body: JSON.stringify({ job: cut.job, etag: cut.etag, name, modules: f2r.modules || {} }),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const sheet = await r.json();
     showLoading("Creating rig…");
     const r2 = await fetch("/api/rigger/new", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, fit: sheet.fit, frame: { job: cut.job } }),
+      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, modules: sheet.modules || {}, fit: sheet.fit, frame: { job: cut.job } }),
     });
     if (!r2.ok) throw new Error(await respErr(r2));
     const j = await r2.json();
@@ -12045,10 +12171,12 @@ function reportFrameRig(name, clip, cut, sheet, template){
   const taken = Object.entries(sheet.frames || {}).map(([p, f]) => p + " from frame " + (f === null ? "?" : f));
   const need = (template && template.missingRequired) || [];
   const rest = ((template && template.missing) || []).filter((n) => !need.includes(n));
+  const into = rows.filter(([, p]) => p.drawn_in && p.drawn_in.length).map(([n, p]) => p.drawn_in.join(", ") + " into " + n);
   showAlert(
     "“" + name + "” is made from frame " + cut.frame + (clip ? " of " + clip.name : "") + ": " + (rows.length - props) + " parts and " + props + " props (each on a bone of its own) on the sheet " + name + "_parts, posed as the frame by its clip “frame”." +
     (cut.names.includes("neck") ? "" : " This cut has no neck part (cut before the neck was separated): ✂ Re-cut gives the neck its own bone.") + "\n\n" +
     (taken.length ? "Cut from other frames (their own length; the clip “frame” still poses this one): " + taken.join(", ") + ".\n\n" : "") +
+    (into.length ? "Drawn into the part above them, their module left out: " + into.join("; ") + ".\n\n" : "") +
     (filled.length ? "What the parts hide was filled on the CPU inside each part's own outline, Telea's smear inside past the seams until the GPU fill:\n  " + filled.join(", ") + "\n\n" : "") +
     (off.length ? "Cut off by the frame's edge, so little or none of it is drawn: " + off.join(", ") + ". A frame that shows it makes it whole.\n\n" : "") +
     (short.length ? "Drawn short in this frame (toward the camera), kept that short, never stretched to its length: " + short.join(", ") + ". A frame that shows it side-on makes it whole.\n\n" : "") +
@@ -12124,6 +12252,10 @@ async function openEditCut(){
   }
   f2r.edit = { dir: selected.dir_b64 || "", stem: irigStem(selected), job: d.job, sources: d.sources || {} };
   f2r.tpl = tpl;
+  // The rig's own module set (rig-modules §5), which the dialog's Modules row may change; with its
+  // template not read, none is sent and the rig keeps the set it records.
+  f2r.modules = rigTemplate ? Object.assign({}, rigTemplate.choice || {}) : null;
+  f2r.modulesWas = f2r.modules && Object.assign({}, f2r.modules);
   $("#f2rTpl").textContent = tpl.label + " · ✂ " + f2r.edit.stem;
   f2rModeUi();
   $("#f2rModal").classList.add("open");
@@ -12171,7 +12303,7 @@ async function f2rUpdate(){
   try {
     const r = await fetch("/api/rigger/from-frame/sheet", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ job: cut.job, etag: cut.etag, rig: { dir: e.dir, stem: e.stem } }),
+      body: JSON.stringify(Object.assign({ job: cut.job, etag: cut.etag, rig: { dir: e.dir, stem: e.stem } }, f2r.modules ? { modules: f2r.modules } : {})),
     });
     if (!r.ok) throw new Error(await respErr(r));
     const sheet = await r.json();
@@ -12189,7 +12321,12 @@ async function f2rUpdate(){
     f2rNote("");
     hideLoading();
     await saveToR2();
-    reportFrameUpdate(e.stem, plan.report);
+    const moved = !!f2r.modulesWas && JSON.stringify(plan.modules || {}) !== JSON.stringify(f2r.modulesWas);
+    if (moved && !dirty){
+      await putModules({ dir: e.dir, stem: e.stem, projectKey: rigProjectKey || curProjectKey }, plan.modules || {});
+      f2r.modulesWas = Object.assign({}, plan.modules || {});
+    }
+    reportFrameUpdate(e.stem, plan.report, moved && dirty);
   } catch (err){
     f2rNote("");
     showAlert("Couldn't update the rig:\n\n" + (err && err.message ? err.message : err), "Update failed");
@@ -12203,7 +12340,7 @@ async function f2rUpdatePlan(sheet, cut, keep){
     body: JSON.stringify({
       dir: e.dir, stem: e.stem, projectKey: rigProjectKey || curProjectKey, job: cut.job,
       manifestKey: sheet.manifestKey, templateId: sheet.templateId, fit: sheet.fit,
-      skeleton: rawDoc, source: frameSrc.doc, keep,
+      skeleton: rawDoc, source: frameSrc.doc, keep, ...(f2r.modules ? { modules: f2r.modules } : {}),
     }),
   });
   if (!r.ok) throw new Error(await respErr(r));
@@ -12236,6 +12373,7 @@ async function f2rApplyUpdate(plan){
     rawDoc = plan.skeleton;
     normalizeKeys(rawDoc);
     frameSrc.doc = plan.source;
+    if (plan.report.modules) modulesOnSidecars(plan.report.modules, plan.controls);
     artKey = artIdOf(plan.source);
     rebuildFromRawDoc(sel);
     markDirty();
@@ -12260,13 +12398,15 @@ function linkedNote(rep){
   return "The neck bends now: " + rep.linked.map((l) => l.bone + " (above " + l.below + ")").join(", ") + " put in, its drawing skinned across both. Its clips pose as they did; Head nod shares a nod along the neck from now on, and a capture imported again bends the neck toward the face instead of sliding it.\n\n";
 }
 
-function reportFrameUpdate(stem, rep){
+function reportFrameUpdate(stem, rep, unrecorded){
   const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
   const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
   showAlert(
     "“" + stem + "” is updated from its cut" + (dirty ? " but NOT saved yet: 💾 Save keeps it, its new art with it." : " and saved.") + " ↶ undoes it.\n\n" +
     "Rebuilt from the cut: " + rep.replaced.join(", ") + ".\n\n" +
     linkedNote(rep) +
+    modulesNote(rep) +
+    (unrecorded ? "The new module set is recorded once the rig is saved: 💾 Save, then ✂ Edit cut and 🔄 Update rig with the same choice.\n\n" : "") +
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
     (removed.length ? "Removed (the cut no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
@@ -12289,6 +12429,9 @@ function wireFrameToRig(){
   $("#f2rCreate").onclick = () => (f2r.edit ? f2rUpdate() : f2rCreate());
   $("#editCutBtn").onclick = openEditCut;
   $("#editMapBtn").onclick = () => openSheetToRig(true);
+  $("#modulesBtn").onclick = openModules;
+  $("#modulesClose").onclick = $("#modulesCancel").onclick = () => $("#modulesModal").classList.remove("open");
+  $("#modulesApply").onclick = applyModules;
   // The brush and the lasso: one at a time, and only on a cut; they touch up this frame, so the stage
   // shows it while either is on.
   for (const [id, other] of [["#f2rBrush", "#f2rLasso"], ["#f2rLasso", "#f2rBrush"]])
@@ -12386,8 +12529,9 @@ async function openSheetToRig(edit){
   if (edit === true){
     if (!sheetSrc.doc || !selected) return;
     if (!newRigTemplates.length) await loadNewRigApplyOptions();
-    const tpl = newRigTemplates.find((t) => t.id === sheetSrc.doc.template.id);
-    if (!tpl){ showAlert("The template “" + irigStem(selected) + "” was made from (" + sheetSrc.doc.template.id + ") is gone.", "Can't edit the mapping"); return; }
+    const whole = newRigTemplates.find((t) => t.id === sheetSrc.doc.template.id);
+    if (!whole){ showAlert("The template “" + irigStem(selected) + "” was made from (" + sheetSrc.doc.template.id + ") is gone.", "Can't edit the mapping"); return; }
+    const tpl = templateAsChosen(whole, sheetSrc.doc.template.modules || {});
     Object.assign(s2r, { edit: { dir: selected.dir_b64 || "", stem: irigStem(selected) }, tpl });
     s2rModeUi();
     const sel = $("#s2rSheet");
@@ -12406,7 +12550,7 @@ async function openSheetToRig(edit){
   const tpl = v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) : null;
   if (!tpl){ $("#newRigNote").textContent = "pick a template above (Half body), then map your sheet to it"; return; }
   $("#newRigNote").textContent = "";
-  s2r.tpl = tpl;
+  s2r.tpl = templateAsChosen(tpl, newRigModuleChoice());
   s2rModeUi();
   const sel = $("#s2rSheet");
   sel.innerHTML = "";
@@ -12502,6 +12646,47 @@ function s2rModeUi(){
   $("#s2rSheet").disabled = !!e;
   $("#s2rSheet").title = e ? "An update keeps the rig's own sheet: to map another, 🦴 Create a new rig from it." : "One of this project's sheets or atlases.";
   $("#s2rName").style.display = e ? "none" : "";
+  s2rModulesUi();
+}
+
+// 🗺 Edit mapping's Modules (docs/design/rig-modules.md §4): the rig's own set, changed here — the parts
+// list follows at once, and 🔄 Update rig takes out what the new set lacks (keys and all) or makes what
+// it adds from the parts mapped to it. A new rig's set is the ＋ New rig panel's.
+function s2rModulesUi(){
+  const box = $("#s2rModules"); if (!box) return;
+  const whole = s2r.edit && newRigTemplates.find((t) => t.id === s2r.tpl.id);
+  box.innerHTML = "";
+  box.style.display = whole && whole.modules && whole.modules.length ? "contents" : "none";
+  if (!box.style.display.startsWith("c")) return;
+  for (const m of whole.modules){
+    const sel = document.createElement("select");
+    sel.className = "s2rModule"; sel.dataset.module = m.id;
+    sel.title = m.label + " — " + m.tip + " Changing it here, then 🔄 Update rig, takes out of the rig what the new choice leaves out (its bones, slots and keys) or makes what it adds from the parts you map.";
+    sel.setAttribute("aria-label", m.label);
+    for (const o of m.options){
+      const op = document.createElement("option");
+      op.value = o.id; op.textContent = m.label + ": " + o.label;
+      sel.appendChild(op);
+    }
+    sel.value = (s2r.tpl.choice && s2r.tpl.choice[m.id]) || m.default;
+    sel.onchange = () => s2rSetModules(whole);
+    box.appendChild(sel);
+  }
+}
+
+// The dialog's template as its Modules pickers choose (a part the choice leaves out unmapped).
+function s2rSetModules(whole){
+  const choice = {};
+  for (const sel of document.querySelectorAll("#s2rModules .s2rModule")){
+    const m = whole.modules.find((x) => x.id === sel.dataset.module);
+    if (m && sel.value !== m.default) choice[m.id] = sel.value;
+  }
+  s2r.tpl = templateAsChosen(whole, choice);
+  if (!Object.keys(choice).length) s2r.tpl = Object.assign({}, whole, { choice: {} });
+  const parts = new Set(s2r.tpl.parts.map((p) => p.name));
+  for (const part of Object.keys(s2r.map)) if (!parts.has(part)) delete s2r.map[part];
+  s2r.props = s2r.props.filter((p) => parts.has(p.host));
+  s2rRender();
 }
 
 // ---- 🗺 Edit mapping / 🔄 Update rig (docs/design/frame-to-rig.md §13.1b) ---------------------------
@@ -12528,6 +12713,85 @@ async function sheetSrcOpened(entry, gen){
 function renderEditMap(){
   const b = $("#editMapBtn"); if (!b) return;
   b.style.display = rawDoc && sheetSrc.doc ? "" : "none";
+  renderModulesBtn();
+}
+
+// ---- 🧩 Modules: the open rig's template pieces, changed in place (docs/design/rig-modules.md §4) ----
+function renderModulesBtn(){
+  const b = $("#modulesBtn"); if (!b) return;
+  b.style.display = rawDoc && rigTemplate && rigTemplate.modules && rigTemplate.modules.length ? "" : "none";
+}
+
+// A sheet rig's modules change with its mapping (🗺 Edit mapping, whose top row has them), a frame
+// rig's with its cut (✂ Edit cut, likewise); any other template rig gets the dialog.
+function openModules(){
+  if (!rawDoc || !rigTemplate || !rigTemplate.modules) return;
+  if (sheetSrc.doc){ openSheetToRig(true); return; }
+  if (frameSrc.doc){ openEditCut(); return; }
+  const rows = $("#modulesRows");
+  rows.innerHTML = "";
+  for (const m of rigTemplate.modules){
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;margin-top:4px;";
+    const lab = document.createElement("label");
+    lab.textContent = m.label; lab.title = m.tip; lab.style.cssText = "margin:0;min-width:60px;";
+    const sel = document.createElement("select");
+    sel.className = "rigModule"; sel.dataset.module = m.id; sel.title = m.tip; sel.style.flex = "1";
+    for (const o of m.options){ const op = document.createElement("option"); op.value = o.id; op.textContent = o.label; sel.appendChild(op); }
+    sel.value = (rigTemplate.choice && rigTemplate.choice[m.id]) || m.default;
+    row.append(lab, sel);
+    rows.appendChild(row);
+  }
+  $("#modulesNote").textContent = "";
+  $("#modulesModal").classList.add("open");
+}
+
+// The module set recorded in the rig's template.json, once the change is saved.
+async function putModules(where, modules){
+  const w = await fetch("/api/rigger/modules", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ modules }, where)) });
+  if (!w.ok) throw new Error(await respErr(w));
+}
+
+// The module set picked in the dialog, off each module's default.
+function modulesPicked(){
+  const out = {};
+  for (const sel of document.querySelectorAll("#modulesRows .rigModule")){
+    const m = rigTemplate.modules.find((x) => x.id === sel.dataset.module);
+    if (m && sel.value !== m.default) out[m.id] = sel.value;
+  }
+  return out;
+}
+
+async function applyModules(){
+  if (!rawDoc || !selected) return;
+  const modules = modulesPicked(), gen = rigGen;
+  const where = { dir: selected.dir_b64 || "", stem: irigStem(selected), projectKey: rigProjectKey || curProjectKey };
+  $("#modulesNote").textContent = "working…";
+  try {
+    const r = await fetch("/api/rigger/modules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ modules, skeleton: rawDoc }, where)) });
+    if (!r.ok) throw new Error(await respErr(r));
+    const plan = await r.json();
+    if (gen !== rigGen) return;
+    const rep = plan.report;
+    if ((rep.bones.length || rep.slots.length) && !confirm("This takes out of “" + where.stem + "” " + rep.bones.length + " bone" + (rep.bones.length === 1 ? "" : "s") + " and " + rep.slots.length + " slot" + (rep.slots.length === 1 ? "" : "s") + (rep.keys ? " with their " + rep.keys + " keys" : "") + (rep.constraints.length ? ", and the constraints " + rep.constraints.join(", ") : "") + " (one ↶ undo).\n\nOK changes the rig; Cancel leaves it.")){ $("#modulesNote").textContent = ""; return; }
+    const sel = selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null;
+    historyStep(() => {
+      rawDoc = plan.skeleton;
+      normalizeKeys(rawDoc);
+      modulesOnSidecars(rep, plan.controls);
+      rebuildFromRawDoc(sel);
+      markDirty();
+    });
+    renderAnimSection(); renderTimeline();
+    $("#modulesModal").classList.remove("open");
+    await saveToR2();
+    if (!dirty) await putModules(where, modules);
+    loadRigTemplate();
+    showAlert(modulesNote({ modules: rep }) + (dirty ? "NOT saved yet: 💾 Save keeps it, then 🧩 Apply the same choice again to record it." : "Saved; ↶ undoes it."), "🧩 Modules");
+  } catch (err){
+    $("#modulesNote").textContent = "";
+    showAlert("Couldn't change the modules:\n\n" + (err && err.message ? err.message : err), "🧩 Modules");
+  }
 }
 
 async function s2rUpdate(){
@@ -12575,13 +12839,83 @@ function s2rApplyUpdate(plan){
     rawDoc = plan.skeleton;
     normalizeKeys(rawDoc);
     sheetSrc.doc = plan.sheet;
+    s2rRenamedOnSidecars(plan.report.renamed);
     s2rTurnDepths(plan.depths);
+    if (plan.report.modules) modulesOnSidecars(plan.report.modules, plan.controls);
     rebuildFromRawDoc(sel);
     markDirty();
   });
   s2r.dirty = false;
   renderAnimSection();
   renderTimeline();
+}
+
+// One slot per region (frame-to-rig §13.1h): the slots and bones 🔄 Update rig renamed, followed by
+// the rig's control layer, its 3D data (layers, views, 🔒 locks, a prop bone's depth and keys) and the
+// Slots panel's eyes and folders, before the rebuild drops what names a slot that went.
+function s2rRenamedOnSidecars(r){
+  if (!r) return;
+  const slots = new Map(Object.entries(r.slots || {})), bones = new Map(Object.entries(r.bones || {}));
+  if (!slots.size && !bones.size) return;
+  if (controlsDoc && window.RiggerControls)
+    controlsDoc = window.RiggerControls.renameControls(controlsDoc, { bone: bones, slot: slots, ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() });
+  // Through names of their own first, so two that trade names do not land on one.
+  const twoStep = (m, rename) => {
+    const via = [...m].map(([from, to], i) => [from, "\u0000" + i, to]);
+    for (const [from, tmp] of via) rename(from, tmp);
+    for (const [, tmp, to] of via) rename(tmp, to);
+  };
+  if (rig3d.doc && R3()){
+    twoStep(bones, (f, t) => R3().rename3d(rig3d.doc, "bone", f, t));
+    twoStep(slots, (f, t) => R3().rename3d(rig3d.doc, "slot", f, t));
+    if (bones.size) bake3dReset();
+  }
+  twoStep(slots, renameSlotView);
+}
+
+// A module change (docs/design/rig-modules.md §4) on the open rig's sidecars: its control layer and
+// its 3D data lose what went, and the control layer takes the new set's entries (`controls`) for the
+// bones that came.
+function modulesOnSidecars(rep, controls){
+  const gone = new Set(rep.bones), goneSlots = new Set(rep.slots), added = new Set(rep.added.bones);
+  const named = (bs) => bs.some((b) => gone.has(b));
+  if (controlsDoc){
+    const c = controlsDoc, off = new Set([...gone, ...(rep.bared || [])]);
+    for (const b of off) if (c.bones) delete c.bones[b];
+    for (const k of Object.keys(c.sets || {})){ c.sets[k] = c.sets[k].filter((b) => !off.has(b)); if (!c.sets[k].length) delete c.sets[k]; }
+    for (const [k, l] of Object.entries(c.limbs || {})) if (named([...(l.fk || []), l.control, l.pole])) delete c.limbs[k];
+    if (controls){
+      for (const b of added) if (controls.bones && controls.bones[b]) (c.bones = c.bones || {})[b] = controls.bones[b];
+      for (const [k, v] of Object.entries(controls.sets || {}))
+        if (v.some((b) => added.has(b))) (c.sets = c.sets || {})[k] = [...new Set([...((c.sets && c.sets[k]) || []), ...v])];
+      const mine = (i) => (i.bone && added.has(i.bone)) || (i.set && ((controls.sets || {})[i.set] || []).some((b) => added.has(b)));
+      const items = ((controls.picker && controls.picker.items) || []).filter(mine);
+      if (items.length){
+        const same = (x, y) => (x.bone && x.bone === y.bone) || (x.set && x.set === y.set);
+        c.picker = Object.assign({}, c.picker, { items: [...((c.picker && c.picker.items) || []).filter((x) => !items.some((y) => same(x, y))), ...items] });
+      }
+    }
+    if (c.picker && c.picker.items) c.picker.items = c.picker.items.filter((i) => !(i.bone && off.has(i.bone)) && !(i.set && !(c.sets && c.sets[i.set])) && !(i.limb && !(c.limbs && c.limbs[i.limb])));
+  }
+  if (rig3d.doc){
+    const d = rig3d.doc;
+    for (const b of gone) if (d.bones) delete d.bones[b];
+    for (const s of goneSlots) if (d.views) delete d.views[s];
+    for (const k of Object.keys(d.layers || {})){ d.layers[k] = d.layers[k].filter((s) => !goneSlots.has(s)); if (!d.layers[k].length) delete d.layers[k]; }
+    if (d.ik) d.ik = d.ik.filter((k) => !named([...(k.bones || []), k.end, k.target, k.pole]));
+    for (const clip of Object.values(d.clips || {})) for (const b of gone) if (clip.bones) delete clip.bones[b];
+  }
+}
+
+// What a module change did, for an update's report.
+function modulesNote(rep){
+  const m = rep.modules;
+  if (!m) return "";
+  loadRigTemplate();
+  return "🧩 Modules changed: " +
+    (m.bones.length || m.slots.length ? "taken out " + m.bones.length + " bone" + (m.bones.length === 1 ? "" : "s") + " and " + m.slots.length + " slot" + (m.slots.length === 1 ? "" : "s") + (m.keys ? " with their " + m.keys + " keys" : "") + (m.constraints.length ? ", and the constraints " + m.constraints.join(", ") : "") : "") +
+    (m.added.bones.length || m.added.slots.length ? ((m.bones.length || m.slots.length) ? "; " : "") + "put in " + m.added.bones.length + " bone" + (m.added.bones.length === 1 ? "" : "s") + " and " + m.added.slots.length + " slot" + (m.added.slots.length === 1 ? "" : "s") : "") +
+    ". Its Controls, picker and 3D data follow.\n\n";
 }
 
 // The depths the mapping's ↻ Head turn gives its bones and what the head wears (the update's
@@ -12597,6 +12931,14 @@ function s2rTurnDepths(depths){
   if (!Object.keys(bones).length) delete rig3d.doc.bones;
 }
 
+// One slot per region (frame-to-rig §13.1h): what an update renamed, keys and all, and the empty
+// template slots it took out.
+function regionSlotsNote(r){
+  if (!r) return "";
+  const renamed = Object.entries(r.slots || {});
+  return (renamed.length ? "One slot per region, named as your sheet names it (each with its keys): " + renamed.map(([a, b]) => a + " → " + b).join(", ") + ".\n\n" : "") +
+    (r.dropped && r.dropped.length ? "Empty template slots no region is drawn in, taken out: " + r.dropped.join(", ") + ".\n\n" : "");
+}
 function reportSheetUpdate(stem, rep){
   const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
   const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
@@ -12609,12 +12951,14 @@ function reportSheetUpdate(stem, rep){
   showAlert(
     "“" + stem + "” is updated from its mapping" + (dirty ? " but NOT saved yet: 💾 Save keeps it." : " and saved.") + " ↶ undoes it.\n\n" +
     "Rebuilt from the mapping: " + rep.replaced.join(", ") + ".\n\n" + frame +
+    modulesNote(rep) +
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
     (rep.turned && rep.turned.length ? "↻ The head turns round now, its drawing weighted to " + rep.turned.join(", ") + (rig3d.doc ? " (their depths and the face's are in its 3D data, so its 3D clips bake the turn again)" : "") + ".\n\n" : "") +
     linkedNote(rep) +
     (removed.length ? "Removed (the mapping no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
     (rep.layered && rep.layered.length ? "Drawn in the order of your Layers list: " + rep.layered.join(", ") + " moved.\n\n" : "") +
+    regionSlotsNote(rep.renamed) +
     (kept.length ? "Your own meshes kept: " + kept.join(", ") + ".\n\n" : "") +
     (rep.deformDropped.length ? "Deform keys dropped: " + rep.deformDropped.map((d) => d.part).join(", ") + ".\n\n" : "") +
     (rep.foldedBones.length ? "Bones you deleted, their share given to the bone above: " + rep.foldedBones.map((f) => f.bone + " → " + f.into).join(", ") + ".\n\n" : "") +
@@ -12848,7 +13192,7 @@ function s2rMapping(st = s2r){
   const parts = {};
   for (const [part, m] of Object.entries(st.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
-    sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
+    sheet: 1, manifestKey: s2r.sheetKey, template: Object.assign({ id: s2r.tpl.id, version: s2r.tpl.version }, s2r.tpl.choice && Object.keys(s2r.tpl.choice).length ? { modules: s2r.tpl.choice } : {}), parts,
     props: st.props.map(({ name, region, host, bone, at, turn: t, custom }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}), ...(custom ? { custom: true } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
     ...(st.swap ? { swapSides: true } : {}),
@@ -13141,13 +13485,23 @@ function s2rLayersOut(st = s2r){
   return list.join() === s2rLayerList(false, st).join() ? {} : { layers: list };
 }
 // 🗺 Edit mapping: the list starts as the open rig draws its slots (a reorder in Setup's slots
-// included), so 🔄 Update rig keeps that order unless it is changed here.
+// included), so 🔄 Update rig keeps that order unless it is changed here. The list names the
+// template's slots, the rig its regions' (one slot per region, §13.1h): each read back to its own.
 function s2rLayersFromRig(){
   if (!rawDoc || !s2r.sheet || !s2r.tpl) return;
   const drawn = new Set(s2rLayerList(false));
-  const own = rawDoc.slots.map((s) => s.name).filter((n) => drawn.has(n)).reverse();
+  const role = new Map(Object.entries(s2rRigSlotNames()).map(([r, n]) => [n, r]));
+  const own = rawDoc.slots.map((s) => role.get(s.name) || s.name).filter((n) => drawn.has(n)).reverse();
   if (own.length) s2r.layers = own;
   s2rRender();
+}
+// Each template slot the mapping in the dialog draws in, by the name the rig gives it (its region's:
+// one slot per region, §13.1h), as the launcher names it.
+function s2rRigSlotNames(st = s2r){
+  if (!s2r.tpl || !window.RiggerMotion || !window.RiggerMotion.sheetSlotNames) return {};
+  const parts = {};
+  for (const [p, m] of Object.entries(st.map)) if (s2rPart(p)) parts[p] = { region: m.region };
+  return window.RiggerMotion.sheetSlotNames(s2r.tpl, { parts, props: st.props });
 }
 // The slot a pick draws in: a part's, a prop's own.
 function s2rSelSlot(){
@@ -13183,7 +13537,7 @@ function s2rRenderLayers(){
   if (!box) return;
   box.innerHTML = "";
   if (!s2r.sheet || !s2r.tpl) return;
-  const list = s2rLayerList(), at = s2rSelSlot();
+  const list = s2rLayerList(), at = s2rSelSlot(), named = s2rRigSlotNames();
   const sum = $("#s2rLayersSec > summary");
   sum.textContent = "Layers · " + list.length + (s2rLayersOut().layers ? " · yours" : "");
   for (const slot of list){
@@ -13202,10 +13556,11 @@ function s2rRenderLayers(){
     if (region) s2rThumb(cv, region);
     const n = document.createElement("span");
     n.className = "s2rName";
-    n.textContent = slot;
-    const more = prop ? "on " + prop.host : parts.filter((p) => p !== slot).join(", ");
+    const own = named[slot] || slot;
+    n.textContent = own;
+    const more = prop ? "on " + prop.host : parts.filter((p) => p !== own).join(", ");
     if (more){ const i = document.createElement("i"); i.textContent = more; n.appendChild(i); }
-    n.title = slot + (prop ? ": a prop on " + prop.host : parts.length ? ": " + parts.join(", ") : "");
+    n.title = own + (prop ? ": a prop on " + prop.host : parts.length ? ": the region drawing " + parts.join(", ") : "");
     d.onclick = () => { s2rPickSlot(slot); s2rRender(); s2rDraw(); };
     d.append(g, cv, n);
     box.appendChild(d);
@@ -14017,10 +14372,10 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
     const l = document.createElement("span"); l.textContent = "shows"; l.style.cssText = "width:54px;";
     const sel = document.createElement("select"); sel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
-    const o0 = document.createElement("option"); o0.value = " none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
+    const o0 = document.createElement("option"); o0.value = "\u0000none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
     defs.forEach((d) => { const o = document.createElement("option"); o.value = d.name; o.textContent = d.name; sel.appendChild(o); });
-    sel.value = curAtt == null ? " none" : curAtt;
-    sel.onchange = () => keySlotAttachment(sd.name, sel.value === " none" ? null : sel.value);
+    sel.value = curAtt == null ? "\u0000none" : curAtt;
+    sel.onchange = () => keySlotAttachment(sd.name, sel.value === "\u0000none" ? null : sel.value);
     r.appendChild(l); r.appendChild(sel); det.appendChild(r);
   }
   // colour (rgb tint): retint only, keeping the current opacity — keys at the playhead
@@ -21621,8 +21976,11 @@ function startDopeScale(e, edge, dur){
   if (!items.length) return;
   // Ratio limits. Upper: no key may cross t=0 (times are absolute and non-negative, and
   // `retimeTrackKey` clamps a negative to 0, where it would merge with whatever is there). Lower:
-  // two distinct times must never squash into one — a clash DROPS a key and rig editing has no
-  // undo, so 1ms (10× the 1e-4 merge epsilon) is the floor between them.
+  // two distinct times ON ONE ROW must never squash into one — a clash DROPS a key — so 1ms (10×
+  // the 1e-4 merge epsilon) is the floor between them. Only keys sharing a row can merge: keys on
+  // different rows a fraction of a millisecond apart (2/3s written as 0.6666 on one, 0.6667 on
+  // another) used to pin the floor at ×1 and lock the grip against squashing at all. A pair that
+  // is already closer than 1ms keeps 2e-4, the least that still rounds to two times.
   //
   // The upper wall bites hard and silently: a selection containing a key at t=0, anchored anywhere
   // to its right, has maxRatio EXACTLY 1 — spreading it would push t=0 below zero, so the grip
@@ -21631,10 +21989,17 @@ function startDopeScale(e, edge, dur){
   let maxRatio = 200;
   for (const it of items) if (it.startTime < anchorT - 1e-6) maxRatio = Math.min(maxRatio, anchorT / (anchorT - it.startTime));
   const wall = maxRatio < 1.005;
-  const sorted = Array.from(new Set(times.map((t) => roundN(t, 4)))).sort((a, b) => a - b);
-  let gap = Infinity;
-  for (let i = 1; i < sorted.length; i++) gap = Math.min(gap, sorted[i] - sorted[i - 1]);
-  const minRatio = gap > 0 && gap < Infinity ? Math.min(1, 0.001 / gap) : 1;
+  const rowTimes = {};
+  for (const it of items) (rowTimes[it.tid] = rowTimes[it.tid] || new Set()).add(roundN(it.startTime, 4));
+  let minRatio = 0;
+  for (const set of Object.values(rowTimes)){
+    const sorted = [...set].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++){
+      const gap = sorted[i] - sorted[i - 1];
+      minRatio = Math.max(minRatio, (gap >= 0.001 ? 0.001 : 2e-4) / gap);
+    }
+  }
+  minRatio = Math.min(1, minRatio || 1e-3);
   dopeScale = { anchorT, startEdgeT, startX: e.clientX, dur, items, ratio: 1, moved: false, minRatio, maxRatio, wall, snapKeys: dopeSnapKeys(items),
     bar: $("#timeline .tl-scale"), grips: Array.from(document.querySelectorAll("#timeline .tl-scale-grip")) };
   $("#hint").textContent = wall

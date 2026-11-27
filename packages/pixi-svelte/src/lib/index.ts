@@ -35,6 +35,7 @@ export * from './glCounters';
 export { ktx2Fallbacks } from './ktx2Transcoder';
 export * from './perfProbe';
 export * from './churnProbe';
+export * from './sceneProbe';
 // The loader's last step: upload every texture and compile every program a game will draw with.
 export * from './gpuWarmup';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).
