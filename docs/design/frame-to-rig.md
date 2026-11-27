@@ -1815,6 +1815,54 @@ made before #1951 read past it).
   slots, from 🦴 Create rig and 🔄 Update rig alike; the "Setup's slots" wording is gone (every slot a
   control steps is in the list).
 
+### 13.1i Only the bones the mapping needs (2026-11-27)
+
+The owner, after §13.1h: "now that we have fix the slots, coming from the regions, I can see that we
+have a mismatch on the bone templates that we use, can we also create the bones and the rig from the
+regions so only the needed bones exist and the extra one that we need for facial and gadgets?" Their
+Nelly rig (Half body, no legs, no ears, a jointed mouth, the eyes in parts, hands drawn whole) still
+had all 87 of the template's bones.
+
+- **The template is a library of bones.** `rigSheetBones.ts` `sheetBones` reads what a sheet's fit
+  makes and keeps, of the template with its modules chosen: each bone a region is drawn on (its
+  slot's), each a prop or ＋ Custom part hangs from, each a drawing's mesh is weighted to (a bend's
+  bones and every joint and region it is skinned across, `bendBones`), each that ends a drawing's
+  length (the elbow under an upper arm, `LENGTH`), what a limb that is there moves by (its IK target
+  and pole, its FK/IK control and spaces, the bone ending its chain: `controls.limbs`, `rig3d.ik`, the
+  positions map's limbs, the constraints on kept bones), the face marks a kept neck bends to under a
+  capture, the root's anchors when none of them is otherwise kept (Full body with no legs drawn is
+  placed by its shoulders), the bones the author keeps, and the bones above all of those. Every other
+  template bone is left out: `RigFit.leftOut`, kept in `template.json` beside the role map.
+- **The fit names the roles; this, the skeleton.** `fitTemplate` makes the template without the
+  left-out bones (`withoutBones`, the modules' pass: slots, parts, controls, keys, the motion map,
+  the 3D setup and the picker that name them go with them), before the region slots (§13.1h). Every
+  placement is the whole template's (the drawings are placed before anything is left out), so a rig
+  made with every bone and one made without pose every drawing alike. `rigFitProblem` refuses a
+  left-out bone a drawn slot, a prop, a drawn part's mesh, the frame or the head turn needs.
+- **Consumers cope by the template, not by names.** Because the page, the capture's solve, the
+  Controls, lip-sync, the head turn, the neck, the 2.5D bake, clipping and Save as template read the
+  fitted template, none of them meets a bone the rig lacks. Two consequences of leaving a bone out
+  inside a chain are handled where they arise (`motionWithout`): a bone that stays but whose capture
+  direction its first child gave keeps that direction written out (`rest`), and the neck's 📍 Follow
+  positions entry goes when its bones or marks do.
+- **On the owner's shape** (`sheet-bones.mjs`): 87 → 47 template bones (57 with the six props' and
+  the head turn's ring), the ten nothing is drawn on (cheeks, brows, hair) and the 30 fingers out;
+  with the face found on the head, the brows' ends stay (its mesh bends on them); Full body with no
+  legs drawn, 44 → 33, no leg, its arms whole.
+- **🗺 Bones** (the dialog's side panel, `s2rBoneRows`): made · left out, each left-out bone with a
+  toggle (indented under the left-out bone above it, its tooltip why and its slots), the made ones
+  folded with why on hover. A ticked bone is kept (`SheetMapping.keep`) with the bones above it.
+- **🔄 Update rig moves a rig made before** (`rigSheetUpdate.ts`): before the merge, each bone the
+  edited mapping makes that the rig lacks and the kept mapping did not make is put in where the new
+  build has it (`changeModules`, adds only; a region mapped anew on a bone the rig lacks — brows drawn
+  later — gets its bone before its slot); after it, the left-out bones go with their keys and the
+  constraints naming them, a weighted vertex's share handed to the nearest bone kept above and the
+  bones renumbered (`changeModules` again). A template bone an author's bone, slot (one still
+  drawing something once the merge has emptied the template's) or constraint names stays and goes
+  into the mapping's `keep` (the fit rebuilt with it), so 🗺 shows it ticked and the next update keeps
+  it. The report's `bones` (taken out, put in, kept, keys) and the page's sidecars follow
+  (`modulesOnSidecars`); the page warns before keys go.
+
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
 The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
@@ -1917,6 +1965,24 @@ slots out, the author's Layers order and slot kept, a second update a no-op, an 
 slot, and one named like an empty template slot taking its name on its own bone); 13 mutants,
 about 30 s. The sheet gates read slots through the role map (`slotOf`, or the slot
 drawing a part), and `capture-draw-order.mjs` `import` guards the body depth found by part (1 mutant).
+
+Only the bones the mapping needs (§13.1i), on the owner's region names: `sheet-bones.mjs` `skeleton`
+(no cheek, brow, hair or finger bone and no ear or cheek slot, every region on its part's bone with
+the bones above it, every prop on its own bone, the drawn face's control bones and the arms' IK, the
+fitted template naming only the rig's bones, a valid 4.2 skeleton engine-rig loads; a found face's
+mesh keeping the brows' ends, a head without features keeping the neck's face marks, Full body with
+no legs drawn making none), `drive` (every control keyed at once, lip-sync and a 3D capture, played,
+keying nothing the rig lacks), `keep` (a kept brow and finger made with what is above them, the
+finger's capture direction written out; a bone the template lacks refused), `update` (a rig made with
+every template bone: 39 bones out with their keys, every drawing posed as before to 0, every key on a
+kept bone and every weighted vertex's bone by name kept, the author's bones kept with the cheek one
+hangs from, a second update a no-op, a brow mapped anew bringing its bone) and `page` (🦴 Bones as the
+launcher says, a toggle keeping a bone); 13 mutants, about 30 s. `sheet-rig-browser.mjs` (the
+section on the shipped page counting what the preview makes and leaves out, a toggle per bone left
+out; one ticked goes out as `keep` with the next preview, which makes it; 2 page mutants). `sheet-rig.mjs` and
+`sheet-region-slots.mjs` read the template's whole role order and a rig made before with every bone
+(`leftOut` stripped as `slots` is); `sheet-mouth.mjs` guards the optional bone on ＋ New rig's
+template-only path, where `templateMade` still decides it.
 
 ### 13.4 Owed
 

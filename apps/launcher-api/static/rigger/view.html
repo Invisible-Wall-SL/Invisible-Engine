@@ -274,6 +274,10 @@
   .s2rLayer.drop-before { box-shadow:inset 0 2px 0 var(--accent); }
   .s2rLayer.drop-after { box-shadow:inset 0 -2px 0 var(--accent); }
   body.slotDragging .s2rLayer .slotGrip { cursor:grabbing; }
+  .s2rBone { margin:1px 0; gap:6px; cursor:default; }
+  .s2rBone input { margin:0; }
+  .s2rBone.made { color:var(--dim); }
+  .s2rBonesMade > summary { color:var(--dim); font-size:11px; margin-top:4px; cursor:pointer; }
   /* 📐 Save as template */
   .tplRow { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:3px 14px; font-size:11px; }
   .tplRow > .tplKey { flex:0 0 96px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1120,6 +1124,10 @@
           <details class="wsSec" id="s2rLayersSec" open>
             <summary title="Layers — which drawing is in front of which, front at the top: every mapped part and prop, in the slot it is drawn in (a hand pose shares its hand's). It starts as the template's order, each prop over its part (or behind it where your Photoshop layers say so). Drag a row's ⋮⋮, or pick it and press Ctrl+] / Ctrl+[ to move it one place to the front / back (with Shift, all the way). Kept with the rig's mapping; 🔄 Update rig applies it when you changed it here, and otherwise keeps the rig's own order (a reorder in Setup's slots stays). A clip's draw-order keys still draw what they drew, so a new order shows at setup and in the clips that key no draw order.">Layers</summary>
             <div id="s2rLayers"></div>
+          </details>
+          <details class="wsSec" id="s2rBonesSec">
+            <summary title="🦴 Bones — the skeleton the rig gets: only the template's bones your mapping needs. Each region's bone and the bones above it, the bones a drawing bends on, what a limb's IK and the capture move it by, the face's controls for the features you drew; every prop and custom part gets a bone of its own (in Layers). Every other bone is left out: a hand drawn as one picture gets no fingers, a sheet with no legs no legs, brows nobody drew no brows. Tick a bone left out to keep it anyway (for a region you will map later); hover a bone for why it is made. Kept with the rig's mapping: 🔄 Update rig takes the bones left out out of an existing rig with their keys, but for one a bone or slot of yours hangs from, which it keeps.">Bones</summary>
+            <div id="s2rBones"></div>
           </details>
         </div>
       </div>
@@ -12359,6 +12367,8 @@ function f2rUpdateWarnings(rep, from = "cut"){
       lines.push("The " + from + " no longer makes " + x.name + ". Removing it also removes " + x.references.slice(0, 6).join("; ") + (x.references.length > 6 ? "; and " + (x.references.length - 6) + " more" : "") + (x.keptBone ? " (its bone stays: something still hangs from it)" : "") + ".");
   if (rep.deformDropped.length) lines.push("Deform keys dropped, the rebuilt mesh having other vertices: " + rep.deformDropped.map((d) => d.part + " (" + d.keys + ")").join(", ") + ".");
   if (rep.slotless.length) lines.push("Not updated, you deleted their slot: " + rep.slotless.join(", ") + ".");
+  const b = rep.bones;
+  if (b && b.keys) lines.push("🦴 " + b.bones.length + " bone" + (b.bones.length === 1 ? "" : "s") + " nothing is drawn on go (" + b.bones.slice(0, 8).join(", ") + (b.bones.length > 8 ? ", …" : "") + "), and with them the " + b.keys + " keys on them. Tick a bone in 🦴 Bones to keep it.");
   return lines.join("\n\n");
 }
 
@@ -12508,6 +12518,8 @@ const s2r = {
   turn: 1,
   // layers: the author's Layers list, slot names front to back (null: the template's order, `sheetLayerList`).
   layers: null, ldrag: null,
+  // keep: template bones the rig keeps with no region on them yet, the mapping's `keep` (🦴 Bones).
+  keep: [],
   // left: { mapping, at } a new rig's mapping closed unmade (↺ Reuse); undo: what ↺ Start over replaced.
   left: null, undo: null,
 };
@@ -12615,8 +12627,8 @@ async function s2rReuse(c){
 function s2rStartOver(){
   if (!s2r.sheet || !s2r.tpl) return;
   if (s2r.dirty && !confirm("↺ Start over throws away your changes to this mapping: the regions picked, the joints dragged, the props, the arrangement and the Layers go back to the first guess.\n\n↶ brings them back.")) return;
-  s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
-  Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false });
+  s2r.undo = JSON.parse(JSON.stringify({ map: s2r.map, props: s2r.props, arrange: s2r.arrange, layers: s2r.layers, keep: s2r.keep, faces: s2r.faces, sel: s2r.sel, from: s2r.from, swap: s2r.swap, dirty: s2r.dirty }));
+  Object.assign(s2r, { map: {}, props: [], arrange: null, layers: null, keep: [], faces: {}, sel: null, from: null, aview: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false });
   // A face still being found lands on neither the first guess nor, after ↶, the mapping put back.
   ++s2r.gen;
   s2rSuggest();
@@ -12842,6 +12854,7 @@ function s2rApplyUpdate(plan){
     s2rRenamedOnSidecars(plan.report.renamed);
     s2rTurnDepths(plan.depths);
     if (plan.report.modules) modulesOnSidecars(plan.report.modules, plan.controls);
+    if (plan.report.bones) modulesOnSidecars(plan.report.bones, plan.controls);
     rebuildFromRawDoc(sel);
     markDirty();
   });
@@ -12931,6 +12944,16 @@ function s2rTurnDepths(depths){
   if (!Object.keys(bones).length) delete rig3d.doc.bones;
 }
 
+// The skeleton following the mapping (frame-to-rig §13.1i): the bones an update took out and put in,
+// and those it kept for the author's own.
+function sheetBonesNote(b){
+  if (!b) return "";
+  const n = (xs) => xs.length + " bone" + (xs.length === 1 ? "" : "s");
+  return (b.bones.length ? "🦴 " + n(b.bones) + " nothing is drawn on, taken out" + (b.keys ? " with their " + b.keys + " keys" : "") + (b.constraints.length ? " and the constraints " + b.constraints.join(", ") : "") + ": " + b.bones.join(", ") + ".\n\n" : "") +
+    (b.added.bones.length ? "🦴 Bones your mapping now needs, put in: " + b.added.bones.join(", ") + ".\n\n" : "") +
+    (b.kept.length ? "🦴 Kept for a bone, slot or constraint of yours (the mapping keeps them from now on, in 🦴 Bones): " + b.kept.join(", ") + ".\n\n" : "");
+}
+
 // One slot per region (frame-to-rig §13.1h): what an update renamed, keys and all, and the empty
 // template slots it took out.
 function regionSlotsNote(r){
@@ -12959,10 +12982,13 @@ function reportSheetUpdate(stem, rep){
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
     (rep.layered && rep.layered.length ? "Drawn in the order of your Layers list: " + rep.layered.join(", ") + " moved.\n\n" : "") +
     regionSlotsNote(rep.renamed) +
+    sheetBonesNote(rep.bones) +
     (kept.length ? "Your own meshes kept: " + kept.join(", ") + ".\n\n" : "") +
     (rep.deformDropped.length ? "Deform keys dropped: " + rep.deformDropped.map((d) => d.part).join(", ") + ".\n\n" : "") +
     (rep.foldedBones.length ? "Bones you deleted, their share given to the bone above: " + rep.foldedBones.map((f) => f.bone + " → " + f.into).join(", ") + ".\n\n" : "") +
-    "Its bones (yours too), clips, keys, constraints, controls and your own slots are as they were.",
+    (rep.bones && rep.bones.bones.length
+      ? "Your own bones, its clips, the keys on every bone that stays, its constraints, controls and your own slots are as they were."
+      : "Its bones (yours too), clips, keys, constraints, controls and your own slots are as they were."),
     "Rig updated from its mapping");
 }
 
@@ -12995,7 +13021,7 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false, aview: null, adrag: null, swap: !!kept && kept.swapSides === true, turn: kept && typeof kept.turn === "number" ? kept.turn : 1 });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, keep: kept && Array.isArray(kept.keep) ? [...kept.keep] : [], preview: null, previewKey: "", previewProblem: "", previewLayers: false, aview: null, adrag: null, swap: !!kept && kept.swapSides === true, turn: kept && typeof kept.turn === "number" ? kept.turn : 1 });
   s2rSwapUi();
   s2rTurnUi();
   $("#s2rSheet").value = key;
@@ -13198,7 +13224,13 @@ function s2rMapping(st = s2r){
     ...(st.swap ? { swapSides: true } : {}),
     ...s2rLayersOut(st),
     ...(s2r.turn !== 1 ? { turn: s2r.turn } : {}),
+    ...s2rKeepOut(),
   };
+}
+// The bones kept with no region (🦴 Bones), of those the template (its modules chosen) has.
+function s2rKeepOut(){
+  const keep = s2r.keep.filter((b) => s2r.tpl.bones.some((x) => x.name === b));
+  return keep.length ? { keep } : {};
 }
 
 // ↻ Head turn (rigHeadTurn.ts): the drawn head's strength of turn, 0 off; kept in the mapping (`turn`,
@@ -13328,7 +13360,7 @@ function s2rRender(){
   }
   const list = $("#s2rParts");
   list.innerHTML = "";
-  if (!has || !s2r.tpl){ s2rRenderLayers(); return s2rRenderProps(); }
+  if (!has || !s2r.tpl){ s2rRenderLayers(); s2rRenderBones(); return s2rRenderProps(); }
   const regions = s2r.sheet.regions.map((r) => r.name);
   const groups = [
     ["Body", (p) => s2rMain(p) && !S2R_FACE_PART.test(p.name) && !S2R_FINGER.test(p.name)],
@@ -13358,6 +13390,7 @@ function s2rRender(){
   }
   s2rRenderProps();
   s2rRenderLayers();
+  s2rRenderBones();
 }
 
 function s2rRow(p, regions){
@@ -13571,6 +13604,69 @@ function s2rRenderLayers(){
     w.className = "pill s2rLayerWarn"; w.textContent = "⚠ " + s2r.previewProblem;
     box.appendChild(w);
   }
+}
+
+// 🦴 Bones (rigSheetBones.ts): what the launcher's preview says of each template bone (`skeleton`,
+// in the template's order) as the list's rows — made, with why, or left out — each one left out, or
+// kept by the author (`keep`), with a toggle; a row under another of those indented beneath it.
+function s2rBoneRows(skeleton, keep){
+  const why = {
+    drawn: "a region is drawn on it", prop: "a prop or custom part hangs from it", mesh: "a drawing bends on it",
+    ends: "a drawing or a limb ends on it", control: "a limb's IK or the capture moves by it",
+    kept: "you keep it", above: "a bone it holds is made", none: "nothing is drawn on it or under it",
+  };
+  const depth = new Map();
+  const rows = skeleton.map((b) => {
+    const toggle = b.why === "none" || keep.includes(b.name);
+    const d = toggle && b.parent !== undefined && depth.has(b.parent) ? depth.get(b.parent) + 1 : 0;
+    if (toggle) depth.set(b.name, d);
+    const slots = b.why === "none" && b.slots.length ? " (its slot" + (b.slots.length > 1 ? "s " : " ") + b.slots.join(", ") + ")" : "";
+    return { name: b.name, why: b.why, toggle, kept: keep.includes(b.name), depth: d, label: why[b.why] + slots };
+  });
+  const made = skeleton.filter((b) => b.why !== "none").length;
+  return { made, left: skeleton.length - made, rows };
+}
+function s2rRenderBones(){
+  const box = $("#s2rBones");
+  if (!box) return;
+  box.innerHTML = "";
+  const sum = $("#s2rBonesSec > summary");
+  const skeleton = s2r.preview && s2r.preview.skeleton;
+  if (!s2r.sheet || !s2r.tpl || !skeleton){ sum.textContent = "Bones"; return; }
+  const list = s2rBoneRows(skeleton, s2r.keep);
+  sum.textContent = "Bones · " + list.made + " · " + list.left + " left out";
+  const row = (r) => {
+    const d = document.createElement("label");
+    d.className = "f2rRow s2rBone" + (r.toggle ? "" : " made");
+    d.style.paddingLeft = (4 + 12 * r.depth) + "px";
+    d.title = r.name + ": " + r.label;
+    d.dataset.bone = r.name;
+    if (r.toggle){
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = r.kept;
+      cb.setAttribute("aria-label", "Keep " + r.name);
+      cb.onchange = () => s2rKeepBone(r.name, cb.checked);
+      d.appendChild(cb);
+    }
+    const n = document.createElement("span");
+    n.className = "s2rName"; n.textContent = r.name;
+    d.appendChild(n);
+    return d;
+  };
+  for (const r of list.rows) if (r.toggle) box.appendChild(row(r));
+  const made = document.createElement("details");
+  made.className = "s2rBonesMade";
+  const ms = document.createElement("summary");
+  ms.textContent = "made · " + list.made;
+  ms.title = "The template's bones the rig gets: hover one for why";
+  made.appendChild(ms);
+  for (const r of list.rows) if (!r.toggle) made.appendChild(row(r));
+  box.appendChild(made);
+}
+function s2rKeepBone(name, on){
+  s2r.keep = on ? [...new Set([...s2r.keep, name])] : s2r.keep.filter((b) => b !== name);
+  s2r.dirty = true;
+  s2rRequestPreview();
 }
 function s2rLayerDragStart(e, slot){
   if (e.button !== 0 || !e.isPrimary || s2r.ldrag) return;
@@ -13823,6 +13919,7 @@ async function s2rPreview(){
   }
   if (s2r.view === "arranged") s2rDraw();
   s2rRenderLayers();
+  s2rRenderBones();
 }
 
 // The camera everything is drawn through: the arrangement fitted inside the stage with a margin, or,

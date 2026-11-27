@@ -424,12 +424,15 @@ const GUARDS = {
 		const plainSlots = plain.rigged.skeleton.slots.map((s) => s.name);
 		// ＋ New rig from the template alone (no sheet: its slots by the template's names).
 		const sized = SHEET.regions.map(({ name, w, h }) => ({ name, w, h }));
-		const bare = M.templateRig(t, sized).skeleton.slots.map((s) => s.name);
+		const bareRig = M.templateRig(t, sized).skeleton;
+		const bare = bareRig.slots.map((s) => s.name);
 		good =
 			ok(
 				'mouth: a rig drawing no jointed mouth has none of its slots nor the upper teeth’s bone',
 				!JOINTED.some((n) => plainSlots.includes(plain.rn(n)) || bare.includes(n)) &&
-					!plain.rigged.skeleton.bones.some((b) => b.name === 'teeth_upper') &&
+					![plain.rigged.skeleton, bareRig].some((s) =>
+						s.bones.some((b) => b.name === 'teeth_upper'),
+					) &&
 					t.slots.filter((s) => s.optional).length === JOINTED.length,
 				[...plainSlots, ...bare].filter((n) => JOINTED.includes(n)).join(),
 			) && good;

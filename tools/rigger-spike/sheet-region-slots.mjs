@@ -139,8 +139,10 @@ function create(M, mapping, regions = SIZED, roles = false) {
 	const t = M.asMapped(M.HALF_BODY, parsed.mapping);
 	const sr = M.sheetRig(t, regions, parsed.mapping);
 	if (!sr.ok) throw new Error(sr.problem);
-	// `roles`: as made before one slot per region, every slot by the template's name.
+	// `roles`: as made before one slot per region, every slot by the template's name (and before the
+	// skeleton followed the mapping, every bone of the template).
 	const { slots: names, ...fit } = sr.value.fit;
+	delete fit.leftOut;
 	const irig = M.templateRig(t, regions, roles ? fit : sr.value.fit, sr.value.art).skeleton;
 	return {
 		irig,
