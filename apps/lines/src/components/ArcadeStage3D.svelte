@@ -21,7 +21,6 @@
 		type Camera3dFlowHost,
 	} from '../game/camera3dFlow';
 	import { arcadePerf } from '../game/arcadePerf';
-	import { notePlayFieldFrame } from '../game/playFieldPhase';
 	import { gameAssetsBase } from '../game/assets';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
@@ -607,9 +606,11 @@
 						face,
 						view?.aims ? view.pitch : 0,
 					);
-					const playing = !room3d || (room3d.room.state as { phase?: string }).phase === 'running';
-					notePlayFieldFrame(playing);
-					if (arcadePerf.on && playing) arcadePerf.phase = 'play';
+					if (
+						arcadePerf.on &&
+						(!room3d || (room3d.room.state as { phase?: string }).phase === 'running')
+					)
+						arcadePerf.phase = 'play';
 					bodies = field.bodies();
 					const own = bodies.find((b) => b.kind === 'hero');
 					ownId = own?.id;

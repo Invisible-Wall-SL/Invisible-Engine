@@ -1022,6 +1022,11 @@ console.log('\n12. a boardless game');
 		kept({ ...salmons, boardless: undefined }),
 		sorted([...BACKGROUND, 'H1', 'explosion', 'symbolsStatic', 'reelsFrame', 'anticipation', 'goldFont', 'bigwin', 'coins', 'foregroundFeatureAnimation', 'reelhouse', 'transition']), // prettier-ignore
 	);
+	check(
+		'a doc with no base game of its own walks the reference one the game mounts',
+		kept(field({ ...salmonsDoc, scenes: salmonsDoc.scenes.filter((s) => s.role !== 'basegame') } as LayoutDoc, salmonsGame, SALMONS_SEED_DOC)).includes('reelsFrame'), // prettier-ignore
+		true,
+	);
 	check('the arcade sample keeps the same', kept(field(arcadeReferenceLayout(), arcadeGame, ARCADE_DRIVEN_SEED_DOC)), BACKGROUND); // prettier-ignore
 	check('the card sample keeps the same', kept(field(cardReferenceLayout(), cardGame, CARD_DRIVEN_SEED_DOC)), BACKGROUND); // prettier-ignore
 

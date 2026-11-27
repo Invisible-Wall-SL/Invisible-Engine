@@ -450,6 +450,12 @@ function mountedScenes(doc: LayoutDoc, fallback: LayoutDoc): Scene[] {
 	return out;
 }
 
+/** The doc's own scenes, and the reference base game when the doc has none (`basegameSceneOf`). */
+function withBasegame(doc: LayoutDoc, fallback: LayoutDoc): Scene[] {
+	const basegame = basegameSceneOf(doc.scenes, fallback);
+	return basegame && !doc.scenes.includes(basegame) ? [...doc.scenes, basegame] : doc.scenes;
+}
+
 /** {@link analyseStockAssets}'s answer alone. */
 export const stockAssetsNeeded = (input: StockAssetsInput): Set<StockKey> =>
 	analyseStockAssets(input).needed;
@@ -589,9 +595,14 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 	};
 
 	// A boardless game's fallback scenes are the slot's (the win, the buy screens, the book, the
-	// counter): each draws only on a win, a bet, a book or a free-spin cue. A flow's free-spin switch
-	// is the one of those it can fire, and keeps them all, as on a board.
-	const scenes = boardless && !freeSpins ? doc.scenes : mountedScenes(doc, input.fallbackDoc);
+	// counter): each draws only on a win, a bet, a book or a free-spin cue, and the doc's flow fires
+	// a win or a transition there only through a cue it names, which keeps that art by its name. A
+	// flow's free-spin switch is the one it can fire bare, and keeps them all, as on a board. The base
+	// game is the exception: a doc without one mounts the reference's.
+	const scenes =
+		boardless && !freeSpins
+			? withBasegame(doc, input.fallbackDoc)
+			: mountedScenes(doc, input.fallbackDoc);
 	for (const scene of scenes) {
 		walkNodes(scene.nodes, {}, [], `scene ${scene.id}`);
 	}
