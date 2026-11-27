@@ -30,8 +30,9 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder —
-    in review, branch `claude/salmons-perf-t3-boot` (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16
-    MB; the ladder measures arcade; the coded slot background stays, an owner decision) ·
+    in review, PR #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures
+    arcade), and T3b, Salmons' own loading backdrop in place of the slot background (approved;
+    branch `claude/salmons-perf-t3b-loading`, GPU art → 13 MB) ·
     T6 net client — started · T4 river chunks — started · T5 filters → shaders — after T4.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
@@ -2640,6 +2641,33 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-27 — **Performance T3b: Salmons' own loading backdrop, no slot background** (owner:
+  "yes, give Salmons its own loading background"; [salmons-performance](../design/salmons-performance.md)
+  §5; branch `claude/salmons-perf-t3b-loading`, on T3; in review). No config, layout or flow change.
+  - **What a player sees.** The loading / tap-to-start screen is deep water darkening downwards,
+    the original's pink salmon bobbing over it and a few bubbles rising, the loading phrase and
+    "PRESS ANYWHERE TO CONTINUE" over it as before, in portrait and landscape
+    ([before / after](../playtest/salmons-loading/)). It is drawn in code from the character
+    sheet the game already loads (`salmonsArt/screens.ts` `createBackdrop`, published as
+    `sm-backdrop`), so it costs no download and no texture; until the room's art is in the screen
+    is the backdrop's deepest water.
+  - **How.** `Game.svelte` mounts `ArcadeBackdrop.svelte` (arcade seam) where the coded slot
+    `<Background>` stood, for a play field whose rooms have art (`usesSalmonsArt`). The coded
+    `Background` anchor every published Salmons layout has draws it, so **no owner re-upload or
+    publish**: it reaches the game with the runtime release. Not drawn while the field is played
+    (the world covers the screen). The stock-asset walk takes `ownBackdrop`: Salmons no longer
+    reaches `foregroundAnimation` (mm_bg). Every other game, the arcade sample included (no room
+    art), mounts the coded background as before.
+  - **Measured** (`arcade-boot-probe.mjs`, phone page, same as T3): transfer 3.99 → 3.90 MB
+    (the 0.09 MB of `mm_bg` rig and atlas), loaded GPU art 15.9 → 13.0 MB (main: 34.2 MB),
+    20 files.
+  - **Gates:** `stockAssets.fixture.ts` 12 (Salmons drawing its own backdrop keeps no coded
+    background; a bone-placed effect still keeps its host rig; a free-spin switch brings back no
+    feature background), `check:all --only stock,salmons,room-lobby,arcade,zone-art` 29 / 29,
+    svelte-check at baseline (`apps/lines` 145, `engine-layout` 290). Played:
+    `salmons-levels-play.mjs` 59 / 59 (two new verdicts: the backdrop drawn while the room waits,
+    not drawn in play), `salmons-play.mjs` 103 / 103.
 
 - 2026-11-27 — **Performance T3: an arcade boot loads no slot art or audio, and the quality ladder
   measures arcade play** ([salmons-performance](../design/salmons-performance.md) T3; branch
