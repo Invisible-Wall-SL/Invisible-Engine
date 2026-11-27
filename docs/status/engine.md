@@ -79,13 +79,29 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   below, "the start screen's tap"), and then a reel game's base game and board with the reels'
   filler views, unless the tap turns the anticipation mode on (2026-11-13 below, "the base game
   and its board"). Every device starts at full quality (pixel ratio up to 2, MSAA); the game lowers it
-  only when frames measurably fall behind while a round plays,
-
-  Spread across frames behind the loading screen. Every device starts at full quality (the
-  screen's pixel ratio up to 2, MSAA; next bullet); the game lowers it only when frames measurably
-  fall behind while a round plays,
-  never from device memory (`renderQuality.ts`, 2026-11-10 below). `?render=full` pins full,
-  `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
+  only when frames measurably fall behind while a round plays, never from device memory
+  (`renderQuality.ts`, 2026-11-10 below). **The ladder** (2026-11-27): 2, 1.75, 1.5, 1.5 without
+  MSAA, 1.25, 1, then 1 with the effects lowered (stage post FX left out, particle budget capped at
+  0.5), each step a trial kept only if the slow share halves or frames get 20% shorter. **The
+  second chance** after a step that did not help: four slow windows start a walk two levels down
+  (past the one that did not help), then one level at a time, kept at the first level that helps
+  and back to its start when none does; 15 windows in a row under 1% slow while it waits give it
+  back unused. After the second chance, a step down that did not help sends the next slow spell
+  straight to the effects level; only that level not helping stops stepping down. **A step up
+  that went slow** is stepped back and tried again after twice the last wait (30, then 60, 120
+  good windows), at most twice; a level's failure count never goes down. Worst case, a device
+  always too slow one level up flaps twice more, after 2 and 4 minutes of good round play.
+  **The switch budget:** up and down spend one refilling budget, 12 to start with and at most,
+  one back after each 150 measured windows with no switch (~5 minutes of play), so at most about
+  12 + play-minutes / 5 switches. Every step is judged; when none fits, the device waits for a
+  refill. Until the second chance is taken 2 switches are held for it, and every ordinary step
+  that could leave the device above the effects level keeps 2 more for a judged trip there, so a
+  device slow at every resolution always has a way to the effects level (THE SWITCH BUDGET in
+  `renderQuality.ts`). `engine-3d` (no second chance): 6 switches, never refilled, and a failed
+  step up is never retried, as before. The `?perf=1` HUD's quality line shows post FX, the
+  particle cap, the second chance, `effects next`, the budget (`budget 9/12 (+1 in 40 windows)`)
+  and a failed step up's retry wait.
+  `?render=full` pins full, `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
   never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout per frame: verified with
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
@@ -253,6 +269,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `?perf=1` Copy (`perf: 3`, its `quality.trials`) after ~20 spins on the iPhone 13 Pro (14 fps
   spinning on 2026-11-09), which should step down and keep a step only if its slow share halves or
   its frames get 20% shorter; and the Nothing Phone (1) again, which should now revert to full.
+  Since 2026-11-27 also owed: a reading on BUG-20's Mali-G57 MC2 phone (28.5 fps spinning), whose
+  quality line should show the walk to `L6` with `post FX off`, and the Nothing Phone (1) again,
+  which should stop above `L6` with `post FX on` or end at `L0` with `no more steps down`.
+
+- **Render quality: a failed effects-level trial stops stepping down for the session — owner's
+  call** (2026-11-27, follow-up to BUG-20). `downStopped` is set once the effects level was tried
+  and did not help, and never expires: a device whose effects level failed in one spell (say a
+  CPU-bound moment) cannot step down in a later, GPU-bound one. Letting it expire (like the
+  waiting second chance, after a run of good windows, or after a refill) was out of scope for
+  #1960; the 1,400-session adversarial harness ends 516 sessions above the effects level this
+  way.
 
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
   below; spike records 2026-11-10). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on
@@ -609,6 +636,123 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-27 — **Render quality: the second chance walks down instead of jumping to the effects
+  level** (follow-up to #1930, BUG-20, branch `bug-20-ladder-review-fixes`). #1930 gave
+  `pixi-svelte` `renderQuality.ts` steps to 1.25 and 1 and a last level with the stage post FX
+  left out and the particle budget capped at 0.5, plus a second chance after a step down that did
+  not help, which jumped straight to that last level and waited forever. Review: a phone just over
+  the line (the Nothing Phone (1), 13% slow, no gain at 1.75) would reach the effects level in
+  ~8 s, where nearly any device reads as helped, and stay there; a heavy bonus 20 minutes later
+  jumped there too. Now the second chance (four slow windows after the revert) starts two levels
+  down, past the level that did not help (on a DPR-1 screen that is the effects level), and walks
+  on one level at a time while a level does not help (each judged against those four windows;
+  such a level's verdict reads `stepped on`), keeping the first that does; at the last level that
+  does not help it goes back to its start and stepping down stops. A device slow at every
+  resolution (BUG-20's Mali-G57) still reaches the effects level. `QUALITY_RULES.retryGoodWindows`
+  (15) windows in a row under 1% slow give a waiting second chance back as `unused`, so a later
+  slow spell starts from a first step. **The cap:** still 12 switches, but until the second chance
+  is taken the last 2 are held for it: ordinary steps down and steps up only start while their
+  revert fits outside those 2; a walk step that would leave less than its own revert plus one more
+  goes straight to the effects level; and when no ordinary step fits, four slow windows take the
+  second chance at once, to the effects level. So however earlier slow spells and recoveries spent
+  the switches, a device slow at every resolution reaches the effects level, unless its second
+  chance was already taken. A full walk on a DPR-3 phone with nothing spent costs 8 switches
+  (`0→1`, `1→0`, the walk `0→2 … 5→6`, its revert). Also: `configureParticleBudget` run again keeps
+  the ladder's cap (`particleBudget.ts`), and the `?perf=1` HUD's quality line shows
+  `post FX on|off`, `particle cap <n>` and `second chance <state>`, so L5 and L6 read apart.
+  Guard: `renderQuality.fixture.ts` (just over the line keeps its effects at 1.25; slow at every
+  resolution walks to the effects level, also after 3 and 5 earlier spells spent 6 and 10
+  switches; expiry after 15 windows; the DPR-1 start; the 90%-late 45 ms feed and an exact trial
+  count restored; the effects wiring of `installRenderQuality` on a stand-in app, lowered and
+  given back only on a change, on the climb from the last level and on teardown),
+  `particleBudget.fixture.ts`; every rule mutated in turn fails it. **Not verified:** any real
+  phone; a Profiler reading on the BUG-20 phone is still owed. Lesson:
+  `docs/knowledge/lessons/engine.md`.
+  **Same PR, a failed step up is no longer permanent** (#1930's review finding 1, the `upFailed`
+  pin): one slow window in the L6 → L5 climb added L5 to `upFailed` and kept the game at the
+  effects level for the session; the review's fuzz found about 40% of random sessions stuck at
+  L6 after a full recovery. The game's controller now counts failed tries per level
+  (`upFailures`) and tries a level again after `goodWindows × 2^failures` windows under 1% slow
+  in a row (60, then 120), at most `QUALITY_RULES.upRetries` (2) times; the count never goes
+  down, so a later climb waits the doubled time again. Worst-case flap for a device always too
+  slow one level up: two more 1–2 window visits, after 2 and then 4 minutes of good round play
+  (a window is 2 s of round frames at 60 fps). `engine-3d`'s single-try controller is
+  unchanged: never again (`stepUp.never`).
+  **Then the effects level stays reachable, as an invariant** (re-review: the retries could spend
+  the last switches and leave a slow-everywhere device at L4 with effects on and no way down; the
+  fuzz had ~140/400 such sessions). Up and down share the 12 switches. Until the second chance
+  is taken, 2 are held for it. Every ordinary step down or step up that could leave the device
+  above the effects level (itself or its revert) keeps 1 more for a later drop there; a step up
+  from the effects level and a step to it need none, since a failed step to it stops stepping
+  down. Past that, a slow spell steps down unjudged (`no room`): one level while a switch is
+  still left after it, else straight to the effects level. After the second chance, a step down
+  that did not help sets `effectsNext`: the next 4 slow windows go straight to the effects level
+  (`effects`), instead of stopping stepping down for the session; only the effects level not
+  helping stops it. So above the effects level a switch is always left, unless that level was
+  tried and did not help. Snapshot: `stepUp` is JSON-safe (`never: true`, or `never: false` with
+  `goodWindows`), `effectsNext` is new. **Measured** with the reviewer's scratch harnesses: the
+  `mali2` session now ends `…6->5 headroom, 5->6 slow` at L6 with post FX off (11 switches); the
+  400-session fuzz has 0 sessions ending above the effects level while slow everywhere (was ~140)
+  and 127 that end at L6 after the long cool spell (was 152; before the backoff 155), all with
+  10–12 switches spent: the cap, not a rule, ends their climb. Guard:
+  `renderQuality.fixture.ts` (the `mali2` session; 300 seeded random sessions, each slow at every
+  level but the last at the end, all end there within the cap; a warm spell's failed climb, then
+  cool, ends above L6 with post FX on; always slow one level up: 1 + 2 tries, gaps ≥ 1.8× the
+  last; the exact 60-window wait; after the second chance a failed step goes to the effects
+  level; engine-3d never retries), each red under its mutant (no switch held for the drop, for
+  steps down or up alone; no unjudged drop; a one-level-only drop; a failed step stopping after
+  the second chance; no effects jump; unbounded retries; never retried; no backoff).
+  **Then a refilling switch budget replaces the lifetime cap** (re-review of the invariant: once
+  the 12 were spent, the unjudged `no room` drop took a slightly slow device's effects for the
+  session, the review's `mild` session 5 ending `0->1 no room, 1->6 no room` at L6; any lifetime
+  cap forces that trade, and the same cap made 127/400 fuzz sessions end at L6 after cooling).
+  `QUALITY_RULES.switchBurst` (12) and `refillWindows` (150): one switch back after each 150
+  measured windows with no switch, up to the burst; every room check (`room`, the reserve,
+  `stepRoom`, `chanceStep`) counts against the budget left. `no room` is gone: every step keeps
+  its verdict, and when none fits the device waits for a refill. The trip to the effects level a
+  step that could leave the device above it holds back is now 2 switches (a judged trip: the
+  step and its revert), and with no room for an ordinary step a slow spell (4 windows) takes the
+  unused second chance or, once taken, a judged trip straight to the effects level (`effects`),
+  rather than waiting. `upFailures`/`upRetries` are never reset by a refill; the second chance
+  stays one a session. `engine-3d`'s budget never refills (`switchBurstSingleTry`, 6), so it
+  behaves exactly as before. Snapshot: `budget` (`left`, `burst`, `refillIn`); the readout's
+  `stepUp` is computed once. **Worst case:** after an unusually busy session a step that does not
+  fit waits for refills, ~5 minutes of play each (a climb back may wait more than one); the trip
+  to the effects level is what the held switches are for. Long-run bound about 12 +
+  play-minutes / 5 switches. **Measured** (reviewer's scratch harnesses, this controller
+  copied in): `mild.ts 5` ends `…0->1 slow, 1->2 second chance, …, 4->6 second chance, 6->1 no
+  gain` at L1 with post FX on (b06fb17: L1 post FX on; e4fbf84: L6 post FX off); `mali2.ts 1`
+  ends at L6 post FX off; `fuzz.ts` (400 sessions) has 0 sessions slow everywhere but not at the
+  effects level (b06fb17: 316, e4fbf84: 0) and 0 stranded at L6 after the long cool spell
+  (b06fb17: 79, e4fbf84: 127); after cooling this controller ends at a lower quality level than
+  e4fbf84 in 0 sessions (higher in 357) and than b06fb17 in 131 (higher in 192); `adv.ts`
+  (1,400 adversarial sessions): 0 left above the effects level with no way down (516 end above
+  it with `downStopped`, the effects level tried and not helping; with the effects level always
+  light, 1,400/1,400 end there). Guard: `renderQuality.fixture.ts` (a busy spell spends the
+  budget and a refill lets the blocked step up climb; on a spent budget an effects level that
+  does not help reverts; `mild`; a judged trip to the effects level on a budget too low for an
+  ordinary step, kept for BUG-20's phone and given back at 13%; `mali2`; 50 seeded sessions and
+  50 adversarial ones, `--fuzz=300` for more; about 1 s), red under each mutant: no refill;
+  budget counted as a lifetime cap; refill not waiting for windows with no switch; the early
+  trip unjudged; no early trip; no early second chance; held switches removed or cut to 1, for
+  steps down or up alone; no reserve.
+  **Then the held trip covers a step up from the effects level too** (re-review of 45d4133):
+  `stepRoom` exempted any step from the effects level, so a kept step up from L6 could leave the
+  device at L5 with 1 switch, and a later trip back waited for a refill (about half of the
+  reviewer's adv2 sessions, `… 6->5 headroom [1]`). Only a step down to the effects level is
+  exempt now; a step up from it needs the step, its revert and one more (kept, the trip needs 2;
+  reverted, it lands on L6): `room(3 + reserve())`. The early `effects` trip now waits for 4 slow
+  windows like the other non-ordinary steps (it took 2). The docblock says windows read as a
+  browser's 30 fps cap count toward the refill. `engine-3d`'s snapshot gains the `budget` key;
+  its behaviour is unchanged (the reviewer's 300-session differential against 048aba9: 0
+  differences). Guard: a per-switch property in every sim of `renderQuality.fixture.ts` (with
+  the second chance, above the effects level and not stopped, at least 2 switches are left after
+  every switch), checked on the seeded and adversarial sessions and the whole fixture, red under
+  45d4133's `stepRoom`; the low-budget trip case checks its 4 windows. Restoring e4fbf84's
+  `no room` branch (made to throw) is reached under 45d4133's `stepRoom` but in no session now
+  (`--fuzz=300` and 2 × 1,400 adv.ts sessions): reaching it needs fewer than 2 switches above
+  the effects level, which the property rules out, and the budget only grows between switches.
 
 - 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
   (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
@@ -2494,7 +2638,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `check:svelte` at baseline (pixi-svelte 14, lines 145).
   - **Not verified:** any real phone; Safari's frame timestamps for `late`.
 
-- 2026-11-10 — **Render quality keeps a step only if it measurably helped** (branch
+- 2026-11-10 — **Render quality keeps a step only if it measurably helped** (ladder and the
+  no-gain stop superseded on 2026-11-27, Recent changes) (branch
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1581). Read on the released build:
   the Nothing Phone (1) stepped from 2 to 1.75 at 21.9 s (13% slow, 17.8 ms mean) and kept it,
   then spun at 54.3 fps (18.4 ms) with 1.3% of spin frames over 33 ms, the same as at full quality
@@ -2508,7 +2653,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   120 Hz, reel max 0.8 px). Guard: `renderQuality.fixture.ts` (54 checks; the Nothing Phone's case,
   15% → 9% slow with frames 5% shorter, reverts, and both verdicts are read back).
 
-- 2026-11-10 — **Render quality follows measured frame times, not device memory** (branch
+- 2026-11-10 — **Render quality follows measured frame times, not device memory** (its four-level
+  ladder, the stop after one step that did not help and the 6-switch cap are superseded: 2026-11-27,
+  Recent changes) (branch
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1578; it replaces that branch's
   Brave guard). Every device starts at full quality, the pixel ratio up to 2 with MSAA, as every
   device drew before #1410. `pixi-svelte` `renderQuality.ts` lowers it only on a device that cannot
@@ -2540,7 +2687,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (14 → 30 fps keeps a step though every frame is still slow; the same day's follow-up, above,
     dropped "or fell under 10%"); otherwise it is
     reverted and stepping down stops for the session. Thirty windows under 1% slow try one level
-    up; slow within two windows, it steps back and that level is not tried again. At most 6
+    up; slow within two windows, it steps back and that level is not tried again (since
+    2026-11-27 retried after a doubling wait, Recent changes). At most 6
     switches, and a step that starts a trial is taken only while its revert still fits.
   - **What memory still decides:** only texture residency (`textureResidency.ts`
     `lowMemoryDevice`). A device reporting ≤ 4 GB leaves its textures to Pixi's GC rather than

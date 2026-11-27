@@ -1,4 +1,4 @@
-import type { GameMapping } from './gameMappings';
+import type { GameMapping, TierInput } from './gameMappings';
 
 /**
  * The paytable a boot `config` DECLARES, read into one shape — `{ on: { occurs, of, mode }, pay }`,
@@ -102,6 +102,28 @@ export const readMappedPaytable = (
 		...entry,
 		on: { ...entry.on, of: mapping.symbols[entry.on.of] ?? entry.on.of },
 	})) ?? null;
+
+/**
+ * A boot `config`'s line symbols, in SERVER names and in the order it declares them, each with what
+ * its longest paying run pays — the input `tierSymbolNames` names them from. A symbol with several
+ * line rows keeps its best. Empty when the server declares no line row.
+ */
+export const lineTierInputs = (
+	cfg: { paytable?: unknown; symbolsPay?: unknown },
+	mapping: GameMapping,
+): TierInput[] => {
+	const best = new Map<string, number>();
+	for (const { on, pay } of readDeclaredPaytable(
+		cfg.paytable,
+		declaredScatterSymbols(cfg, mapping),
+	) ?? []) {
+		if (on.mode === 'scatter' || !on.occurs.length) continue;
+		const longest = on.occurs.indexOf(Math.max(...on.occurs));
+		const topPay = pay[longest] ?? 0;
+		best.set(on.of, Math.max(best.get(on.of) ?? 0, topPay));
+	}
+	return [...best].map(([server, topPay]) => ({ server, topPay }));
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);

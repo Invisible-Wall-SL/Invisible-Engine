@@ -115,13 +115,17 @@ export type SpikeCauseCounts = Partial<Record<SpikeCause, number>>;
  */
 export type SlotPhase = 'idle' | 'spinning' | 'round';
 
-/** Where a frame was: a slot's phases, or an arcade game's (`menu`, `play`: `arcadePerf.ts`). */
+/**
+ * Where a frame was: a slot's phases, or an arcade game's (`loading`, `lobby`, `play`, `spectate`:
+ * `arcadePerf.ts`). `menu` is the one arcade phase of a `perf: 8` / `9` reading (the lobby, the
+ * loading and the spectating together); the probe no longer writes it, the launcher still reads it.
+ */
 export type PerfPhase = SlotPhase | ArcadePhase;
 
 /** The phases a reading is split into, by the game's family: an arcade game's, else a slot's. */
 export const PHASE_SETS = {
 	slot: ['idle', 'spinning', 'round'],
-	arcade: ['menu', 'play'],
+	arcade: ['loading', 'lobby', 'play', 'spectate'],
 } as const satisfies Record<string, readonly PerfPhase[]>;
 
 export type PhaseSet = keyof typeof PHASE_SETS;
@@ -137,8 +141,12 @@ export type SpikeRecord = {
 	spin?: true;
 	/** In a round with the reels at rest. */
 	round?: true;
-	/** An arcade game's field playing (a menu frame has no flag). */
+	/** An arcade game's field playing (a lobby frame has no flag). */
 	play?: true;
+	/** An arcade game's level mounting and settling. */
+	loading?: true;
+	/** An online arcade game's room running with the player out of it. */
+	spectate?: true;
 	/** The game's state machine at the frame. */
 	state?: string;
 	cause: SpikeCause;
@@ -477,6 +485,8 @@ export function createSpikeRecorder(phases: readonly PerfPhase[] = PHASE_SETS.sl
 					...(s.phase === 'spinning' ? { spin: true as const } : {}),
 					...(s.phase === 'round' ? { round: true as const } : {}),
 					...(s.phase === 'play' ? { play: true as const } : {}),
+					...(s.phase === 'loading' ? { loading: true as const } : {}),
+					...(s.phase === 'spectate' ? { spectate: true as const } : {}),
 					...(s.state ? { state: s.state } : {}),
 					cause,
 					why,

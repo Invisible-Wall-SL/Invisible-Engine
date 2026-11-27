@@ -27,6 +27,7 @@ import {
 	fairyCloverPreset,
 	importBonus,
 	normalizeGameConfigDoc,
+	renameSymbols,
 	potsOverlayPreset,
 	symbolsWithRole,
 	type GameConfigDoc,
@@ -918,6 +919,20 @@ await check('they travel only where the lines mock can rewrite the board', () =>
 	eq('expandingWilds' in ways || 'growingWild' in ways, false, 'a ways game');
 	const tumbling = linesGrid(withWilds({ ...blocks, cascade: true }));
 	eq('expandingWilds' in tumbling || 'growingWild' in tumbling, false, 'a lines game that tumbles');
+});
+
+console.info('a project that names its server symbols by pay');
+
+await check('the lines mock deals and prices a renamed symbol under its server name', () => {
+	const before = linesGrid(template('lines'));
+	const renamed = renameSymbols(template('lines'), { L1: 'M1' });
+	if (!('doc' in renamed)) throw new Error(renamed.error);
+	const doc = normalizeGameConfigDoc({ ...renamed.doc, serverSymbolNames: { M1: 'PIC5' } })!;
+	const after = linesGrid(doc);
+	eq(after.symbols, before.symbols, 'the same server pool');
+	eq(after.symbolPaytable, before.symbolPaytable, 'the same server prices');
+	const unnamed = linesGrid(normalizeGameConfigDoc(renamed.doc)!);
+	eq(unnamed.symbols?.includes('PIC5'), false, 'without the names, M1 has no server symbol');
 });
 
 console.info('free play (game-families §2.3, §6.3)');

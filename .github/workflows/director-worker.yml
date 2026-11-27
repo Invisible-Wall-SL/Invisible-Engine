@@ -13,6 +13,8 @@
 #                before the submission re-runs the pass without a second store
 #   prove:art-plan  the technician's recipes are validated by code before they are stored; the Art
 #                plan opens once, approval writes the template defaults, revisions re-open it
+#   prove:merge-runs  (launcher, chained after prove:idle) Resolve conflict's Accept claim: one
+#                holder at a time, take-over only after the lease, a push only with the claim
 #
 # Not a required check, so it runs only when something it covers changes.
 name: Director worker
@@ -25,6 +27,8 @@ on:
       - 'apps/launcher-api/drizzle/**'
       - 'docs/director/eval/blueprints/**'
       - 'apps/launcher-api/src/lib/server/db/schema.ts'
+      - 'apps/launcher-api/src/lib/server/pipelineMergeRuns*.ts'
+      - 'apps/launcher-api/scripts/prove-merge-runs.ts'
       - '.github/workflows/director-worker.yml'
   push:
     branches: [main]
@@ -34,6 +38,8 @@ on:
       - 'apps/launcher-api/drizzle/**'
       - 'docs/director/eval/blueprints/**'
       - 'apps/launcher-api/src/lib/server/db/schema.ts'
+      - 'apps/launcher-api/src/lib/server/pipelineMergeRuns*.ts'
+      - 'apps/launcher-api/scripts/prove-merge-runs.ts'
       - '.github/workflows/director-worker.yml'
 
 concurrency:

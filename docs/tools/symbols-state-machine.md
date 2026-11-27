@@ -697,6 +697,23 @@ what it is; every field has its own ⓘ). Everything in it is **off until set**,
 that sets nothing draws exactly the line it always did, silently. Its ↺ icon resets only this
 card.
 
+The card is laid out like **Flights**: the settings below sit in a framed panel on the left and a
+**live preview** sits beside it on the right (under it in a narrow window), staying in view while
+you scroll the panel; its **About the preview** ⓘ is under the canvas. The preview is a board of
+your project's grid with a win on one of its paylines, drawn the way the game draws it — the same
+strokes, the same moving head and the same draw time — with the tip, trail and burst you pick in
+the panel. It shrinks to fit a narrow column. It starts on the payline that zig-zags
+most; the **Payline** dropdown picks another (a project with no paylines gets a sample zig-zag)
+and **Pays** picks how many reels the win covers (the rest shows with **Show full payline** on).
+It replays by itself a moment after you change any line setting, and the ↻ button replays it on
+demand. **Sound** (off by default) plays the draw and impact sounds when they are your project's
+uploads and you can open Invisible Sound; an engine sound is heard in game only, and the caption
+says so. A trail, tip or burst effect that no longer exists (deleted, or never saved) is named in
+the caption as missing. The preview is close, not exact: the board is a plain grid (no column gaps or
+perspective), particles sit over the board rather than blending into it, a flipbook tip shows its
+first frame, an effect tip that turns with the line turns only its new particles, and it shows one
+ordinary payline (not the bars of a ways or cluster win). Play a round to check the final look.
+
 - **Hot core** on/off and its **Core colour** (default white once on) — a thinner stroke on top
   of the line, for a white-hot centre. A value that is not a hex colour is dropped on save.
 - **Additive glow** on/off (needs **Glow** on) — the glow adds light to the board instead of

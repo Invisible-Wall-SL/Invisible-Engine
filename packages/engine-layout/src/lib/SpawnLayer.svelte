@@ -28,6 +28,7 @@
 	import { linksOf, markOf, marksOn, type InstanceLink } from './arcadeMarks.svelte';
 	import { codeLookOf } from './arcadeArt.svelte';
 	import MountedArt from './MountedArt.svelte';
+	import ProjectedInstance from './ProjectedInstance.svelte';
 	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
@@ -263,14 +264,15 @@
 {#each instances as instance, seq (instance.id)}
 	{#if projection}
 		<!-- A projected screen (P11.4): drawn upright at the projected place, in ground-depth order
-		     (the zIndex; spawn order breaks a tie), culled by the loop's projected view. -->
+		     (spawn order breaks a tie; the layer is sorted only when that order changes), culled by
+		     the loop's projected view. -->
 		{@const place = places[instance.id] ?? instance}
 		{@const at = projection.project(place.x, place.y)}
 		{@const lift = liftsOn() ? liftOf(instance.id) : undefined}
-		<Container
+		<ProjectedInstance
 			x={at.x}
 			y={at.y}
-			zIndex={projection.depth(place.x, place.y, seq)}
+			depth={projection.depth(place.x, place.y, seq)}
 			visible={!culling || !isCulled(instance.id)}
 		>
 			{#if lift}
@@ -279,7 +281,7 @@
 			<Container y={-(lift?.z ?? 0)}>
 				{@render look(instance)}
 			</Container>
-		</Container>
+		</ProjectedInstance>
 	{:else if liftsOn()}
 		{@const lift = liftOf(instance.id)}
 		<Container

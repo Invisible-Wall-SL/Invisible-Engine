@@ -240,6 +240,7 @@ export const startArcade = (
 	};
 	windowScale = () => designSize().scale ?? 1;
 	arcadePerf.info = { online: false, fixedHz: rules.fixedHz };
+	arcadePerf.mount();
 	loop = createArcadeLoop({
 		rules,
 		field: () => rules.field ?? world ?? view(),
@@ -321,7 +322,7 @@ export const tickArcade = (dtMs: number) => {
 	}
 	loop.frame(dtMs);
 	// The level the frame just counted: a field with a body on it is playing.
-	if (arcadePerf.on) arcadePerf.phase = arcadePerf.counts.bodies > 0 ? 'play' : 'menu';
+	if (arcadePerf.on) arcadePerf.phase = arcadePerf.counts.bodies > 0 ? 'play' : 'lobby';
 	notePlayFieldFrame(loop.bodyCount > 0);
 	if (hops) {
 		const live = spawnStore();

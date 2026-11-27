@@ -156,7 +156,7 @@ import {
 	refuseOnlineBoot,
 	setRoomDocChange,
 } from '../editor-scenes';
-import { arcadePerf } from './arcadePerf';
+import { arcadePerf, messageLabel } from './arcadePerf';
 import { notePlayFieldFrame } from './playFieldPhase';
 import { typingInto } from './flowKeys';
 import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
@@ -922,6 +922,7 @@ async function enterRoom(
 		dropNextJoin();
 	}
 	session = current;
+	arcadePerf.mount();
 	arcadePerf.info = {
 		online: true,
 		fixedHz: resolved.online.tickHz,
@@ -934,6 +935,7 @@ async function enterRoom(
 			.then((art) => {
 				if (session !== current || left !== undefined) return art.destroy();
 				current.art = art;
+				arcadePerf.mount();
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
@@ -1515,7 +1517,7 @@ function meterMessages(room: Room) {
 			counts.patches += 1;
 			counts.patchBytes += bytes.byteLength;
 		}
-		arcadePerf.message(false, bytes.byteLength, state);
+		arcadePerf.message(false, bytes.byteLength, state, messageLabel(bytes));
 		const started = performance.now();
 		handle(event);
 		counts.netMs += performance.now() - started;
@@ -1523,11 +1525,11 @@ function meterMessages(room: Room) {
 	const send = connection.send.bind(connection);
 	const sendUnreliable = connection.sendUnreliable.bind(connection);
 	connection.send = (data) => {
-		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength, false, messageLabel(data));
 		send(data);
 	};
 	connection.sendUnreliable = (data) => {
-		if (arcadePerf.on) arcadePerf.message(true, data.byteLength);
+		if (arcadePerf.on) arcadePerf.message(true, data.byteLength, false, messageLabel(data));
 		sendUnreliable(data);
 	};
 }
@@ -2989,9 +2991,14 @@ export function tickOnline(dtMs: number) {
 	current.me?.frame(dtMs);
 	notePlayFieldFrame(stateOf(current.room).phase === 'running');
 	if (arcadePerf.on) {
+		const room = stateOf(current.room);
+		const me = room.players?.get(current.room.sessionId);
 		arcadePerf.counts.simSteps += ran;
 		arcadePerf.counts.simMs += performance.now() - now;
-		arcadePerf.phase = stateOf(current.room).phase === 'running' ? 'play' : 'menu';
+		arcadePerf.steps(ran);
+		arcadePerf.room = room.phase;
+		arcadePerf.phase =
+			room.phase !== 'running' ? 'lobby' : !me || me.status === STATUS.out ? 'spectate' : 'play';
 	}
 	draw(current, dtMs);
 	drawScreens(current);
