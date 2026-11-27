@@ -445,12 +445,12 @@ const piecesOf = (text) => text.split(/(?<=\n)/).filter(Boolean);
 const startsAt = (lines, piece, at) => piece.every((l, i) => lines[at + i] === l);
 
 /**
- * Where git's clean pieces lie in `text`, in order, the first at the start and the last at the end,
- * or why they cannot be placed: `null` when a piece is missing or out of order, `ambiguous` when
- * searching each middle piece from the front and from the back gives different places (a piece such
- * as a lone `}` that a correct resolution also holds, or a copy of one: the file could be read two
- * ways, so no hunk's result is shown, which is not an edit outside the hunks). One function for both `outsideEdited` and
- * `hunkResults`, so they can never read a file differently.
+ * Where git's clean pieces lie in `text`, in order, the first at the start and the last at the
+ * end, or why they cannot be placed: `null` when a piece is missing or out of order, `ambiguous`
+ * when searching each middle piece from the front and from the back gives different places (a
+ * piece such as a lone `}` that a correct resolution also holds, or a copy of one: the file could
+ * be read two ways, so no hunk's result is shown, which is not an edit outside the hunks). One
+ * function for both `outsideEdited` and `hunkResults`, so they can never read a file differently.
  */
 export function placeClean(segments, text) {
 	const cleans = segments.filter((s) => s.clean !== undefined).map((s) => piecesOf(s.clean));
@@ -754,7 +754,39 @@ const proseOf = (explanation) =>
 	measure({
 		...explanation,
 		hunks: explanation.hunks.map((h) => [h.path, h.index, h.takes, h.why, h.nowDoes, h.otherwise]),
+		written: [],
 	});
+
+/** Every line the run wrote itself, over a whole proposal: past either cap nothing is proposed. */
+export const WRITTEN_LINES_CAP = 400;
+export const WRITTEN_CHARS_CAP = 20_000;
+
+/**
+ * The lines of `after` that `before` does not hold, counted as the launcher's `addedLinesAt`
+ * counts them (a line `before` has twice is held twice), with their line numbers, blank lines left
+ * out. The join check holds this to the launcher's.
+ */
+export function addedLinesAt(before, after) {
+	const left = new Map();
+	for (const line of before.split('\n')) left.set(line, (left.get(line) ?? 0) + 1);
+	const out = [];
+	after.split('\n').forEach((line, i) => {
+		const n = left.get(line) ?? 0;
+		if (n) left.set(line, n - 1);
+		else if (line.trim() !== '') out.push({ n: i + 1, text: line.replace(/\r$/, '') });
+	});
+	return out;
+}
+
+/** What the run wrote itself in each file it resolved: from the real final file and git's own sides. */
+function writtenOf(plan, files) {
+	return files.flatMap((f) => {
+		const x = plan.paths.find((y) => y.path === f.path);
+		if (typeof f.content !== 'string' || !x) return [];
+		const lines = addedLinesAt(`${x.texts.main ?? ''}\n${x.texts.change ?? ''}`, f.content);
+		return lines.length ? [{ path: f.path, lines }] : [];
+	});
+}
 
 /** The code points of every hunk's real lines. */
 const linesOf = (explanation) =>
@@ -767,7 +799,7 @@ const linesOf = (explanation) =>
  * Fitted into 16,000 characters by naming fewer of main's commits per file; null when even none
  * does not fit.
  */
-function explanationOf(plan, own, finals) {
+function explanationOf(plan, own, finals, written) {
 	const ruled = plan.paths.filter((x) => x.rule && (x.status === 'mechanical' || x.pending));
 	const resultsOf = (path) => {
 		const x = plan.paths.find((y) => y.path === path);
@@ -808,6 +840,7 @@ function explanationOf(plan, own, finals) {
 			outside: own?.outside ?? [],
 			checks: [...(own?.checks ?? []), ...plan.checks],
 			risks: risks || 'none found',
+			written,
 		};
 		if (proseOf(explanation) <= EXPLANATION_CAP) return explanation;
 	}
@@ -876,7 +909,21 @@ function proposalBody(input, plan, { finals, modes }, own, usage) {
 	if (sizes.some((n) => n > MAX_FILE_BYTES) || sizes.reduce((a, b) => a + b, 0) > MAX_TOTAL_BYTES) {
 		return refuse('The merged files are over 2 MB a file or 4 MB in all.');
 	}
-	const explanation = explanationOf(plan, own, finals);
+	const written = writtenOf(plan, files);
+	const writtenLines = written.flatMap((w) => w.lines);
+	if (
+		writtenLines.length > WRITTEN_LINES_CAP ||
+		writtenLines.reduce((n, l) => n + Array.from(l.text).length, 0) > WRITTEN_CHARS_CAP
+	) {
+		return refusalBody(
+			input,
+			plan.baseSha,
+			'no_proposal',
+			'The run wrote more new lines than the card can show.',
+			usage,
+		);
+	}
+	const explanation = explanationOf(plan, own, finals, written);
 	if (!explanation) return refuse('The explanation would be longer than 16,000 characters.');
 	if (linesOf(explanation) > LINES_TOTAL_CAP) {
 		return refuse(

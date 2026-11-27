@@ -727,6 +727,9 @@ const discardRoute = await import(
 	src('routes/api/pipeline/changes/[number]/merge-runs/[id]/discard/+server.ts')
 );
 const resultRoute = await import(src('routes/api/pipeline/merge-runs/[id]/result/+server.ts'));
+const fileRoute = await import(
+	src('routes/api/pipeline/changes/[number]/merge-runs/[id]/file/+server.ts')
+);
 
 type Json = Record<string, unknown>;
 type Answer = { status: number; body: Json };
@@ -802,6 +805,23 @@ const call = (
 			url: new URL('https://app.example/api/x'),
 		}),
 	);
+/** The resolved-file route answers plain text, not JSON: read it whole. */
+async function readFile(user: TestUser | null, n: number, id: string, path: string | null) {
+	try {
+		const res: Response = await fileRoute.GET({
+			locals: { user },
+			params: { number: String(n), id },
+			request: request({}),
+			url: new URL(
+				`https://app.example/api/x${path === null ? '' : `?path=${encodeURIComponent(path)}`}`,
+			),
+		});
+		return { status: res.status, text: await res.text(), headers: res.headers };
+	} catch (err) {
+		if (isHttpError(err)) return { status: err.status, text: '', headers: new Headers() };
+		throw err;
+	}
+}
 let requestCount = 0;
 const newRequest = () => `req-merge-${++requestCount}`;
 const resolve = (user: TestUser | null, n: number, requestId = newRequest()) =>
@@ -890,6 +910,7 @@ const explanation = (paths: string[] = ['src/a.ts'], extra: Json = {}) => ({
 	outside: [],
 	checks: [{ command: 'pnpm check:x', ok: true }],
 	risks: 'none found',
+	written: [],
 	...extra,
 });
 const usage = [
@@ -938,11 +959,31 @@ async function started(
 	return { id, gh: ghRunId };
 }
 let nextGh = 9100;
+/** The lines the run wrote itself in `f`, as the job lists them: against the two sides in the fake git. */
+function writtenFrom(w: World, f: MergeRunFile[]) {
+	const textOf = (commit: string, path: string): string | null => {
+		const entry = filesOfCommit(commit).get(path);
+		return entry ? (git.blobs.get(entry.sha) ?? null) : null;
+	};
+	return f.flatMap((file) => {
+		if (file.content === null) return [];
+		const lines = built.addedLinesAt(
+			`${textOf(w.main, file.path) ?? ''}\n${textOf(w.head, file.path) ?? ''}`,
+			file.content,
+		);
+		return lines.length ? [{ path: file.path, lines }] : [];
+	});
+}
+
 async function proposed(
 	w: World,
 	f: MergeRunFile[],
-	e: Json = explanation(),
+	e0: Json = explanation(),
 ): Promise<{ id: string; w: World }> {
+	const e = {
+		...e0,
+		written: (e0.written as unknown[]).length ? e0.written : writtenFrom(w, f),
+	};
 	const ghRunId = ++nextGh;
 	gh.dispatch = () => answer(200, { workflow_run_id: ghRunId });
 	const a = await resolve(ADMIN, w.n);
@@ -1619,9 +1660,10 @@ const dirty = parsed.cleanExplanation({
 	outside: [{ path: 'a', what: 'x'.repeat(5000) }],
 	checks: [{ command: 'pnpm `rm`', ok: true }],
 	risks: 'none',
+	written: [],
 });
 check(
-	'cleaning: tags shown as text, comments and CI-skip directives gone, a bidi mark shown as ⟨U+202E⟩, @ and # quieted, BUG- refs unlinked',
+	'cleaning: tags shown as text, a CI-skip token kept in code (the card is not a commit message), a bidi mark shown as ⟨U+202E⟩, @ and # quieted, BUG- refs unlinked',
 	[
 		dirty.conflicted[0].met[0].title,
 		dirty.hunks[0].why,
@@ -1635,7 +1677,7 @@ check(
 	[
 		'Fix ‹b›bold‹/b› @⁠bob #⁠12',
 		'Because   bug #⁠7',
-		'<div>{a}</div> ⟨U+202E⟩',
+		'<div>{a}</div> [skip ci]⟨U+202E⟩',
 		'\t\tconst x = 1;\n\t\treturn x;',
 		'\tx',
 		null,
@@ -2195,22 +2237,128 @@ check(
 		],
 		['proposed', '[line hidden: it looks like a secret]', 'const a = 2;'],
 	);
-	// R3-S3a: a format character the run added is refused (the card could not show it as it is)
-	const zwj = '\tconst is‍Admin = true;';
-	const addedZwj = await failFast({
-		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zwj}\n` }),
-		explanation: withHunks([
-			hunkWith({ main: 'const a = 1;', change: 'const a = 2;', result: zwj }),
-		]),
+	// R4-S2: every line the run wrote itself is listed, and one with a format character is refused
+	// whether or not any hunk shows it (ambiguous placement, a cut result)
+	const zwj = `\tconst is${String.fromCodePoint(0x200d)}Admin = true;`;
+	const listing = (lines: { n: number; text: string }[], over: Json = {}) => ({
+		written: [{ path: 'src/a.ts', lines }],
+		...over,
+	});
+	for (const [label, hunkOver] of [
+		['shown in its hunk', { result: zwj }],
+		['no result shown (ambiguous placement)', { result: null }],
+		['past a cut result', { result: '\tfiller line…', resultCut: 2 }],
+	] as const) {
+		const added = await failFast({
+			files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `x\n${zwj}\ny\n` }),
+			explanation: explanation(['src/a.ts'], {
+				...listing([{ n: 2, text: zwj }]),
+				hunks: [
+					{
+						...explanation().hunks[0],
+						main: 'const a = 1;',
+						change: 'const a = 2;',
+						...hunkOver,
+					},
+				],
+			}),
+		});
+		check(
+			`result: a line the run wrote with a zero-width joiner (legal in an identifier), ${label} → needs_person, naming the file`,
+			[added.run.status, added.run.reason],
+			[
+				'needs_person',
+				'The change was refused (a line the run wrote holds an invisible format character in src/a.ts).',
+			],
+		);
+	}
+	const wrongLine = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'x\ny\n' }),
+		explanation: explanation(['src/a.ts'], listing([{ n: 2, text: 'grantAll();' }])),
 	});
 	check(
-		'result: a line the run added with a zero-width joiner (legal in an identifier) → needs_person, naming the file',
-		[addedZwj.run.status, addedZwj.run.reason],
+		'result: a listed line that is not the file’s own line at that number → needs_person',
+		[wrongLine.run.status, wrongLine.run.reason],
 		[
 			'needs_person',
-			'The change was refused (a line the run added holds an invisible format character in src/a.ts).',
+			'The change was refused (the lines the run wrote itself are not the file’s own lines).',
 		],
 	);
+	const strangeFile = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'x\n' }),
+		explanation: explanation(['src/a.ts'], {
+			written: [{ path: 'src/other.ts', lines: [{ n: 1, text: 'x' }] }],
+		}),
+	});
+	check(
+		'result: lines listed for a file the proposal does not hold → needs_person',
+		[strangeFile.run.status],
+		['needs_person'],
+	);
+	const manyLines = await failFast({
+		files: files({
+			path: 'src/a.ts',
+			rule: null,
+			choice: 'both',
+			content: `${Array.from({ length: 401 }, (_, i) => `l${i}`).join('\n')}\n`,
+		}),
+		explanation: explanation(
+			['src/a.ts'],
+			listing(Array.from({ length: 401 }, (_, i) => ({ n: i + 1, text: `l${i}` }))),
+		),
+	});
+	check(
+		'result: more written lines than the card can show (401 > 400) → no_proposal, so nothing pushed is unseen',
+		[manyLines.run.status, manyLines.run.reason],
+		['no_proposal', 'The run wrote more new lines than the card can show.'],
+	);
+	// R4-S1: the card caps the raw text first, and keeps every character it is given
+	const sideZ =
+		`\t// ${'z' + String.fromCodePoint(0x200d)}`.repeat(1) +
+		('z' + String.fromCodePoint(0x200d)).repeat(19);
+	const rawLong = `${sideZ}\n${'q'.repeat(9_900)}\nTAIL();`;
+	const longCleaned = parsed.cleanExplanation({
+		...explanation(),
+		hunks: [
+			{ ...explanation().hunks[0], main: sideZ, change: sideZ, result: rawLong, resultCut: 0 },
+		],
+	}).hunks[0];
+	check(
+		'cleaning: a result just under the cap whose side line holds 20 joiners is not cut again by showing them (TAIL shown, no cut)',
+		[
+			longCleaned.result.endsWith('TAIL();'),
+			longCleaned.resultCut,
+			longCleaned.result.includes('⟨U+200D⟩'),
+		],
+		[true, 0, true],
+	);
+	const overCap = parsed.cleanExplanation({
+		...explanation(),
+		hunks: [
+			{
+				...explanation().hunks[0],
+				result: `${'a\n'.repeat(6_000)}end`,
+				resultCut: 0,
+			},
+		],
+	}).hunks[0];
+	check(
+		'cleaning: a result the launcher itself cuts says how many lines it left out',
+		[overCap.result.endsWith('…'), overCap.resultCut > 1_000],
+		[true, true],
+	);
+	// R4-S1.2: a CI-skip token in code is code
+	const subject = '\tconst subject = `chore: bump [skip ci] ${v}`;';
+	const keptDirective = parsed.cleanExplanation({
+		...explanation(),
+		hunks: [{ ...explanation().hunks[0], main: subject, change: subject, result: subject }],
+	}).hunks[0];
+	check(
+		'cleaning: a [skip ci] inside code is shown as written (the card is not a commit message), in sides and result',
+		[keptDirective.main, keptDirective.result],
+		[subject, subject],
+	);
+	ledger.length = 0; // each posted result spends $6 of the month's $150
 	const ownZwj = await failFast({
 		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zwj}\n` }),
 		explanation: withHunks([hunkWith({ main: zwj, change: 'const a = 2;', result: zwj })]),
@@ -3810,6 +3958,134 @@ const lapse = (id: string) => {
 	);
 }
 
+// R4-S2: Accept checks the card's list of written lines against the real sides, and the file is readable
+{
+	const grant = '\tgrantAll();';
+	const bothGrant = files({
+		path: 'src/a.ts',
+		rule: null,
+		choice: 'combined',
+		content: `const a = 5;\n${grant}\n`,
+	});
+	// complete list → accepted
+	const w = w0();
+	const p = await proposed(w, bothGrant);
+	const run = runOf(p.id);
+	const listed = (run.explanation as { written: { lines: { text: string }[] }[] }).written[0].lines;
+	check(
+		'written: the list a proposal is kept with holds every line the run wrote (`grantAll();` included)',
+		listed.map((l) => l.text),
+		['const a = 5;', '\tgrantAll();'],
+	);
+	// a list that leaves one out (the model's own account is the card's only review) → refused at Accept
+	const w2 = w0();
+	const p2 = await proposed(w2, bothGrant);
+	(runOf(p2.id).explanation as { written: unknown[] }).written = [
+		{ path: 'src/a.ts', lines: [{ n: 1, text: 'const a = 5;' }] },
+	];
+	gh.calls.length = 0;
+	const a2 = await accept(ADMIN, w2.n, p2.id, w2.head);
+	check(
+		'accept: a card list that leaves a written line out (`grantAll();`) → needs_person, nothing written',
+		[a2.status, runOf(p2.id).status, runOf(p2.id).reason, writesOf()],
+		[
+			409,
+			'needs_person',
+			'The change was refused (the lines the run wrote itself, as the card listed them, are not the file’s).',
+			[],
+		],
+	);
+	// a joiner the card's list does not show (the file changed after it was listed) → refused
+	const w3 = w0();
+	const p3 = await proposed(w3, both);
+	const joiner = `\tconst is${String.fromCodePoint(0x200d)}Admin = true;`;
+	(runOf(p3.id).files as { content: string }[])[0].content = `const a = 5;\n${joiner}\n`;
+	gh.calls.length = 0;
+	const a3 = await accept(ADMIN, w3.n, p3.id, w3.head);
+	check(
+		'accept: a line the run wrote with an invisible format character, over any list → needs_person naming the file',
+		[a3.status, runOf(p3.id).reason, writesOf()],
+		[
+			409,
+			'The change was refused (a line the run wrote holds an invisible format character in src/a.ts).',
+			[],
+		],
+	);
+	// the complete list goes
+	const w4 = w0();
+	const p4 = await proposed(w4, bothGrant);
+	const a4 = await accept(ADMIN, w4.n, p4.id, w4.head);
+	check('accept: with the complete list the merge goes', [a4.status], [200]);
+}
+{
+	// the resolved file is readable before Accept: the exact text, as plain text, only while it is waiting
+	const w = w0();
+	const text = 'const a = 5;\n\tgrantAll();\n';
+	const p = await proposed(
+		w,
+		files({ path: 'src/a.ts', rule: null, choice: 'combined', content: text }),
+	);
+	const ok = await readFile(ADMIN, w.n, p.id, 'src/a.ts');
+	check(
+		'file: the resolved file is served as the exact text, plain, never sniffed, inline',
+		[
+			ok.status,
+			ok.text === text,
+			ok.headers.get('content-type'),
+			ok.headers.get('x-content-type-options'),
+			ok.headers.get('content-disposition'),
+		],
+		[200, true, 'text/plain; charset=utf-8', 'nosniff', 'inline'],
+	);
+	check(
+		'file: a path the proposal does not hold, none, another change’s number, no merge capability → 404, 400, 404, 403',
+		[
+			(await readFile(ADMIN, w.n, p.id, 'src/other.ts')).status,
+			(await readFile(ADMIN, w.n, p.id, null)).status,
+			(await readFile(ADMIN, w.n + 1, p.id, 'src/a.ts')).status,
+			(await readFile(TESTER, w.n, p.id, 'src/a.ts')).status,
+		],
+		[404, 400, 404, 403],
+	);
+	check(
+		'file: the page links it with the path encoded',
+		shared.mergeRunFilePath(7, 'aaaaaaaaaa', 'src/a b#.ts'),
+		'/api/pipeline/changes/7/merge-runs/aaaaaaaaaa/file?path=src%2Fa%20b%23.ts',
+	);
+	const d = await discard(ADMIN, w.n, p.id);
+	check(
+		'file: once the proposal is discarded it is no longer served',
+		[d.status, (await readFile(ADMIN, w.n, p.id, 'src/a.ts')).status],
+		[200, 404],
+	);
+	const w2 = w0();
+	const p2 = await proposed(
+		w2,
+		files({ path: 'src/a.ts', rule: null, choice: 'combined', content: null }),
+	);
+	check(
+		'file: a file the resolution deletes has nothing to open (404)',
+		(await readFile(ADMIN, w2.n, p2.id, 'src/a.ts')).status,
+		404,
+	);
+}
+{
+	// a renamed branch with a recorded commit keeps the claim: the merge may have landed on the old name
+	const w = w0();
+	const p = await proposed(w, both);
+	Object.assign(runOf(p.id), { status: 'accepting', acceptSha: 'a'.repeat(40) });
+	lapse(p.id);
+	const old = w.pull.head.ref;
+	w.pull.head.ref = 'renamed-branch';
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	w.pull.head.ref = old;
+	check(
+		'accept: a branch renamed while a commit of an earlier holder is recorded keeps the claim for the backstop (never stale)',
+		[a.status, a.body.code, runOf(p.id).status, runOf(p.id).acceptSha],
+		[409, 'accepting', 'accepting', 'a'.repeat(40)],
+	);
+}
+
 // GitHub refusing over a workflow file
 const wf = async (where: 'PATCH /git/refs/heads/', label: string) => {
 	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
@@ -3905,15 +4181,18 @@ await wf('PATCH /git/refs/heads/', 'GitHub refusing the ref update over a workfl
 		actor: { login: BOT },
 		created_at: new Date(clock).toISOString(),
 	});
+	const skipFiles = [
+		...both,
+		...files({ path: '[skip ci].md', rule: null, choice: 'combined', content: 'head\nmain\n' }),
+	];
 	await post(
 		id,
 		ghRunId,
 		body(w, id, {
-			files: [
-				...both,
-				...files({ path: '[skip ci].md', rule: null, choice: 'combined', content: 'head\nmain\n' }),
-			],
-			explanation: explanation(['src/a.ts', '[skip ci].md']),
+			files: skipFiles,
+			explanation: explanation(['src/a.ts', '[skip ci].md'], {
+				written: writtenFrom(w, skipFiles),
+			}),
 		}),
 	);
 	await accept(SKIPPER, w.n, id, w.head);
@@ -4008,15 +4287,25 @@ await wf('PATCH /git/refs/heads/', 'GitHub refusing the ref update over a workfl
 	git.commits.get(w.head)!.date = new Date(clock - 20 * MIN).toISOString();
 	const answer1 = await call(listRoute.GET, { user: ADMIN, params: { number: String(w.n) } });
 	check(
-		'GET merge-runs: the proposal, how far main has moved since, when the branch was last pushed, no whole-file content',
+		'GET merge-runs: the proposal, how far main has moved since, when the branch was last pushed, no whole-file content (the lines the run wrote itself are there, whole files are not)',
 		[
 			answer1.status,
 			(answer1.body.run as Json).id,
 			answer1.body.behindNow,
 			answer1.body.headCommittedAt,
-			JSON.stringify(answer1.body).includes('const a = 5'),
+			JSON.stringify(answer1.body).includes('"content"'),
+			JSON.stringify(
+				(answer1.body.run as { explanation: { written: unknown } }).explanation.written,
+			),
 		],
-		[200, p.id, 1, new Date(clock - 20 * MIN).toISOString(), false],
+		[
+			200,
+			p.id,
+			1,
+			new Date(clock - 20 * MIN).toISOString(),
+			false,
+			'[{"path":"src/a.ts","lines":[{"n":1,"text":"const a = 5;"}]}]',
+		],
 	);
 	check(
 		'GET merge-runs: a tester who may see Changes but not merge reads it (200); a role without the tool does not (403)',
@@ -4120,8 +4409,8 @@ check(
 		'It is five.',
 		view.RESULT_NOT_LOCATED,
 		view.RESULT_NOT_LOCATED,
-		'a\nb\n[3 lines of the result are not shown: read the file before accepting.]',
-		'a\nb\n[1 line of the result is not shown: read the file before accepting.]',
+		'a\nb\n[3 lines of the result are not shown: use "Open resolved file" below to read it before accepting.]',
+		'a\nb\n[1 line of the result is not shown: use "Open resolved file" below to read it before accepting.]',
 	],
 );
 {
@@ -4287,7 +4576,7 @@ const sections = view.proposalSections({
 	risks: 'r',
 });
 const withFollowUps = view.proposalSections(
-	{ conflicted: [], hunks: [], outside: [], checks: [], risks: '' },
+	{ conflicted: [], hunks: [], outside: [], checks: [], risks: '', written: [] },
 	[
 		{ path: 'scripts/runtime-bytes/lines.json', rule: 'runtime-bytes' },
 		{ path: 'apps/launcher-api/static/rigger/vendor/rigger-fx.js', rule: 'vendored-bundle' },

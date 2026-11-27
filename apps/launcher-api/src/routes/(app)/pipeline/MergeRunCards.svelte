@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { askConfirm } from '$lib/dialogs.svelte';
-	import type { MergeRunsAnswer } from '$lib/mergeMainRuns';
+	import { mergeRunFilePath, type MergeRunsAnswer } from '$lib/mergeMainRuns';
 	import type { ChangeDetail } from '$lib/server/pipelineChanges';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		acceptBody,
+		writtenLinesOf,
 		apiErrorText,
 		hunkColumns,
 		mergeBrief,
@@ -172,7 +173,22 @@
 		{#if run.files.length}
 			<h4>Files written</h4>
 			{#each run.files as f (f.path)}
-				<p class="plain mono">{f.path}</p>
+				{@const own = writtenLinesOf(run.explanation, f.path)}
+				<p class="plain">
+					<span class="mono">{f.path}</span>
+					{#if !f.deleted}
+						·
+						<a
+							href={mergeRunFilePath(detail.number, run.id, f.path)}
+							target="_blank"
+							rel="external noopener noreferrer">Open resolved file</a
+						>
+					{/if}
+				</p>
+				{#if own.length}
+					<span class="col-title">Lines the run wrote itself ({own.length})</span>
+					<pre>{own.map((l) => `${l.n}: ${l.text}`).join('\n')}</pre>
+				{/if}
 			{/each}
 		{/if}
 		{#if proposal.blocked}

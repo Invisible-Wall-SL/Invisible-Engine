@@ -312,7 +312,8 @@ that the run's hunks were cut against another base.)
                  "nowDoes": "..." | null, "otherwise": "..." | null } ],
     "outside": [ { "path": "...", "what": "..." } ],
     "checks": [ { "command": "...", "ok": true } ],
-    "risks": "..."
+    "risks": "...",
+    "written": [ { "path": "...", "lines": [ { "n": 12, "text": "<the line>" } ] } ]
   },
   "usage": [ /* as a fix run's result: per model, tokens and the CLI's cost */ ]
 }
@@ -356,6 +357,24 @@ that the run's hunks were cut against another base.)
   refused, naming the file.
   They are shown as text only, to the proposal waiting for Accept, never as HTML and never in the
   other cards.
+- **Every line the run wrote itself is listed, whatever a hunk shows** (`explanation.written`;
+  amended after the 15C review). Per file, each line of the resolved file that is in neither side
+  (counted as `addedLines` counts, blank lines left out), with its line number there. `collect`
+  computes it from the real resolved file and git's own sides, never from the model's text; it does
+  not depend on where a hunk was placed, so ambiguity or a cut cannot hide a line. The launcher
+  checks it twice: at the result, every entry is a file the proposal lists and exactly that file's
+  own line at that number, and a line holding a format character (a zero-width joiner or
+  non-joiner, legal inside a JS or TS identifier, or a bidi mark) is refused, naming the file; at
+  Accept, the list must equal what the launcher itself computes from the two sides it reads
+  (`writtenOf`), or the resolution is `needs_person`. More than 400 lines or 20,000 characters over
+  the proposal is `no_proposal` ("the run wrote more new lines than the card can show"), so nothing
+  that is pushed is unseen. The card shows them under each file ("Lines the run wrote itself (N)")
+  with an **Open resolved file** link: `GET …/merge-runs/<id>/file?path=…`, `pipelineMerge`, the exact
+  text Accept would push from the run's own record (the branch is not fetched), `text/plain`,
+  `nosniff`, `inline`, only for a path the proposal lists and only while the run is `proposed` or
+  `accepting`. The card's other notices point at that link. Code shown on the card is never
+  stripped of a CI-skip token (the card is not a commit message), and the raw text is capped before
+  format characters are made visible, with any cut counted in `resultCut`.
 - **Accept's claim.** Accept takes `proposed → accepting` in the database, by the database's clock
   and with a 5-minute lease and a claim id, before any GitHub write; every later update, settle and
   release carries the claim id, and the merge commit's SHA is stored (with whoever built it) before

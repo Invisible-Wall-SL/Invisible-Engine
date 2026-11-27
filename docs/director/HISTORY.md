@@ -28,12 +28,16 @@ with a new one. Use this format:
   - Accept takes a database claim (`proposed → accepting`, a token, a 5-minute lease on the
     database's clock; migration 0053 adds `accept_sha`, `accepting_at`, `accept_claim`). Every
     update, settle and release carries the token; the merge commit's SHA is recorded before the push
-    and the push needs the claim and 30 s of lease; a lost answer is recognised by the tip being that
+    and the push needs the claim and 90 s of lease; a lost answer is recognised by the tip being that
     commit or a descendant; the backstop settles a lapsed claim the same way. The first version of
     the store put a `Date` in a raw `sql` template, which throws on postgres-js: it now uses
     column-aware operators and `now()`, proved on a real Postgres by `prove:merge-runs` (run by
     `director-worker`'s `prove:idle`, so by CI's `postgres-proofs`), and a source check forbids the
     pattern.
+  - The card cannot hide a pushed line (rounds 4 and 5): `explanation.written` lists every line the
+    run wrote itself per file, recomputed by Accept from the real sides; format characters are shown
+    as `⟨U+200D⟩` or refused; a cut result says how many lines; `Open resolved file` serves the exact
+    text before Accept; code on the card keeps its `[skip ci]`.
   - Also: the compare's 300-file cap and a missing file list are "unknown"; the protected-path and
     lockfile exemption holds only for main's own entry; Accept posts the head the page showed; a
     GitHub error reading main's tree is a 502 and the job posts its result up to three times; the

@@ -23,6 +23,7 @@ import {
 	type MergeRunExplanation,
 	type MergeRunFile,
 	type MergeRunRefusal,
+	type MergeRunWritten,
 	type MergeRunStatus,
 	type MergeRunView,
 	type MergeRunsAnswer,
@@ -55,8 +56,10 @@ import {
 } from './pipelineMergeRunsActions';
 import {
 	contentProblem,
+	hasFormatChar,
 	mergeMessage,
 	planMerge,
+	writtenOf,
 	type Files,
 	type Plan,
 	type Sides,
@@ -71,10 +74,11 @@ import {
 	isExplainedMerge,
 	needsMainsTree,
 	parseMergeResult,
-	addedFormatProblem,
 	resultProblem,
 	resultSecretProblem,
 	textsProblem,
+	writtenProblem,
+	writtenSizeProblem,
 	type ParsedMergeResult,
 } from './pipelineMergeRunsResult';
 import {
@@ -432,9 +436,12 @@ async function decide(
 	const sent = r.explanation ?? explanation;
 	const problem =
 		filesProblem(r.files, hunkPaths, await mainTreeFor(app, run, r.files)) ??
-		addedFormatProblem(sent, r.files) ??
+		writtenProblem(sent, r.files) ??
 		resultProblem(sent, r.files);
 	if (problem) return { ...refused(problem), explanation };
+	if (writtenSizeProblem(sent)) {
+		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.writtenTooMany, explanation };
+	}
 	if (explanationLines(explanation) > MERGE_CAPS.linesTotal) {
 		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.linesTooLong, explanation };
 	}
@@ -623,7 +630,12 @@ async function acceptClaimed(
 	const pull = await readPull(run.prNumber, app);
 	if (pull.state !== 'open') conflict('not_open', `#${run.prNumber} is not open.`);
 	if (isOnHold(pull)) conflict('on_hold', `#${run.prNumber} is on hold: resume it first.`);
-	if (pull.head.ref !== run.branch) return stale(run, RENAMED_BRANCH_TEXT);
+	if (pull.head.ref !== run.branch) {
+		// A commit may have landed on the old name before the rename: the claim is kept (this Accept
+		// has not read the tip) and the backstop settles it, never `stale` over a merge that landed.
+		if (run.acceptSha) conflict('accepting', RENAMED_BRANCH_TEXT);
+		return stale(run, RENAMED_BRANCH_TEXT);
+	}
 	if (!isPlainBranchName(run.branch)) conflict('unsafe_branch', UNSAFE_BRANCH_TEXT);
 	if (run.acceptSha && (await holdsMerge(app, run.acceptSha, pull.head.sha))) {
 		// An earlier Accept got its commit onto the branch (its tip, or a person pushed on top of it):
@@ -706,7 +718,13 @@ async function build(
 	}
 	const planned = planMerge(baseTree.files, headTree.files, mainTree.files, files);
 	if ('problem' in planned) return needsPerson(refusedChange(planned.problem));
-	const problem = await checkContent(app, planned.plan, headTree.files, mainTree.files);
+	const problem = await checkContent(
+		app,
+		planned.plan,
+		headTree.files,
+		mainTree.files,
+		run.explanation?.written ?? [],
+	);
 	if (problem) return needsPerson(refusedChange(problem));
 	try {
 		const writes = planned.plan.writes;
@@ -788,6 +806,7 @@ async function checkContent(
 	plan: Plan,
 	head: Files,
 	main: Files,
+	written: MergeRunWritten[],
 ): Promise<string | null> {
 	const found = await mapWithConcurrency(plan.resolved, 4, async (file) => {
 		const read = async (side: Files): Promise<string | null | 'binary'> => {
@@ -798,8 +817,20 @@ async function checkContent(
 		const [h, m] = await Promise.all([read(head), read(main)]);
 		if (h === 'binary' || m === 'binary') return 'a file both sides changed is binary';
 		const sides: Sides = { head: h, main: m };
+		const own = writtenOf(file, sides);
+		if (own.some((l) => hasFormatChar(l.text))) {
+			return `a line the run wrote holds an invisible format character in ${file.path}`;
+		}
+		const card = written.find((w) => w.path === file.path)?.lines ?? [];
+		if (JSON.stringify(own) !== JSON.stringify(card)) {
+			return 'the lines the run wrote itself, as the card listed them, are not the file’s';
+		}
 		return contentProblem(file, sides);
 	});
+	const unseen = written.find(
+		(w) => w.lines.length > 0 && !plan.resolved.some((f) => f.path === w.path),
+	);
+	if (unseen) return 'the card lists lines for a file the merge does not take from the run';
 	return found.find((p): p is string => p !== null) ?? null;
 }
 
@@ -875,6 +906,25 @@ async function discard(
 }
 
 // ── What the page reads ───────────────────────────────────────────────────────
+
+/**
+ * A resolved file of a proposal waiting (`proposed`, or `accepting`: a lapsed claim is offered
+ * again), as the exact text Accept would push, read from the run's own record: the branch is not
+ * fetched. 404 for a run that is not this change's, one that is not waiting, a path the proposal does
+ * not list, or a deleted file.
+ */
+export async function resolvedFileOf(number: number, id: string, path: string): Promise<string> {
+	const run = MERGE_RUN_ID.test(id) ? await getMergeRun(id) : null;
+	if (!run || run.prNumber !== number)
+		throw error(404, `There is no merge run ${id} on #${number}.`);
+	if (run.status !== 'proposed' && run.status !== 'accepting') {
+		throw error(404, `Merge run ${id} has no proposal waiting.`);
+	}
+	const file = run.files?.find((f) => f.path === path);
+	if (!file) throw error(404, 'The proposal does not hold that file.');
+	if (file.content === null) throw error(404, 'The resolution deletes that file.');
+	return file.content;
+}
 
 /**
  * A change's merge runs as the detail shows them (`GET /api/pipeline/changes/<n>/merge-runs`): whether

@@ -33,11 +33,13 @@ import {
 	isExplainedMerge,
 	parseMergeResult,
 	resultProblem,
+	writtenProblem,
 } from '../src/lib/server/pipelineMergeRunsResult.ts';
 import {
 	blobSha,
 	contentProblem,
 	planMerge,
+	writtenOf,
 	type Files,
 } from '../src/lib/server/pipelineMergeRunsBuild.ts';
 
@@ -291,6 +293,31 @@ function launcherSide(label: string, repo: Repo, job: Job): void {
 		});
 		check(`${label}: contentProblem on ${file.path}`, content === null, String(content));
 	}
+	// the lines the run wrote itself: the job's list is the launcher's own, file by file
+	const sidesOf = (path: string) => ({
+		main: show(repo.dir, repo.main, path),
+		head: show(repo.dir, repo.head, path),
+	});
+	const jobList = new Map(
+		(explanation?.written ?? []).map((w) => [w.path, JSON.stringify(w.lines)] as const),
+	);
+	for (const file of planned.plan.resolved) {
+		const own = writtenOf(file, sidesOf(file.path));
+		check(
+			`${label}: the job's list of lines it wrote in ${file.path} is the launcher's (${own.length})`,
+			(own.length ? JSON.stringify(own) : undefined) === jobList.get(file.path),
+			`${JSON.stringify(own)} vs ${jobList.get(file.path)}`,
+		);
+	}
+	check(
+		`${label}: the job lists no lines for a file Accept does not take from it`,
+		[...jobList.keys()].every((path) => planned.plan.resolved.some((f) => f.path === path)),
+	);
+	check(
+		`${label}: writtenProblem finds nothing in the job's list`,
+		explanation !== null && writtenProblem(explanation, parsed.files) === null,
+		String(explanation && writtenProblem(explanation, parsed.files)),
+	);
 	const accepted: Files = new Map(main);
 	for (const w of planned.plan.writes) {
 		if (w.sha === null && w.content === null) accepted.delete(w.path);

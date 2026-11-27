@@ -51,6 +51,10 @@ export const isWorkingMergeRun = (status: MergeRunStatus): boolean =>
  */
 export const MERGE_ACCEPT_LEASE_MS = 5 * 60_000;
 
+/** Where a run's resolved file is read (`Open resolved file`): the exact text Accept would push. */
+export const mergeRunFilePath = (number: number, id: string, path: string): string =>
+	`/api/pipeline/changes/${number}/merge-runs/${id}/file?path=${encodeURIComponent(path)}`;
+
 export const MERGE_RUN_WORKFLOW = 'merge-main.yml';
 export const MERGE_RUN_WORKFLOW_PATH = `.github/workflows/${MERGE_RUN_WORKFLOW}`;
 /** The `bug-fix` environment holds the key; the job's token must come from it. */
@@ -137,6 +141,18 @@ export interface MergeRunExplanation {
 	outside: { path: string; what: string }[];
 	checks: { command: string; ok: boolean }[];
 	risks: string;
+	/**
+	 * Every line the run wrote itself, per file: a line of the resolved file that is in neither side
+	 * (`n` is its line number there). Computed by the job from the real resolved file and checked
+	 * again by Accept against the real sides, so it does not depend on where a hunk was placed, and
+	 * nothing pushed is unseen. Files with none are not listed.
+	 */
+	written: MergeRunWritten[];
+}
+
+export interface MergeRunWritten {
+	path: string;
+	lines: { n: number; text: string }[];
 }
 
 /** The caps of §10. */
@@ -151,6 +167,9 @@ export const MERGE_CAPS = {
 	lines: 10_000,
 	/** Those lines over every hunk of a proposal. */
 	linesTotal: 120_000,
+	/** The lines the run wrote itself, over the whole proposal: past it nothing is proposed. */
+	writtenLines: 400,
+	writtenChars: 20_000,
 	reason: 300,
 	path: 300,
 	hunks: 200,
@@ -232,6 +251,7 @@ export const MERGE_RUN_REASONS = {
 	timedOut: 'The run timed out.',
 	notExplained: 'The run did not explain its resolution.',
 	linesTooLong: 'The conflicting lines are too long to show for a person to read.',
+	writtenTooMany: 'The run wrote more new lines than the card can show.',
 	budgetSpent:
 		"This month's fix-run budget is spent, so only the mechanical part could be kept; resolve the rest by hand.",
 	headMoved: 'The branch moved; resolve again.',
@@ -354,6 +374,7 @@ function proposalOnly(run: MergeRunRecord): MergeRunExplanation | null {
 	return {
 		...e,
 		hunks: e.hunks.map((h) => ({ ...h, main: '', change: '', result: null, resultCut: 0 })),
+		written: [],
 	};
 }
 

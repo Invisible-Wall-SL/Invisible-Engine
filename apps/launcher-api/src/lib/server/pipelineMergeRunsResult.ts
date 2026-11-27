@@ -13,6 +13,7 @@ import {
 	type MergeRunExplanation,
 	type MergeRunFile,
 	type MergeRunHunk,
+	type MergeRunWritten,
 	type MergeRunOutcome,
 } from '$lib/mergeMainRuns';
 
@@ -27,7 +28,6 @@ import {
 	protectedEntry,
 	secretIn,
 	unmarked,
-	withoutDirectives,
 } from './bugFixRunsChange';
 import { blobSha, type Files } from './pipelineMergeRunsBuild';
 
@@ -91,7 +91,7 @@ const REQUIRED_KEYS = [
 	'usage',
 ];
 const FILE_KEYS = ['path', 'choice', 'rule', 'content', 'mode'];
-const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks'];
+const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks', 'written'];
 const HUNK_KEYS = [
 	'path',
 	'index',
@@ -106,6 +106,8 @@ const HUNK_KEYS = [
 	'otherwise',
 ];
 const MAX_LIST = 100;
+/** The lines of one file's list read before the proposal's own cap (400) judges them. */
+const MAX_WRITTEN_PARSED = 2_000;
 const TITLE_CAP = 300;
 const COMMAND_CAP = 300;
 
@@ -229,7 +231,23 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 		if (typeof c.ok !== 'boolean') return bad('checks has an entry whose ok is not true or false');
 		return { command: text(c.command, 'a check', COMMAND_CAP), ok: c.ok };
 	});
-	return { conflicted, hunks, outside, checks, risks: text(e.risks, 'risks') };
+	const written = list(e.written, 'written', MERGE_CAPS.files).map((raw): MergeRunWritten => {
+		const w = record(raw, 'written');
+		only(w, ['path', 'lines'], 'written');
+		return {
+			path: text(w.path, 'a path', MERGE_CAPS.path),
+			lines: list(w.lines, 'written lines', MAX_WRITTEN_PARSED).map((l) => {
+				const line = record(l, 'written lines');
+				only(line, ['n', 'text'], 'written lines');
+				const n = line.n;
+				if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1 || n > 10_000_000) {
+					return bad('written has a line number that is not a whole number');
+				}
+				return { n, text: text(line.text, 'a written line', MERGE_CAPS.writtenChars) };
+			}),
+		};
+	});
+	return { conflicted, hunks, outside, checks, risks: text(e.risks, 'risks'), written };
 }
 
 /**
@@ -316,15 +334,25 @@ const visibleFormat = (text: string): string =>
 	);
 
 /**
- * A code excerpt as the card shows it: no format characters (bidi, zero-width), no CI-skip
- * directive, capped. Its tags and brackets stay, since the card renders it as text, never HTML,
- * and its indentation stays: only the last line break is dropped.
+ * A code excerpt as the card shows it, and how many lines the launcher cut from it. The RAW text is
+ * capped first and only then are its format characters made visible (a `⟨U+200D⟩` is 8 characters:
+ * made visible first, a result under the cap could be cut again with no notice). Nothing is
+ * stripped from code: not a CI-skip token either, since the card is not a commit message. Its tags
+ * and brackets stay, the card renders it as text, never HTML, and its indentation stays: only the
+ * last line break is dropped.
  */
-function cleanExcerpt(excerpt: string, max: number): string {
-	const kept = withoutDirectives(visibleFormat(excerpt.replace(/\r\n?/g, '\n'))).replace(/\n$/, '');
+function cleanExcerpt(excerpt: string, max: number): { text: string; cut: number } {
+	const kept = excerpt.replace(/\r\n?/g, '\n').replace(/\n$/, '');
 	const points = Array.from(kept);
-	return points.length > max ? `${points.slice(0, max - 1).join('')}…` : kept;
+	if (points.length <= max) return { text: visibleFormat(kept), cut: 0 };
+	const shown = points.slice(0, max - 1);
+	return {
+		text: visibleFormat(`${shown.join('')}…`),
+		cut: kept.split('\n').length - shown.filter((c) => c === '\n').length,
+	};
 }
+
+const excerpt = (text: string, max: number): string => cleanExcerpt(text, max).text;
 
 const HIDDEN_LINE = '[line hidden: it looks like a secret]';
 
@@ -335,11 +363,17 @@ const hideSecretLines = (text: string): string =>
 		.map((line) => (secretIn(line) ? HIDDEN_LINE : line))
 		.join('\n');
 
-const optionalExcerpt = (v: string | null, max: number, hide = false): string | null =>
-	v === null ? null : hide ? hideSecretLines(cleanExcerpt(v, max)) : cleanExcerpt(v, max);
-
 const optionalClean = (v: string | null, max: number): string | null =>
 	v === null ? null : cleanText(v, max) || null;
+
+/** A hunk's result cleaned, with the lines the launcher cut added to what the job said it cut. */
+function cleanedResult(h: MergeRunHunk): Pick<MergeRunHunk, 'result' | 'resultCut'> {
+	if (h.result === null) return { result: null, resultCut: h.resultCut };
+	const { text, cut } = cleanExcerpt(h.result, MERGE_CAPS.lines);
+	// A cut the job made already counted its partial last line, which the launcher's may cut again.
+	const more = cut === 0 ? 0 : h.resultCut > 0 ? cut - 1 : cut;
+	return { result: hideSecretLines(text), resultCut: h.resultCut + more };
+}
 
 /** Every text of the explanation cleaned as a fix run's are: plain, capped, unlinked and quiet. */
 export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
@@ -351,10 +385,9 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 		hunks: e.hunks.map((h) => ({
 			path: h.path,
 			index: h.index,
-			main: hideSecretLines(cleanExcerpt(h.main, MERGE_CAPS.lines)),
-			change: hideSecretLines(cleanExcerpt(h.change, MERGE_CAPS.lines)),
-			result: optionalExcerpt(h.result, MERGE_CAPS.lines, true),
-			resultCut: h.resultCut,
+			main: hideSecretLines(excerpt(h.main, MERGE_CAPS.lines)),
+			change: hideSecretLines(excerpt(h.change, MERGE_CAPS.lines)),
+			...cleanedResult(h),
 			kind: h.kind,
 			takes: h.takes,
 			why: cleanText(h.why, MERGE_CAPS.text),
@@ -367,6 +400,10 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 			ok: c.ok,
 		})),
 		risks: cleanText(e.risks, MERGE_CAPS.text),
+		written: e.written.map((w) => ({
+			path: w.path,
+			lines: w.lines.map((l) => ({ n: l.n, text: visibleFormat(l.text) })),
+		})),
 	};
 }
 
@@ -425,26 +462,47 @@ export function resultSecretProblem(
 	return null;
 }
 
+/** Whether the lines the run wrote itself are more than the card can show (400 lines or 20,000 characters). */
+export function writtenSizeProblem(e: MergeRunExplanation): boolean {
+	const lines = e.written.flatMap((w) => w.lines);
+	return (
+		lines.length > MERGE_CAPS.writtenLines ||
+		lines.reduce((n, l) => n + Array.from(l.text).length, 0) > MERGE_CAPS.writtenChars
+	);
+}
+
 /**
- * A line the run added (in neither side) that holds a format character (a zero-width joiner or
- * non-joiner, which are legal inside a JS or TS identifier, or a bidi mark): the pushed file keeps
- * it and the card could not show it as it is, so the proposal is refused, naming the file. The path
- * is named only when it is one of the files the proposal lists.
+ * The list of lines the run wrote itself, as the job sent it, against the files it sent: every entry
+ * is a file the proposal lists, its lines ascend, and each is exactly the file's own line at that
+ * number (so it cannot be a line the file does not hold). A line that holds a format character (a
+ * zero-width joiner or non-joiner, which are legal inside a JS or TS identifier, or a bidi mark) is
+ * refused, naming the file: the card could not show it as it is. That the list is COMPLETE needs the
+ * two sides, so Accept checks it again (`pipelineMergeRunsBuild.ts`, `writtenOf`).
  */
-export function addedFormatProblem(raw: MergeRunExplanation, files: MergeRunFile[]): string | null {
-	for (const h of raw.hunks) {
-		if (h.result === null) continue;
-		const theirs = new Set([...linesOf(h.main), ...linesOf(h.change)]);
-		if (linesOf(h.result).some((line) => !theirs.has(line) && HAS_FORMAT.test(line))) {
-			const where = files.some((f) => f.path === h.path) ? ` in ${h.path}` : '';
-			return `a line the run added holds an invisible format character${where}`;
+export function writtenProblem(e: MergeRunExplanation, files: MergeRunFile[]): string | null {
+	const seen = new Set<string>();
+	for (const w of e.written) {
+		const file = files.find((f) => f.path === w.path);
+		if (!file || file.content === null || seen.has(w.path)) {
+			return 'the lines the run wrote itself are listed for a file it does not propose';
+		}
+		seen.add(w.path);
+		const own = file.content.split('\n');
+		let last = 0;
+		for (const l of w.lines) {
+			if (l.n <= last || own[l.n - 1]?.replace(/\r$/, '') !== l.text) {
+				return 'the lines the run wrote itself are not the file’s own lines';
+			}
+			if (HAS_FORMAT.test(l.text)) {
+				return `a line the run wrote holds an invisible format character in ${w.path}`;
+			}
+			last = l.n;
 		}
 	}
 	return null;
 }
 
-const flat = (text: string): string =>
-	withoutDirectives(text.replace(/\r\n?/g, '\n').replace(FORMAT, ''));
+const flat = (text: string): string => text.replace(/\r\n?/g, '\n').replace(FORMAT, '');
 
 /**
  * The first hunk whose `result` (as the job sent it) is not in its file's content, or null. The
