@@ -9,6 +9,7 @@ import type {
 	RigTemplateTimelines,
 } from './rigTemplates';
 import { inDrawOrder, layersTogether } from '../rigSlotOrder';
+import { withRegionSlots } from './rigRegionSlots';
 
 /**
  * A rig template fitted to one character (docs/design/frame-to-rig.md §4.6, §4.7): the template's
@@ -52,6 +53,14 @@ export interface RigFit {
 	};
 	/** The head turn (frame-to-rig §13.1g, `rigHeadTurn.ts`). */
 	turn?: RigFitTurn;
+	/**
+	 * One slot per region (frame-to-rig §13.1h): each template slot the rig draws in (its role) and
+	 * the name the rig gives it (`sheetSlotNames`). With it the template's other slots are not made,
+	 * and the fitted template names every slot as the rig does — its controls, depth controls, clips,
+	 * 3D layers and views (`withRegionSlots`). Everything else in the fit (`order`, the props'
+	 * neighbours) names the roles.
+	 */
+	slots?: Record<string, string>;
 }
 
 /**
@@ -345,6 +354,7 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 		'fingers',
 		'features',
 		'turn',
+		'slots',
 	]);
 	if (extra !== undefined) return no(`a fit has no field "${extra}"`);
 	if (!isRecord(raw.bones)) return no('a fit needs `bones`: { name: { x, y } }');
@@ -467,6 +477,17 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 		)
 			return no(`\`order\` is a list of up to ${MAX_LAYERS} slot names, back to front, each once`);
 		fit.order = [...(raw.order as string[])];
+	}
+	if (raw.slots !== undefined) {
+		const names = isRecord(raw.slots) ? Object.entries(raw.slots) : null;
+		if (
+			!names ||
+			names.length > MAX_LAYERS ||
+			!names.every(([k, v]) => k && typeof v === 'string' && NAME.test(v)) ||
+			new Set(names.map(([, v]) => v)).size !== names.length
+		)
+			return no(`\`slots\` is { slot: its name in the rig }, up to ${MAX_LAYERS}, each name once`);
+		fit.slots = Object.fromEntries(names) as Record<string, string>;
 	}
 	if (raw.bends !== undefined) {
 		if (!isRecord(raw.bends))
@@ -713,6 +734,17 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 	}
 	const stray = fit.order?.find((n) => !slots.has(n));
 	if (stray !== undefined) return `it orders a slot "${stray}" the rig does not have`;
+	if (fit.slots) {
+		const props = new Set((fit.props ?? []).map((p) => p.name));
+		const seen = new Set<string>();
+		for (const [slot, name] of Object.entries(fit.slots)) {
+			if (!t.slots.some((s) => s.name === slot))
+				return `it names a slot "${slot}" the template does not have`;
+			if (!NAME.test(name) || seen.has(name) || props.has(name))
+				return `it names two slots "${name}", or one like a prop`;
+			seen.add(name);
+		}
+	}
 	// The bend itself (its grid, bones, ramp and covers) is the template's contract, checked on the
 	// fitted template: here only that it names a part to bend.
 	for (const part of Object.keys(fit.bends ?? {}))
@@ -967,7 +999,7 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 		...(depths ? { depths } : {}),
 		...(layers ? { layers } : {}),
 	};
-	return {
+	const out: RigTemplate = {
 		...t,
 		bones,
 		slots,
@@ -976,6 +1008,13 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 		clips,
 		...(rig3d ? { rig3d } : {}),
 	};
+	return fit.slots
+		? withRegionSlots(
+				out,
+				fit.slots,
+				(fit.props ?? []).map((p) => p.name),
+			)
+		: out;
 }
 
 /** The controls that slide the face by its depth, and the way each slides it. */

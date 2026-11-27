@@ -295,7 +295,7 @@ export function withoutBones(
 }
 
 /** The motion map with what names a bone gone (or stripped) or a control gone taken off. */
-function motionWithout(
+export function motionWithout(
 	m: NonNullable<RigTemplate['motion']>,
 	gone: ReadonlySet<string>,
 	stripped: ReadonlySet<string>,

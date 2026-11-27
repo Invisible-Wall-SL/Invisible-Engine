@@ -310,6 +310,11 @@ export function rename3d(
 		move(doc.views);
 		for (const [l, members] of Object.entries(doc.layers ?? {}))
 			doc.layers![l] = members.map((m) => (m === from ? to : m));
+		if (doc.locks)
+			doc.locks = doc.locks.map(([a, b]): [string, string] => [
+				a === from ? to : a,
+				b === from ? to : b,
+			]);
 	} else {
 		for (const d of (slot === undefined ? undefined : doc.views?.[slot])?.drawings ?? [])
 			if (d.attachment === from) d.attachment = to;
@@ -319,7 +324,7 @@ export function rename3d(
 /**
  * The 3D data without what names a bone, slot or attachment the irig no longer has (a delete): its
  * depth and keys, a follow of it (the follower becomes a plain bone), its drawings, its place in a
- * layer, a 3D IK it is a part of. True when anything went.
+ * layer or a draw-order lock, a 3D IK it is a part of. True when anything went.
  */
 export function fit3dToRig(doc: Rig3dDoc, irig: Json): boolean {
 	const before = JSON.stringify(doc);
@@ -358,5 +363,10 @@ export function fit3dToRig(doc: Rig3dDoc, irig: Json): boolean {
 	}
 	for (const k of ['bones', 'views', 'layers'] as const)
 		if (doc[k] && !Object.keys(doc[k]!).length) delete doc[k];
+	if (doc.locks) {
+		const kept = doc.locks.filter(([a, b]) => slots.has(a) && slots.has(b));
+		if (kept.length) doc.locks = kept;
+		else delete doc.locks;
+	}
 	return JSON.stringify(doc) !== before;
 }

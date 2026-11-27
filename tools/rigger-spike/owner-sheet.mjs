@@ -24,7 +24,7 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 
 /** The modules a mutant may be planted in. */
 const SHIPPED =
-	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigTemplateFit|rigTemplates|rigTemplateBody|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
+	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigRegionSlots|rigRename|rigTemplateFit|rigTemplates|rigTemplateBody|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
 let bundles = 0;
 /**
  * The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first; `page`
@@ -281,6 +281,12 @@ export function ownerMapping(M, { face = false, more = {}, modules } = {}) {
 
 /** The sheet's regions as the launcher reads them (names and sizes). */
 export const SIZED = REGIONS.map(({ name, w, h }) => ({ name, w, h }));
+
+/**
+ * The slot a rig made from a sheet draws template slot `role` in: its region's name (one slot per
+ * region, frame-to-rig §13.1h), read through the fit's role map.
+ */
+export const slotOf = (rig, role) => rig.sr.fit.slots?.[role] ?? role;
 
 /** What 🦴 Create rig makes of `mapping` (the owner's by default), and its fitted template. */
 export function ownerRig(M, opts = {}) {
