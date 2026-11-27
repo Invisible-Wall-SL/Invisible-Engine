@@ -39,7 +39,7 @@ import {
 	type SheetPreview,
 } from './rigSheetFit';
 import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
-import type { RigTemplateControls } from './rigTemplateControls';
+import { CONSTRAINT_KINDS, type RigTemplateControls } from './rigTemplateControls';
 import { templateWithModules } from './rigTemplateModules';
 import { renameInRig } from './rigRename';
 import {
@@ -90,7 +90,10 @@ export interface SheetUpdateResult {
 	 * frame, rig units): a rig with 3D data takes them into its `rig3d.json`.
 	 */
 	depths: Record<string, number>;
-	/** When the modules changed: the new set's control layer, for the rig's own to take what came. */
+	/**
+	 * When the modules changed or bones came: the new set's control layer, for the rig's own to take
+	 * what came.
+	 */
 	controls?: RigTemplateControls;
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean }[];
@@ -99,6 +102,12 @@ export interface SheetUpdateResult {
 		layered: string[];
 		/** The template's modules changed with the mapping: what went and what came (`changeModules`). */
 		modules?: ModuleChangeReport;
+		/**
+		 * The skeleton following the mapping (§13.1i): the bones it needs that the rig lacked put in, the
+		 * bones it leaves out taken out with their keys and constraints (a weighted vertex's share handed
+		 * up); `kept`, those left in because a bone, slot or constraint of the author's names them.
+		 */
+		bones?: ModuleChangeReport & { kept: string[] };
 		/** Renamed and taken out for one slot per region: the rig's 3D data and controls follow. */
 		renamed: SlotMigration;
 	};
@@ -167,6 +176,8 @@ export function merging(given: SheetUpdateInput): Fitted<{
 	input: FrameUpdateInput;
 	/** The kept mapping built today, when it still builds. */
 	asMade: Json | null;
+	/** The kept mapping's fit built today, when it still builds. */
+	wasFit: RigFit | null;
 	sameRegion: (part: string) => boolean;
 	/** The kept and the edited mapping, their props renamed past the Photoshop file's name. */
 	was: SheetMapping;
@@ -257,6 +268,7 @@ export function merging(given: SheetUpdateInput): Fitted<{
 				...(newSlots.size ? { newSlots } : {}),
 			},
 			asMade: was.ok ? asMade : null,
+			wasFit: was.ok ? was.value.fit : null,
 			sameRegion,
 			was: o.was,
 			mapping: o.mapping,
@@ -414,37 +426,128 @@ export function headTurnDepths(t: RigTemplate, fit: RigFit): Record<string, numb
 }
 
 const slotNames = (doc: Json) => ((doc.slots ?? []) as { name: string }[]).map((s) => s.name);
+const boneNames = (doc: Json) =>
+	((doc.bones ?? []) as { name?: unknown }[]).map((b) => String(b.name));
+
+/** The bones of template `t` a build on `fit` makes: all but those it leaves out (§13.1i). */
+function madeBones(t: RigTemplate, fit: RigFit | null): Set<string> {
+	const off = new Set(fit?.leftOut ?? []);
+	return new Set(t.bones.map((b) => b.name).filter((n) => !off.has(n)));
+}
+
+/** The bones of rig `doc` that `fit` leaves out, in the rig's order. */
+function leftOutOf(doc: Json, fit: RigFit): string[] {
+	const off = new Set(fit.leftOut ?? []);
+	return boneNames(doc).filter((n) => off.has(n));
+}
+
+/** Bones `bones` (of template `t`) and the template's slots on them, by the rig's names (`name`). */
+function onBones(
+	t: RigTemplate,
+	bones: readonly { name: string }[],
+	name: (role: string) => string,
+) {
+	const on = new Set(bones.map((b) => b.name));
+	return {
+		bones,
+		slots: t.slots.filter((s) => on.has(s.bone)).map((s) => ({ name: name(s.name) })),
+	};
+}
+
+const NO_NAMES = { bones: [], slots: [] };
+const unchanged = (): ModuleChangeReport => ({
+	bones: [],
+	slots: [],
+	bared: [],
+	constraints: [],
+	keys: 0,
+	added: { bones: [], slots: [] },
+});
+
+/**
+ * The bones of `gone` (template `t`'s, which a mapping leaves out) that rig `doc` needs for the
+ * author's own: a bone of theirs hangs from it, a slot is on it (the merge left one there that draws
+ * something: no region of the mapping does), or a constraint of theirs (not the template's) names it.
+ */
+function yoursOn(doc: Json, gone: readonly string[], t: RigTemplate): string[] {
+	const off = new Set(gone);
+	const need = new Set<string>();
+	for (const b of (doc.bones ?? []) as { name: string; parent?: string }[])
+		if (b.parent !== undefined && off.has(b.parent) && !off.has(b.name)) need.add(b.parent);
+	for (const s of (doc.slots ?? []) as { bone?: string }[])
+		if (s.bone !== undefined && off.has(s.bone)) need.add(s.bone);
+	const template = new Set(
+		Object.values(t.constraints ?? {}).flatMap((l) => (l ?? []).map((c) => String(c.name))),
+	);
+	for (const kind of CONSTRAINT_KINDS)
+		for (const c of (Array.isArray(doc[kind]) ? doc[kind] : []) as Json[])
+			if (!template.has(String(c.name)))
+				for (const n of [c.target, c.bone, ...(Array.isArray(c.bones) ? c.bones : [])])
+					if (typeof n === 'string' && off.has(n)) need.add(n);
+	return gone.filter((b) => need.has(b));
+}
 
 /** The open rig with the edited mapping's parts in it, and what changed; refused when it does not fit. */
 export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	const merge = merging(o);
 	if (!merge.ok) return merge;
-	const { fit, input, asMade, sameRegion, was, mapping, renamed, stale, names } = merge.value;
-	// The mapping changed the template's modules (docs/design/rig-modules.md §4): the rig takes out
-	// what the new set lacks and gets what it adds, then the parts merge as ever.
-	let modules: ModuleChangeReport | undefined;
+	const { input, asMade, wasFit, sameRegion, was, renamed, stale, names } = merge.value;
+	let { fit, mapping } = merge.value;
+	const [tWas, tNow] = [asMapped(o.template, was), asMapped(o.template, mapping)];
+	// Before the merge, the skeleton the parts go on: what a change of the template's modules takes
+	// out (docs/design/rig-modules.md §4), and each bone the edited mapping makes that the rig lacks
+	// and the kept mapping did not make (§13.1i), put in where the new build has it. A bone the edited
+	// mapping leaves out stays until the merge has taken out what it no longer draws.
+	const modulesChanged =
+		JSON.stringify(was.template.modules ?? {}) !== JSON.stringify(mapping.template.modules ?? {});
+	const has = new Set(boneNames(input.current));
+	const [wasMakes, nowMakes] = [madeBones(tWas, wasFit), madeBones(tNow, fit)];
+	const fromBones = tWas.bones.filter((b) => has.has(b.name) || wasMakes.has(b.name));
+	const toBones = tNow.bones.filter((b) => has.has(b.name) || nowMakes.has(b.name));
+	const from = new Set(fromBones.map((b) => b.name));
 	let current = input.current;
-	if (
-		JSON.stringify(was.template.modules ?? {}) !== JSON.stringify(mapping.template.modules ?? {})
-	) {
-		// The two sets' slots by the rig's names for them (each role's, §13.1h).
-		const named = (t: RigTemplate, name: (role: string) => string) => ({
-			bones: t.bones,
-			slots: t.slots.map((s) => ({ name: name(s.name) })),
-		});
-		const changed = changeModules(
-			current,
-			named(asMapped(o.template, was), (r) => names.now[r] ?? names.was[r] ?? r),
-			named(asMapped(o.template, mapping), (r) => names.now[r] ?? r),
-			input.fresh,
-		);
-		if (!changed.ok) return { ok: false, problem: changed.problem };
-		({ doc: current, report: modules } = changed);
+	let modules: ModuleChangeReport | undefined;
+	let came: string[] = [];
+	if (modulesChanged || toBones.some((b) => !from.has(b.name))) {
+		// The slots by the rig's names for them (each role's, §13.1h), on the bones each side has; only
+		// a change of modules takes slots out or puts them in.
+		const before = onBones(tWas, fromBones, (r) => names.now[r] ?? names.was[r] ?? r);
+		const after = modulesChanged
+			? onBones(tNow, toBones, (r) => names.now[r] ?? r)
+			: { bones: toBones, slots: before.slots };
+		const changed = changeModules(current, before, after, input.fresh);
+		if (!changed.ok) return changed;
+		current = changed.doc;
+		if (modulesChanged) modules = changed.report;
+		else came = changed.report.added.bones;
 	}
-	const { doc, report } = frameRigUpdate({ ...input, current });
+	const { doc: merged, report } = frameRigUpdate({ ...input, current });
 	// A template slot no region is drawn in any more goes when it draws nothing (one per region).
-	const dropped = emptySlots(doc, stale);
-	dropSlots(doc, dropped);
+	const dropped = emptySlots(merged, stale);
+	dropSlots(merged, dropped);
+	// Then the bones the edited mapping leaves out, but for those the author's own bones, slots or
+	// constraints need: the mapping keeps those from now on (`keep`), with the bones above them.
+	const yours = yoursOn(merged, leftOutOf(merged, fit), tNow);
+	if (yours.length) {
+		mapping = { ...mapping, keep: [...new Set([...(mapping.keep ?? []), ...yours])] };
+		const again = sheetRig(tNow, o.regions, mapping, { fitLayers: false });
+		if (!again.ok) return again;
+		fit = again.value.fit;
+	}
+	const gone = leftOutOf(merged, fit);
+	const out = gone.length
+		? changeModules(merged, { bones: gone.map((name) => ({ name })), slots: [] }, NO_NAMES)
+		: null;
+	if (out && !out.ok) return out;
+	const doc = out ? out.doc : merged;
+	const bones =
+		gone.length || came.length || yours.length
+			? {
+					...(out?.report ?? unchanged()),
+					added: { bones: came, slots: [] },
+					kept: yours,
+				}
+			: undefined;
 	const layers = sheetLayersApplied(
 		asMapped(o.template, mapping),
 		fit,
@@ -492,16 +595,15 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		value: {
 			doc,
 			mapping,
-			depths: headTurnDepths(asMapped(o.template, mapping), fit),
-			...(modules && asMapped(o.template, mapping).controls
-				? { controls: asMapped(o.template, mapping).controls }
-				: {}),
+			depths: headTurnDepths(tNow, fit),
+			...((modules || came.length) && tNow.controls ? { controls: tNow.controls } : {}),
 			report: {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
 				frame,
 				layered,
 				...(modules ? { modules } : {}),
+				...(bones ? { bones } : {}),
 				renamed: { ...renamed, dropped: [...renamed.dropped, ...dropped] },
 			},
 		},

@@ -1030,9 +1030,10 @@ export async function uploadResult({ base, kind, id, audience, bytes }) {
 /**
  * POST an encoded result to `<base>/result`: the body itself, or — when it is flagged `upload` —
  * the pointer to the file {@link uploadResult} put in R2. An upload that fails ends the run with
- * its own sentence (`rebuild(why)`: the encoded failure body), spend and all. Answers the response.
+ * its own sentence (`rebuild(why)`: the encoded failure body), spend and all. `tries` sends the post
+ * again on a 5xx, for a launcher whose settle is safe to repeat. Answers the response.
  */
-export async function postResult({ base, kind, id, audience, sent, rebuild }) {
+export async function postResult({ base, kind, id, audience, sent, rebuild, tries = 1 }) {
 	let toSend = sent;
 	if (sent.upload) {
 		try {
@@ -1052,7 +1053,7 @@ export async function postResult({ base, kind, id, audience, sent, rebuild }) {
 			body: toSend.bytes,
 		},
 		'with the result',
-		{ tries: 1, timeoutMs: 10 * 60_000 },
+		{ tries, timeoutMs: 10 * 60_000 },
 	);
 }
 

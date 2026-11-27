@@ -32,10 +32,11 @@ upload.
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder —
     in review, PR #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures
     arcade; the coded slot background stays here, replaced in T3b) ·
-    T6 net client — PR #1970 · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
+    T6 net client — merged #1970 · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
     objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
     #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; owner accepted the sharper,
-    MSAA-smoothed swimming salmon; Recent changes 2026-11-27).
+    MSAA-smoothed swimming salmon; Recent changes 2026-11-27) · T7 packed places + 15 states a
+    second (owner, 2026-11-27) — PR #1975.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2711,6 +2712,54 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
     (2 / 2 runs; failed on `each_key_duplicate` before the loader fix, passes on main).
 
+- 2026-11-27 — **Performance T7: everyone else's place in 16 bits, Salmons at 15 states a second**
+  (owner: "go ahead with 16-bit positions and patchHz 15"; plan
+  [design/salmons-performance](../design/salmons-performance.md) §5; branch
+  `claude/salmons-perf-t7-wire`, on T6; in review). Wire:
+  [design/realtime-multiplayer](../design/realtime-multiplayer.md) §5 "Packed places".
+  - **What changed.** A device joins with `positions: 'u16'` and a nearby room sends it everyone
+    else's place as uint16 `px` / `py` in steps of the room's `posScale` (`engine-mechanics`
+    `positionScale`: ⅛ px on a generated river, ½ px on the original's 6768 × 19728 map, which the
+    live project plays), its own float32 as before. View tags on the nearby state (`schema.ts`
+    `VIEW_TAG.exact` / `packed`), fields only appended: a runtime that does not ask is sent float32
+    for everyone, a runtime on a server that does not pack reads `x` / `y` (`placeOnWire`), and
+    both kinds share a room. A room with no nearby box, and the 3D wire, are unchanged. Salmons'
+    config in code sends 15 states a second; everyone else is drawn two states' time behind
+    (`online.js` `interpolationDelayFor`: 133 ms; 100 ms at 20 and faster), and the room's lag
+    compensation reaches as much further back (`onlineRules.js` `rewindMsFor`: 283 ms, 8 steps, at
+    15; 250 ms at 20 and faster), so a phone's round trip is compensated as before (code review).
+    A game at 20 a second or faster draws and compensates as before; one configured slower (none in
+    the repo) is drawn two states behind instead of 100 ms.
+  - **Measured, before → after, on this container.** `room-load.mjs --devices 20 --seconds 40
+    --jump 0.02 --respawn` (Salmons, the generated river; main's checkout vs this branch): a device
+    receives 14.39 → 8.82 KB/s on average (−39 %; max 17.49 → 11.27), 20 → 15.1 states a second,
+    the server sends 0.281 → 0.172 MB/s, CPU 16 → 17 %, RSS 206 → 200 MB; the budget the script
+    holds (10 KB/s average, 16 max) was missed on main and is met. The same at 15 Hz with float32
+    (`--positions float`): 10.9 KB/s, so the rate is −24 % and packing a further −19 %.
+    `salmons-lab.mjs --runs 3` (T2's lab, the original map, a room of 21; main + the T6 runtime vs
+    this branch): in 20.9 → 16.1 msg/s, 1353 → 836 B/s (−38 %), 65.8 → 52.5 B a patch, 14.2 → 11.7 B
+    a patch per player sent; out unchanged (15.5 / 15.4 msg/s: one input a step, at the lab's ~5
+    fps 3 steps a frame); jsMs 21.3 → 20.5 and the handler time a patch below the probe's 0.1 ms
+    resolution in both. `check:room-wire`, one live room of 61 players: 709 B a patch to a device
+    sent float32, 484 B to one sent packed (−32 %).
+  - **Gates:** `check:room-wire` 10 (new: the scale, the packing, the fallback, Salmons' 15 Hz; a
+    live room with a device of each kind), `check:netcode` 33 (adds 15 Hz packed rows: the own player
+    still exact, no snap), `check:room-sim` 43, `check:room-bots` 56, `check:online-rules` 40,
+    `check:room-lobby` 42, `check:room-levels` 16 (its schema regex takes the multi-line state),
+    `check:svelte --only apps/lines` 145 (baseline 145). Playtests on this runtime:
+    `salmons-wire-play.mjs` 18/18 (new: both deploy orders, against main's server, with the T6
+    build as the old runtime), `online-play.mjs` 20/20 and `--netcode colyseus` 20/20,
+    `salmons-rejoin-play.mjs` 58/58, `salmons-play.mjs` 103/103. `check:runtime-bytes`: only
+    `arcade` (+126 B gzip) and `arcade3d` (+178 B) move, re-recorded; the rest byte-identical.
+  - **Owner steps.** (1) The game server must be redeployed with this (Railway `game-server`
+    rebuilds on a merge that touches `services/game-server`): a deploy restarts the process and
+    closes every running room, as any game-server deploy does; devices see the room lost and load
+    again. Deploy order does not matter: old runtimes keep working on the new server and new
+    runtimes on the old one. (2) Merging does not change the live rate: the room reads the
+    published snapshot's config, whose `arcade.online` has no `patchHz`, so the Game Config default
+    (20) fills it; `salmons.js` is only the export / playtest config. In `/config` → **Online room**
+    → **States per second** type **15**, then **Publish**.
+    Rooms made after that (≤ 90 s: the launcher's and the server's config caches) send 15.
 - 2026-11-27 — **Performance T6: the net client applies the room's state once a frame**
   ([design/salmons-performance](../design/salmons-performance.md) §4 T6; branch
   `claude/salmons-perf-t6-net`; in review; runtime only, no wire, schema, server or config

@@ -334,6 +334,16 @@ const PAGE_MUTANTS = [
 		'(j.sheet && j.sheet.hidden && j.sheet.hidden.length ?',
 		'(false ?',
 	],
+	[
+		'🦴 Bones: a ticked bone not sent with the mapping',
+		'return keep.length ? { keep } : {};',
+		'return {};',
+	],
+	[
+		'🦴 Bones: the bones left out not listed',
+		'for (const r of list.rows) if (r.toggle) box.appendChild(row(r));',
+		'',
+	],
 ];
 if (process.argv.includes('--mutants')) {
 	const tmp = mkdtempSync(join(tmpdir(), 'sheet-rig-browser-'));
@@ -1210,6 +1220,56 @@ try {
 			Math.abs(propTurned - propBefore.turn + 20) < MOUSE_TURN,
 		q({ propBefore, propMoved, propTurned }),
 	);
+	// 🦴 Bones (§13.1i): the section counts what the launcher's preview makes and leaves out, each bone
+	// left out a toggle; ticking one sends it kept with the next preview, which makes it.
+	await evaluate(
+		'document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); document.getElementById("s2rBonesSec").open = true; true',
+	);
+	const bonesShown = () =>
+		evaluate(`(() => {
+			const sk = s2r.preview.skeleton;
+			return {
+				sum: document.querySelector("#s2rBonesSec > summary").textContent,
+				made: sk.filter((b) => b.why !== "none").length,
+				left: sk.filter((b) => b.why === "none").map((b) => b.name),
+				boxes: [...document.querySelectorAll("#s2rBones .s2rBone input")].map((i) => [i.closest(".s2rBone").dataset.bone, i.checked]),
+			};
+		})()`);
+	const tickBone = (bone) =>
+		evaluate(
+			`document.querySelector('#s2rBones .s2rBone[data-bone="${bone}"] input').click(); true`,
+		);
+	const whyOf = (bone, why) =>
+		`!!s2r.preview && s2r.preview.skeleton.find((b) => b.name === "${bone}").why === "${why}"`;
+	const bones0 = await bonesShown();
+	ok(
+		'🦴 Bones counts what the launcher makes and leaves out, each bone left out a toggle, off',
+		bones0.sum === `Bones · ${bones0.made} · ${bones0.left.length} left out` &&
+			bones0.left.includes('cheek_l') &&
+			bones0.boxes.map(([n]) => n).join() === bones0.left.join() &&
+			bones0.boxes.every(([, on]) => !on),
+		q(bones0),
+	);
+	const unticked = seen.previews;
+	await tickBone('cheek_l');
+	await waitFor(whyOf('cheek_l', 'kept'), 20000);
+	const bones1 = await bonesShown();
+	ok(
+		'🦴 Bones: a bone ticked goes out kept with the next preview, which makes it, its toggle on',
+		seen.previews > unticked &&
+			JSON.stringify(seen.preview.keep) === '["cheek_l"]' &&
+			bones1.left.length === bones0.left.length - 1 &&
+			bones1.boxes.some(([n, on]) => n === 'cheek_l' && on),
+		q({ keep: seen.preview.keep, bones1 }),
+	);
+	if (PNG) {
+		const side = 'document.getElementById("s2rSide")';
+		await evaluate(`document.getElementById("s2rBonesSec").scrollIntoView(); true`);
+		await shot('sheet-rig-bones.png');
+		await evaluate(`${side}.scrollTop = 0; true`);
+	}
+	await tickBone('cheek_l');
+	await waitFor(whyOf('cheek_l', 'none'), 20000);
 	// 🗺 Layers: the list is the order the launcher makes the rig in (its shipped `sheetLayerList` on
 	// the page's mapping); ⋮⋮ dragged with a mouse and with a pen, Ctrl+] / [ with and without Shift;
 	// an order a depth control cannot stand with says why; the order goes out with the create.

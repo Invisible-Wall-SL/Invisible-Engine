@@ -4,6 +4,7 @@ import {
 	afterAcceptText,
 	isLiveMergeRun,
 	type MergeChoice,
+	type FileDiff,
 	type MergeRunExplanation,
 	type MergeRunFileView,
 	type MergeRunHunk,
@@ -664,6 +665,14 @@ export interface MergeRunLine {
 }
 
 /**
+ * An Accept's claim whose lease ran out: nobody is accepting any more, and Accept is offered again.
+ * The server says so, by the DATABASE's clock (`acceptLapsed` in the view); this page's own clock is
+ * never compared with a timestamp the database made.
+ */
+export const acceptLapsed = (run: Pick<MergeRunView, 'status' | 'acceptLapsed'>): boolean =>
+	run.status === 'accepting' && run.acceptLapsed;
+
+/**
  * The newest merge run's line while it works, or when it ended without a proposal to show. Null for
  * a proposal (its card), an accepted or discarded run, and a cancelled one.
  */
@@ -686,6 +695,14 @@ export function mergeRunLine(
 				brief: false,
 				text: `Resolving the conflict: the job is working (${since}).`,
 			};
+		case 'accepting':
+			return acceptLapsed(run)
+				? null
+				: {
+						tone: 'blue',
+						brief: false,
+						text: `Accepting… by ${run.acceptedBy ?? 'a person'} (${timeAgo(run.acceptingAt ?? run.updatedAt, now)}).`,
+					};
 		case 'stale':
 			return { tone: 'amber', brief: false, text: run.reason ?? MERGE_BRANCH_MOVED_TEXT };
 		case 'needs_person':
@@ -714,22 +731,53 @@ const TAKES_TEXT: Record<MergeTakes, string> = {
 export const choiceWord = (choice: MergeChoice): string => CHOICE_TEXT[choice];
 export const takesWord = (takes: MergeTakes): string => TAKES_TEXT[takes];
 
-/** One hunk as the card's three columns. `result` is null for a combination: only `nowDoes` says it. */
-export function hunkColumns(h: Pick<MergeRunHunk, 'main' | 'change' | 'takes'>): {
-	main: string;
-	change: string;
-	result: string | null;
-} {
-	const result =
-		h.takes === 'main'
-			? h.main
-			: h.takes === 'change'
-				? h.change
-				: h.takes === 'both'
-					? `${h.change}\n${h.main}`
-					: null;
+export const RESULT_NOT_LOCATED =
+	'The resolved lines could not be located in the final file: read "What Accept changes on this branch" under the file below, or open the resolved file.';
+
+/** The diff of one file of the proposal: what Accept changes on the branch there, or null when it takes nothing from the run. */
+export const diffOf = (explanation: MergeRunExplanation | null, path: string): FileDiff | null =>
+	explanation?.diff.find((d) => d.path === path) ?? null;
+
+/** A diff line's two gutters: its number in the branch's version and in the merged file. */
+export const gutter = (n: number | null): string => (n === null ? '' : String(n));
+
+/** The sign a diff line is drawn with. */
+export const DIFF_SIGN = { ctx: ' ', del: '-', add: '+' } as const;
+
+/** The notice under a result the job cut at its cap: Accept pushes the whole file. */
+export const resultCutText = (lines: number): string =>
+	`[${lines} ${plural(lines, 'line')} of the result ${lines === 1 ? 'is' : 'are'} not shown: read the diff under the file below, or open the resolved file, before accepting.]`;
+
+/**
+ * One hunk as the card's three columns: main's and this change's lines as git had them, and the
+ * result. For a `lines` hunk the result is the resolved file's own lines at the hunk, found by the
+ * job from git's clean pieces around it (§10), never the model's words, with a notice when the job
+ * had to cut it; when the job could not place it, the card says so and shows nothing else (never
+ * what the hunk says it took). For a `description` hunk (a rule's or a modify/delete: its `main` and
+ * `change` are words) the result follows what it took, and a combination has only what `nowDoes`
+ * says.
+ */
+export function hunkColumns(
+	h: Pick<MergeRunHunk, 'main' | 'change' | 'takes' | 'nowDoes' | 'result' | 'resultCut' | 'kind'>,
+): { main: string; change: string; result: string } {
+	let result: string;
+	if (h.result !== null) {
+		result = h.resultCut > 0 ? `${h.result}\n${resultCutText(h.resultCut)}` : h.result;
+	} else if (h.kind === 'lines') result = RESULT_NOT_LOCATED;
+	else if (h.takes === 'main') result = h.main;
+	else if (h.takes === 'change') result = h.change;
+	else if (h.takes === 'both') result = `${h.change}\n${h.main}`;
+	else result = h.nowDoes ?? '';
 	return { main: h.main, change: h.change, result };
 }
+
+/**
+ * The body of an Accept: the head THIS PAGE showed the person (`detail.headSha`), not the run's, so a
+ * branch that moved since the page loaded is refused as stale instead of accepted.
+ */
+export const acceptBody = (detail: Pick<ChangeDetail, 'headSha'>): { headSha: string } => ({
+	headSha: detail.headSha,
+});
 
 export interface ProposalSection {
 	key: string;
@@ -813,13 +861,13 @@ export interface ProposalBar {
  * is offered (the change's head must still be the run's: otherwise the proposal is stale).
  */
 export function proposalBar(
-	run: Pick<MergeRunView, 'status' | 'mainSha' | 'headSha' | 'spendUsd'>,
+	run: Pick<MergeRunView, 'status' | 'mainSha' | 'headSha' | 'spendUsd' | 'acceptLapsed'>,
 	detail: Pick<ChangeDetail, 'headSha' | 'state' | 'onHold'>,
 	facts: Pick<MergeRunsAnswer, 'behindNow' | 'headCommittedAt'>,
 	canMerge: boolean,
 	now: number = Date.now(),
 ): ProposalBar | null {
-	if (run.status !== 'proposed') return null;
+	if (run.status !== 'proposed' && !acceptLapsed(run)) return null;
 	const behind =
 		facts.behindNow === null
 			? ''

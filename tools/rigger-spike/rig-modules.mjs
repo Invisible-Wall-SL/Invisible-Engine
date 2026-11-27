@@ -493,8 +493,8 @@ const MUTANTS = [
 		[
 			[
 				'rigTemplateModules.ts',
-				'entries: b3.entries.filter((e) => !off(e.bone)),',
-				'entries: b3.entries,',
+				'entries: b3.entries.filter((e) => !off(e.bone))',
+				'entries: b3.entries',
 			],
 		],
 	],

@@ -6,6 +6,7 @@ import {
 	BUTTONS,
 	MOVE_SCALE,
 	ONLINE_EVENT,
+	PACKED_POSITIONS,
 	STATUS,
 	abilitySignal,
 	characterBody,
@@ -16,6 +17,8 @@ import {
 	createFixedStep,
 	createHookLines,
 	flowSignalsOf,
+	interpolationDelayFor,
+	placeOnWire,
 	serverValuesOf,
 	shownInRoom,
 	shownOf,
@@ -336,8 +339,14 @@ const CONSENTED = 4000;
 type PlayerState = {
 	name?: string;
 	character: string;
-	x: number;
-	y: number;
+	/** Float32, sent to every device for its own player, and for everyone to a device that did not
+	 *  ask for packed places; unset for the others on one that did: read another's place through
+	 *  {@link placeOnWire}. */
+	x?: number;
+	y?: number;
+	/** Everyone else's place packed in `posScale` steps a px, to a device that asked for it. */
+	px?: number;
+	py?: number;
 	connected: boolean;
 	ack: number;
 	status: number;
@@ -360,6 +369,8 @@ type PlayerState = {
 	 *  from an older server. */
 	heldBy?: string;
 };
+/** The own player as its device is sent it: always float32 `x` / `y` (`VIEW_TAG.exact`). */
+type OwnPlayerState = PlayerState & { x: number; y: number };
 type RoomState = {
 	step: number;
 	phase: string;
@@ -377,6 +388,9 @@ type RoomState = {
 	 *  starts); unset from an older server, or by a game with no lobby. */
 	picking?: boolean;
 	players: Map<string, PlayerState>;
+	/** Steps per px of a packed place; unset from a server older than packed places or a room
+	 *  that sends none. */
+	posScale?: number;
 	/** What its rules module left on the field (Salmons' bloodstains); unset from an older server. */
 	stains?: StainList;
 };
@@ -395,7 +409,7 @@ type Session = {
 	/** The own player, once the room has placed it (`netcode: 'engine'`). */
 	me: Predictor | undefined;
 	/** The SDK's prediction and its reconciler for the own player (`netcode: 'colyseus'`). */
-	sdk: { predict: Predict; me: Reconciler<PlayerState> | undefined } | undefined;
+	sdk: { predict: Predict; me: Reconciler<OwnPlayerState> | undefined } | undefined;
 	/** The render clock and tracks for everyone else. */
 	view: SnapshotClock;
 	others: Interpolator;
@@ -780,6 +794,8 @@ async function enterRoom(
 			game,
 			...join,
 			...(size ? { size: Number(size) } : {}),
+			// Everyone else's place packed, where the room packs; an older server ignores it.
+			positions: PACKED_POSITIONS,
 		});
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
@@ -843,7 +859,10 @@ async function enterRoom(
 		seq: 0,
 		me: undefined,
 		sdk: predict && { predict, me: undefined },
-		view: createSnapshotClock({ stepMs: 1000 / resolved.online.tickHz }),
+		view: createSnapshotClock({
+			stepMs: 1000 / resolved.online.tickHz,
+			delayMs: interpolationDelayFor(resolved.online.patchHz),
+		}),
 		others: createInterpolator({
 			snapPx: snapFor(
 				Math.max(...resolved.online.characters.map((c) => c.speed)) +
@@ -1396,7 +1415,7 @@ function bindServerVariables(current: Session, state: Partial<RoomState>) {
 }
 
 /** The own player's predictor, from its first place in the room. */
-function predictorOf(current: Session, player: PlayerState): Predictor | undefined {
+function predictorOf(current: Session, player: OwnPlayerState): Predictor | undefined {
 	const { game } = current;
 	const character = game.online.characters.find((c) => c.id === player.character);
 	if (!character) return undefined;
@@ -1421,8 +1440,8 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 function reconcilerOf(
 	current: Session,
 	predict: Predict,
-	player: PlayerState,
-): Reconciler<PlayerState> | undefined {
+	player: OwnPlayerState,
+): Reconciler<OwnPlayerState> | undefined {
 	const options = reconcilerOptions(current.game, current.room.sessionId, player);
 	return options && predict.reconciler(player, { input: current.room.input(), ...options });
 }
@@ -1445,8 +1464,11 @@ function recordState(current: Session, nowMs: number) {
 	current.view.observe(step, nowMs);
 	bindServerVariables(current, state);
 	const own = current.room.sessionId;
+	const scale = state.posScale ?? 0;
 	players.forEach((player, id) => {
-		if (id !== own) current.others.push(id, step, player.x, player.y);
+		if (id === own) return;
+		const at = placeOnWire(player, scale);
+		current.others.push(id, step, at.x, at.y);
 	});
 	current.unapplied = true;
 }
@@ -1469,7 +1491,7 @@ function applyState(current: Session) {
 	if (!players || state.step === undefined) return;
 	current.net.applied += 1;
 	current.others.retain(new Set(players.keys()));
-	const player = players.get(current.room.sessionId);
+	const player = players.get(current.room.sessionId) as OwnPlayerState | undefined;
 	if (!player) return;
 	// A respawn as another character: its own body, speed and abilities from now on.
 	if (current.character !== player.character) {
@@ -1909,7 +1931,10 @@ function ownPlace(current: Session) {
 function placeOf(current: Session, id: string, player: PlayerState) {
 	const own = id === current.room.sessionId ? ownPlace(current) : undefined;
 	if (own) return own;
-	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
+	return (
+		current.others.at(id, current.viewStep) ??
+		placeOnWire(player, stateOf(current.room).posScale ?? 0)
+	);
 }
 
 /** How fast a drawn player's lift follows the ground under it, per second: a waterfall's step
@@ -3062,8 +3087,10 @@ export function onlineProbe() {
 	}[] = [];
 	const hidden: string[] = [];
 	const everyone = state?.players;
+	const scale = state?.posScale ?? 0;
 	everyone?.forEach((p, id) => {
-		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
+		const place = placeOnWire(p, scale);
+		bodies.push({ id, x: place.x, y: place.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
 		else if (current) {
 			const at = carriedPlace(current, everyone, p) ?? placeOf(current, id, p);
@@ -3113,6 +3140,12 @@ export function onlineProbe() {
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),
 						net: { ...current.net },
+						wire: {
+							posScale: state.posScale ?? 0,
+							packed: [...(state.players ?? new Map<string, PlayerState>())].filter(
+								([id, p]) => id !== current.room.sessionId && p.px !== undefined,
+							).length,
+						},
 						phase: state.phase ?? '',
 						round: state.round ?? 0,
 						winner: state.winner ?? '',

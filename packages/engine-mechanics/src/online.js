@@ -427,3 +427,52 @@ export function characterBody(id, spec, at) {
 	else if (spec?.shape === 'circle') Object.assign(body, { shape: 'circle', r: spec.r });
 	return body;
 }
+
+/** How far behind the room everyone else is drawn, ms, in a room sending 20 states a second or
+ *  more (`netcode.js` `createSnapshotClock`). */
+export const INTERPOLATION_DELAY_MS = 100;
+
+/** The delay for a room sending `patchHz` states a second: two of its states' time, so the render
+ *  step always has a state on either side through one late or lost one, and never less than
+ *  {@link INTERPOLATION_DELAY_MS}: 20 a second and faster draw as before, 15 a second (Salmons)
+ *  133 ms, 10 a second 200 ms. The room widens its lag compensation by the same
+ *  (`onlineRules.js` `rewindMsFor`). */
+export const interpolationDelayFor = (patchHz) =>
+	Math.max(INTERPOLATION_DELAY_MS, patchHz > 0 ? 2000 / patchHz : INTERPOLATION_DELAY_MS);
+
+/**
+ * PACKED PLACES (`docs/design/realtime-multiplayer.md` §5; owner, 2026-11-27). A device that joins
+ * with `positions: PACKED_POSITIONS` is sent everyone else's place as two uint16 (`px`, `py`) in
+ * steps of `1 / scale` px, where `scale` is the room's {@link positionScale}; its own player keeps
+ * the float32 `x`, `y` its prediction is compared with. A device that does not ask, or a room that
+ * cannot pack (its field is wider than 65535 px), is sent float32 for everyone as before.
+ */
+export const PACKED_POSITIONS = 'u16';
+
+/** The finest a packed place gets: 1/16 px. */
+const MOST_SCALE = 16;
+
+/** Steps per px a uint16 place is packed in on `field`: the finest power of two (at most
+ *  {@link MOST_SCALE}) that covers its longer side; 0 when not even whole px do. */
+export function positionScale(field) {
+	const side = Math.max(field.w, field.h, 1);
+	let scale = MOST_SCALE;
+	while (scale >= 1 && side * scale > UINT16_MAX) scale /= 2;
+	return scale >= 1 ? scale : 0;
+}
+
+/** A place on the field (px) packed in `scale` steps a px: rounded, held to the uint16's range. */
+export const packPosition = (px, scale) =>
+	Math.min(UINT16_MAX, Math.max(0, Math.round(px * scale)));
+
+/** A packed place back in px. */
+export const unpackPosition = (packed, scale) => packed / scale;
+
+/** Where the room says a player is, from its state as the device decoded it: the packed place when
+ *  the room packs (`posScale` > 0) and sent this player's packed (`px` set), else `x` / `y` — a
+ *  device's own player, a device that did not ask, or a server older than packed places. */
+export function placeOnWire(player, posScale) {
+	if (posScale > 0 && player.px !== undefined && player.py !== undefined)
+		return { x: unpackPosition(player.px, posScale), y: unpackPosition(player.py, posScale) };
+	return { x: player.x, y: player.y };
+}

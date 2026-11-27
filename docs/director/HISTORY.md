@@ -15,6 +15,57 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · director-backend (15C review: Accept hardened, before 15B2)
+- Did: the post-merge review of #1961 (three rounds).
+  - Blocking: Accept PATCHed an unencoded branch ref (`main#x` would have moved `main`). Every ref
+    URL now goes through `refReadPath`/`refWritePath` (`githubPaths.ts`); Accept refuses a head
+    branch that is not the run's, or not a plain name; Start refuses a non-plain name up front.
+  - A hunk's real lines: `collect.mjs` fills `main`, `change` (untrimmed, from `merge-file`'s
+    segments) and the new `result` (the final file between git's clean pieces; none when a piece has
+    two places) itself, with a `kind`; they are their own field outside the 16,000 prose cap (10,000
+    each, 120,000 in all), the `result` is scanned and must be inside its file, and the page gets no
+    whole-file content. ADR-0015 §4 and §10 amended.
+  - Accept takes a database claim (`proposed → accepting`, a token, a 5-minute lease on the
+    database's clock; migration 0053 adds `accept_sha`, `accepting_at`, `accept_claim`). Every
+    update, settle and release carries the token; the merge commit's SHA is recorded before the push
+    and the push needs the claim and 90 s of lease; a lost answer is recognised by the tip being that
+    commit or a descendant; the backstop settles a lapsed claim the same way. The first version of
+    the store put a `Date` in a raw `sql` template, which throws on postgres-js: it now uses
+    column-aware operators and `now()`, proved on a real Postgres by `prove:merge-runs` (run by
+    `director-worker`'s `prove:idle`, so by CI's `postgres-proofs`), and a source check forbids the
+    pattern.
+  - The card cannot hide a pushed line (rounds 4 to 6): "what Accept changes on this branch" is a
+    positional line diff per file (Myers, 3 lines of context, both line numbers) that the launcher
+    computes at the result from the head blob it fetches itself against the stored content; the job
+    sends nothing for it (an earlier per-file list of "lines the run wrote" is gone, its multiset
+    leaked on a copy, a duplicate and a reorder). A line the merge adds that neither side holds is
+    refused for a lone CR, U+2028/9, U+0085, a format character or a secret; control and format
+    characters are shown as `⟨CR⟩` / `⟨U+200D⟩`; over 2,000 changed lines is `no_proposal`; `Open
+    resolved file` serves the exact text before Accept; code on the card keeps its `[skip ci]`; a
+    model file that ends as main's text still shows its `-` lines (only a pending rule file is "main's
+    whole"), a mode change is shown, a symlink is refused at the result, the stored diffs are capped.
+  - Also: the compare's 300-file cap and a missing file list are "unknown"; the protected-path and
+    lockfile exemption holds only for main's own entry; Accept posts the head the page showed; a
+    GitHub error reading main's tree is a 502 and the job posts its result up to three times; the
+    page says who is accepting and offers Accept again once the lease lapses.
+- Files: `githubPaths.ts` (new), `pipelineMergeRuns.ts`, `…Result.ts`, `…Store.ts`, `…Actions.ts`,
+  `mergeMainRuns.ts`, `schema.ts`, `drizzle/0053_merge_main_accepting.sql`, `view.ts`,
+  `MergeRunCards.svelte`, `ChangeDetailPanel.svelte`, `scripts/merge-main/collect.mjs`,
+  `apps/launcher-api/scripts/prove-merge-runs.ts` (new), the two fixtures, ADR-0015,
+  `docs/status/bug-reports.md`.
+- Branch / PR: `merge-main-accept-fixes` (not pushed).
+- Tests: `check:merge-main-runs`, `check:merge-main`, `check:merge-main-join`,
+  `check:pipeline-changes`, `check:bug-fix-runs`, `check:bug-fix-workflow`, `check:migration-order`,
+  `prove:merge-runs` (real Postgres 16), `check:undefined-names`, `check:svelte --only
+  apps/launcher-api`, lint.
+- Decisions: the database claim, with a token and the database's clock, is what makes Accept and
+  Discard one claim across replicas. A clean piece with two places is not guessed (no `result`, "could
+  not be located"), and is not an outside edit: a resolution that repeats a lone `}` is ordinary.
+- Next: 15B2 (`merge-main.yml`, `coordinator.md`): its prompt must stop asking the model for a
+  hunk's `main`/`change`.
+
+---
+
 ## 2026-11-27 · Phase 12 · director-backend + regression-guardian (15B1 and 15C joined)
 - Did: the cross-check ADR-0015 §10 asks of the last card to land.
   - `check:merge-main-join` (new, `apps/launcher-api/scripts/check-merge-main-join.ts`): the job's
