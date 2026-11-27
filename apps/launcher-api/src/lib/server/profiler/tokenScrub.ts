@@ -1,4 +1,5 @@
-import { redactReportText, redactValue } from '$lib/profilerNetwork';
+import type { ReportFacts } from '$lib/profilerFindings/facts';
+import { redactReportText, redactValue, type NetworkSummary } from '$lib/profilerNetwork';
 
 /**
  * The one-off clean of readings kept before the launcher redacted route tokens on receipt
@@ -11,8 +12,8 @@ import { redactReportText, redactValue } from '$lib/profilerNetwork';
 export interface ScrubRow {
 	id: string;
 	r2Key: string;
-	network: unknown;
-	facts: unknown;
+	network: NetworkSummary | null;
+	facts: ReportFacts | null;
 }
 
 export interface TokenScrubStore {
@@ -21,14 +22,17 @@ export interface TokenScrubStore {
 	read(key: string): Promise<{ text: string; etag: string | null } | null>;
 	/** Writes only while the file is the one read; false when it changed or went (a purge). */
 	write(key: string, text: string, etag: string | null): Promise<boolean>;
-	updateRow(id: string, set: { network?: unknown; facts?: unknown }): Promise<void>;
+	updateRow(
+		id: string,
+		set: { network?: NetworkSummary | null; facts?: ReportFacts | null },
+	): Promise<void>;
 }
 
 export interface TokenScrubResult {
 	scanned: number;
 	files: number;
 	rows: number;
-	/** Files that changed or went while read (left for the next pass) or could not be read. */
+	/** Files that changed or went while read, or a file or row that failed: left for the next pass. */
 	skipped: number;
 }
 
@@ -55,16 +59,23 @@ export async function scrubStoredReadings(store: TokenScrubStore): Promise<Token
 			} catch {
 				result.skipped += 1;
 			}
-			const network = redactValue(row.network);
-			const facts = redactValue(row.facts);
-			const set = {
-				...(changed(network, row.network) ? { network } : {}),
-				...(changed(facts, row.facts) ? { facts } : {}),
-			};
-			if (Object.keys(set).length) {
-				await store.updateRow(row.id, set);
-				result.rows += 1;
+			try {
+				// Only strings change, so each column keeps its shape.
+				const network = redactValue(row.network) as NetworkSummary | null;
+				const facts = redactValue(row.facts) as ReportFacts | null;
+				const set = {
+					...(changed(network, row.network) ? { network } : {}),
+					...(changed(facts, row.facts) ? { facts } : {}),
+				};
+				if (Object.keys(set).length) {
+					await store.updateRow(row.id, set);
+					result.rows += 1;
+				}
+			} catch {
+				result.skipped += 1;
 			}
+			// An 8 MB report is parsed and written whole: let the launcher's requests in between.
+			await new Promise((resolve) => setTimeout(resolve, 0));
 		}
 		if (page.length < PAGE) return result;
 		after = page[page.length - 1].id;

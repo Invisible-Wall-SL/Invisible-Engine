@@ -179,10 +179,7 @@ export const sqlTokenScrubStore: TokenScrubStore = {
 		}
 	},
 	async updateRow(id, set) {
-		await getDb()
-			.update(perfReports)
-			.set(set as Partial<typeof perfReports.$inferInsert>)
-			.where(eq(perfReports.id, id));
+		await getDb().update(perfReports).set(set).where(eq(perfReports.id, id));
 	},
 };
 
@@ -191,8 +188,8 @@ export const TOKEN_SCRUB_KEY = 'profilerTokenScrub';
 const TOKEN_SCRUB_DONE = 'v1';
 
 /**
- * The one-off clean of readings kept before #1949 redacted route tokens on receipt, run before the
- * first purge after a boot until a pass completes with nothing skipped.
+ * The one-off clean of readings kept before #1949 redacted route tokens on receipt, run beside the
+ * first purge after a boot (never holding it up) until a pass completes with nothing skipped.
  */
 export async function runTokenScrubOnce(): Promise<void> {
 	try {
@@ -323,7 +320,10 @@ async function registeredPerfKeys(keys: string[]): Promise<Set<string>> {
 export function startPerfPurge(): void {
 	if (started) return;
 	started = true;
-	const first = setTimeout(() => void runTokenScrubOnce().then(() => runPerfPurge()), FIRST_RUN_MS);
+	const first = setTimeout(() => {
+		void runPerfPurge();
+		void runTokenScrubOnce();
+	}, FIRST_RUN_MS);
 	const daily = setInterval(() => void runPerfPurge(), EVERY_MS);
 	for (const timer of [first, daily]) if (typeof timer.unref === 'function') timer.unref();
 }

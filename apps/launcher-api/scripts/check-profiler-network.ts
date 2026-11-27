@@ -43,6 +43,7 @@ import {
 	knownTransferMb,
 	networkSummary,
 	readNetwork,
+	mayHoldToken,
 	redactReportText,
 	redactTokens,
 	TOKEN_ROUTES,
@@ -299,6 +300,11 @@ test('20. the launcher never stores a route token, even from a probe that sent o
 		`%2Fapi%2Fpublished%2Ff%2F${encodeURIComponent(SECRET)}%2Fx`,
 	];
 	for (const f of forms) assert.deepEqual(leaked(redactTokens(f)), [], f);
+	// The pre-filter that spares a clean report its parse misses no spelling of a route.
+	assert.equal(mayHoldToken(JSON.stringify(report(pageLoad()))), false, 'a clean report');
+	for (const f of forms) assert.ok(mayHoldToken(JSON.stringify({ f })), f);
+	const escaped = `{"p":"\\u002fplay\\u002f${DIGITLESS}"}`;
+	assert.deepEqual(leaked(redactReportText(escaped)), [], 'a JSON \\u002f escape');
 	const keyed = redactReportText(JSON.stringify({ perf: 9, map: { [`/play/${DIGITLESS}`]: 1 } }));
 	assert.deepEqual(leaked(keyed), [], 'an object key');
 	// Mutant: a launcher that redacts only the deploy tree keeps the published token.
@@ -316,6 +322,8 @@ test('20. the one-off scrub cleans readings kept before the launcher redacted on
 		);
 	const files = new Map<string, { text: string; etag: string }>();
 	const rows: ScrubRow[] = [];
+	/** The columns as an old row kept them: the fixture's own shapes, not the full types. */
+	const asRow = (r: Record<string, unknown>) => r as unknown as ScrubRow;
 	// As an old row kept them: the facts were read before `pathOnly` redacted a route.
 	const leakyFacts = (id: string) => ({
 		heaviest: [{ path: `/api/published/f/${DIGITLESS}/borut/s7/${id}.webp`, bytes: 9000 }],
@@ -324,22 +332,26 @@ test('20. the one-off scrub cleans readings kept before the launcher redacted on
 	for (let i = 0; i < 250; i++) {
 		const id = `r${String(i).padStart(4, '0')}`;
 		files.set(`k/${id}`, { text: leakyReport(id), etag: 'e1' });
-		rows.push({
-			id,
-			r2Key: `k/${id}`,
-			network: { largest: { path: `/api/published/f/${DIGITLESS}/x.webp` } },
-			facts: { network: leakyFacts(id) },
-		});
+		rows.push(
+			asRow({
+				id,
+				r2Key: `k/${id}`,
+				network: { largest: { path: `/api/published/f/${DIGITLESS}/x.webp` } },
+				facts: { network: leakyFacts(id) },
+			}),
+		);
 	}
 	const cleanText = JSON.stringify(report(pageLoad()));
 	files.set('k/clean', { text: cleanText, etag: 'e1' });
-	rows.push({ id: 'r9000', r2Key: 'k/clean', network: { files: 3 }, facts: { network: null } });
+	rows.push(
+		asRow({ id: 'r9000', r2Key: 'k/clean', network: { files: 3 }, facts: { network: null } }),
+	);
 	files.set('k/raced', { text: leakyReport('raced'), etag: 'e1' });
 	rows.push({ id: 'r9001', r2Key: 'k/raced', network: null, facts: null });
 	rows.push({ id: 'r9002', r2Key: 'k/gone', network: null, facts: null });
 	const writes: string[] = [];
 	const updates: string[] = [];
-	const store = (opts: { skipFacts?: boolean } = {}): TokenScrubStore => ({
+	const store = (opts: { skipFacts?: boolean; failRow?: boolean } = {}): TokenScrubStore => ({
 		async rows(afterId, limit) {
 			return rows.filter((r) => afterId === null || r.id > afterId).slice(0, limit);
 		},
@@ -355,6 +367,7 @@ test('20. the one-off scrub cleans readings kept before the launcher redacted on
 			return true;
 		},
 		async updateRow(id, set) {
+			if (id === 'r0100' && opts.failRow) throw new Error('refused');
 			const row = rows.find((r) => r.id === id);
 			if (!row) return;
 			if ('network' in set) row.network = set.network;
@@ -398,8 +411,15 @@ test('20. the one-off scrub cleans readings kept before the launcher redacted on
 		'/api/published/f/…/borut/s7/r0007.webp',
 		'the rest of the reading is kept',
 	);
+	// A row whose update fails is skipped; the rest of the pass still runs.
+	const rowBefore = rows.find((x) => x.id === 'r0100');
+	if (rowBefore) rowBefore.facts = asRow({ facts: { network: leakyFacts('r0100') } }).facts;
+	const failing = await scrubStoredReadings(store({ failRow: true }));
+	assert.deepEqual([failing.scanned, failing.skipped], [253, 2], 'one bad row stops nothing');
 	const again = await scrubStoredReadings(store());
-	assert.deepEqual([again.files, again.rows], [0, 0], 'a second pass changes nothing');
+	assert.deepEqual([again.files, again.rows], [0, 1], 'the next pass finishes the row left');
+	const third = await scrubStoredReadings(store());
+	assert.deepEqual([third.files, third.rows], [0, 0], 'a clean store changes nothing');
 });
 
 test('19. a browser entry is read through its getters; a long folder name is not a token', () => {

@@ -451,8 +451,10 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   rewrites each file through `redactReportText` (an R2 write conditional on the ETag it read, so a
   file purged or replaced meanwhile is skipped, never resurrected) and each row's columns through
   `redactValue`; a clean reading is not written. `purgeJob.ts` `runTokenScrubOnce` runs it before the
-  first purge after a boot and sets `app_settings.profilerTokenScrub = v1` once a pass skipped
-  nothing; until then each boot retries. It logs `profiler token scrub: N reading(s) read, …`.
+  first purge after a boot (beside it, never holding it up) and sets
+  `app_settings.profilerTokenScrub = v1` once a pass skipped nothing; until then each boot retries.
+  A file or row that fails is counted as skipped and the pass goes on; a file with no unredacted
+  route (`mayHoldToken`, one linear scan) is never parsed, and the pass yields between readings. It logs `profiler token scrub: N reading(s) read, …`.
   Gate 20 runs it on a fake store (two pages, a clean reading left untouched, a raced write left for
   the next pass, a missing file, a second pass changing nothing, and a mutant that skips `facts`).
   Not yet seen run against production: check the launcher's log after the deploy.
