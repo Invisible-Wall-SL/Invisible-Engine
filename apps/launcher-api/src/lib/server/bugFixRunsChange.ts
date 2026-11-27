@@ -502,7 +502,6 @@ export function localProblem(c: LocalCheck): string | null {
 	}
 	if (r.files.length > MAX_FILES) return `it changes more than ${MAX_FILES} files`;
 	const seen = new Set<string>();
-	let bytes = 0;
 	for (const f of r.files) {
 		const problem = pathProblem(f.path);
 		if (problem) return problem;
@@ -522,10 +521,8 @@ export function localProblem(c: LocalCheck): string | null {
 			if (HIDDEN.test(f.content)) {
 				return `a file holds Unicode tag or bidi control characters (${f.path})`;
 			}
-			bytes += Buffer.byteLength(f.content, 'utf8');
 		}
 	}
-	if (bytes > MAX_CHANGE_BYTES) return 'it adds more than 400 KB';
 	const title = fixRunTitle(c.scope, c.number, c.text.title);
 	if (!SCOPES.includes(c.scope) || !squashSubjectHasScope(title)) {
 		return 'the scope is not one commit subjects take';
@@ -721,6 +718,13 @@ function addedLines(before: string | null, after: string): string[] {
 	});
 }
 
+/** The lines of `before` that `after` no longer has, counted as {@link addedLines} counts. */
+const removedLines = (before: string, after: string | null): string[] => addedLines(after, before);
+
+/** The bytes of a line list, each with its newline. */
+const lineBytes = (lines: string[]): number =>
+	lines.reduce((n, line) => n + Buffer.byteLength(line, 'utf8') + 1, 0);
+
 /** A comment the line adds that switches a check off or configures ESLint, or null. */
 function switchedOff(line: string): string | null {
 	const lower = line.toLowerCase();
@@ -737,7 +741,9 @@ function switchedOff(line: string): string | null {
  * anything but a file; an entry whose mode is not a plain or executable file (a link, a
  * submodule); a new path that differs from another only by case; then, from the base copies of the
  * files it changes, a `package.json` that changes what installs or how, or what CI runs, a ratchet
- * that grows, and in the lines it ADDS a secret or a comment that switches a check off.
+ * that grows, and in the lines it ADDS a secret or a comment that switches a check off; and its
+ * size: the bytes of the lines it adds and removes against the base (a new or deleted file counts
+ * whole), in all at most 400 KB. The other checks hold for the whole new file.
  */
 export async function baseProblem(files: FixRunFile[], base: BaseTree): Promise<string | null> {
 	const paths = [...base.entries.keys()];
@@ -765,15 +771,19 @@ export async function baseProblem(files: FixRunFile[], base: BaseTree): Promise<
 			return 'it adds a path that differs from another only by case';
 		}
 	}
-	const needed = files.filter(
-		(f) => base.entries.has(f.path) && (f.content !== null || baseName(f.path) === 'package.json'),
-	);
+	const needed = files.filter((f) => base.entries.has(f.path));
 	const before = new Map(
 		await mapWithConcurrency(needed, 4, async (f) => [f.path, await base.read(f.path)] as const),
 	);
+	let changed = 0;
 	for (const f of files) {
 		const was = before.get(f.path) ?? null;
 		const name = baseName(f.path);
+		changed +=
+			f.content === null
+				? lineBytes(was === null ? [] : was.split('\n'))
+				: lineBytes(addedLines(was, f.content)) +
+					(was === null ? 0 : lineBytes(removedLines(was, f.content)));
 		if (name === 'package.json') {
 			const problem = packageProblem(was, f.content);
 			if (problem) return problem;
@@ -791,6 +801,7 @@ export async function baseProblem(files: FixRunFile[], base: BaseTree): Promise<
 			if (off) return off;
 		}
 	}
+	if (changed > MAX_CHANGE_BYTES) return 'it changes more than 400 KB of lines';
 	return null;
 }
 
