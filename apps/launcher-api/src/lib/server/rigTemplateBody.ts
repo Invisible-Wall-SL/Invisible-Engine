@@ -1,4 +1,5 @@
-import type { Bone3dMotion, FollowMark } from '../rigMotion3d';
+import type { RigMotionMap } from '../rigMotion';
+import type { Bone3dMotion, FollowLimb, FollowMark } from '../rigMotion3d';
 import { VIEW_SUFFIXES } from '../rig3dViews';
 import { faceBlock, part, sides } from './rigTemplateFace';
 import type {
@@ -27,10 +28,10 @@ export const angleParts = (base: string, slot: string, size: [number, number]): 
 export const NECK_BONES = ['neck', 'neck_upper'] as const;
 
 /**
- * The neck (§3.6): `neck` on the chest at the collar (`at` up the chest bone), `neck_upper` halfway
- * up its `length`, the head on that. A turn of the neck is shared by the two, so it bends rather than
- * swinging stiff from the collar, and its drawing is skinned across both. `neck_upper` came later: a
- * `link`.
+ * The neck (§3.6): `neck` on the chest at the collar (`at` up the chest bone), `neck_upper`
+ * halfway up its `length`, the head on that. A turn of the neck is shared by the two, so it bends
+ * rather than swinging stiff from the collar, and its drawing is skinned across both. `neck_upper`
+ * came later: a `link`.
  */
 export function neck(
 	at: number,
@@ -90,8 +91,8 @@ export interface FaceHead {
 }
 
 /**
- * The head Bust with face and Half body share, about 260 units wide: its outline on an image bone of
- * its own, the ears, the face block (`rigTemplateFace.ts`), the back hair and the fringe.
+ * The head Bust with face and Half body share, about 260 units wide: its outline on an image bone
+ * of its own, the ears, the face block (`rigTemplateFace.ts`), the back hair and the fringe.
  */
 export const FACE_HEAD: FaceHead = {
 	bones: [
@@ -153,3 +154,337 @@ export const FACE_HEAD: FaceHead = {
 		{ point: { face: [291] }, bone: 'mouth_corner_r' },
 	],
 };
+
+type Side = 'l' | 'r';
+/** An entry of a template's body motion map. */
+export type BodyMotionEntryOf = NonNullable<RigMotionMap['body']>['entries'][number];
+
+export const SIDE = { l: 'left', r: 'right' } as const;
+/** The side as a label's first word. */
+const SIDE_FIRST = { l: 'Left', r: 'Right' } as const;
+
+/** Pose points per side, `l` the picture's left (the performer's right). */
+export const POSE_SIDE = {
+	l: {
+		shoulder: 12,
+		elbow: 14,
+		wrist: 16,
+		knuckles: [18, 20] as [number, number],
+		hip: 24,
+		knee: 26,
+		ankle: 28,
+	},
+	r: {
+		shoulder: 11,
+		elbow: 13,
+		wrist: 15,
+		knuckles: [17, 19] as [number, number],
+		hip: 23,
+		knee: 25,
+		ankle: 27,
+	},
+};
+export const SHOULDERS: [number, number] = [11, 12];
+export const HIPS: [number, number] = [23, 24];
+
+/** How short a limb may get pointing at the camera: 0.3 of its length (a shorter one stops reading). */
+const FORESHORTEN_FLOOR = 0.3;
+
+/**
+ * A limb shortening toward or away from the camera: `bone` scales along the limb (its image, or a
+ * hand with its fingers) and the next joint, `next`, comes in with it.
+ */
+export function shortening(
+	t: { bones: RigTemplateBone[] },
+	id: string,
+	label: string,
+	bone: string,
+	next: string | null,
+): RigTemplateChannel {
+	const n = next ? t.bones.find((b) => b.name === next) : undefined;
+	return {
+		id,
+		label,
+		tip: 'Point it toward or away from the camera: it shortens toward its joint, down to 0.3 of its length.',
+		min: 0,
+		max: 1 - FORESHORTEN_FLOOR,
+		rest: 0,
+		drives: [
+			{ bone, prop: 'scaleY', per: -1 },
+			...(n && n.x ? [{ bone: n.name, prop: 'x' as const, per: -n.x }] : []),
+			...(n && n.y ? [{ bone: n.name, prop: 'y' as const, per: -n.y }] : []),
+		],
+	};
+}
+
+/**
+ * How far an elbow folds either way in the picture, in degrees. A hinge in 3D, but drawn flat it
+ * bends both ways: which way the forearm turns on screen depends on how the upper arm is rolled,
+ * an axis a 2D bone does not have. On real footage a hanging arm bends inward (the hand in front of
+ * the body) on 58–100% of frames, by up to about 165° (rig templates §5.5).
+ */
+const ELBOW_REACH = 168;
+
+/** A template's arms: their proportions, and what their controls say. */
+export interface ArmDims {
+	/** A collarbone at `at` on the chest, its shoulder image `size`; none = the arm on the chest. */
+	clavicle?: { at: [number, number]; size: [number, number] };
+	/** Where the upper arm hangs, on the collarbone or the chest (x out from the middle). */
+	shoulder: [number, number];
+	/** The upper arm's and the forearm's lengths. */
+	upper: number;
+	lower: number;
+	/** The upper arm's and the forearm's placeholder sizes. */
+	sizes: [[number, number], [number, number]];
+	/** Raise arm: how far below 0 it goes, and what it does there. */
+	raise: { min: number; below: string };
+	/** Bend elbow: degrees at 1, and what it does either way. */
+	elbow: { per: number; fold: string };
+	/** A Reach control, the arm pointed toward the camera (in depth: `reachSets`). */
+	reach?: true;
+}
+
+/**
+ * The arms, per side (`k` the side's sign; x mirrors): the upper arm, the forearm and the bone at
+ * the wrist the hands draw on, from a collarbone when there is one (Shrug lifts it). Raise arm and
+ * Bend elbow turn them, read from the pose's shoulder, elbow and wrist. The depth stage (§5.4) adds
+ * each segment shortening on an image bone of its own, the arm passing behind the head or the body,
+ * and the arm in 3D, placed by its shoulder and reaching for the tracked wrist.
+ */
+export function arms(d: ArmDims) {
+	const c = d.clavicle;
+	/** The segments' images: each shortens on a bone of its own, and goes behind with the arm. */
+	const images = (s: Side) => [`upper_arm_${s}`, `lower_arm_${s}`];
+	return {
+		bones: (s: Side, k: number): RigTemplateBone[] => [
+			...(c ? [{ name: `clavicle_${s}`, parent: 'chest', x: c.at[0] * k, y: c.at[1] }] : []),
+			{
+				name: `upper_arm_${s}`,
+				parent: c ? `clavicle_${s}` : 'chest',
+				x: d.shoulder[0] * k,
+				y: d.shoulder[1],
+			},
+			{ name: `lower_arm_${s}`, parent: `upper_arm_${s}`, x: 0, y: -d.upper },
+			{ name: `hand_${s}`, parent: `lower_arm_${s}`, x: 0, y: -d.lower },
+		],
+		slots: (s: Side): RigTemplateSlot[] => [
+			...(c ? [{ name: `shoulder_${s}`, bone: `clavicle_${s}`, setup: `shoulder_${s}` }] : []),
+			{ name: `upper_arm_${s}`, bone: `upper_arm_${s}`, setup: `upper_arm_${s}` },
+			{ name: `lower_arm_${s}`, bone: `lower_arm_${s}`, setup: `lower_arm_${s}` },
+		],
+		parts: (s: Side): RigTemplatePart[] => [
+			...(c ? [part(`shoulder_${s}`, `shoulder_${s}`, c.size)] : []),
+			part(`upper_arm_${s}`, `upper_arm_${s}`, d.sizes[0], true),
+			part(`lower_arm_${s}`, `lower_arm_${s}`, d.sizes[1], true),
+		],
+		channels: (s: Side, k: number): RigTemplateChannel[] => [
+			...(c
+				? [
+						{
+							id: `shrug_${s}`,
+							label: `Shrug ${SIDE[s]}`,
+							tip: 'Lift the shoulder; below 0 drops it.',
+							min: -0.3,
+							max: 1,
+							rest: 0,
+							drives: [{ bone: `clavicle_${s}`, prop: 'rotate' as const, per: 15 * k }],
+						},
+					]
+				: []),
+			{
+				id: `arm_${s}`,
+				label: `Raise ${SIDE[s]} arm`,
+				tip: `0 hangs down, 1 points up and out; below 0 ${d.raise.below}.`,
+				min: d.raise.min,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `upper_arm_${s}`, prop: 'rotate', per: 150 * k }],
+			},
+			...(d.reach
+				? [
+						{
+							id: `reach_${s}`,
+							label: `Reach ${SIDE[s]} arm`,
+							tip: 'Point the arm toward the camera: the arm shortens, and so does the hand.',
+							min: 0,
+							max: 1,
+							rest: 0,
+							drives: [{ bone: `upper_arm_${s}`, prop: 'scaleY' as const, per: -0.5 }],
+						},
+					]
+				: []),
+			{
+				id: `elbow_${s}`,
+				label: `Bend ${SIDE[s]} elbow`,
+				tip: `Fold the forearm: ${d.elbow.fold}. 1 = ${d.elbow.per}°.`,
+				min: -ELBOW_REACH / d.elbow.per,
+				max: ELBOW_REACH / d.elbow.per,
+				rest: 0,
+				drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: d.elbow.per * k }],
+			},
+		],
+		motion: (s: Side): BodyMotionEntryOf[] => {
+			const p = POSE_SIDE[s];
+			return [
+				...(c
+					? [
+							{
+								kind: 'bone' as const,
+								channel: `shrug_${s}`,
+								bone: `clavicle_${s}`,
+								from: [11, 12] as [number, number],
+								to: p.shoulder,
+								minSpan: 0.3,
+							},
+						]
+					: []),
+				{
+					kind: 'bone',
+					channel: `arm_${s}`,
+					bone: `upper_arm_${s}`,
+					from: p.shoulder,
+					to: p.elbow,
+				},
+				{ kind: 'bone', channel: `elbow_${s}`, bone: `lower_arm_${s}`, from: p.elbow, to: p.wrist },
+			];
+		},
+		images,
+		shorten: (t: { bones: RigTemplateBone[] }, s: Side): RigTemplateChannel[] => [
+			shortening(
+				t,
+				`fore_upper_arm_${s}`,
+				`Shorten ${SIDE[s]} upper arm`,
+				`upper_arm_${s}_image`,
+				`lower_arm_${s}`,
+			),
+			shortening(
+				t,
+				`fore_lower_arm_${s}`,
+				`Shorten ${SIDE[s]} forearm`,
+				`lower_arm_${s}_image`,
+				`hand_${s}`,
+			),
+			shortening(t, `fore_hand_${s}`, `Shorten ${SIDE[s]} hand`, `hand_${s}`, null),
+		],
+		/** Reach in depth: the whole arm shortening, by the segments' own controls. */
+		reachSets: (s: Side): RigTemplateChannel => ({
+			id: `reach_${s}`,
+			label: `Reach ${SIDE[s]} arm`,
+			tip: 'Point the whole arm toward the camera: the upper arm, forearm and hand shorten together.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			sets: [
+				{ channel: `fore_upper_arm_${s}`, per: 1 - FORESHORTEN_FLOOR },
+				{ channel: `fore_lower_arm_${s}`, per: 1 - FORESHORTEN_FLOOR },
+				{ channel: `fore_hand_${s}`, per: 0.4 },
+			],
+		}),
+		/**
+		 * The shortening, read from the pose's 3D points (its own hand points: cleaner than the hand
+		 * model's).
+		 */
+		foreshorten: (s: Side): BodyMotionEntryOf[] => {
+			const p = POSE_SIDE[s];
+			return [
+				{
+					kind: 'foreshorten',
+					channel: `fore_upper_arm_${s}`,
+					bone: `upper_arm_${s}_image`,
+					from: p.shoulder,
+					to: p.elbow,
+				},
+				{
+					kind: 'foreshorten',
+					channel: `fore_lower_arm_${s}`,
+					bone: `lower_arm_${s}_image`,
+					from: p.elbow,
+					to: p.wrist,
+				},
+				{
+					kind: 'foreshorten',
+					channel: `fore_hand_${s}`,
+					bone: `hand_${s}`,
+					from: p.wrist,
+					to: p.knuckles,
+				},
+			];
+		},
+		/** The arm in depth, with its hand's slots `hand`: in front, behind the head or the body. */
+		depth: (s: Side, hand: string[]): RigTemplateChannel => ({
+			id: `depth_${s}`,
+			label: `${SIDE_FIRST[s]} arm depth`,
+			tip: '0 in front of the body, 1 behind the head, 2 behind the body: keyed as the draw order.',
+			min: 0,
+			max: 2,
+			rest: 0,
+			order: {
+				slots: [...images(s), ...hand],
+				steps: [
+					{ at: 1, behind: 'head' },
+					{ at: 2, behind: 'torso' },
+				],
+			},
+		}),
+		/**
+		 * The arm in 3D: the upper arm, the forearm and the hand each along their points (the hand to
+		 * the middle of its knuckles, in the picture Hand Landmarker's where it finds that hand),
+		 * rolled about their length to face the viewer — a limb looks the same from any side, its card
+		 * never turns edge-on while the arm bends, and the hand's own roll (palm or back to the camera)
+		 * reads on the tracker's 4 cm knuckle line at about 15° of jitter, which turned it through
+		 * edge-on 36 times in 30 s of real footage. That turn is drawings by angle's (2.5D P5). The
+		 * limbs' images lie flat on them. A collarbone turns from the shoulders' middle to its
+		 * shoulder.
+		 */
+		bones3d: (s: Side): Bone3dMotion[] => {
+			const p = POSE_SIDE[s];
+			return [
+				...(c
+					? [
+							{
+								kind: 'bone3d',
+								bone: `clavicle_${s}`,
+								pose: { from: SHOULDERS, to: p.shoulder },
+							} as const,
+						]
+					: []),
+				{
+					kind: 'bone3d',
+					bone: `upper_arm_${s}`,
+					pose: { from: p.shoulder, to: p.elbow },
+					roll: 'viewer',
+				},
+				{
+					kind: 'bone3d',
+					bone: `lower_arm_${s}`,
+					pose: { from: p.elbow, to: p.wrist },
+					roll: 'viewer',
+				},
+				{
+					kind: 'bone3d',
+					bone: `hand_${s}`,
+					pose: { from: p.wrist, to: p.knuckles, hand: { side: s, from: 0, to: [5, 17] } },
+					rest: [0, -1],
+					roll: 'viewer',
+				},
+			];
+		},
+		/** The body placed by the tracked shoulder. */
+		anchor: (s: Side): FollowMark => ({
+			point: { pose: POSE_SIDE[s].shoulder },
+			bone: `upper_arm_${s}`,
+		}),
+		/** The arm reaching the tracked wrist (the hand model's where it found the hand on it). */
+		follow: (s: Side): FollowLimb => {
+			const p = POSE_SIDE[s];
+			return {
+				upper: `upper_arm_${s}`,
+				lower: `lower_arm_${s}`,
+				end: `hand_${s}`,
+				points: [p.shoulder, p.elbow, p.wrist],
+				hand: s,
+				pole: `elbow_pole_${s}`,
+			};
+		},
+	};
+}
