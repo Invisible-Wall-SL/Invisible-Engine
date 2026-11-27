@@ -2,13 +2,13 @@ import { bridgeOccupancy, occupancySteps } from 'engine-mechanics';
 
 import { clearSpawnProps, setSpawnProps } from '../arcadeProps.svelte';
 import { RUNTIME_BUILTIN_TIMELINES } from '../builtinTimelines';
-import { registerComponentTimelines } from '../componentTimelines';
+import { registerComponentTimelines, stateMachineTimelines } from '../componentTimelines';
 import { PROP_COMPONENTS, PROP_TIMELINES } from '../propComponents';
 import type { PropZone } from '../propPieces';
 import { emitComponentSignal } from '../registerComponentSignals';
 import { registerComponentValues, type ValueSource } from '../registerComponentValues';
 import { registerComponents } from '../registerComponents';
-import type { CinematicDoc, ComponentDef } from '../types';
+import type { CinematicDoc, ComponentDef, ComponentStateMachine } from '../types';
 import { placeSalmonsBridges } from './propPlacement';
 
 /**
@@ -64,19 +64,42 @@ export type SalmonsBridges = {
 const FIRED_KEPT = 32;
 
 let registered = false;
-/** The prop built-ins, once a page: the defs as built-ins (a project's own shadows one), their
- *  timelines between the engine's and the project's (a registration replaces the last one). */
-function registerProps(projectTimelines: readonly CinematicDoc[]) {
-	if (registered) return;
-	registered = true;
-	registerComponents(
-		Object.fromEntries(PROP_COMPONENTS.map((def): [string, ComponentDef] => [def.id, def])),
-		{ builtin: true },
-	);
+/** Every prop timeline as one machine's states: what {@link propTimelinesRegistered} asks for. */
+const PROP_TIMELINE_STATES: ComponentStateMachine = {
+	layers: [
+		{
+			id: 'props',
+			name: 'props',
+			entry: '',
+			states: PROP_TIMELINES.map((t) => ({ id: t.id, timeline: t.id })),
+			transitions: [],
+		},
+	],
+};
+/** Whether every prop timeline is registered now. A registration replaces the last one, so a
+ *  game's own (`registerGameTimelines`, a reload of the project's) drops them. */
+const propTimelinesRegistered = (): boolean =>
+	stateMachineTimelines(PROP_TIMELINE_STATES).docs.length === PROP_TIMELINES.length;
+
+/**
+ * The prop built-ins: the defs once a page, as built-ins (a project's own shadows one), and their
+ * timelines whenever they are not registered, between the engine's and the project's as they are
+ * now (`projectTimelines()`), so a later registration that dropped them is made good on the next
+ * room state.
+ */
+function registerProps(projectTimelines: () => readonly CinematicDoc[]) {
+	if (!registered) {
+		registered = true;
+		registerComponents(
+			Object.fromEntries(PROP_COMPONENTS.map((def): [string, ComponentDef] => [def.id, def])),
+			{ builtin: true },
+		);
+	}
+	if (propTimelinesRegistered()) return;
 	registerComponentTimelines([
 		...RUNTIME_BUILTIN_TIMELINES,
 		...PROP_TIMELINES,
-		...projectTimelines,
+		...projectTimelines(),
 	]);
 }
 
@@ -92,7 +115,7 @@ export function showSalmonsBridges(
 	game: BridgeGame & { zones: readonly PropZone[] },
 	layer: string,
 	groundAt: (y: number) => number,
-	projectTimelines: readonly CinematicDoc[],
+	projectTimelines: () => readonly CinematicDoc[],
 ): SalmonsBridges {
 	registerProps(projectTimelines);
 	const zones = game.zones.filter((zone) => BRIDGE_ZONE.test(zone.id));
@@ -111,6 +134,7 @@ export function showSalmonsBridges(
 	const fired: ReturnType<SalmonsBridges['probe']>['fired'] = [];
 	return {
 		inputs(players, step) {
+			registerProps(projectTimelines);
 			const now = bridgeOccupancy(
 				game,
 				[...players].map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0, character: p.character })),

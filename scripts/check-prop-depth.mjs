@@ -399,6 +399,62 @@ check(
 	},
 );
 
+const { showSalmonsBridges } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/bridgeProps.ts')).href
+);
+const { registerComponentTimelines, stateMachineTimelines } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/componentTimelines.ts')).href
+);
+const { salmonsGeometry } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-mechanics/src/salmons.js')).href
+);
+check('the prop timelines survive a later registration: made good on the next room state', () => {
+	const g = salmonsGeometry(RIVERS[0][1]);
+	const game = { zones: g.zones, online: { rules: { zones: g.zoneRules } } };
+	const sway = defOf('bridgePropWater').stateMachine;
+	const registered = () => stateMachineTimelines(sway).docs.length;
+	const project = {
+		id: 'projectOwn',
+		schemaVersion: 1,
+		name: 'p',
+		duration: 1,
+		fps: 60,
+		markers: [],
+		host: { kind: 'component', componentId: 'x' },
+		stage: { sceneId: null, cast: [] },
+		tracks: [],
+	};
+	const shown = showSalmonsBridges(
+		BRIDGE_PROP_DEF,
+		game,
+		'field',
+		() => 0,
+		() => [project],
+	);
+	const all = registered();
+	assert.ok(all > 0, 'registered with the bridges');
+	registerComponentTimelines([project]); // a game's own registration, as a boot or a reload makes
+	assert.equal(registered(), 0, 'dropped by it');
+	shown.inputs([], 1);
+	assert.equal(registered(), all, 'registered again on the next state');
+	assert.equal(
+		stateMachineTimelines({
+			layers: [
+				{
+					id: 'p',
+					name: 'p',
+					entry: '',
+					states: [{ id: 'p', timeline: 'projectOwn' }],
+					transitions: [],
+				},
+			],
+		}).docs.length,
+		1,
+		'with the project’s',
+	);
+	shown.drop();
+});
+
 console.log(
 	process.exitCode ? 'check:prop-depth FAILED' : `check:prop-depth: all ${passed} checks pass`,
 );

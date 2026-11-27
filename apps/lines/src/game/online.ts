@@ -950,7 +950,7 @@ async function enterRoom(
 				current.bridges = art.bridges(
 					current.game,
 					current.game.online.layer,
-					bakedCinematics(),
+					bakedCinematics,
 					zonePropOf(current.game.online.props, 'bridge#'),
 				);
 				setFieldArt(field.id, art.river);

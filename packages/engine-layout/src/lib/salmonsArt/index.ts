@@ -98,12 +98,14 @@ export type SalmonsArt = {
 	 *  loading phrases), their buttons acting through `host`. */
 	screens: (host: SalmonsScreenHost) => SalmonsScreens;
 	/** Publish the room's bridges (`bridge<i>` zones of `game`) for spawn layer `layer`, drawn by
-	 *  `def` (the zone art's prop component), else the seed `bridgeProp`, on the river's raised ground, before the river is drawn; the prop
-	 *  built-ins are registered once a page, `projectTimelines` (the project's) after theirs. */
+	 *  `def` (the room's prop component, `roomPropDef`), else the seed `bridgeProp`, on the river's
+	 *  raised ground, before the river is drawn. The prop built-ins are registered once a page; their
+	 *  timelines whenever a registration has dropped them, after the engine's and before the
+	 *  project's as `projectTimelines()` gives them then. */
 	bridges: (
 		game: BridgeGame & { zones: readonly PropZone[] },
 		layer: string,
-		projectTimelines: readonly CinematicDoc[],
+		projectTimelines: () => readonly CinematicDoc[],
 		def?: ComponentDef,
 	) => SalmonsBridges;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
