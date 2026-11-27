@@ -511,7 +511,7 @@ upload.
     arcade runtimes grow by this code, re-recorded on the tree merged with `main` at `6afdd01`
     (zone art, #1910): `arcade` 2,125,255 → 2,125,988 B gzip (+733), `arcade3d` 2,633,975 →
     2,634,735 (+760); as first built, the bundle +302 and the lazy Salmons art chunk +345. `pnpm
-    check:svelte`: `apps/lines` 145 (baseline 145), `packages/engine-layout` 290 (baseline 290).
+check:svelte`: `apps/lines` 145 (baseline 145), `packages/engine-layout` 290 (baseline 290).
   - **Not done.** A pressed button shows nothing until the room answers (a round trip; the death
     screen's row is local and answers at once). A person may change class as often as its inputs
     arrive while the lobby lasts, and each change swaps a bot: cheap, and bounded by the lobby's
@@ -582,7 +582,7 @@ upload.
     levels** in `/editor` until the next Publish, the launcher's game drew the saved levels while
     its room collided against the published ones. On 2026-11-25 the live config had
     `levels.river { winding 0.75, sharpestTurn 140, sourceBias 0.6 }` and `levels.waterfalls
-    { count 6, heightMin 5, heightMax 10 }` and the published snapshot had no `levels` (as read
+{ count 6, heightMin 5, heightMax 10 }` and the published snapshot had no `levels` (as read
     off the project when the bug was found; this build reached neither). With those two, for one
     seed, 395 to 400 of the river's 400 columns of water lie elsewhere (8 seeds measured).
     [design/salmons-levels §3](../design/salmons-levels.md) listed only a device on an old bundle.
@@ -737,16 +737,16 @@ upload.
   - **Its numbers, and why** (`wade.ts` `WADE`, one frozen object; tuned by looking, on the bear
     sprite and on an upright stand-in rig, at the game's zoom and close up):
 
-    | Constant | Value | Why |
-    | --- | --- | --- |
-    | `depth` | 1.1 | The line's ends stand a little over the look's middle, so that with the dip about half the body is under (at 1 the middle of the belly was nearly dry). |
-    | `reach` | 0.5 | The arc's half-width is half the width the look is drawn at: its ends, where the arc meets the level line at a corner, are at the picture's sides. At 0.42 the corners showed inside the bear sprite. |
-    | `sag` | 0.4 | Of the half-width. 0.5 is the true arc of a circle on the 2 : 1 isometric ground; 0.3 read as nearly straight at the game's zoom, 0.5 as a bowl. |
-    | `sagMax` | 0.35 | Of how high the line stands: the bear sprite is seen from above, 92 wide and 50 tall, and an uncapped dip left a thin crescent of it under. An upright look (the stand-in: 75 wide, 108 tall) is never capped. |
-    | `rim` | 3 px each side, 0.35 white | A soft band over the bear's own pixels only: about 2 px of the screen at the game's zoom. Wider or whiter read as a stripe. |
-    | `bob` | 1.2 px, 2.4 s | Enough to see the surface is alive; a walking bear hides it. |
-    | `easeMs` | 250 | The owner's "about". At the bear's 216 px/s that is about a cell. |
-    | `margin` | 0.25 (8 px least) | The room the pass is given round the look's box, as the Element FX runtime gives a rig. |
+    | Constant | Value                      | Why                                                                                                                                                                                                            |
+    | -------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `depth`  | 1.1                        | The line's ends stand a little over the look's middle, so that with the dip about half the body is under (at 1 the middle of the belly was nearly dry).                                                        |
+    | `reach`  | 0.5                        | The arc's half-width is half the width the look is drawn at: its ends, where the arc meets the level line at a corner, are at the picture's sides. At 0.42 the corners showed inside the bear sprite.          |
+    | `sag`    | 0.4                        | Of the half-width. 0.5 is the true arc of a circle on the 2 : 1 isometric ground; 0.3 read as nearly straight at the game's zoom, 0.5 as a bowl.                                                               |
+    | `sagMax` | 0.35                       | Of how high the line stands: the bear sprite is seen from above, 92 wide and 50 tall, and an uncapped dip left a thin crescent of it under. An upright look (the stand-in: 75 wide, 108 tall) is never capped. |
+    | `rim`    | 3 px each side, 0.35 white | A soft band over the bear's own pixels only: about 2 px of the screen at the game's zoom. Wider or whiter read as a stripe.                                                                                    |
+    | `bob`    | 1.2 px, 2.4 s              | Enough to see the surface is alive; a walking bear hides it.                                                                                                                                                   |
+    | `easeMs` | 250                        | The owner's "about". At the bear's 216 px/s that is about a cell.                                                                                                                                              |
+    | `margin` | 0.25 (8 px least)          | The room the pass is given round the look's box, as the Element FX runtime gives a rig.                                                                                                                        |
 
   - **Found on the way: Pixi skips a filter on a rig.** Pixi sizes a filter with a fast measure
     (`getFastGlobalBounds`) that leaves out anything not drawn or not measured, and
@@ -1004,7 +1004,7 @@ upload.
   - **The room is kept exactly full while a person is in it** (`roomSim.ts` "BOTS BY SHARES").
     Each class has its places less its people as bots. A person takes the place of the newest
     bot of its class. A class whose places are all people's refuses the join (`no place left for
-    <class>`). A join that names no class gets the first class, in the config's order, with a
+<class>`). A join that names no class gets the first class, in the config's order, with a
     place a person has not taken. Every place a person's: `the room is full`. A leave, or a
     manual respawn as another class, lets a bot of the class left back in. A dropped person's
     held place counts as a person's. Nobody in the room: no bots. **It had 20 bodies; it now has
@@ -1824,7 +1824,7 @@ sheet with rig `R_Bear` and its `sheet: "bearBot"` link).
      two lists, plus whatever else the list names, and keep the sheets. Then run it with
      **apply**; it backs the old config up to `_backups/salmons-project/<UTC>/` first.
    - **Or by hand, now** (R2 access): `scripts/salmons/upload-project.py --fields
-     arcade.zones,arcade.online.rules.zones`, dry run first, then `--apply`.
+arcade.zones,arcade.online.rules.zones`, dry run first, then `--apply`.
 2. **Publish** `salmons` from Game Maker. A device boots, and the game server plays, the
    published snapshot's config (`/api/game-server/config`), not the project's, so until then
    nothing changes for a player. Rooms made after the publish read the small config; a room
@@ -1837,6 +1837,7 @@ out).** The published config has no `levels.river` or `levels.waterfalls`, so li
 river they have until one of these is done and the game is published. **Do not run the Salmons
 project upload whole for this:** without `fields` it replaces the config and deletes what was
 authored in the tools (the bear's sheet with rig `R_Bear` and its `sheet: "bearBot"` link).
+
 - **By hand, in the tools (nothing else is touched):**
   1. Studio launcher, Salmons project active → **Scene Editor** (`/editor`) → the river screen →
      the **Generated level** card (under World and camera).
@@ -1868,6 +1869,7 @@ the original's river: untick **Winding river**, clear the three waterfall fields
 **After the slide merges (2026-11-24; `claude/salmons-collision-slide`).** The game server deploys
 and the arcade runtime is released from `main` on merge, and both then know the slide; a room
 plays it only once the project's config carries `arcade.online.slide`. So, in this order:
+
 1. Wait for the game server deploy and the arcade runtime release of the merge.
 2. Run the **Salmons project upload** workflow (dry run, then `apply`): `config/config.json` gains
    `slide: { corner: 168 }`. Before step 1 is done a device on the old runtime would predict
@@ -1879,6 +1881,7 @@ plays it only once the project's config carries `arcade.online.slide`. So, in th
 The game server deploys itself on the merge and the drawing arrives with the runtime release.
 The hold itself is in the config (`carry: {}` on the fisherman's hook), which the game server
 reads per room. So until step 1 the live game keeps the old catch, with the new blood drawing.
+
 1. **Re-export and re-publish Salmons**, so the published config carries `carry`.
 2. **Tune it** in Game Config → **Online rules** ([tools/game-config](../tools/game-config.md)):
    **Held for (ms)**, **Throw up to (px)**, **Flight (ms)**, **Walks while holding**, and under
@@ -1964,7 +1967,7 @@ order:**
      brain (a config from before this branch has not; the export is what adds it): Game Config
      for `salmons` → **Online room**, **Room size** 100; **Bots**, tick **By shares**, one row
      each for salmon (brain `salmonBot`) 60, fisherman 25 and bear 15; save, publish.
-   Rooms made after the publish play it; a room already running keeps its config.
+     Rooms made after the publish play it; a room already running keeps its config.
 5. **Test small.** Add `&room_size=10` to the published link: a room of 10 with 6 / 3 / 1 salmon,
    fisherman and bear places, you in one of them. Then 30, then no parameter for the real room.
    A size under 3 or over the room size is refused, and so is a fifth test room at once.
@@ -2411,7 +2414,7 @@ Left from P11.3 (known limits):
 - The line and the gold are placeholders: no sound plays in game (the original has none either;
   the Flow events are there for one).
 - **The river list** reads WS-B's `GET <rooms_url over http(s)>/rooms?game=<key>` (`[{ roomId,
-  players }]`: joinable rooms, people, most first, at most 50) every 3 s while the menu shows; a
+players }]`: joinable rooms, people, most first, at most 50) every 3 s while the menu shows; a
   failed or empty answer retries every 15 s. `salmons-play.mjs` checks the route answers a page.
   The lobby's note reads the same route for its own room's count (2026-11-20): a room past the
   listing's 50 shows its river's name with no count.
@@ -2625,6 +2628,53 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-27 — **Performance T4: the river in chunks** ([design/salmons-performance](../design/salmons-performance.md)
+  §4 T4; branch `claude/salmons-perf-t4-river`; in review). Pixel-identical; no config, layout or
+  flow change.
+  - **What changed.** `salmonsArt/river.ts`: the ground's ~38k–47k tiles are laid in chunks of
+    8 × 8 cells, made the first time they near the view (a ring ahead is made 1,500 tiles a frame)
+    and shown or hidden whole when the view's ground box, rounded out to the chunk grid, changes;
+    tiles that overlap keep the order they were laid in (`chunkFor`), every `random()` /
+    `forestRandom()` draw is made as before. The ground is one render group, so a camera move is
+    one transform; the riverbed's ripple is on a container square to the screen whose
+    `filterArea` is the box the tiles in view cover, as loose tiles gave it (`rippleBy`). The
+    displacement map is not drawn (`renderable = false`: the filter reads only its transform). The
+    upright pieces cull by a box rounded to 256 px, and what animates in them moves only while the
+    view holds it, as before. The pieces among the players join and leave the spawn layer exactly
+    when they did (their ties keep their order), looked up on a 256 px grid instead of all ~10k
+    every moved frame. `depthOrder.ts` + `ProjectedInstance.svelte`: a projected spawn layer sorts
+    only when a body's depth changes the order (each sort is given every depth first, so ties
+    resolve as before).
+  - **Not done, and why.** No render group for the upright pieces, the cliffs or the reflections:
+    drawn relative to a group a world wide, their see-through layers (the waterfalls' splashes)
+    rounded up to 5 levels differently on the GPU; they are ~1.2k pieces, moved cheaply.
+    No river kept across rooms: every room plays a new seed (Salmons' levels pin none), rounds are
+    new rooms, and nothing re-keys the river inside one, so its inputs always change; the lazy
+    chunks cut what a switch makes and destroys instead. No baking (owner decision §5).
+  - **Measured** (headless shell, SwiftShader, 1280 × 720, seed 7 of `SALMONS_LEVELS`, bots
+    moving, the salmon's camera 4 px a frame for 480 frames, the same build steps on main
+    665b407 and the branch; `?perf=1` and the Pixi app's own counts): objects made in the river's
+    mount frame 48,402 → 9,187; real CPU in the ticker (its callbacks and the render) 28.7 → 4.6
+    ms a frame (max 61.6 → 17.9); scene objects after the run 49,092 → 30,963 (only the chunks
+    visited); the ground's draw list rebuilt 0.075 times a frame (chunk crossings) instead of
+    with the whole scene every frame. Vertices drawn 28k → 36k a frame (whole chunks drawn past
+    the view's edge; off-screen, no fill). Objects made a frame: max 99 → 847 when a chunk row is
+    crossed ahead of the ring. The root draw list is still rebuilt about once a frame, by other
+    parts: a code look's `MountedArt` re-mounting, a salmon look's `filters` set on and off (T5),
+    the blood trail's puffs, real depth reorders. The probe's `invalidations` counts
+    `invalidateFramebuffer` calls (the back buffer's), not draw-list rebuilds.
+  - **Proof of pixels.** `scripts/salmons/river-pixels.mjs --base <main worktree>` (new): the river
+    of this checkout and of main drawn by WebGL with the built-in art, the camera walked along it a
+    frame at a time, compared at 9 stops × 5 cases (seeds 1, 7, 42, 123; original, levels,
+    waterfalls 5–10, authored biomes; mirrored and plain; MSAA on and off; resolution 1 and 2;
+    zoom 0.75–1.25): 0 pixels differ in 45 shots. The art fingerprint (`salmons/art-fingerprint.mjs`)
+    now hashes what is drawn and in which order (pieces that overlap keep theirs), not the
+    containers; its four hashes are recorded of main 665b407's river and are this one's.
+  - **Gates:** `check:salmons-art` 49 → 50 (the depth order played against a zIndex set every
+    frame: the same order every frame, a sort on 625 frames of 3,000 instead of 2,948),
+    `check:zone-art` 130, `check:salmons-levels` 27, `check:room-levels` 16,
+    `check:agents-knowledge`, svelte-check `engine-layout` at baseline (290).
 
 - 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
   room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
@@ -2990,21 +3040,22 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     after a catch; 24 seeded rooms, seeds 1–24, the original's levels):
 
     | Room | Person's salmon | Person wins | A bot wins | Median | Shortest | Longest |
-    | --- | --- | --- | --- | --- | --- | --- |
-    | 10 | straight | 2 | 22 | 104 s | 98 s | 110 s |
-    | 10 | weaving | 0 | 24 | 104 s | 98 s | 112 s |
-    | 10 | steering | 18 | 6 | 98 s | 93 s | 115 s |
-    | 30 | straight | 0 | 24 | 103 s | 96 s | 123 s |
-    | 30 | weaving | 0 | 24 | 103 s | 96 s | 116 s |
-    | 30 | steering | 11 | 13 | 100 s | 95 s | 125 s |
-    | 100 | straight | 0 | 24 | 103 s | 95 s | 207 s |
-    | 100 | weaving | 0 | 24 | 101 s | 95 s | 226 s |
-    | 100 | steering | 4 | 20 | 104 s | 97 s | 240 s |
+    | ---- | --------------- | ----------- | ---------- | ------ | -------- | ------- |
+    | 10   | straight        | 2           | 22         | 104 s  | 98 s     | 110 s   |
+    | 10   | weaving         | 0           | 24         | 104 s  | 98 s     | 112 s   |
+    | 10   | steering        | 18          | 6          | 98 s   | 93 s     | 115 s   |
+    | 30   | straight        | 0           | 24         | 103 s  | 96 s     | 123 s   |
+    | 30   | weaving         | 0           | 24         | 103 s  | 96 s     | 116 s   |
+    | 30   | steering        | 11          | 13         | 100 s  | 95 s     | 125 s   |
+    | 100  | straight        | 0           | 24         | 103 s  | 95 s     | 207 s   |
+    | 100  | weaving         | 0           | 24         | 101 s  | 95 s     | 226 s   |
+    | 100  | steering        | 4           | 20         | 104 s  | 97 s     | 240 s   |
 
     A game lasts about one swim up the river (95–110 s) at every size: some bot salmon swims it
     unhindered. With the person resting, a bot salmon won all 24 rooms within 300 s at every
     size. A person who swims straight or weaves almost never wins; one that steers round the
     hunters as a bot does wins 18 of 24 at 10, 11 at 30, 4 at 100.
+
   - **Levers, none taken (owner call):** how fast a bot salmon swims (its class speed is a
     person's; a bot-only slowdown or a lazier `BOT_SWIM` would lengthen every game); how well it
     swims (longer reaction, more wobble, more rests); a head start for people (bots start later
@@ -3127,6 +3178,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     step p99 6.15 ms, 14 % of a core, 188 MB (15 % with the `max` view). **One room of 100 holds
     with a wide margin.** The new limit is rooms per process: Open items. Sizes 30 and 50 were
     not load-tested.
+
   - **Gates.** `check:room-size` 15, new, discovered by `check:all`: the fill at every size from
     3 to 100; Salmons at 100 and at every test size; who a person's join sends away; a join
     naming no class; a leave; a dropped person's place; a respawn as another class; never over
@@ -3161,11 +3213,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     Fate: at the source (it won), landed by a line (`caught`, effect `hook`), swiped (`caught`,
     effect `catch`). The room before the bot salmon (`--bots bear=10,fisherman=9`):
 
-    | Room                               | Salmon   | At the source | Hooked | Swiped | At the source after, median |
-    | ---------------------------------- | -------- | ------------- | ------ | ------ | --------------------------- |
-    | Before: 10 bears, 9 fishermen      | straight | 3             | 2      | 19     | 110 s                       |
-    | Before                             | weaving  | 2             | 3      | 19     | 145 s                       |
-    | Before                             | steering | 11            | 5      | 8      | 99 s                        |
+    | Room                          | Salmon   | At the source | Hooked | Swiped | At the source after, median |
+    | ----------------------------- | -------- | ------------- | ------ | ------ | --------------------------- |
+    | Before: 10 bears, 9 fishermen | straight | 3             | 2      | 19     | 110 s                       |
+    | Before                        | weaving  | 2             | 3      | 19     | 145 s                       |
+    | Before                        | steering | 11            | 5      | 8      | 99 s                        |
 
     The rooms with bot salmon were first measured with bots given by count; the 2026-11-21
     entry's tables, measured on the room's own fill, replace them. With nobody else in the room
@@ -3249,6 +3301,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     room (1.5 s): met. "First hook" after is over the few rooms with one, so it is not comparable.
     A first cut with a lag of 0.5–0.8 s was narrowed after review: a lag past the least reaction
     time was cut short to what he had watched.
+
   - **Tried and dropped.** Aiming at where the salmon was (the lag along its way): 13 of 24 at the
     source; the hooks were all made on landing, by a salmon swimming at the fisherman into a bobber
     short of it, or one the long cast's short fall pulled back onto it.
@@ -3333,14 +3386,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     three runs a row, on the reworked tree. Budget: a device 10 KB/s on average and 16 at most,
     1 MB/s out, a step 8 ms at p99.
 
-    | Devices                                  | Each salmon             | KB/s a device: mean / most  | Out            | Step p99   | Nearby pass p99 | Budget                         |
-    | ---------------------------------------- | ----------------------- | --------------------------- | -------------- | ---------- | --------------- | ------------------------------ |
-    | say nothing: the box alone, as before    | `--jump 0.02 --respawn` | 8.15–8.42 / 13.24–13.96     | 0.80–0.82 MB/s | 4.2–4.5 ms | 3.3–4.3 ms      | within                         |
-    | a guessed mix of windows                 | the same                | 7.63–8.43 / 12.25–14.11     | 0.75–0.82      | 3.8–4.1    | 3.3–3.8         | within                         |
-    | every device a 2560 × 1440 window        | the same                | 8.51–9.10 / 14.07–14.72     | 0.83–0.89      | 3.7–4.3    | 3.5–3.8         | within                         |
-    | every device declares the whole `max`    | the same                | 11.62–11.87 / 15.45–16.91   | 1.14–1.16      | 4.1–4.3    | 3.5–4.8         | over (the mean and out; the most in 1 run of 3) |
-    | say nothing: the box alone               | `--jump 0.1 --respawn`  | 10.57–11.27 / 18.50–19.58   | 1.03–1.10      | 3.9–4.1    | 4.0–4.1         | over (all three)               |
-    | the guessed mix                          | the same                | 11.06–11.91 / 18.98–19.69   | 1.08–1.16      | 3.9–5.1    | 3.4–4.5         | over (all three)               |
+    | Devices                               | Each salmon             | KB/s a device: mean / most | Out            | Step p99   | Nearby pass p99 | Budget                                          |
+    | ------------------------------------- | ----------------------- | -------------------------- | -------------- | ---------- | --------------- | ----------------------------------------------- |
+    | say nothing: the box alone, as before | `--jump 0.02 --respawn` | 8.15–8.42 / 13.24–13.96    | 0.80–0.82 MB/s | 4.2–4.5 ms | 3.3–4.3 ms      | within                                          |
+    | a guessed mix of windows              | the same                | 7.63–8.43 / 12.25–14.11    | 0.75–0.82      | 3.8–4.1    | 3.3–3.8         | within                                          |
+    | every device a 2560 × 1440 window     | the same                | 8.51–9.10 / 14.07–14.72    | 0.83–0.89      | 3.7–4.3    | 3.5–3.8         | within                                          |
+    | every device declares the whole `max` | the same                | 11.62–11.87 / 15.45–16.91  | 1.14–1.16      | 4.1–4.3    | 3.5–4.8         | over (the mean and out; the most in 1 run of 3) |
+    | say nothing: the box alone            | `--jump 0.1 --respawn`  | 10.57–11.27 / 18.50–19.58  | 1.03–1.10      | 3.9–4.1    | 4.0–4.1         | over (all three)                                |
+    | the guessed mix                       | the same                | 11.06–11.91 / 18.98–19.69  | 1.08–1.16      | 3.9–5.1    | 3.4–4.5         | over (all three)                                |
 
     The mix is an assumption, not measured play: 45 % a 390 × 844 phone held upright, 5 % the
     same on its side, 25 % 1920 × 1080, 15 % 1536 × 864, 5 % 2560 × 1440, 5 % a 1280 × 800
@@ -3353,9 +3406,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     honest mix needs less, and 4600 × 4600 would cut a 3840 × 2160 window and, by 8 px, a
     tablet.
     To repeat it: `scripts/salmons/export.mjs --out <dir>`, then `scripts/room-load.mjs --jump
-    0.02 --respawn --config <dir>/invisible_wall/salmons/config/config.json` with `--nearby-max
-    none` (the box alone), `--shown 45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,
-    5:1280x800m`, `--shown 100:2560x1440` or `--shown 100:max`.
+0.02 --respawn --config <dir>/invisible_wall/salmons/config/config.json` with `--nearby-max
+none` (the box alone), `--shown 45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,
+5:1280x800m`, `--shown 100:2560x1440` or `--shown 100:max`.
+
   - **The pass over the pairs** (ten thousand tests a patch at 100 players, twenty patches a
     second) took 1.5–1.6 ms at the median with this loop and 1.3–1.7 ms with main's inline box
     test put back, run turn about on the same load (the box alone): no difference beyond the
@@ -3368,20 +3422,20 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `salmons-levels-play.mjs` checks on the final runtime. The others were read with a probe on
     the first build, and the rework changes none of them: it adds only players inside the box.
 
-    | Window                                         | Bear, cells from the own player                             | Sent and drawn                        | On the canvas, px from its centre                                     |
-    | ---------------------------------------------- | ----------------------------------------------------------- | ------------------------------------- | --------------------------------------------------------------------- |
-    | 2560 × 1440                                    | 30, 36, 40 up-river                                         | yes                                   | (−960, −480), (−1152, −576), (−1280, −640): the last on its left edge |
-    |                                                | towards its corners: (−2, −41), (−35, −7), (41, 2), (2, 41) | yes                                   | (−1248, −688), (881, −679), (−1248, 688), (1248, 688)                 |
-    |                                                | 43 up-river, just past the edge                             | no                                    | would be (−1376, −688), off it                                        |
-    | 1920 × 1080                                    | 30 up-river                                                 | yes                                   | (−960, −480): on its left edge                                        |
-    |                                                | 36 up-river and every other of the eight                    | no                                    | off it                                                                |
-    | the same page resized to 2560 × 1440           | 36, 40 up-river and the corners                             | yes, with no reload                   | as the first rows                                                     |
-    | 390 × 844 phone                                | 12 up-river, 26 down the screen, 5 across                   | yes                                   | (−192, −96), (0, 416), (160, 0)                                       |
-    |                                                | 25 up-river: off its screen, inside the box                 | yes: the box sends it, as before      | would be (−400, −200), off it                                         |
-    |                                                | 36 up-river: past the box                                   | no                                    | off it                                                                |
-    | 3440 × 1440 (observed, not a gate)             | six at its edges and corners                                | yes, none on it unsent                | to (±1664, 0) and (−1408, −704)                                       |
-    | 2560 × 1440 on main's game server (never sent what it says) | 25, 30 up-river (inside the 3300 box)          | yes                                   | (−800, −400), (−960, −480)                                            |
-    |                                                | 36 up-river: on its screen, past the box                    | no, as today                          | would be (−1152, −576)                                                |
+    | Window                                                      | Bear, cells from the own player                             | Sent and drawn                   | On the canvas, px from its centre                                     |
+    | ----------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------- |
+    | 2560 × 1440                                                 | 30, 36, 40 up-river                                         | yes                              | (−960, −480), (−1152, −576), (−1280, −640): the last on its left edge |
+    |                                                             | towards its corners: (−2, −41), (−35, −7), (41, 2), (2, 41) | yes                              | (−1248, −688), (881, −679), (−1248, 688), (1248, 688)                 |
+    |                                                             | 43 up-river, just past the edge                             | no                               | would be (−1376, −688), off it                                        |
+    | 1920 × 1080                                                 | 30 up-river                                                 | yes                              | (−960, −480): on its left edge                                        |
+    |                                                             | 36 up-river and every other of the eight                    | no                               | off it                                                                |
+    | the same page resized to 2560 × 1440                        | 36, 40 up-river and the corners                             | yes, with no reload              | as the first rows                                                     |
+    | 390 × 844 phone                                             | 12 up-river, 26 down the screen, 5 across                   | yes                              | (−192, −96), (0, 416), (160, 0)                                       |
+    |                                                             | 25 up-river: off its screen, inside the box                 | yes: the box sends it, as before | would be (−400, −200), off it                                         |
+    |                                                             | 36 up-river: past the box                                   | no                               | off it                                                                |
+    | 3440 × 1440 (observed, not a gate)                          | six at its edges and corners                                | yes, none on it unsent           | to (±1664, 0) and (−1408, −704)                                       |
+    | 2560 × 1440 on main's game server (never sent what it says) | 25, 30 up-river (inside the 3300 box)                       | yes                              | (−800, −400), (−960, −480)                                            |
+    |                                                             | 36 up-river: on its screen, past the box                    | no, as today                     | would be (−1152, −576)                                                |
 
     The far bank's own corner (−41, −2) is past where a bear may stand there: the level moved the
     bear placed on it, so the nearest place it stays stands in for that corner. A bear already
@@ -3392,6 +3446,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     stood bears on the far bank either side of a waterfall; the level moved them (a bear is held
     off a waterfall) and none ended on the screen and unsent, so that limit stays worked out,
     not seen.
+
   - **Bots unchanged.** A swimming salmon against the room's bots, 24 seeds, the box with and
     without `max`, on the reworked tree: the same outcome in every seed to the step and the
     place (11 hooked, median 52.9 s; 13 swiped by a bear: #1808's softer bots). `check:room-bots` proves a
@@ -3447,13 +3502,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
       `max`, then the `max` and 32 px in turn (6 s each; the reviewer's script, before and
       after): KB/s to the device, the players it held (fewest..most), the pass's median.
 
-      | The device                        | 99 still, #1823       | 99 still, reworked    | 99 moving, #1823       | 99 moving, reworked     |
-      | --------------------------------- | --------------------- | --------------------- | ---------------------- | ----------------------- |
-      | says nothing (the box)            | 0.40, 1..1, 0.96 ms   | 0.41, 1..1, 1.04 ms   | 1.73, 1..9, 1.16 ms    | 1.73, 1..9, 1.28 ms     |
-      | holds the whole `max`             | 0.40, 100..100, 0.99  | 0.41, 100..100, 1.01  | 23.89, 100..100, 1.22  | 23.29, 100..100, 1.22   |
-      | flips every patch (50 ms)         | 85.03, 1..100, 1.31   | 1.84, 1..100, 1.20    | 79.41, 1..100, 1.43    | 23.89, 100..100, 1.30   |
-      | flips every other patch (100 ms)  | 43.42, 1..100, 1.35   | 0.40, 100..100, 1.09  | 55.16, 1..100, 1.31    | 23.89, 100..100, 1.54   |
-      | flips every input (33 ms)         | 43.39, 1..100, 1.22   | 0.40, 100..100, 1.09  | 54.97, 1..100, 1.19    | 23.31, 100..100, 1.27   |
+      | The device                       | 99 still, #1823      | 99 still, reworked   | 99 moving, #1823      | 99 moving, reworked   |
+      | -------------------------------- | -------------------- | -------------------- | --------------------- | --------------------- |
+      | says nothing (the box)           | 0.40, 1..1, 0.96 ms  | 0.41, 1..1, 1.04 ms  | 1.73, 1..9, 1.16 ms   | 1.73, 1..9, 1.28 ms   |
+      | holds the whole `max`            | 0.40, 100..100, 0.99 | 0.41, 100..100, 1.01 | 23.89, 100..100, 1.22 | 23.29, 100..100, 1.22 |
+      | flips every patch (50 ms)        | 85.03, 1..100, 1.31  | 1.84, 1..100, 1.20   | 79.41, 1..100, 1.43   | 23.89, 100..100, 1.30 |
+      | flips every other patch (100 ms) | 43.42, 1..100, 1.35  | 0.40, 100..100, 1.09 | 55.16, 1..100, 1.31   | 23.89, 100..100, 1.54 |
+      | flips every input (33 ms)        | 43.39, 1..100, 1.22  | 0.40, 100..100, 1.09 | 54.97, 1..100, 1.19   | 23.31, 100..100, 1.27 |
 
       Now a view is held a second (`holdView`), so flipping costs what holding the larger view
       costs. The one row that still lets go (flips every 50 ms, still, 1.84 KB/s): the room
@@ -3464,6 +3519,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
       second review reached that with two views of different shape said in alternate windows
       and nothing said at each window's first patch (in its model of the room's pass, one
       re-send of each player a second, against none for holding the `max`; not run live).
+
     - **`max` read as a hard cap.** It bounds who comes into a view; a player already sent is
       kept a quarter past it, as with the box. No code change: reworded here, in the design
       doc, the guide, the tooltip and the config's type.
@@ -3722,20 +3778,21 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     throwaway harness (not kept; the level config without its lobby, one salmon swimming up the
     middle of the water and jumping only when stopped, the room's bots, 24 room seeds):
 
-    | Box         | Hooked   | Time to hook                 | Cells swum (median) | Hooked from   |
-    | ----------- | -------- | ---------------------------- | ------------------- | ------------- |
-    | 2400 × 1800 | 24 of 24 | 14.3–51.6 s, median 28.9 s   | 106                 | 20–26 cells   |
-    | 3300 × 3300 | 24 of 24 | 9.0–49.6 s, median 24.2 s    | 82                  | 20–31 cells   |
+    | Box         | Hooked   | Time to hook               | Cells swum (median) | Hooked from |
+    | ----------- | -------- | -------------------------- | ------------------- | ----------- |
+    | 2400 × 1800 | 24 of 24 | 14.3–51.6 s, median 28.9 s | 106                 | 20–26 cells |
+    | 3300 × 3300 | 24 of 24 | 9.0–49.6 s, median 24.2 s  | 82                  | 20–31 cells |
 
     The old-box row agrees with #1792's own reading (14–47 s, median 27.6 s). So a swimming salmon
     is hooked about a sixth sooner. Whether bots should be softer is the owner call #1792 left
     open; holding a bot to less than this box would be a rule of its own.
+
   - **`scripts/room-load.mjs`**: `--jump <chance>` (each salmon's device taps jump with that
     chance a step), `--respawn` (a caught device presses Respawn as its own character) and
     `--nearby <w>x<h>` (the box to play the config with). Without them its devices send what
     they sent before, but the bare command plays `salmonsConfig()`, so it now measures the band
     river with the new box (one run: 7.2 / 9.83 KB/s, 0.70 MB/s, within budget); `--nearby
-    2400x1800` plays the old one.
+2400x1800` plays the old one.
   - **Proof**, on the branch as merged (main's #1792 and #1797 in it): `check:room-bots` 26 (one
     new, one of #1792's reworked for the box; 23 before those merges), `check:online-rules` 39,
     `check:salmons-jump` 37; `salmons-play.mjs` 94 / 94 in each netcode (81 / 81 before #1797
@@ -3872,7 +3929,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).
   - **Mirror** (`engine-layout` `projection.ts`): `Scene.mirrored` beside `projection:
-    'isometric'`; `ISO_PROJECTOR` / `ISO_PROJECTOR_MIRRORED` (`project`, `unproject`, `mirrored`,
+'isometric'`; `ISO_PROJECTOR` / `ISO_PROJECTOR_MIRRORED` (`project`, `unproject`, `mirrored`,
     the ground turn), `sceneProjector(scene)`, `isoProjectMirrored` / `isoUnprojectMirrored`,
     `screenToWorldDirection(projector, dx, dy)` (the original's key vectors, pinned). The arcade
     runtime sets the projector (`worldDrawing.svelte.ts`) as it takes the camera; `IsoWorld`,
@@ -3880,7 +3937,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     looks' facings and the clips' facings draw by it. The lip and splash flips are gone.
   - **Camera** (`camera.js` `cameraZoom`, `zoomedView`, `mobileDevice`; `worldCamera.ts`
     `sceneCameraZoom`): `SALMONS_CAMERA` is `{deadZone 0, smoothing 0.1, clampToWorld false,
-    zoom 2/3, mobileZoom 1/3, zoomIn 'window'}`, so a cell is 64 × 32 CSS px whatever the window
+zoom 2/3, mobileZoom 1/3, zoomIn 'window'}`, so a cell is 64 × 32 CSS px whatever the window
     (the layout's box scale is divided out; measured 0.74 design px a world px on a 1280 × 720
     page). `follow` adds the own code look's drawn leap lift to the shake, beside the ground lift.
     The probe's `camera` carries `zoom` and `leap`; its `view` is the world view.
@@ -3908,7 +3965,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
      diagonally into a bank slides along it (the engine's solids move x then y); the original's
      stops dead. One zone of each band overlaps the next by a pixel so no band line is open.
   3. **Whirlpool** (`abilities.js` `pullTowards`, opt-in `pull.unit`): `v = strength · (d / unit) ·
-     (1 − d/radius)`, clamp kept; Salmons sets `unit: CELL` (`WHIRLPOOL_PULL`): 14 cells/s at 2
+(1 − d/radius)`, clamp kept; Salmons sets `unit: CELL` (`WHIRLPOOL_PULL`): 14 cells/s at 2
      cells, 6.1 at 3.5, as the original's unnormalised offset. Without `unit` the pull is as before.
   4. **Sandbanks** (`salmonsRules` `sandbanksOf`): on an original level the sandbank rule carries
      `cell: 48`, "on sand" is within 0.8 cells of a sand cell's centre (`SAND_REACH`), and inside
