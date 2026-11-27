@@ -12,10 +12,12 @@ Format and rules: [README](../README.md). Current state lives in
   particles) after a full recovery.
 - **Cause:** `renderQuality.ts` added a step up that went slow to `upFailed`, a set never cleared,
   so a warm spell's one failed L6 → L5 try pinned the device below it for good.
-- **Fix:** failed tries are counted per level and retried after `30 × 2^failures` good windows,
-  still behind `room(2 + reserve())`; `engine-3d` keeps never.
-- **Guard:** `renderQuality.fixture.ts`: warm-then-cool climbs back with post FX on; always slow
-  one level up retries at most once per doubling within the cap; mutants red.
+- **Fix:** failed tries are counted per level and retried after `30 × 2^failures` good windows, at
+  most twice. The retries then spent the last switches (a slow-everywhere device parked at L4 with
+  effects on), so the cap keeps an invariant: a step that could leave the device above the
+  effects level keeps a switch for a drop there; past that, a slow spell drops unjudged.
+- **Guard:** `renderQuality.fixture.ts`: the `mali2` session, 300 seeded sessions that all end at
+  the effects level when slow everywhere, warm-then-cool climbs back; mutants red.
 - **PR:** #1960 (2026-11-27), branch `bug-20-ladder-review-fixes`
 
 ### A budget phone spun at 28 fps, and the first fix sent slightly slow phones to the floor

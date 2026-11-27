@@ -87,12 +87,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   (past the one that did not help), then one level at a time, kept at the first level that helps
   and back to its start when none does; 15 windows in a row under 1% slow while it waits give it
   back unused. Until it is taken, the last 2 of the 12 switches are held for its step to the
-  effects level and that step's revert. **A step up that went slow** is stepped back and tried
-  again only after twice as many good windows as the last try waited (30, then 60, 120, 240), so
-  a warm spell no longer pins a device at the effects level for the session; worst case, a device
-  always too slow one level up flaps once per doubling (after 2, 4, 8 minutes of good round
-  play), within the cap. `engine-3d` (no second chance) still never retries it. The `?perf=1`
-  HUD's quality line shows post FX, the particle cap, the second chance and that retry's wait.
+  effects level and that step's revert. After the second chance, a step down that did not help
+  sends the next slow spell straight to the effects level; only that level not helping stops
+  stepping down. **A step up that went slow** is stepped back and tried again after twice the
+  last wait (30, then 60, 120 good windows), at most twice; a level's failure count never goes
+  down. Worst case, a device always too slow one level up flaps twice more, after 2 and 4
+  minutes of good round play. **The cap:** up and down share the 12 switches, and the effects
+  level stays reachable to the last of them (THE CAP in `renderQuality.ts`). `engine-3d` (no
+  second chance) still never retries a step up. The `?perf=1` HUD's quality line shows post FX,
+  the particle cap, the second chance, `effects next` and a failed step up's retry wait.
   `?render=full` pins full, `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
   never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout per frame: verified with
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
@@ -658,18 +661,35 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   effects level for the session; the review's fuzz found about 40% of random sessions stuck at
   L6 after a full recovery. The game's controller now counts failed tries per level
   (`upFailures`) and tries a level again after `goodWindows × 2^failures` windows under 1% slow
-  in a row (60, 120, 240…), still behind `room(2 + reserve())`, so the second chance's 2
-  switches stay intact. Worst-case flap for a device always too slow one level up: one 1–2
-  window visit per doubling, i.e. after 1, then 2, 4 and 8 more minutes of good round play (a
-  window is 2 s of round frames at 60 fps), at most 4 tries on a 2-level ladder before the cap
-  (12) ends them; after the walk to the effects level (7 switches) there is room for 2. A level
-  kept after a retry keeps its count, so a periodically warm device waits longer each time.
-  `engine-3d`'s single-try controller is unchanged (never again; `stepUp.goodWindows` is
-  `Infinity` there). The snapshot's `stepUp` (level, wait, run so far, failures) is on the HUD.
-  Guard: `renderQuality.fixture.ts` (a warm spell's failed climb, then cool: ends at L4 with post
-  FX on; always slow one level up: 4 tries, each gap ≥ 1.8× the last, within the cap; the exact
-  wait of 60 windows; engine-3d never retries), each red under its mutant (never expires; no
-  backoff; linear backoff; engine-3d retrying; the reserve ignored).
+  in a row (60, then 120), at most `QUALITY_RULES.upRetries` (2) times; the count never goes
+  down, so a later climb waits the doubled time again. Worst-case flap for a device always too
+  slow one level up: two more 1–2 window visits, after 2 and then 4 minutes of good round play
+  (a window is 2 s of round frames at 60 fps). `engine-3d`'s single-try controller is
+  unchanged: never again (`stepUp.never`).
+  **Then the effects level stays reachable, as an invariant** (re-review: the retries could spend
+  the last switches and leave a slow-everywhere device at L4 with effects on and no way down; the
+  fuzz had ~140/400 such sessions). Up and down share the 12 switches. Until the second chance
+  is taken, 2 are held for it. Every ordinary step down or step up that could leave the device
+  above the effects level (itself or its revert) keeps 1 more for a later drop there; a step up
+  from the effects level and a step to it need none, since a failed step to it stops stepping
+  down. Past that, a slow spell steps down unjudged (`no room`): one level while a switch is
+  still left after it, else straight to the effects level. After the second chance, a step down
+  that did not help sets `effectsNext`: the next 4 slow windows go straight to the effects level
+  (`effects`), instead of stopping stepping down for the session; only the effects level not
+  helping stops it. So above the effects level a switch is always left, unless that level was
+  tried and did not help. Snapshot: `stepUp` is JSON-safe (`never: true`, or `never: false` with
+  `goodWindows`), `effectsNext` is new. **Measured** with the reviewer's scratch harnesses: the
+  `mali2` session now ends `…6->5 headroom, 5->6 slow` at L6 with post FX off (11 switches); the
+  400-session fuzz has 0 sessions ending above the effects level while slow everywhere (was ~140)
+  and 127 that end at L6 after the long cool spell (was 152; before the backoff 155), all with
+  10–12 switches spent: the cap, not a rule, ends their climb. Guard:
+  `renderQuality.fixture.ts` (the `mali2` session; 300 seeded random sessions, each slow at every
+  level but the last at the end, all end there within the cap; a warm spell's failed climb, then
+  cool, ends above L6 with post FX on; always slow one level up: 1 + 2 tries, gaps ≥ 1.8× the
+  last; the exact 60-window wait; after the second chance a failed step goes to the effects
+  level; engine-3d never retries), each red under its mutant (no switch held for the drop, for
+  steps down or up alone; no unjudged drop; a one-level-only drop; a failed step stopping after
+  the second chance; no effects jump; unbounded retries; never retried; no backoff).
 
 - 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
   (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
