@@ -1,10 +1,10 @@
 // SALMONS' RIVER ART, AS A FINGERPRINT (`check:salmons-art`): `salmonsArt/river.ts` drawn in Node,
 // with no GPU, into a scene graph whose every drawn piece, in the order it is drawn (its kind, its
 // place, scale and turn from the river's container, tint, alpha, filters, depth, texture and every
-// fill of a drawing), is hashed; how the pieces are grouped in containers is not. Two rivers with
-// the same fingerprint are drawn alike, piece for piece and colour for colour. Textures made by the
-// drawing (the riverbed and the sea) are named by their drawing's fills; the art's regions by their
-// names.
+// fill of a drawing, every corner and UV of a mesh), is hashed; how the pieces are grouped in
+// containers is not. Two rivers with the same fingerprint are drawn alike, piece for piece and
+// colour for colour. Textures made by the drawing (the riverbed's atlas and the sea) are named by
+// their drawing's fills; the art's regions by their names.
 
 import { createHash } from 'node:crypto';
 import { createRequire, registerHooks } from 'node:module';
@@ -13,9 +13,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PIXI = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve('pixi.js');
-const { Container, Graphics, Matrix, Sprite, Texture, TextureSource, TilingSprite } = await import(
-	pathToFileURL(PIXI.replace(/index\.js$/, 'index.mjs')).href
-);
+const { Container, Graphics, Matrix, Mesh, Sprite, Texture, TextureSource, TilingSprite } =
+	await import(pathToFileURL(PIXI.replace(/index\.js$/, 'index.mjs')).href);
 
 // The projected world's registry is the real one (`worldDrawing.svelte.ts`, which the drawing imports
 // without its extension): the spawn layer is one container registered under Salmons' field layer.
@@ -102,6 +101,12 @@ function describe(node, out, at = new Matrix(), tint = 0xffffff, alpha = 1, filt
 				round(node.tilePosition.y),
 			);
 		if (node instanceof Graphics) row.push(fillsOf(node));
+		if (node instanceof Mesh)
+			row.push(
+				JSON.stringify([...node.geometry.positions].map(round)),
+				JSON.stringify([...node.geometry.uvs].map((v) => Math.round(v * 1e6) / 1e6)),
+				node.texture.label,
+			);
 		const b = node.bounds;
 		const xs = [];
 		const ys = [];

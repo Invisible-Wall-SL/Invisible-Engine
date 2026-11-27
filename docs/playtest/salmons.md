@@ -467,9 +467,10 @@ game server would put a bot-less test client among real players.
     (a fisherman) join `salmons-wade`, the original's level pinned to one seed (the band river's
     water stops a bear; this one's lets it in), from a snapshot whose config names it, so the
     room plays and the pages draw the river made in Node. The probe's `online.art.wading` (room
-    id → `{ depth, tint, line, drawnUnder, pass }`: whether it is drawn half under, and whether
-    through the pass on the look's own container (a rig, a turned clip) rather than its own
-    programs (the code look, since T5)) says how each wading character is drawn. The room stands
+    id → `{ depth, tint, line, drawnUnder, pass }`: whether it is drawn half under, by its own
+    programs (the code look, since T5), and whether through a pass, which the game puts on no
+    body since 2026-11-27, so `pass` is always false) says how each wading character is drawn.
+    The room stands
     WB's bear on a bank a cell and a half from the water: depth 0, not drawn under, and its fur at two heights up its middle
     (`14c-bear-on-the-bank.png`). WB's Left key walks it in (the screen's Left is across the
     river and up it): the depth, read every two frames, rises one way through at least three
@@ -602,12 +603,11 @@ The last four are the wading on a rig (2026-11-25): page W's bear is of a class 
 names the same rig (the owner's live bear is a rig), in `salmons-rig-wade`, the original's level
 pinned as in check 19d. The room stands it on the bank (the rig mounted, no clip, depth 0, no
 filter, the rig's colour at 40 and 130 px up its 180: `rig-bear-on-the-bank.png`), then in the
-water (the depth rises as in 19d; depth 1 through the filter, the line's ends over the rig's
-middle and its lowest point under it; the rig's colour at 130 px and, at 40 px, that colour once
-the tint is taken back out: `rig-bear-wades.png`), then on the bank again (no filter). This is
-the look the wading can silently miss: Pixi measures no size for a rig when it places a filter
-and skips the pass, so the wading hands it the look's box. On a runtime whose wading does not,
-the second of the four fails on its `drawnUnder` / `pass` and its pixels.
+water (the depth rises as in 19d to 1, its line kept, but drawn as on land: no pass per body
+since 2026-11-27, the owner's choice for the river's GPU cost, so `drawnUnder` and `pass` are
+false and the rig's colour is at both heights: `rig-bear-wades.png`), then on the bank again. A
+runtime that put the wading pass back on a rig fails the second of the four on its `pass` and
+its pixels.
 
 ## A held catch (`--hold`)
 

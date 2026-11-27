@@ -17,7 +17,12 @@
 //   eased depth, pinned; a bear on open water of the original's level wades and one on the bank, a
 //   sandbank, a rock or the sea does not, nor a fisherman on a bridge's deck, nor a salmon; on land
 //   its look has no filter; under the line its colour is `underTint`'s, and the pass finds the
-//   look's place at any zoom and resolution; the runtime wraps every mount it publishes.
+//   look's place at any zoom and resolution; the runtime wraps every mount it publishes. No pass per
+//   body (owner, 2026-11-27): the game gives the wading no pass, so a look without its own water
+//   (a rig, a turned clip, a refused code look) wades drawn as on land, with no filter on it.
+// - the riverbed's ripple (owner, 2026-11-27; `bedRipple.ts`): no filter anywhere in the river; a
+//   chunk of the bed is one mesh drawn by the ripple's program, which reads the displacement map
+//   at each pixel's place; with no program (not WebGL, refused) the bed is drawn plain.
 // - zone art's trees (`@trees`, docs/design/zone-art.md): `/config`'s Default line names the six
 //   trees the river draws; the river itself, mounted here over a stand-in app, draws every
 //   scattered and forest tree with the trees' picture (a frame, variants, a clip) at the built-in
@@ -101,8 +106,10 @@ const {
 	Container,
 	FilterSystem,
 	Matrix,
+	Mesh,
 	Rectangle,
 	RendererType,
+	Sprite,
 	Texture,
 } = await import(pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href);
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
@@ -1000,13 +1007,63 @@ check(
 			console.warn = warn;
 		}
 		assert.equal(wadeSurface({ renderer: { type: RendererType.WEBGPU } }), undefined, 'WebGL only');
-		// The driver is asked for the program as the river mounts, whatever the renderer is.
 		warmWade({ renderer: { type: RendererType.WEBGPU } });
 		warmWade(wadeApp(false));
+	},
+);
+
+// No pass per body (owner, 2026-11-27): the game's wading is given no surface, so a look that cannot
+// draw its own water is drawn as on land, and nothing is put on the container it is drawn in.
+check(
+	'wading: the game gives no pass; a look without its own water (a rig, a turned clip, a refused code look) wades drawn as on land, with no filter',
+	() => {
+		const index = readFileSync(join(ART, 'index.ts'), 'utf8');
 		assert.match(
-			readFileSync(join(ART, 'index.ts'), 'utf8'),
-			/river: \(into, app\) => \{[\s\S]*?\n\t\t\twarmWade\(app\);\n/,
+			index,
+			/createWading\(waterAt, TINT_ALPHA\);/,
+			'the wading is made with no surface',
 		);
+		assert.doesNotMatch(index, /wadeFilter|wadeSurface|warmWade/, 'the pass is not loaded');
+		const wading = createWading(wadeWater, TINT_ALPHA);
+		const frame = (place, atMs) => ({ character: 'bear', ...place, atMs, middle: 54, width: 75 });
+		const app = wadeApp();
+		// A rig or a turned clip: a mount with no water of its own.
+		const rig = wadeLook();
+		const into = new Container();
+		wading.mount('rig', rig.mount, frame(WADE_PLACES.bank, 0))(into, app);
+		for (let t = 16; t < 600; t += 16) {
+			wading.mount('rig', rig.mount, frame(WADE_PLACES.water, t));
+			assert.equal(into.filters, undefined, `no filter on its container at ${t} ms`);
+			assert.equal(into.filterArea, undefined);
+		}
+		const wet = wading.drawn().rig;
+		assert.equal(wet.depth, 1, 'it steps in all the same');
+		assert.ok(wet.line && wet.line.sag > 0 && wet.tint === 0x0ea5e9, 'its line is kept');
+		assert.deepEqual(
+			{ drawnUnder: wet.drawnUnder, pass: wet.pass },
+			{ drawnUnder: false, pass: false },
+		);
+		// A code look whose GPU refused its programs: told the line, it says it cannot; no pass.
+		const told = [];
+		const refused = wadeLook();
+		const own = Object.assign(refused.mount, {
+			water: (under) => {
+				told.push(under);
+				return false;
+			},
+		});
+		const intoOwn = new Container();
+		wading.mount('own', own, frame(WADE_PLACES.water, 0))(intoOwn, app);
+		for (let t = 16; t < 300; t += 16) wading.mount('own', own, frame(WADE_PLACES.water, t));
+		assert.ok(told.at(-1)?.line, 'it was told the line');
+		assert.equal(intoOwn.filters, undefined, 'and no filter was put on it');
+		assert.deepEqual(
+			{ drawnUnder: wading.drawn().own.drawnUnder, pass: wading.drawn().own.pass },
+			{ drawnUnder: false, pass: false },
+		);
+		wading.destroy();
+		assert.equal(into.filters, undefined);
+		assert.equal(intoOwn.filters, undefined);
 	},
 );
 
@@ -1041,7 +1098,8 @@ check(
 			kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.bank, t)));
 		assert.equal(told.at(-1), undefined, 'stepped out: told it is on land');
 		assert.equal(into.filters, undefined);
-		// A look whose GPU refused its programs is drawn through the pass instead.
+		// Given a pass (the game gives none: see below), a look whose GPU refused its programs is drawn
+		// through it.
 		drawsIt = false;
 		for (let t = 600; t < 1200; t += 16)
 			kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, t)));
@@ -1681,26 +1739,191 @@ check("zone art's rigs: each moves on with the river's ticker while in view", ()
 	assert.ok(made.every((m) => m.destroyed));
 });
 
+// The riverbed's ripple (owner, 2026-11-27): drawn by the bed's own program, not by a displacement
+// filter over the screen; a look's wading by its own programs or not at all (above). Nothing in the
+// river has a filter, with the ripple or without it.
+const { RIPPLE_EDGE, RIPPLE_REPEAT, RIPPLE_SCALE, bedRipple } = await import(
+	join(ART, 'bedRipple.ts')
+);
+/** The river of `river` mounted with `ripple` (a stand-in's or none), ticked by hand. */
+const rippledRiver = (river, ripple) => {
+	const ticks = [];
+	const app = { ...riverApp, ticker: { add: (fn) => ticks.push(fn), remove() {} } };
+	const into = new Container();
+	const layer = new Container();
+	const unregister = registerProjectedLayer(SALMONS_FIELD_LAYER, layer);
+	const drawn = mountSalmonsRiver(
+		into,
+		app,
+		riverArt,
+		river,
+		SEED,
+		ISO_PROJECTOR_MIRRORED,
+		undefined,
+		ripple,
+	);
+	const ground = into.children.find((child) => child.label === 'salmons-river:ground');
+	const all = (node) => [node, ...node.children.flatMap(all)];
+	const bed = all(ground.children[1]);
+	return {
+		bed,
+		meshes: bed.filter((node) => node instanceof Mesh),
+		filtered: all(into).filter((node) => node.filters?.length || node.filterArea),
+		tick: (deltaMS) => ticks.forEach((fn) => fn({ deltaMS })),
+		teardown: () => {
+			drawn.teardown();
+			unregister();
+		},
+	};
+};
+
+check(
+	'the riverbed: no filter in the river; each chunk one mesh drawn by the ripple’s program, the map moved on with the ticker',
+	() => {
+		const river = salmonsMapRiver(SALMONS_MAP_SEED);
+		const asked = [];
+		const moves = [];
+		let destroyed = 0;
+		const shader = { label: 'ripple' };
+		const kit = rippledRiver(river, (atlas, noise, layout, uvPerPx) => {
+			asked.push({ atlas, noise, layout, uvPerPx });
+			return {
+				shader,
+				move: (x, y) => moves.push([x, y]),
+				destroy: () => destroyed++,
+			};
+		});
+		assert.deepEqual(kit.filtered, [], 'nothing in the river has a filter');
+		assert.equal(asked.length, 1, 'one ripple for the river');
+		assert.ok(asked[0].atlas instanceof Texture && asked[0].noise instanceof Texture);
+		assert.ok(kit.meshes.length > 10, `${kit.meshes.length} bed meshes in view`);
+		assert.deepEqual(
+			kit.bed.filter((node) => node instanceof Sprite),
+			[],
+			'no bed tile is a sprite of its own',
+		);
+		for (const mesh of kit.meshes) {
+			assert.equal(mesh.shader, shader, 'drawn by the ripple’s program');
+			assert.equal(mesh.geometry.positions.length % 8, 0, 'whole quads');
+			const at = mesh.geometry.getAttribute('aInto').buffer.data;
+			assert.ok(at[0] >= 0 && at[0] < RIPPLE_REPEAT && at[1] >= 0 && at[1] < RIPPLE_REPEAT);
+		}
+		// The bed's px to the atlas's UVs: along each tile's sides, its UVs move by `uvPerPx` of its
+		// corners' move.
+		const [a, b, c, d] = asked[0].uvPerPx;
+		for (const mesh of kit.meshes.slice(0, 5)) {
+			const p = mesh.geometry.positions;
+			const uv = mesh.geometry.uvs;
+			for (const k of [1, 3]) {
+				const dx = p[k * 2] - p[0];
+				const dy = p[k * 2 + 1] - p[1];
+				assert.ok(Math.abs(a * dx + c * dy - (uv[k * 2] - uv[0])) < 1e-6, `u along side ${k}`);
+				assert.ok(Math.abs(b * dx + d * dy - (uv[k * 2 + 1] - uv[1])) < 1e-6, `v along side ${k}`);
+			}
+		}
+		assert.deepEqual(moves, [[0, 0]], 'the map starts where the old client’s did');
+		kit.tick(1000 / 60);
+		assert.deepEqual(moves.at(-1), [0.35, 0.18], 'and moves on as it did');
+		assert.deepEqual(kit.filtered, []);
+		kit.teardown();
+		assert.equal(destroyed, 1, 'and goes with the river');
+
+		// No ripple (not WebGL, or a GPU that refuses it), or none handed: the bed drawn plain.
+		for (const ripple of [() => undefined, undefined]) {
+			const plain = rippledRiver(river, ripple);
+			assert.deepEqual(plain.filtered, [], 'still no filter');
+			assert.equal(plain.meshes.length, kit.meshes.length);
+			for (const mesh of plain.meshes) {
+				assert.equal(mesh.shader, null);
+				assert.equal(mesh.batched, true, 'batched with the ground, as the tiles were');
+			}
+			plain.tick(16);
+			plain.teardown();
+		}
+		const source = readFileSync(join(ART, 'river.ts'), 'utf8');
+		assert.doesNotMatch(
+			source,
+			/DisplacementFilter|\.filters\b|filterArea/,
+			'the river sets no filter',
+		);
+		assert.match(source, /const NOISE_SIZE = 256;/);
+		assert.equal(RIPPLE_REPEAT, 256, 'the program repeats the map as it is made');
+		assert.deepEqual({ ...RIPPLE_SCALE }, { x: 6, y: 4 }, 'pushing as far as the filter did');
+		assert.equal(RIPPLE_EDGE, 0.9);
+		assert.match(source, /\(h \/ 2\) > 0\.9;/, 'within which the pebbles lie');
+	},
+);
+
+check(
+	'the riverbed’s ripple: WebGL only, none from a GPU that refuses it (said once), and its map wraps',
+	() => {
+		const atlas = new Texture();
+		const noise = new Texture();
+		const layout = {
+			slot: { u: 0.125, v: 0.5 },
+			pad: { u: 0.0037, v: 0.028 },
+			size: { u: 0.1176, v: 0.444 },
+		};
+		const uv = [1, 0, 0, 1];
+		const warn = console.warn;
+		const warned = [];
+		console.warn = (...args) => warned.push(args.join(' '));
+		try {
+			assert.equal(
+				bedRipple({ renderer: { type: RendererType.WEBGPU } }, atlas, noise, layout, uv),
+				undefined,
+			);
+			for (let i = 0; i < 3; i++)
+				assert.equal(bedRipple(wadeApp(false), atlas, noise, layout, uv), undefined);
+			assert.equal(warned.length, 1);
+			assert.match(warned[0], /riverbed ripple is not drawn/);
+		} finally {
+			console.warn = warn;
+		}
+		const ripple = bedRipple(wadeApp(), atlas, noise, layout, uv);
+		const { uOffset, uScale, uSlot, uSlotSize } = ripple.shader.resources.rippleUniforms.uniforms;
+		assert.equal(ripple.shader.resources.uTexture, atlas.source);
+		assert.equal(ripple.shader.resources.uNoise, noise.source);
+		assert.deepEqual([...uScale], [6, 4]);
+		assert.deepEqual([...uSlot], [0.125, 0.5, 0.0037, 0.028].map(Math.fround));
+		assert.deepEqual([...uSlotSize], [0.1176, 0.444].map(Math.fround));
+		ripple.move(256 * 40 + 3.5, -1);
+		assert.deepEqual([...uOffset], [3.5, 255]);
+		const fragment = ripple.shader.glProgram.fragment;
+		assert.match(
+			fragment,
+			/if \(abs\(st\.x\) \+ abs\(st\.y\) > 0\.450 \|\| abs\(st0\.x\) \+ abs\(st0\.y\) > 0\.5\) uv = base;/,
+			'never read off its own tile, nor into its clear corners',
+		);
+		assert.match(fragment, /HP vec2 push = \(map\.xy - 0\.5\) \* uScale;/, 'the filter’s push');
+		assert.doesNotMatch(fragment, /fwidth|dFdx|dFdy/, 'nothing WebGL 1 lacks');
+		ripple.destroy();
+	},
+);
+
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
 // piece (`salmons/art-fingerprint.mjs`): a level with no biomes block is drawn exactly as it was.
 // The hashes were of the drawing at main a404522, before the biomes were data, and the same of
 // main's after its trees' art (#1922). Since the river is drawn in chunks (2026-11-27) they are of
 // what is drawn and in which order, not of the containers that hold it; recorded of main 665b407's
-// drawing, the last laid loose, which this one draws alike.
+// drawing, the last laid loose, which this one draws alike. Recorded again when the riverbed's
+// ripple went into its own program (2026-11-27): the bed is a mesh a chunk, not a sprite a tile
+// under the displacement filter. Every other piece hashed alike to main 7f05b92's with the bed left
+// out, and every bed tile's corners, order and picture were its sprite's.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
 const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
 const DRAWN_BEFORE_BIOMES = [
-	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '6a92bfaa1328bae46bf10584' },
-	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '1958546a26690ea154a35aed' },
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '6314980b8f184f27ffcaa6ee' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: 'a02bd80f56351e50afa07c1b' },
 	{
 		seed: 123,
 		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
 		projector: 'mirrored',
-		hash: 'b5fb208cb528704ff1cb5f01',
+		hash: '5f3c06d674525e19bed26f08',
 	},
-	{ seed: 42, levels: undefined, projector: 'plain', hash: '083661d70dd1ab4fab36c9c6' },
+	{ seed: 42, levels: undefined, projector: 'plain', hash: '512af25098455b4b6da6add9' },
 ];
 const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
 const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
@@ -1739,7 +1962,7 @@ const authoredArt = await riverArtFingerprint(authoredRiver, ISO_PROJECTOR_MIRRO
 const builtInArt = await riverArtFingerprint(
 	riverOf(7, { ...SALMONS_LEVELS, biomes: {} }),
 	ISO_PROJECTOR_MIRRORED,
-	{ omit: (into) => into.children[3].children[0].children[0].destroy() },
+	{ omit: (into) => into.children[2].children[0].children[0].destroy() },
 );
 check(
 	'biomes: the built-in six, authored as a block, draw the river as before but its floor',

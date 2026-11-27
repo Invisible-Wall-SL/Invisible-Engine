@@ -76,6 +76,7 @@ import { wadeSurface, warmWade } from '${root}/packages/engine-layout/src/lib/sa
 import { loadSalmonsTextures } from '${root}/packages/engine-layout/src/lib/salmonsArt/load.ts';
 import { TINT_ALPHA } from '${root}/packages/engine-layout/src/lib/salmonsArt/water.ts';
 import { mountSalmonsRiver } from '${root}/packages/engine-layout/src/lib/salmonsArt/river.ts';
+${existsSync(join(root, 'packages/engine-layout/src/lib/salmonsArt/bedRipple.ts')) ? `import { bedRipple } from '${root}/packages/engine-layout/src/lib/salmonsArt/bedRipple.ts';` : ''}
 import { ISO_PROJECTOR } from '${root}/packages/engine-layout/src/lib/projection.ts';
 import { levelShape, salmonsMapRiver } from '${root}/packages/engine-mechanics/src/salmonsMap.js';
 import { SALMONS_LEVELS } from '${root}/packages/engine-mechanics/src/salmons.js';
@@ -147,11 +148,11 @@ async function render(c) {
 	const textures = await loadSalmonsTextures([]);
 	let river;
 	if (c.ladder) {
-		// The river under the bodies, its bed's displacement filter a full-screen pass.
+		// The river under the bodies, its bed rippled as the checkout's game draws it.
 		const ground = new Container();
 		camera.addChildAt(ground, 0);
 		const seed = 7;
-		river = mountSalmonsRiver(ground, app, textures, salmonsMapRiver(seed, undefined, levelShape(SALMONS_LEVELS, seed)), seed, ISO_PROJECTOR);
+		river = mountSalmonsRiver(ground, app, textures, salmonsMapRiver(seed, undefined, levelShape(SALMONS_LEVELS, seed)), seed, ISO_PROJECTOR${existsSync(join(root, 'packages/engine-layout/src/lib/salmonsArt/bedRipple.ts')) ? ', undefined, (...made) => bedRipple(app, ...made)' : ''});
 	}
 	const blood = { sink: () => {}, touches: () => true, shed: () => {} };
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);

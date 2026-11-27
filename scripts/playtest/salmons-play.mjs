@@ -2569,16 +2569,19 @@ play: try {
 		const rigWet = await wadingOf(w, wader);
 		const wetSeen = await rigSeen('rig-bear-wades.png');
 		const rigMiddle = ((await drawnOf(w)).rigs?.[wader]?.height ?? 0) / 2;
+		// No pass per body (2026-11-27): a look without its own water wades drawn as on land.
 		verdict(
-			'…stood in open water the rig steps in and stands half under the water’s tint: its colour above the waterline, the same colour through the tint below it',
+			'…stood in open water the rig steps in (its line kept) but is drawn as on land, with no pass: its own colour from top to bottom',
 			rigInWater &&
 				steppedOver(rigRising, 1) &&
-				halfUnder(rigWet, rigMiddle) &&
-				rigWet.pass === true &&
+				rigWet?.depth === 1 &&
+				!!rigWet.line &&
+				-rigWet.line.level > rigMiddle &&
+				rigWet.drawnUnder === false &&
+				rigWet.pass === false &&
 				(await drawnOf(w)).rigs?.[wader]?.mounted === true &&
 				mostly(wetSeen.high, isRig) &&
-				!mostly(wetSeen.low, isRig) &&
-				mostly(wetSeen.low, (rgb) => throughWater(rgb).some(isRig)),
+				mostly(wetSeen.low, isRig),
 			{ rigInWater, rigRising, rigWet, rigMiddle, low: wetSeen.low[12], high: wetSeen.high[12] },
 		);
 		moveTo(rigRoom, wader, WADE_AT.bank);

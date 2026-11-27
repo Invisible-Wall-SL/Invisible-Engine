@@ -8,8 +8,8 @@ import type { WaterAt } from './looks';
  * THE BEAR WADES (owner, 2026-11-25: "it looks like it is walking on water … half of the bear body
  * is underwater, so it takes a 'water overlay' colour"; "a curved line … so it follows the round
  * shape of the bear body"). While a bear's place is on open water that has a tint (`water.ts`
- * `waterUnder`: not a bank, a sandbank, a rock or the sea), what draws it is drawn through one
- * filter pass (`wadeFilter.ts`): below a waterline its own pixels are mixed to that cell's tint
+ * `waterUnder`: not a bank, a sandbank, a rock or the sea), its code look draws it in its own
+ * programs (`bodyShaders.ts`): below a waterline its own pixels are mixed to that cell's tint
  * exactly as the swimming salmon's are (`leap.ts` `underTint`), above it they are as they were.
  *
  * THE WATERLINE is the front arc of the ellipse a round body cuts in the water plane, about the
@@ -17,14 +17,17 @@ import type { WaterAt } from './looks';
  * the look inside it: `y(x) = level + sag · √(1 − (x / reach)²)`, lowest in the middle, rising to
  * `level` at both ends and staying there beyond them. A thin lighter rim lies along it and it bobs
  * a little. Stepping in and out is eased: the line rises from under the look to its level and
- * falls back, and on land the look has no filter at all.
+ * falls back.
  *
  * WHOEVER DRAWS THE BEAR: the wading is the player's, not its look's. It wraps the mount the
  * runtime publishes for the player (`arcadeArt.svelte.ts`: its code look's, its sheet's rig's or
  * its clip's turned by its sheet). A look that draws its own water ({@link WadingMount}: the code
- * look, `looks.ts`, in its own programs, `bodyShaders.ts`) is told the line each frame and takes
- * no pass; any other has the filter on the container its mount draws into. A clip published as a
- * clip has no mount and is not covered (`docs/status/salmons.md`).
+ * look, `looks.ts`, in its own programs, `bodyShaders.ts`) is told the line each frame. NO PASS
+ * PER BODY (owner, 2026-11-27): any other look (a rig, a turned clip, a code look whose GPU refused
+ * its programs) is drawn as on land, with nothing on the container its mount draws into, unless
+ * the wading is given a `surface` (the filter `wadeFilter.ts`, the pass the code look's step was
+ * drawn to; the game gives none). A clip published as a clip has no mount and is not covered
+ * (`docs/status/salmons.md`).
  */
 export const WADE = Object.freeze({
 	/** How high the waterline's ends stand, as a share of how high the look's middle is: a little
@@ -101,7 +104,7 @@ export function waterlineOf(depth: number, body: WadeBody, atMs: number): Waterl
 /**
  * A look that draws its own water: told each frame the line about its place and the colour matrix
  * under it ({@link underTint}), or `undefined` on land; `false` when it cannot (its GPU refused
- * its programs), and the pass draws it instead.
+ * its programs), and it is drawn as on land (through the pass only where the wading has one).
  */
 export type OwnWater = (
 	under: { line: Waterline; under: readonly number[] } | undefined,
@@ -182,13 +185,14 @@ type Wader = {
 
 /**
  * The wading of a room: `waterAt` is the river's water at a place, `tintAlpha` how strongly its
- * tint covers what is under it, and `surface` makes the filter that draws it (none when the GPU
- * refuses it: the character is then drawn as on land).
+ * tint covers what is under it, and `surface`, if given, makes a filter that draws a look that
+ * cannot draw its own water (none, or none made: that look is drawn as on land, with no pass). The
+ * game gives none.
  */
 export function createWading(
 	waterAt: WaterAt,
 	tintAlpha: number,
-	surface: (app: Application) => WadeSurface | undefined,
+	surface: (app: Application) => WadeSurface | undefined = () => undefined,
 ): Wading {
 	const waders = new Map<string, Wader>();
 
