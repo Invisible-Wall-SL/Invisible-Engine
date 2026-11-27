@@ -5,6 +5,7 @@
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
+		acceptBody,
 		apiErrorText,
 		hunkColumns,
 		mergeBrief,
@@ -72,7 +73,7 @@
 				{
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ headSha: run.headSha }),
+					body: JSON.stringify(acceptBody(detail)),
 				},
 			);
 			const body: unknown = await res.json().catch(() => null);
@@ -145,7 +146,10 @@
 		{#if hunks.length}
 			<h4>Each hunk</h4>
 			{#each hunks as h (`${h.path}:${h.index}`)}
-				{@const cols = hunkColumns(h)}
+				{@const cols = hunkColumns(
+					h,
+					run.files.find((f) => f.path === h.path),
+				)}
 				<div class="hunk">
 					<span class="hunk-name">{h.path} · hunk {h.index + 1} · takes {takesWord(h.takes)}</span>
 					<div class="cols">
@@ -159,7 +163,7 @@
 						</div>
 						<div>
 							<span class="col-title">result</span>
-							<pre>{cols.result ?? h.nowDoes ?? ''}</pre>
+							<pre>{cols.result}</pre>
 						</div>
 					</div>
 				</div>

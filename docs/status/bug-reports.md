@@ -275,6 +275,25 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Resolve conflict, Accept hardened (post-merge review of #1961, before 15B2).**
+  - **Blocking: Accept wrote to an unencoded ref.** `PATCH git/refs/heads/<branch>` took the
+    branch raw, and `fetch` drops everything from a `#`: a conflicted change from `main#x` would
+    have moved `refs/heads/main`. Now the ref is encoded (`githubPaths.ts`, shared with the two
+    copies that existed), Accept refuses a head branch that is not the run's `branch`
+    (`stale`) and one outside letters, digits and `- _ . /` (`unsafe_branch`, a sentence). Every
+    other ref URL is encoded, `main`, or a launcher-made name; `check:merge-main-runs` scans for
+    it.
+  - **The reviewer sees real bytes.** `collect.mjs` fills a hunk's `main` and `change` from
+    git's own segments, never from the model's `result.json`; `mergeRunView` keeps the resolved
+    content of an explained file, and the card's result column is that file's lines.
+  - **Accept and Discard share one claim**; a 422 from a second replica is checked with
+    `isOwnMerge` (parents, the run id in the message, the tree) before `stale`; a Discard that
+    got in first does not leave `discarded` over a branch that moved.
+  - `mainChangedSince` is unknown (stale) when the compare lists 300 files; `filesProblem` gives its
+    `main`-exemption to a protected path or lockfile only when it is main's own entry at the run's SHA (read from main's tree); Accept posts the head the page
+    showed. The branch's push time is not in GitHub's data, so the card still uses the head
+    commit's time.
+
 - 2026-11-27 — **Resolve conflict's job code (ADR-0015 card 15B1).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline". `scripts/merge-main/`,
   runnable on a local checkout. Wiring for 15B2 is in its `README.md`; nothing calls it yet.

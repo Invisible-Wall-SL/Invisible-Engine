@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { squashSubjectHasScope } from '../../../../../scripts/commit-scope.mjs';
 import { createKeyedMutex } from './concurrency';
 import { githubApp, GithubAppError, type GithubApp } from './githubApp';
+import { encodePath } from './githubPaths';
 import {
 	approverName,
 	forgetChanges,
@@ -561,9 +562,6 @@ interface GhTreeEntry {
 	type: string;
 	sha: string;
 }
-
-/** A path as a URL: each segment encoded, the slashes kept. */
-const encodePath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
 /** What GitHub already holds of a revert: nothing, a branch alone, or its open pull request. */
 type OnGithub =

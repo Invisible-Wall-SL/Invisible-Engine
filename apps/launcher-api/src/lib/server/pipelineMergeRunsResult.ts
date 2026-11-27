@@ -28,6 +28,7 @@ import {
 	unmarked,
 	withoutDirectives,
 } from './bugFixRunsChange';
+import { blobSha, type Files } from './pipelineMergeRunsBuild';
 
 /**
  * Reading what a merge run's job posts (ADR-0015 §10) and judging the part of it that needs no
@@ -366,13 +367,33 @@ export const isPendingRuleFile = (file: Pick<MergeRunFile, 'path' | 'choice' | '
 	file.rule !== 'docs-append' &&
 	RULE_PATHS[file.rule].test(file.path);
 
+/** Whether `f` is exactly what `main` holds at its path (nothing, for a deletion). */
+function isMainsEntry(f: MergeRunFile, main: Files | null): boolean {
+	if (main === null) return false;
+	const entry = main.get(f.path);
+	if (f.content === null) return entry === undefined;
+	return entry !== undefined && entry.sha === blobSha(f.content) && entry.mode === f.mode;
+}
+
+/**
+ * Whether `f` rests on the exemption of {@link filesProblem}: a protected path or a lockfile listed
+ * as `main`'s own. The caller reads `main`'s tree only when one does.
+ */
+export const needsMainsTree = (f: MergeRunFile): boolean =>
+	f.choice === 'main' && f.rule === null && (protectedEntry(f.path) !== null || isLockfile(f.path));
+
 /**
  * The first rule the files break that needs no GitHub: their count in the model's hands, their size,
  * their paths and modes, that a file's rule and choice agree and its path is where the rule's files
  * live, a protected path (but the docs-append rule's, which may add to one), a lockfile, hidden
- * Unicode, and a secret in a path.
+ * Unicode, and a secret in a path. `main` is `main`'s tree at the run's SHA, for the one exemption
+ * (above): without it, a protected path or a lockfile is always refused.
  */
-export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<string>): string | null {
+export function filesProblem(
+	files: MergeRunFile[],
+	hunkPaths: ReadonlySet<string>,
+	main: Files | null = null,
+): string | null {
 	const seen = new Set<string>();
 	let total = 0;
 	let model = 0;
@@ -389,10 +410,11 @@ export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<strin
 		} else if (f.rule !== null) {
 			if (!isPendingRuleFile(f)) return "a build rule's file is not main's, left pending";
 		}
-		// `main`'s own entry written onto `main`'s tree changes nothing, and Accept refuses a `main`
-		// that is not (`planMerge`): it is how a path both sides changed identically, or both deleted,
-		// is listed, so a protected path or a lockfile there is not the run's change.
-		const keepsMain = f.choice === 'main' && f.rule === null;
+		// `main`'s own entry written onto `main`'s tree changes nothing: it is how a path both sides
+		// changed identically, or both deleted, is listed. So a protected path or a lockfile may be
+		// listed as `main`'s only when it IS `main`'s entry at the run's SHA, byte for byte and mode
+		// for mode (or absent from it, for a deletion): "main's" is a claim until `main` says so.
+		const keepsMain = f.choice === 'main' && f.rule === null && isMainsEntry(f, main);
 		const guarded = protectedEntry(f.path);
 		if (guarded && f.rule !== 'docs-append' && !keepsMain) {
 			return `it touches a protected path (${guarded})`;

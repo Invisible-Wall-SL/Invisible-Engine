@@ -296,7 +296,7 @@ type Entry = { mode: string; type: string; sha: string };
 const git = {
 	blobs: new Map<string, string>(),
 	trees: new Map<string, Map<string, Entry>>(),
-	commits: new Map<string, { tree: string; parents: string[]; date: string }>(),
+	commits: new Map<string, { tree: string; parents: string[]; date: string; message?: string }>(),
 	refs: new Map<string, string>(),
 	n: 0,
 };
@@ -324,9 +324,14 @@ function putTree(files: Record<string, string | { content: string; mode: string 
 	git.trees.set(sha, tree);
 	return sha;
 }
-function putCommit(tree: string, parents: string[], date = new Date(clock).toISOString()): string {
+function putCommit(
+	tree: string,
+	parents: string[],
+	date = new Date(clock).toISOString(),
+	message?: string,
+): string {
 	const sha = fresh();
-	git.commits.set(sha, { tree, parents, date });
+	git.commits.set(sha, { tree, parents, date, message });
 	return sha;
 }
 const filesOfCommit = (sha: string) => git.trees.get(git.commits.get(sha)!.tree)!;
@@ -353,7 +358,10 @@ const gh = {
 	cancelStatus: 202,
 	/** `METHOD /path` → refuse once with this status and message. */
 	fail: new Map<string, { status: number; message: string }[]>(),
-	compareTooLong: false,
+	/** How many files the compare lists, when `main` moved too far for them to be judged whole. */
+	compareTooLong: 0,
+	/** Runs once, just before a ref update is judged: another replica getting there first. */
+	beforePatch: null as (() => void) | null,
 	truncatedTrees: new Set<string>(),
 	madeCommits: [] as (Record<string, any> & { sha: string })[], // eslint-disable-line @typescript-eslint/no-explicit-any
 	/** The merge base GitHub names for any compare of a head with main. */
@@ -386,6 +394,11 @@ function route(method: string, path: string, body: Call['body']): Response {
 		return run ? answer(200, run) : answer(404, { message: 'Not Found' });
 	}
 	if (p === '/git/ref/heads/main') return answer(200, { object: { sha: git.refs.get('main') } });
+	m = /^\/git\/ref\/heads\/(.+)$/.exec(p);
+	if (m) {
+		const sha = git.refs.get(m[1]);
+		return sha ? answer(200, { object: { sha } }) : answer(404, { message: 'Not Found' });
+	}
 	m = /^\/git\/commits\/([0-9a-f]{40})$/.exec(p);
 	if (m && method === 'GET') {
 		const c = git.commits.get(m[1]);
@@ -393,6 +406,7 @@ function route(method: string, path: string, body: Call['body']): Response {
 			? answer(200, {
 					sha: m[1],
 					tree: { sha: c.tree },
+					message: c.message ?? '',
 					parents: c.parents.map((sha) => ({ sha })),
 				})
 			: answer(404, { message: 'Not Found' });
@@ -439,12 +453,20 @@ function route(method: string, path: string, body: Call['body']): Response {
 		return answer(201, { sha });
 	}
 	if (p === '/git/commits' && method === 'POST') {
-		const sha = putCommit(String(body?.tree), (body?.parents ?? []) as string[]);
+		const sha = putCommit(
+			String(body?.tree),
+			(body?.parents ?? []) as string[],
+			undefined,
+			String(body?.message ?? ''),
+		);
 		gh.madeCommits.push({ sha, ...(body as object) });
 		return answer(201, { sha });
 	}
 	m = /^\/git\/refs\/heads\/(.+)$/.exec(p);
 	if (m && method === 'PATCH') {
+		const hook = gh.beforePatch;
+		gh.beforePatch = null;
+		hook?.();
 		const current = git.refs.get(m[1]);
 		const sha = String(body?.sha);
 		if (current === undefined) return answer(404, { message: 'Reference does not exist' });
@@ -470,14 +492,14 @@ function route(method: string, path: string, body: Call['body']): Response {
 				(path) => a.get(path)?.sha !== b.get(path)?.sha,
 			);
 			const files = gh.compareTooLong
-				? Array.from({ length: 100 }, (_, i) => ({ filename: `many/${i}.txt` }))
+				? Array.from({ length: gh.compareTooLong }, (_, i) => ({ filename: `many/${i}.txt` }))
 				: paths.map((filename) => ({ filename }));
 			const page = Number(/[?&]page=(\d+)/.exec(m[3] ?? '')?.[1] ?? 1);
 			return answer(200, {
 				status: 'ahead',
 				ahead_by: depth(to) - depth(from),
 				behind_by: 0,
-				files: page === 1 || gh.compareTooLong ? files.slice(0, 100) : [],
+				files: page === 1 ? files.slice(0, 300) : [],
 			});
 		}
 		return answer(200, { merge_base_commit: { sha: gh.mergeBase }, ahead_by: 1, behind_by: 1 });
@@ -1527,22 +1549,82 @@ check(
 // the rules on the files
 const prob = (f: Partial<MergeRunFile>[], hunks: string[] = []) =>
 	parsed.filesProblem(files(...f), new Set(hunks));
-// "both sides changed" is base≠head AND base≠main: that includes a path both changed identically
-// (choice main) and one both deleted (content null). Listed so, a protected path or a lockfile is
-// not the run's change (main's own entry on main's tree), while any other choice there still is.
+// `main`'s own entry written onto `main`'s tree changes nothing, so a protected path or a lockfile
+// may be listed as main's, but only when it IS main's entry at the run's SHA (the blob and the
+// mode, or absent for a deletion). Without main's tree, or with anything else, it is refused.
+const LOCK_SHA = blobSha('lock: 2\n');
+const mainTree = new Map([
+	['pnpm-lock.yaml', { mode: '100644', type: 'blob', sha: LOCK_SHA }],
+	['scripts/bug-fix/exec.sh', { mode: '100755', type: 'blob', sha: blobSha('#!/bin/sh\n') }],
+]);
+const lockMain = {
+	path: 'pnpm-lock.yaml',
+	rule: null,
+	choice: 'main',
+	content: 'lock: 2\n',
+} as const;
+const LOCK_REFUSED = 'it changes a lockfile: dependencies are for a person to decide';
 check(
-	'files: a path both sides changed identically or deleted (choice main) may be a protected path or a lockfile; any other choice may not',
+	'files: a protected path or a lockfile listed as main’s is allowed only when it is main’s own entry at the run’s SHA',
 	[
-		prob([{ path: 'pnpm-lock.yaml', rule: null, choice: 'main', content: 'lock: 2\n' }]),
-		prob([{ path: 'scripts/bug-fix/shared.mjs', rule: null, choice: 'main', content: null }]),
-		prob([{ path: 'pnpm-lock.yaml', rule: null, choice: 'change', content: 'lock: 2\n' }]),
-		prob([{ path: 'scripts/bug-fix/shared.mjs', rule: null, choice: 'both', content: 'x\n' }]),
+		parsed.filesProblem(files(lockMain), new Set(), mainTree),
+		parsed.filesProblem(files({ ...lockMain, content: 'lock: 3\n' }), new Set(), mainTree),
+		parsed.filesProblem(files({ ...lockMain, mode: '100755' }), new Set(), mainTree),
+		parsed.filesProblem(files(lockMain), new Set(), null),
+		parsed.filesProblem(files(lockMain), new Set()),
+		parsed.filesProblem(files({ ...lockMain, path: 'yarn.lock' }), new Set(), mainTree),
+		parsed.filesProblem(
+			files({
+				path: 'scripts/bug-fix/exec.sh',
+				rule: null,
+				choice: 'main',
+				content: '#!/bin/sh\n',
+				mode: '100755',
+			}),
+			new Set(),
+			mainTree,
+		),
+		parsed.filesProblem(
+			files({ path: 'scripts/bug-fix/exec.sh', rule: null, choice: 'main', content: 'evil\n' }),
+			new Set(),
+			mainTree,
+		),
+		parsed.filesProblem(
+			files({ path: 'scripts/bug-fix/gone.mjs', rule: null, choice: 'main', content: null }),
+			new Set(),
+			mainTree,
+		),
+		parsed.filesProblem(
+			files({ path: 'scripts/bug-fix/exec.sh', rule: null, choice: 'main', content: null }),
+			new Set(),
+			mainTree,
+		),
+		parsed.filesProblem(files({ ...lockMain, choice: 'change' }), new Set(), mainTree),
+		parsed.filesProblem(
+			files({ path: 'scripts/bug-fix/shared.mjs', rule: null, choice: 'both', content: 'x\n' }),
+			new Set(),
+			mainTree,
+		),
+		parsed.filesProblem(
+			files({ path: '.github/workflows/ci.yml', rule: null, choice: 'main', content: 'x\n' }),
+			new Set(),
+			mainTree,
+		),
 	],
 	[
 		null,
-		null,
+		LOCK_REFUSED,
+		LOCK_REFUSED,
+		LOCK_REFUSED,
+		LOCK_REFUSED,
 		'it changes a lockfile: dependencies are for a person to decide',
+		null,
 		'it touches a protected path (scripts/bug-fix)',
+		null,
+		'it touches a protected path (scripts/bug-fix)',
+		LOCK_REFUSED,
+		'it touches a protected path (scripts/bug-fix)',
+		'it touches a protected path (.github)',
 	],
 );
 check(
@@ -1772,6 +1854,38 @@ const failFast = async (
 	return { a, run: runOf(r.id), id: r.id };
 };
 const NO_RESULT = { files: [], explanation: null };
+
+{
+	// through the result endpoint: main's tree is read at the run's SHA, only when a file needs it
+	const withLock = (content: string) =>
+		files(
+			{ ...lockMain, content },
+			{ path: 'src/a.ts', rule: null, choice: 'combined', content: '3\n' },
+		);
+	const wl = world(SRC_BASE, { 'pnpm-lock.yaml': 'lock: 2\n' }, { 'pnpm-lock.yaml': 'lock: 2\n' });
+	gh.calls.length = 0;
+	const same = await failFast({ files: withLock('lock: 2\n') }, wl);
+	check(
+		'result: a lockfile both sides changed identically, listed as main’s → proposed; main’s tree was read',
+		[same.run.status, gh.calls.some((c) => c.path.startsWith('/git/trees/'))],
+		['proposed', true],
+	);
+	const wl2 = world(SRC_BASE, { 'pnpm-lock.yaml': 'lock: 2\n' }, { 'pnpm-lock.yaml': 'lock: 2\n' });
+	const lie = await failFast({ files: withLock('lock: 9\n') }, wl2);
+	check(
+		'result: a lockfile listed as main’s that is not main’s → needs_person, the rule named',
+		[lie.run.status, lie.run.reason],
+		['needs_person', `The change was refused (${LOCK_REFUSED}).`],
+	);
+	const wl3 = world(SRC_BASE, { 'src/a.ts': '1\n' }, { 'src/a.ts': '2\n' });
+	gh.calls.length = 0;
+	const plain = await failFast({}, wl3);
+	check(
+		'result: with no such file main’s tree is not read',
+		[plain.run.status, gh.calls.some((c) => c.path.startsWith('/git/trees/'))],
+		[plain.run.status, false],
+	);
+}
 const f1 = await failFast({
 	outcome: undefined,
 	failure: 'the job broke',
@@ -2395,9 +2509,15 @@ await staleMain(
 		'main',
 		putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 2;\n' }), [w.main]),
 	);
-	gh.compareTooLong = true;
+	gh.compareTooLong = 300;
+	gh.calls.length = 0;
 	const a = await accept(ADMIN, w.n, p.id, w.head);
-	gh.compareTooLong = false;
+	gh.compareTooLong = 0;
+	check(
+		'accept: a compare listing 300 files is cut short, not complete: one request, no paging',
+		gh.calls.filter((c) => c.path.includes('/compare/') && c.path.includes('...main')).length,
+		1,
+	);
 	check(
 		'accept: main moved too far for the compare to list whole → stale',
 		[a.status, runOf(p.id).status],
@@ -2601,13 +2721,248 @@ check(
 	'not_proposed',
 );
 
+// ── the branch Accept writes to (ADR-0015 §5) ───────────────────────────────
+// Git allows `#` and `%` in a branch name and `fetch` drops everything from a `#`: a conflicted
+// pull request from `main#x` once PATCHed `refs/heads/main` with a commit whose parents are
+// [head, main], a fast-forward that `force: false` does not stop. Accept refuses such a name, a
+// branch renamed since the start, and encodes every ref it writes.
+const refPatches = () => gh.calls.filter((c) => c.method === 'PATCH');
+for (const [label, branch] of [
+	['a # in the name', 'main#x'],
+	['a % in the name', 'feat%2Fmain'],
+	['a space and a ? in the name', 'feat x?y'],
+	['a .. in the name', 'feat..x'],
+	['a leading slash', '/feat'],
+	['a segment ending .lock', 'feat/x.lock'],
+] as const) {
+	const wb = world(
+		ACCEPT_BASE,
+		{ 'src/a.ts': 'const a = 3;\n' },
+		{ 'src/a.ts': 'const a = 2;\n' },
+		{ branch },
+	);
+	const pb = await proposed(wb, both);
+	const mainBefore = git.refs.get('main');
+	gh.calls.length = 0;
+	const ab = await accept(ADMIN, wb.n, pb.id, wb.head);
+	check(
+		`accept: a branch with ${label} is refused with a sentence, nothing written, main not moved`,
+		[
+			ab.status,
+			ab.body.code,
+			typeof ab.body.error === 'string' && ab.body.error.includes('will not push'),
+			writesOf(),
+			refPatches().length,
+			git.refs.get('main') === mainBefore,
+			runOf(pb.id).status,
+		],
+		[409, 'unsafe_branch', true, [], 0, true, 'proposed'],
+	);
+}
+{
+	const wr = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const pr = await proposed(wr, both);
+	const ran = wr.pull.head.ref;
+	wr.pull.head.ref = 'main';
+	gh.calls.length = 0;
+	const ar = await accept(ADMIN, wr.n, pr.id, wr.head);
+	check(
+		'accept: a branch renamed since the start (now `main`) → stale, nothing written',
+		[ar.status, ar.body.code, runOf(pr.id).status, writesOf(), refPatches().length],
+		[409, 'stale', 'stale', [], 0],
+	);
+	wr.pull.head.ref = ran;
+}
+{
+	const wn = world(
+		ACCEPT_BASE,
+		{ 'src/a.ts': 'const a = 3;\n' },
+		{ 'src/a.ts': 'const a = 2;\n' },
+		{ branch: 'claude/feat-x.1_y' },
+	);
+	const pn = await proposed(wn, both);
+	gh.calls.length = 0;
+	const an = await accept(ADMIN, wn.n, pn.id, wn.head);
+	check(
+		'accept: a plain nested branch is pushed, to its own ref path, once',
+		[an.status, refPatches().map((c) => c.path)],
+		[200, ['/git/refs/heads/claude/feat-x.1_y']],
+	);
+}
+const paths = await import(src('lib/server/githubPaths.ts'));
+check(
+	'githubPaths: each segment is encoded, the slashes kept; # and % cannot cut or alter a ref',
+	[paths.encodePath('main#x'), paths.encodePath('a/b c/d%e?f'), paths.encodePath('feat/x')],
+	['main%23x', 'a/b%20c/d%25e%3Ff', 'feat/x'],
+);
+check(
+	'githubPaths: a plain branch name is letters, digits, - _ . and /, with no .., no edge or empty segment',
+	[
+		'main',
+		'claude/feat-x.1_y',
+		'bug-12-fix-0123456789',
+		'a#b',
+		'a%b',
+		'a b',
+		'a..b',
+		'/a',
+		'a/',
+		'a//b',
+		'a/.b',
+		'a.',
+		'a.lock',
+		'',
+		'é',
+		'a\\b',
+	].map((n) => paths.isPlainBranchName(n)),
+	[
+		true,
+		true,
+		true,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+		false,
+	],
+);
+{
+	// Every GitHub URL the launcher builds from a branch is encoded or built from a launcher-made name.
+	const dir = new URL('../src/lib/server/', import.meta.url);
+	const found: string[] = [];
+	for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+		const source = readFileSync(new URL(file, dir), 'utf8');
+		for (const m of source.matchAll(/git\/refs?\/heads\/\$\{([^}]*)\}/g)) {
+			found.push(`${file}: ${m[1]}`);
+		}
+	}
+	const launcherMade = new Set(['pipelineAgents.ts: branch', 'bugFixRuns.ts: branch']);
+	const unsafe = found.filter(
+		(f) => !f.endsWith(': BASE_BRANCH') && !/: encodePath\(/.test(f) && !launcherMade.has(f),
+	);
+	check(
+		'refs: every ref path built from a branch is encoded, main, or a launcher-made name (agents/…, bug-N-fix-id)',
+		unsafe,
+		[],
+	);
+	check(
+		'refs: Accept writes to the run’s own branch, encoded',
+		text('../src/lib/server/pipelineMergeRuns.ts').includes(
+			'git/refs/heads/${encodePath(run.branch)}',
+		),
+		true,
+	);
+}
+
+// another replica, or a Discard, getting there first
+{
+	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p = await proposed(w, both);
+	const [a, d] = await Promise.all([accept(ADMIN, w.n, p.id, w.head), discard(ADMIN, w.n, p.id)]);
+	// Whichever takes the claim first wins whole: the branch moved if and only if the row says so.
+	const settle = (who: Answer[], id: string, w0: World) => [
+		who.filter((r) => r.status === 200).length,
+		(runOf(id).status === 'accepted') === (git.refs.get(w0.pull.head.ref) !== w0.head),
+	];
+	check(
+		'accept + discard at once: one wins, and the branch moved only if the row says accepted',
+		settle([a, d], p.id, w),
+		[1, true],
+	);
+	const w2 = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p2 = await proposed(w2, both);
+	const [d2, a2] = await Promise.all([
+		discard(ADMIN, w2.n, p2.id),
+		accept(ADMIN, w2.n, p2.id, w2.head),
+	]);
+	check(
+		'discard + accept at once: one wins, and the branch moved only if the row says accepted',
+		settle([a2, d2], p2.id, w2),
+		[1, true],
+	);
+	// A Discard from another replica lands after Accept's checks, before its row is settled.
+	const w3 = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p3 = await proposed(w3, both);
+	gh.beforePatch = () => {
+		runOf(p3.id).status = 'discarded';
+	};
+	const a3 = await accept(ADMIN, w3.n, p3.id, w3.head);
+	check(
+		'accept: the branch moved although another replica discarded first → the row says accepted',
+		[a3.status, runOf(p3.id).status, git.refs.get(w3.pull.head.ref) !== w3.head],
+		[200, 'accepted', true],
+	);
+}
+for (const [label, other, expected] of [
+	['the same tree and message', false, 'accepted'],
+	['another tree', true, 'stale'],
+] as const) {
+	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p = await proposed(w, both);
+	gh.beforePatch = () => {
+		const mine = gh.madeCommits.at(-1)!;
+		const tree = other ? putTree({ 'x.ts': 'other\n' }) : String(mine.tree);
+		const sha = putCommit(tree, mine.parents as string[], undefined, String(mine.message));
+		git.refs.set(w.pull.head.ref, sha);
+		w.pull.head.sha = sha;
+	};
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		`accept: a 422 because a second replica pushed ${label} → ${expected}`,
+		[a.status, runOf(p.id).status],
+		[expected === 'accepted' ? 200 : 409, expected],
+	);
+}
+{
+	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p = await proposed(w, both);
+	const forged = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
+		w.head,
+		w.main,
+	]);
+	git.refs.set(w.pull.head.ref, forged);
+	w.pull.head.sha = forged;
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'accept: a head with this run’s two parents but not its message is not its own merge → stale',
+		[a.status, runOf(p.id).status],
+		[409, 'stale'],
+	);
+}
+{
+	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p = await proposed(w, both);
+	git.refs.set(
+		'main',
+		putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 2;\n' }), [w.main]),
+	);
+	gh.compareTooLong = 299;
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	gh.compareTooLong = 0;
+	check(
+		'accept: a compare listing 299 files (complete) naming none of the run’s → still goes',
+		[a.status, runOf(p.id).status],
+		[200, 'accepted'],
+	);
+}
+
 // a merge landed but the answer was lost: the head is already this run’s merge commit
 const w14 = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
 const P14 = await proposed(w14, both);
-const landed = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
-	w14.head,
-	w14.main,
-]);
+const landed = putCommit(
+	putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }),
+	[w14.head, w14.main],
+	undefined,
+	`Merge main into x\n\nAccepted by Someone in Pipeline Changes (merge run ${P14.id})`,
+);
 git.refs.set(w14.pull.head.ref, landed);
 w14.pull.head.sha = landed;
 gh.calls.length = 0;
@@ -2822,7 +3177,7 @@ await wf('PATCH /git/refs/heads/', 'GitHub refusing the ref update over a workfl
 	git.commits.get(w.head)!.date = new Date(clock - 20 * MIN).toISOString();
 	const answer1 = await call(listRoute.GET, { user: ADMIN, params: { number: String(w.n) } });
 	check(
-		'GET merge-runs: the proposal, how far main has moved since, when the branch was last pushed, no file content',
+		'GET merge-runs: the proposal, how far main has moved since, when the branch was last pushed, the resolved content of an explained file',
 		[
 			answer1.status,
 			(answer1.body.run as Json).id,
@@ -2830,7 +3185,7 @@ await wf('PATCH /git/refs/heads/', 'GitHub refusing the ref update over a workfl
 			answer1.body.headCommittedAt,
 			JSON.stringify(answer1.body).includes('const a = 5'),
 		],
-		[200, p.id, 1, new Date(clock - 20 * MIN).toISOString(), false],
+		[200, p.id, 1, new Date(clock - 20 * MIN).toISOString(), true],
 	);
 	check(
 		'GET merge-runs: a tester who may see Changes but not merge reads it (200); a role without the tool does not (403)',
@@ -2899,15 +3254,105 @@ check(
 		null,
 	],
 );
-const hc = view.hunkColumns({ main: 'M', change: 'C', takes: 'both' });
+// the result column is the resolved file's own lines (§5), not what the hunk says it took
+const resolvedFile = {
+	deleted: false,
+	content: 'head\nexport const a = 2;\nexport const a = 5;\nmore\n',
+};
+const hunk = (takes: string) => ({
+	main: 'export const a = 3;',
+	change: 'export const a = 2;',
+	takes,
+	nowDoes: 'It is five.',
+});
 check(
-	'page: a hunk is three columns — main, this change, result (this change’s lines above main’s for both; none for a combination)',
+	'page: a hunk is three columns — main, this change, and the resolved file’s real lines (a hunk’s "takes" cannot make the result up)',
 	[
-		hc,
-		view.hunkColumns({ main: 'M', change: 'C', takes: 'main' }).result,
-		view.hunkColumns({ main: 'M', change: 'C', takes: 'combined' }).result,
+		view.hunkColumns(hunk('combined'), resolvedFile),
+		view.hunkColumns(hunk('main'), resolvedFile).result,
+		view.hunkColumns(hunk('both'), { deleted: false, content: 'x\nexport const a = 2;\ny\n' })
+			.result,
+		view.hunkColumns(hunk('main'), { deleted: false, content: 'nothing like it\n' }).result,
+		view.hunkColumns(hunk('combined'), { deleted: false, content: 'nothing like it\n' }).result,
+		view.hunkColumns(hunk('main'), { deleted: true, content: null }).result,
+		view.hunkColumns(hunk('combined'), null).result,
 	],
-	[{ main: 'M', change: 'C', result: 'C\nM' }, 'M', null],
+	[
+		{
+			main: 'export const a = 3;',
+			change: 'export const a = 2;',
+			result: 'export const a = 2;\nexport const a = 5;',
+		},
+		'export const a = 2;',
+		'export const a = 2;\ny',
+		"This side's lines are not in the resolved file at this place.",
+		'It is five.',
+		'The resolved file is deleted.',
+		'It is five.',
+	],
+);
+{
+	const record = {
+		id: 'aaaaaaaaaa',
+		prNumber: 1,
+		branch: 'b',
+		headSha: 'h'.repeat(40),
+		mainSha: 'm'.repeat(40),
+		status: 'proposed',
+		reason: null,
+		files: files(
+			{ path: 'src/a.ts', rule: null, choice: 'combined', content: 'const a = 5;\n' },
+			{ path: 'src/other.ts', rule: null, choice: 'main', content: 'other\n' },
+			{ path: 'src/gone.ts', rule: null, choice: 'change', content: null },
+		),
+		explanation: explanation(['src/a.ts', 'src/gone.ts']),
+		mergeSha: null,
+		spendUsd: null,
+		ghRunId: null,
+		startedBy: 'x',
+		acceptedBy: null,
+		createdAt: new Date(0),
+		updatedAt: new Date(0),
+		finishedAt: null,
+	};
+	const viewed = shared.mergeRunView(record, REPO);
+	check(
+		'mergeRunView: the resolved content is kept for a file a hunk is about (never for the others, or a deletion)',
+		viewed.files.map((f: { path: string; content: string | null }) => [f.path, f.content]),
+		[
+			['src/a.ts', 'const a = 5;\n'],
+			['src/other.ts', null],
+			['src/gone.ts', null],
+		],
+	);
+	const long = shared.mergeRunView(
+		{
+			...record,
+			files: files({
+				path: 'src/a.ts',
+				rule: null,
+				choice: 'combined',
+				content: 'x'.repeat(300_000),
+			}),
+		},
+		REPO,
+	);
+	check(
+		'mergeRunView: a resolved file is cut for the page',
+		long.files[0].content.length,
+		shared.VIEW_CONTENT_CAP,
+	);
+}
+check(
+	'page: Accept posts the head THIS PAGE showed, not the run’s (a branch moved since is then refused)',
+	[
+		view.acceptBody({ headSha: 'c'.repeat(40) }),
+		text('../src/routes/(app)/pipeline/MergeRunCards.svelte').includes(
+			'JSON.stringify(acceptBody(detail))',
+		),
+		text('../src/routes/(app)/pipeline/MergeRunCards.svelte').includes('headSha: run.headSha'),
+	],
+	[{ headSha: 'c'.repeat(40) }, true, false],
 );
 const bar = (
 	over: Record<string, unknown> = {},

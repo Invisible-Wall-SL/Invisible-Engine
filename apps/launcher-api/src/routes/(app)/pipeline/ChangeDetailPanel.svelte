@@ -133,14 +133,24 @@
 	const canHold = $derived(holdOffered(detail, canMerge));
 	const canResolve = $derived(resolveOffered(detail, mergeRuns, canMerge));
 
-	async function loadMerge(number: number): Promise<void> {
-		try {
-			const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
-			const body: unknown = await res.json().catch(() => null);
-			if (number === detail.number) mergeRuns = res.ok ? (body as MergeRunsAnswer) : null;
-		} catch {
-			if (number === detail.number) mergeRuns = null;
-		}
+	/** The merge-runs request in flight, so the effect and an action's re-read share one load. */
+	let loading: { number: number; done: Promise<void> } | null = null;
+
+	function loadMerge(number: number): Promise<void> {
+		if (loading?.number === number) return loading.done;
+		const done = (async () => {
+			try {
+				const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
+				const body: unknown = await res.json().catch(() => null);
+				if (number === detail.number) mergeRuns = res.ok ? (body as MergeRunsAnswer) : null;
+			} catch {
+				if (number === detail.number) mergeRuns = null;
+			} finally {
+				loading = null;
+			}
+		})();
+		loading = { number, done };
+		return done;
 	}
 
 	$effect(() => {
@@ -149,7 +159,8 @@
 	});
 
 	async function rereadAll(): Promise<void> {
-		await Promise.all([reread(), loadMerge(detail.number)]);
+		await reread();
+		await loadMerge(detail.number);
 	}
 
 	async function resolveConflict(): Promise<void> {

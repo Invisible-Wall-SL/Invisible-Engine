@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { RUNTIMES } from 'constants-shared/runtimes';
 import { createKeyedMutex } from './concurrency';
 import { githubApp, type GithubApp } from './githubApp';
+import { encodePath } from './githubPaths';
 import { blobSha } from './pipelineAgents';
 import { approverName, forgetChanges, isOnHold, readPull, repo } from './pipelineChanges';
 import { locateCentralDirectory, parseCentralDirectory, readZipEntry, type ZipEntry } from './zip';
@@ -200,8 +201,6 @@ const runOf = (runs: GhRun[], sha: string): GhRun | undefined =>
 				r.head_repository?.full_name === repo(),
 		)
 		.sort((a, b) => b.id - a.id)[0];
-
-const encodePath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
 /** One line, no backticks: the name goes into a commit message, where a bare `@name` pages someone. */
 export const clickerOf = (user: Parameters<typeof approverName>[0]): string =>

@@ -24,12 +24,13 @@
 //
 // THE MODEL'S RESULT, `$RUNNER_TEMP/out/result.json`:
 //   { "outcome": "proposed" | "needs_person", "reason": "<when needs_person>",
-//     "hunks": [{ "path", "index", "main", "change", "takes": "main"|"change"|"both"|"combined",
+//     "hunks": [{ "path", "index", "takes": "main"|"change"|"both"|"combined",
 //                 "why", "nowDoes": "<required when combined>" | null, "otherwise": "…" | null }],
 //     "outside": [{ "path", "what" }], "checks": [{ "command", "ok" }], "risks": "…" }
 // Every hunk of every file left for the model needs its entry (index as conflicts.json counts
 // them), and every file changed outside its hunks its `outside` line; anything missing or empty
-// ends the run `no_proposal`. collect fills what conflicted (from main's git) and the rules' part.
+// ends the run `no_proposal`. collect fills each hunk's `main` and `change` from git (the model's
+// own words for them are ignored) and the rules' part.
 //
 // THE LOG IS PUBLIC and reads `::` commands: each step prints one line inside a stop-commands
 // span, paths in printable ASCII only, and nothing of the model's words.
@@ -558,8 +559,8 @@ function ruleHunks(x) {
 		return x.hunks.map((h) => ({
 			path: x.path,
 			index: h.index,
-			main: h.main,
-			change: h.change,
+			main: sideOf(x, h.index, 'main'),
+			change: sideOf(x, h.index, 'change'),
 			takes: 'both',
 			why: DOCS_WHY,
 			nowDoes: null,
@@ -584,6 +585,17 @@ function ruleHunks(x) {
 	];
 }
 
+/**
+ * What one side really had in a hunk, from the merge's own segments: the lines as git read them,
+ * never the model's account of them. A hunk with no lines on that side (or a modify/delete, which
+ * has no segments) falls back to the record's one-line summary.
+ */
+function sideOf(x, index, side) {
+	const hunk = x.segments?.filter((s) => s.hunk)[index]?.hunk;
+	const text = hunk?.[side]?.trim() ? clean(hunk[side]) : '';
+	return text || x.hunks[index][side];
+}
+
 /** The model's hunks, outside edits, checks and risks, checked against the files it had. */
 function modelExplanation(result, plan, outside) {
 	const model = new Map(plan.model.map((path) => [path, plan.paths.find((x) => x.path === path)]));
@@ -601,14 +613,14 @@ function modelExplanation(result, plan, outside) {
 		const entry = {
 			path: h.path,
 			index: h.index,
-			main: clean(h.main),
-			change: clean(h.change),
+			main: sideOf(x, h.index, 'main'),
+			change: sideOf(x, h.index, 'change'),
 			takes: TAKES.includes(h.takes) ? h.takes : null,
 			why: clean(h.why),
 			nowDoes: optional(h.nowDoes),
 			otherwise: optional(h.otherwise),
 		};
-		if (!entry.main || !entry.change || !entry.takes || !entry.why) noProposal(NO_EXPLANATION);
+		if (!entry.takes || !entry.why) noProposal(NO_EXPLANATION);
 		if (entry.takes === 'combined' && !entry.nowDoes) noProposal(NO_EXPLANATION);
 		return entry;
 	});

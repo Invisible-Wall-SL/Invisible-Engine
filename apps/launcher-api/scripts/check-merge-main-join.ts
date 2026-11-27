@@ -259,7 +259,7 @@ function launcherSide(label: string, repo: Repo, job: Job): void {
 		isExplainedMerge(explanation) && explanationSize(explanation) <= MERGE_CAPS.explanation,
 	);
 	const hunkPaths = new Set((explanation?.hunks ?? []).map((h) => h.path));
-	const problem = filesProblem(parsed.files, hunkPaths);
+	const problem = filesProblem(parsed.files, hunkPaths, treeOf(repo.dir, repo.main));
 	check(
 		`${label}: filesProblem finds nothing in the job's files`,
 		problem === null,

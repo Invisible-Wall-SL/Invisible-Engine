@@ -273,7 +273,15 @@ export interface MergeRunFileView {
 	rule: MergeRule | null;
 	deleted: boolean;
 	bytes: number;
+	/**
+	 * The resolved text, for a file a hunk is about (the card's "result" column reads its region from
+	 * it); null for the others and for a deletion, cut at {@link VIEW_CONTENT_CAP} characters.
+	 */
+	content: string | null;
 }
+
+/** How much of a resolved file the page is sent. */
+export const VIEW_CONTENT_CAP = 200_000;
 
 /** One merge run as the change's detail shows it. The run's words are text, never HTML. */
 export interface MergeRunView {
@@ -297,6 +305,7 @@ export interface MergeRunView {
 }
 
 export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
+	const explained = new Set((run.explanation?.hunks ?? []).map((h) => h.path));
 	return {
 		id: run.id,
 		prNumber: run.prNumber,
@@ -311,6 +320,8 @@ export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
 			rule: f.rule,
 			deleted: f.content === null,
 			bytes: f.content === null ? 0 : new TextEncoder().encode(f.content).length,
+			content:
+				f.content !== null && explained.has(f.path) ? f.content.slice(0, VIEW_CONTENT_CAP) : null,
 		})),
 		explanation: run.explanation,
 		mergeSha: run.mergeSha,

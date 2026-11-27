@@ -1152,6 +1152,31 @@ check(
 		'guard: an edit outside a hunk, listed, is allowed and shown',
 	);
 }
+{
+	const lying = model(staged(), {
+		result: {
+			...goodResult(),
+			hunks: goodResult().hunks.map((h) => ({
+				...h,
+				main: 'MODEL-MADE-UP MAIN',
+				change: 'MODEL-MADE-UP CHANGE',
+			})),
+		},
+	});
+	const [h0, h1] = lying.explanation.hunks.filter((h) => h.path === 'src/a.ts');
+	const docs = lying.explanation.hunks.find((h) => h.path === 'docs/status/x.md');
+	check(
+		lying.outcome === 'proposed' &&
+			h0.main === 'export const a = 3;' &&
+			h0.change === 'export const a = 2;' &&
+			h1.change === 'export const b = 2;' &&
+			h1.main === 'export const b = 3;' &&
+			docs.main.includes('main entry') &&
+			docs.change.includes('change entry') &&
+			!JSON.stringify(lying.explanation).includes('MODEL-MADE-UP'),
+		"proposal: a hunk's main and change are the sides' real lines from git, not the model's words",
+	);
+}
 check(
 	refusedWith(model(staged(), { files: {} }), 'conflict marker in src/a.ts'),
 	'guard: a marker left',
@@ -1249,7 +1274,12 @@ check(
 	const huge = model(staged(), {
 		result: {
 			...goodResult(),
-			hunks: goodResult().hunks.map((h) => ({ ...h, why: long, main: long, change: long })),
+			hunks: goodResult().hunks.map((h) => ({
+				...h,
+				why: long,
+				nowDoes: long,
+				otherwise: long,
+			})),
 		},
 	});
 	check(
