@@ -54,9 +54,14 @@ const esbuild = createRequire(createRequire(join(ROOT, 'apps/lines/package.json'
 );
 
 /** The page's entry, for the checkout at `root`: `window.riverPixels.render(case)` draws one case
- *  and returns each stop's canvas as a PNG data URL; `stops(case)` the river's facts to place them. */
-const entry = (root) => `
+ *  and returns each stop's canvas as a PNG data URL; `stops(case)` the river's facts to place them.
+ *  A checkout whose riverbed ripples in its own program (`bedRipple.ts`) is handed it, as the game
+ *  hands it. */
+const entry = (root) => {
+	const ripple = existsSync(join(root, 'packages/engine-layout/src/lib/salmonsArt/bedRipple.ts'));
+	return `
 import { Application, Container } from 'pixi.js';
+${ripple ? `import { bedRipple } from '${root}/packages/engine-layout/src/lib/salmonsArt/bedRipple.ts';` : ''}
 import { mountSalmonsRiver } from '${root}/packages/engine-layout/src/lib/salmonsArt/river.ts';
 import { loadSalmonsTextures } from '${root}/packages/engine-layout/src/lib/salmonsArt/load.ts';
 import { registerProjectedLayer } from '${root}/packages/engine-layout/src/lib/worldDrawing.svelte.ts';
@@ -110,7 +115,7 @@ async function render(c) {
 	};
 	lookAt(c.stops[0].x, c.stops[0].y);
 	app.renderer.render(app.stage);
-	const art = mountSalmonsRiver(into, app, await loadSalmonsTextures([]), riverOf(c), c.seed, projector);
+	const art = mountSalmonsRiver(into, app, await loadSalmonsTextures([]), riverOf(c), c.seed, projector${ripple ? ', undefined, (...made) => bedRipple(app, ...made)' : ''});
 	art.aboveWater();
 	const shots = [];
 	for (let s = 1; s < c.stops.length; s++) {
@@ -138,6 +143,7 @@ function stops(c) {
 
 window.riverPixels = { render, stops };
 `;
+};
 
 const CASES = [
 	{

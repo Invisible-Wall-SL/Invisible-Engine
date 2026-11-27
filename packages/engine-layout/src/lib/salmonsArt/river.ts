@@ -1,14 +1,16 @@
 import {
 	AnimatedSprite,
-	Bounds,
 	Container,
-	DisplacementFilter,
 	Graphics,
 	Matrix,
+	Mesh,
+	MeshGeometry,
+	Rectangle,
 	Sprite,
 	Texture,
 	TilingSprite,
 	type Application,
+	type Shader,
 	type Ticker,
 } from 'pixi.js';
 import {
@@ -26,6 +28,7 @@ import { ISO_DEPTH_SPREAD, ISO_PROJECTOR, isoDepth, type IsoProjector } from '..
 import { SALMONS_FIELD_LAYER, type SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { ZoneRig } from '../zoneArtRig';
+import type { BedAtlasLayout, BedRipple } from './bedRipple';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
 import { seededRandom } from './random';
@@ -65,8 +68,11 @@ import { zoneFrames, type RiverZoneArt, type ZoneFrames } from './zoneArt';
  * reflections are not: they are few, and drawn relative to a group a world wide their see-through
  * layers round a level differently on the GPU.) A chunk keeps its tiles in the order they were
  * laid, and the chunks of a layer are ordered so that any two tiles that overlap in area are drawn
- * in that order too ({@link chunkFor}); the riverbed's ripple covers the tiles in view, not their chunks
- * ({@link rippleBy}): the river draws as if every tile were laid loose. The upright pieces are
+ * in that order too ({@link chunkFor}): the river draws as if every tile were laid loose. A riverbed
+ * chunk is one mesh of its tiles' quads, read from one atlas of the bed's pictures, and drawn by
+ * the ripple's own program (`bedRipple.ts`): the old client's moving displacement map is read
+ * there, pixel by pixel, with no pass over the screen; with no such program the mesh is drawn
+ * plain, batched as the tiles were. The upright pieces are
  * culled by a coarser box, their clocks by the view; the pieces among the players come and go
  * with the view exactly, as loose pieces did (their order among the players is by depth, ties by
  * arrival).
@@ -187,37 +193,84 @@ function diamondTexture(app: Application, paint: (g: Graphics) => void): Texture
 	return texture;
 }
 
-const diamond = (g: Graphics, w = 64, h = 32) =>
+const diamond = (g: Graphics, w = 64, h = 32, x = 0, y = 0) =>
 	g
-		.moveTo(w / 2, 0)
-		.lineTo(w, h / 2)
-		.lineTo(w / 2, h)
-		.lineTo(0, h / 2)
+		.moveTo(x + w / 2, y)
+		.lineTo(x + w, y + h / 2)
+		.lineTo(x + w / 2, y + h)
+		.lineTo(x, y + h / 2)
 		.closePath();
 
-/** The old client's riverbed variant `seed` (0–8) in one of `sands`: a sandy diamond with its
- *  pebbles. */
-function riverbedTexture(app: Application, seed: number, sands: readonly string[]): Texture {
-	return diamondTexture(app, (g) => {
-		const w = 64;
-		const h = 32;
-		diamond(g).fill(colour(sands[seed % sands.length]));
-		let s = (seed * 9301 + 49297) % 233280;
-		const rand = () => {
-			s = (s * 9301 + 49297) % 233280;
-			return s / 233280;
-		};
-		const pebbles = 8 + Math.floor(rand() * 6);
-		for (let i = 0; i < pebbles; i++) {
-			const px = w * 0.1 + rand() * w * 0.8;
-			const py = h * 0.1 + rand() * h * 0.8;
-			const out = Math.abs(px - w / 2) / (w / 2) + Math.abs(py - h / 2) / (h / 2) > 0.9;
-			const r = 0.7 + rand() * 1.6;
-			const tone = rand();
-			if (out) continue;
-			g.circle(px, py, r).fill(tone < 0.55 ? 0x6e5235 : tone < 0.85 ? 0xe0c89a : 0x4a6b4a);
-		}
+/** A riverbed tile's picture, px: the old client's 64 × 32 diamond. */
+const BED_W = 64;
+const BED_H = 32;
+
+/** The old client's riverbed variant `seed` (0–8) in one of `sands`, painted into `g` with its
+ *  top-left corner at (x, y): a sandy diamond with its pebbles, none further out of its middle than
+ *  0.9 of the way to its rim (`bedRipple.ts` `RIPPLE_EDGE`). */
+function paintRiverbed(g: Graphics, seed: number, sands: readonly string[], x: number, y: number) {
+	const w = BED_W;
+	const h = BED_H;
+	diamond(g, w, h, x, y).fill(colour(sands[seed % sands.length]));
+	let s = (seed * 9301 + 49297) % 233280;
+	const rand = () => {
+		s = (s * 9301 + 49297) % 233280;
+		return s / 233280;
+	};
+	const pebbles = 8 + Math.floor(rand() * 6);
+	for (let i = 0; i < pebbles; i++) {
+		const px = w * 0.1 + rand() * w * 0.8;
+		const py = h * 0.1 + rand() * h * 0.8;
+		const out = Math.abs(px - w / 2) / (w / 2) + Math.abs(py - h / 2) / (h / 2) > 0.9;
+		const r = 0.7 + rand() * 1.6;
+		const tone = rand();
+		if (out) continue;
+		g.circle(x + px, y + py, r).fill(tone < 0.55 ? 0x6e5235 : tone < 0.85 ? 0xe0c89a : 0x4a6b4a);
+	}
+}
+
+/** The room round each picture on the bed's atlas, px, and how many pictures a row of it holds. */
+const BED_PAD = 2;
+const BED_SLOT_W = BED_W + 2 * BED_PAD;
+const BED_SLOT_H = BED_H + 2 * BED_PAD;
+const BED_ATLAS_COLUMNS = 8;
+
+/** Every riverbed picture of a river on one texture (so a chunk of the bed is one mesh), each in
+ *  a slot of its own with {@link BED_PAD} of clear room round it, row by row. */
+function riverbedAtlas(
+	app: Application,
+	pictures: readonly { seed: number; sands: readonly string[] }[],
+): { texture: Texture; layout: BedAtlasLayout; columns: number; w: number; h: number } {
+	const columns = Math.max(1, Math.min(BED_ATLAS_COLUMNS, pictures.length));
+	const w = columns * BED_SLOT_W;
+	const h = Math.max(1, Math.ceil(pictures.length / columns)) * BED_SLOT_H;
+	const g = new Graphics();
+	pictures.forEach(({ seed, sands }, i) =>
+		paintRiverbed(
+			g,
+			seed,
+			sands,
+			(i % columns) * BED_SLOT_W + BED_PAD,
+			Math.floor(i / columns) * BED_SLOT_H + BED_PAD,
+		),
+	);
+	const texture = app.renderer.generateTexture({
+		target: g,
+		resolution: 2,
+		frame: new Rectangle(0, 0, w, h),
 	});
+	g.destroy();
+	return {
+		texture,
+		layout: {
+			slot: { u: BED_SLOT_W / w, v: BED_SLOT_H / h },
+			pad: { u: BED_PAD / w, v: BED_PAD / h },
+			size: { u: BED_W / w, v: BED_H / h },
+		},
+		columns,
+		w,
+		h,
+	};
 }
 
 /** The old client's sea tile: a deep diamond with a lighter swell. */
@@ -235,9 +288,13 @@ function seaTexture(app: Application): Texture {
 	});
 }
 
+/** The displacement map's side, px: it repeats every {@link NOISE_SIZE} px of the river's
+ *  container (`bedRipple.ts` `RIPPLE_REPEAT`). */
+const NOISE_SIZE = 256;
+
 /** The old client's displacement map: 256 × 256 smooth noise, red and green the x and y push. */
 function displacementTexture(): Texture {
-	const size = 256;
+	const size = NOISE_SIZE;
 	const canvas = document.createElement('canvas');
 	canvas.width = size;
 	canvas.height = size;
@@ -321,8 +378,8 @@ type Chunk = {
 	/** Its group's container, and its place in the group's order. */
 	home: Container;
 	rank: number;
-	/** A riverbed chunk's tiles: each one's box in the world, in their order. */
-	boxes?: Box[];
+	/** A riverbed chunk's tiles, in their order: drawn as one mesh. */
+	quads?: BedQuad[];
 };
 /**
  * A run of a ground layer's tiles drawn as a loose layer drew them: the tiles raised by one lift
@@ -394,9 +451,25 @@ export function spawnLayerOf(id: string): Container | undefined {
 const AMONG = 'salmons-art:among';
 
 /**
+ * What draws the riverbed's ripple (`bedRipple.ts`): made once the bed's pictures are on their
+ * atlas (`layout`; `uvPerPx` the bed's px to the atlas's UVs, column by column), with the old
+ * client's displacement map `noise`; none ⇒ the bed is drawn plain.
+ */
+export type RippleOf = (
+	atlas: Texture,
+	noise: Texture,
+	layout: BedAtlasLayout,
+	uvPerPx: readonly [number, number, number, number],
+) => BedRipple | undefined;
+
+/** A riverbed tile of a chunk: its cell's top-left corner, world px, and its picture's slot. */
+type BedQuad = { x: number; y: number; slot: number };
+
+/**
  * Draw `river` into `into` (at the projected origin of its world screen) with `art`, by
  * `projector` (the screen's); returns its teardown and its probes. `seed` keeps the trees, rocks
- * and bed the same on every device of a room.
+ * and bed the same on every device of a room. `ripple` draws the riverbed's ripple; none, the bed
+ * is drawn still.
  */
 export function mountSalmonsRiver(
 	into: Container,
@@ -406,6 +479,7 @@ export function mountSalmonsRiver(
 	seed: number | string,
 	projector: IsoProjector = ISO_PROJECTOR,
 	zoneArt?: RiverZoneArt,
+	ripple?: RippleOf,
 ): RiverArt {
 	const { project, unproject } = projector;
 	const flip = projector.ground.flip;
@@ -414,13 +488,15 @@ export function mountSalmonsRiver(
 	const made: Texture[] = [];
 	const own = (texture: Texture) => (made.push(texture), texture);
 	const biomes = river.biomes ?? ORIGINAL_BIOMES;
-	const bedSets = new Map<string, Texture[]>();
-	/** A biome's riverbed tiles, one per sand: made once per set of sands. */
+	const bedSets = new Map<string, number[]>();
+	/** The riverbed's pictures, in the order of their slots on the bed's atlas. */
+	const bedPictures: { seed: number; sands: readonly string[] }[] = [];
+	/** A biome's riverbed pictures, one per sand, as slots of the atlas: one set per set of sands. */
 	const bedsOf = (kind: SalmonsBiome) => {
 		const key = kind.riverbed.join();
 		let set = bedSets.get(key);
 		if (!set) {
-			set = kind.riverbed.map((_, i) => own(riverbedTexture(app, i, kind.riverbed)));
+			set = kind.riverbed.map((_, i) => bedPictures.push({ seed: i, sands: kind.riverbed }) - 1);
 			bedSets.set(key, set);
 		}
 		return set;
@@ -574,8 +650,7 @@ export function mountSalmonsRiver(
 		.fill(colour(kindOf(0).forestFloor));
 
 	// The ground: drawn flat (`flat`, the plane turned 45° and squashed by `turn`), the riverbed
-	// apart in `rippled`, a container square to the screen that its ripple (the displacement filter)
-	// is drawn over, its area measured as the riverbed's was before it was chunked.
+	// apart in `rippled`, its chunks' meshes drawn by the ripple's program (none is drawn over it).
 	const turn = new Container();
 	turn.scale.set(1, 0.5);
 	turn.isRenderGroup = true;
@@ -605,12 +680,9 @@ export function mountSalmonsRiver(
 	const cliffs = new Container();
 	const reflections = new Container();
 	const upright = new Container();
-	// Only read for its place (the filter maps its texture by the sprite's transform): never drawn.
-	const displacement = new Sprite(noise);
-	displacement.renderable = false;
-	const filter = new DisplacementFilter({ sprite: displacement, scale: { x: 6, y: 4 } });
-	rippled.filters = [filter];
-	const roots = [floor, displacement, cliffs, turn, reflections, upright];
+	// Where the displacement map is, px in `into`: it moves on with the ticker (`tick`).
+	const displacement = { x: 0, y: 0 };
+	const roots = [floor, cliffs, turn, reflections, upright];
 	into.addChild(...roots);
 
 	const uprightCulled: Culled[] = [];
@@ -719,16 +791,16 @@ export function mountSalmonsRiver(
 	 *  one cell of the grid. */
 	const onGround = (
 		layer: Container,
-		make: () => Container,
+		make: (() => Container) | BedQuad,
 		box: Box,
 		cell?: { c: number; r: number },
 	) => {
 		const lift = elevation.at(box.y0);
 		const chunk = chunkFor(groupOf(layer, lift), cell);
 		const lifted = { x0: box.x0 - lift, y0: box.y0 - lift, x1: box.x1 - lift, y1: box.y1 - lift };
-		chunk.make.push(make);
+		if (typeof make === 'function') chunk.make.push(make);
+		else (chunk.quads ??= []).push(make);
 		grow(chunk.box, lifted);
-		if (layer === bed) (chunk.boxes ??= []).push(lifted);
 	};
 	const tile = (layer: Container, texture: Texture, c: number, r: number, tinted = UNTINTED) => {
 		const box = cellBox(c, r);
@@ -771,7 +843,8 @@ export function mountSalmonsRiver(
 	const zOf = (x: number, y: number, offset: number) => isoDepth(x, y) + offset * DEPTH_PER_OLD_PX;
 	const bedTile = (c: number, r: number) => {
 		const beds = bedsOf(kindOf(r));
-		return beds[((Math.imul(c, 73856093) ^ Math.imul(r, 19349663)) >>> 0) % beds.length];
+		const slot = beds[((Math.imul(c, 73856093) ^ Math.imul(r, 19349663)) >>> 0) % beds.length];
+		onGround(bed, { x: c * CELL, y: r * CELL, slot }, cellBox(c, r), { c, r });
 	};
 	const tintTile = (c: number, r: number, color: number) =>
 		onGround(
@@ -790,7 +863,7 @@ export function mountSalmonsRiver(
 		);
 	const water = (c: number, r: number, wet: Wet) => {
 		if (wet === 'sea') return tile(seaLayer, sea, c, r);
-		tile(bed, bedTile(c, r), c, r);
+		bedTile(c, r);
 		tintTile(c, r, tintOf(wet));
 	};
 	/** One of a biome's trees, by a draw of `rng` (of two, below a half the first). */
@@ -1235,60 +1308,98 @@ export function mountSalmonsRiver(
 	for (const group of allGroups)
 		[...group.chunks.values()].sort(byPlace).forEach((chunk, i) => (chunk.rank = i));
 	const chunkOf = new Map(chunks.map((chunk) => [chunk.view, chunk]));
-	const build = (chunk: Chunk) => {
-		chunk.view.addChild(...chunk.make.map((make) => make()));
-		chunk.make = [];
-		chunk.built = true;
-	};
-	const bedChunks = chunks.filter((chunk) => chunk.boxes);
-	/** The riverbed's tiles that meet the view's ground box: the ones a riverbed culled tile by
-	 *  tile drew, as its chunks are shown whole. */
-	let rippling: Container[] = [];
-	const rippleBy = (ground: Box) => {
-		rippling = [];
-		for (const chunk of bedChunks) {
-			const { boxes } = chunk;
-			if (!boxes || !chunk.built || !meets(chunk.box, ground)) continue;
-			const tiles = chunk.view.children;
-			if (within(chunk.box, ground)) rippling.push(...tiles);
-			else boxes.forEach((box, i) => meets(box, ground) && rippling.push(tiles[i]));
-		}
-	};
+
+	// The riverbed's pictures on one atlas; its ripple, drawn by the bed's own program, with it.
+	const atlas = riverbedAtlas(app, bedPictures);
+	own(atlas.texture);
+	// A tile's picture is its cell turned back by the ground's turn, as `groundTile` draws it: a
+	// corner (s, t) of the picture (0 to 1) at its cell's middle plus R(θ)·(w·(s − ½), h·(t − ½)).
+	const TILE_TURN = -Math.PI / 4;
+	const cos = Math.cos(TILE_TURN);
+	const sin = Math.sin(TILE_TURN);
+	const tileW = flip * Math.SQRT2 * CELL;
+	const tileH = Math.SQRT2 * CELL;
+	const { slot: slotUv, pad: padUv, size: sizeUv } = atlas.layout;
+	// So the bed's px are turned to the atlas's UVs by diag(size / w, size / h) · R(−θ), column by
+	// column.
+	const uvPerPx = [
+		(sizeUv.u / tileW) * cos,
+		(-sizeUv.v / tileH) * sin,
+		(sizeUv.u / tileW) * sin,
+		(sizeUv.v / tileH) * cos,
+	] as const;
+	const ripples = ripple?.(atlas.texture, noise, atlas.layout, uvPerPx);
+	ripples?.move(displacement.x, displacement.y);
+	const geometries: MeshGeometry[] = [];
+	const CORNERS = [
+		[0, 0],
+		[1, 0],
+		[1, 1],
+		[0, 1],
+	] as const;
 	/**
-	 * The ripple's area, as the filter measured the riverbed when its tiles were laid loose and
-	 * culled one by one: each tile of {@link rippleBy}'s, its frame through the chain of transforms
-	 * from the scene's render group down to it, composed in the same order, so the area's edges are
-	 * the same floats and round to the same pixels. The ground's render group, `rippled` and the
-	 * chunks add only identities to that chain.
+	 * A riverbed chunk's tiles as one mesh, in their order, each its picture's slot on the atlas
+	 * where `groundTile` put the picture. Each corner carries its place in `into` (`aInto`), where
+	 * the displacement map is read, less whole repeats of the map, so the program reads it with
+	 * small numbers.
 	 */
-	const chain = { bed: new Matrix(), group: new Matrix(), tile: new Matrix() };
-	rippled.getFastGlobalBounds = (_factorRenderLayers?: boolean, bounds = new Bounds()) => {
-		bounds.clear();
-		const scene = turn.parentRenderGroup;
-		if (!scene) return bounds;
-		bedPlane.updateLocalTransform();
-		bed.updateLocalTransform();
-		chain.bed
-			.appendFrom(bedPlane.localTransform, turn.relativeGroupTransform)
-			.appendFrom(bed.localTransform, chain.bed);
-		let home: Container | null = null;
-		for (const tile of rippling) {
-			const group = tile.parent?.parent ?? null;
-			if (!group) continue;
-			if (group !== home) {
-				home = group;
-				group.updateLocalTransform();
-				chain.group.appendFrom(group.localTransform, chain.bed);
-			}
-			if (!(tile instanceof Sprite)) continue;
-			tile.updateLocalTransform();
-			chain.tile.appendFrom(tile.localTransform, chain.group);
-			const frame = tile.bounds;
-			bounds.addFrame(frame.minX, frame.minY, frame.maxX, frame.maxY, chain.tile);
+	const bedMesh = (quads: readonly BedQuad[], home: Container): Mesh<MeshGeometry, Shader> => {
+		for (const node of [turn, rippled, bedPlane, bed, home]) node.updateLocalTransform();
+		const toInto = new Matrix()
+			.append(turn.localTransform)
+			.append(rippled.localTransform)
+			.append(bedPlane.localTransform)
+			.append(bed.localTransform)
+			.append(home.localTransform);
+		const n = quads.length;
+		const positions = new Float32Array(n * 8);
+		const uvs = new Float32Array(n * 8);
+		const at = new Float32Array(n * 8);
+		const indices = new Uint32Array(n * 6);
+		quads.forEach(({ x, y, slot }, q) => {
+			const cx = x + CELL / 2;
+			const cy = y + CELL / 2;
+			const u0 = (slot % atlas.columns) * slotUv.u + padUv.u;
+			const v0 = Math.floor(slot / atlas.columns) * slotUv.v + padUv.v;
+			CORNERS.forEach(([s, t], k) => {
+				const lx = tileW * (s - 0.5);
+				const ly = tileH * (t - 0.5);
+				const px = cx + cos * lx - sin * ly;
+				const py = cy + sin * lx + cos * ly;
+				const i = (q * 4 + k) * 2;
+				positions[i] = px;
+				positions[i + 1] = py;
+				uvs[i] = u0 + s * sizeUv.u;
+				uvs[i + 1] = v0 + t * sizeUv.v;
+				at[i] = toInto.a * px + toInto.c * py + toInto.tx;
+				at[i + 1] = toInto.b * px + toInto.d * py + toInto.ty;
+			});
+			const o = q * 4;
+			indices.set([o, o + 1, o + 2, o, o + 2, o + 3], q * 6);
+		});
+		const wx = Math.floor(at[0] / NOISE_SIZE) * NOISE_SIZE;
+		const wy = Math.floor(at[1] / NOISE_SIZE) * NOISE_SIZE;
+		for (let i = 0; i < at.length; i += 2) {
+			at[i] -= wx;
+			at[i + 1] -= wy;
 		}
-		if (!bounds.isValid) bounds.set(0, 0, 0, 0);
-		bounds.applyMatrix(scene.worldTransform);
-		return bounds;
+		const geometry = new MeshGeometry({ positions, uvs, indices });
+		// Drawn plain (no ripple), it is batched with the ground as the tiles were.
+		geometry.batchMode = 'batch';
+		geometry.addAttribute('aInto', { buffer: at, format: 'float32x2' });
+		geometries.push(geometry);
+		return new Mesh<MeshGeometry, Shader>({
+			geometry,
+			texture: atlas.texture,
+			...(ripples ? { shader: ripples.shader } : {}),
+		});
+	};
+	const build = (chunk: Chunk) => {
+		if (chunk.quads) chunk.view.addChild(bedMesh(chunk.quads, chunk.home));
+		if (chunk.make.length) chunk.view.addChild(...chunk.make.map((make) => make()));
+		chunk.make = [];
+		chunk.quads = undefined;
+		chunk.built = true;
 	};
 	const attach = (chunk: Chunk) => {
 		if (chunk.view.parent === chunk.home) return;
@@ -1319,7 +1430,7 @@ export function mountSalmonsRiver(
 		while (budget > 0 && ahead.length) {
 			const chunk = ahead.pop();
 			if (!chunk || chunk.built) continue;
-			budget -= chunk.make.length;
+			budget -= chunk.make.length + (chunk.quads?.length ?? 0);
 			build(chunk);
 		}
 	};
@@ -1407,7 +1518,6 @@ export function mountSalmonsRiver(
 			y1: Math.max(...world.map((p) => p.y)) + CELL,
 		};
 		cullGround(ground);
-		rippleBy(ground);
 		cullUpright(viewBox);
 		return true;
 	};
@@ -1478,6 +1588,7 @@ export function mountSalmonsRiver(
 		frame += frames;
 		displacement.x += 0.35 * frames;
 		displacement.y += 0.18 * frames;
+		ripples?.move(displacement.x, displacement.y);
 		for (let i = 0; i < faces.length; i += 2) {
 			faces[i].tilePosition.y += 0.8 * frames;
 			faces[i + 1].tilePosition.y += 0.45 * frames;
@@ -1501,12 +1612,12 @@ export function mountSalmonsRiver(
 	return {
 		teardown: () => {
 			app.ticker.remove(tick);
-			rippled.filters = [];
-			filter.destroy();
+			ripples?.destroy();
 			for (const rig of rigs) rig.destroy();
 			for (const piece of among) piece.view?.destroy();
 			for (const chunk of chunks) if (!chunk.view.parent) chunk.view.destroy({ children: true });
 			for (const root of roots) root.destroy({ children: true });
+			for (const geometry of geometries) geometry.destroy();
 			for (const texture of made) texture.destroy(true);
 		},
 		regions: () => Object.fromEntries(used),
@@ -1519,4 +1630,3 @@ export function mountSalmonsRiver(
 }
 
 const meets = (a: Box, b: Box) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
-const within = (a: Box, b: Box) => a.x0 >= b.x0 && a.x1 <= b.x1 && a.y0 >= b.y0 && a.y1 <= b.y1;

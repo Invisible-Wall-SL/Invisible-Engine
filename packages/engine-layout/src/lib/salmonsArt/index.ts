@@ -3,6 +3,7 @@ import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { worldDrawing } from '../worldDrawing.svelte';
+import { bedRipple } from './bedRipple';
 import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
 import { warmBodyShaders } from './bodyShaders';
 import { createFloats, type FloatAt } from './floats';
@@ -18,7 +19,6 @@ import {
 	type SalmonsScreens,
 } from './screens';
 import { createWading, type WadeDrawn, type WadeFrame } from './wade';
-import { wadeSurface, warmWade } from './wadeFilter';
 import { TINT_ALPHA, waterUnder } from './water';
 import type { WinShown } from './winAnimation';
 import type { RiverZoneArt, SalmonsZoneArt } from './zoneArt';
@@ -28,9 +28,10 @@ import type { RiverZoneArt, SalmonsZoneArt } from './zoneArt';
  * drawn with the old game's own images, animated in code as its client animated them. Imported
  * lazily by the online runtime (`apps/lines` `game/online.ts`) only for a room whose config names
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
- * One thing here is not the old client's: the bear wades (`wade.ts`, `wadeFilter.ts`), drawn half
- * under the water it stands in whatever draws it. The water a code look is drawn under is in its
- * own programs (`bodyShaders.ts`), with no pass per body.
+ * One thing here is not the old client's: the bear wades (`wade.ts`), drawn half under the water
+ * it stands in by its code look's own programs (`bodyShaders.ts`), with no pass per body; a look
+ * that has none (a rig, a turned clip, a GPU that refuses them) is drawn as on land. The
+ * riverbed's ripple is in the bed's own program too (`bedRipple.ts`), with no pass over the screen.
  */
 
 export type {
@@ -65,7 +66,7 @@ export type SalmonsArt = {
 	look: (character: string, body: { w: number; h: number }) => CodeLook | undefined;
 	/** The mount to publish for player `id` this frame, whose look (a code look, a sheet's rig or
 	 *  its turned clip) is mounted by `look`: its own for a character that wades (the bear), which
-	 *  draws it half under the water it stands in, else `look` itself (`wade.ts`). */
+	 *  has a code look draw it half under the water it stands in, else `look` itself (`wade.ts`). */
 	wade: (id: string, look: ArtMount, frame: WadeFrame) => ArtMount;
 	/** The players drawn this frame: the wading of any other is let go. */
 	wadersDrawn: (drawn: (id: string) => boolean) => void;
@@ -133,7 +134,7 @@ export async function loadSalmonsArt(
 	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	const floats = createFloats(() => worldDrawing().projector);
-	const wading = createWading(waterAt, TINT_ALPHA, wadeSurface);
+	const wading = createWading(waterAt, TINT_ALPHA);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
@@ -146,9 +147,9 @@ export async function loadSalmonsArt(
 				seed,
 				worldDrawing().projector,
 				riverZoneArt,
+				(atlas, noise, layout, uvPerPx) => bedRipple(app, atlas, noise, layout, uvPerPx),
 			);
 			const stains = blood.mount(into, app);
-			warmWade(app);
 			warmBodyShaders(app);
 			// The swimming salmon, and the trail and the stains on the water over it: over the tinted
 			// ground, under the bridges' reflections and every upright piece of the river.

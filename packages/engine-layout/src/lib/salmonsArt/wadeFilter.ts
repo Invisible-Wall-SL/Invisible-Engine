@@ -17,6 +17,10 @@ import { FILTER_VERTEX, programLinks } from 'pixi-svelte/elementFx';
 import { WADE, type WadeSurface, type Waterline } from './wade';
 
 /**
+ * NOT PUT ON ANY BODY BY THE GAME (owner, 2026-11-27: no pass per body; `index.ts` gives the wading
+ * no surface): kept as the pass the code look's own step (`bodyShaders.ts`) was drawn to, which the
+ * checks and the pixel harness (`scripts/salmons/bodies-pixels.mjs`) still read it as.
+ *
  * THE PASS THAT DRAWS A WADER'S WATER (`wade.ts`), written for the WebGL renderer the game forces,
  * as the Element FX passes are (`pixi-svelte` `elementFx/shaders.ts`, whose vertex stage it draws
  * with), in GLSL both WebGL 1 and 2 take. One pass over the look's own pixels, premultiplied as

@@ -2748,6 +2748,36 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     stall rows and source checks, `salmons-play.mjs --stall` ([playtest](../playtest/salmons.md)
     "A stall").
 
+- 2026-11-27 — **The river's GPU work: no ripple pass, no wading pass** (owner's option A: only
+  the art code changes; quality ladder, resolution and MSAA untouched). Not committed (fix run).
+  - **The riverbed's ripple** (`salmonsArt/bedRipple.ts`, new; `river.ts`): no
+    `DisplacementFilter` over the bed. Every riverbed picture is painted onto one atlas, and a
+    chunk of the bed is one mesh of its tiles' quads (the same corners, order and pictures as the
+    sprites were, checked tile for tile against main 7f05b92). The mesh is drawn by the ripple's
+    own program, which reads the same 256 px displacement map at each pixel's place in the
+    river's container (moved on 0.35 / 0.18 px a frame, as before) and reads the tile's picture
+    up to ±3 / ±2 screen px off, as the filter did. Looks different in one way: the filter read
+    the whole bed, so the seams between two sand colours wobbled too. Now each tile reads only
+    its own diamond (a push past 0.9 of the way to its rim reads the pixel unpushed, and a pixel
+    outside the diamond is never pushed in), so seams stay still and the pebbles ripple. Not
+    WebGL, or a GPU that refuses the program (warned once): the bed is drawn plain (no ripple)
+    and batched with the ground, never through a filter.
+    `rippleBy` and the `getFastGlobalBounds` override are gone.
+  - **Wading** (`wade.ts`, `index.ts`): the game gives the wading no pass (`createWading(waterAt, TINT_ALPHA)`;
+    `wadeFilter.ts` is no longer loaded). A code look still draws itself half under in its own
+    programs. **A rig or a turned clip (the owner's live bear is a rig), or a code
+    look whose GPU refuses its programs, now wades drawn as on land**: depth and line are still
+    worked out, `drawnUnder` and `pass` are false. `wadeFilter.ts` stays as the pass the code
+    look's step was drawn to (`bodies-pixels.mjs`, checks).
+  - **Gates:** `check:salmons-art` 53 → 56 (no filter anywhere in the river with the ripple or
+    without; bed meshes drawn by the ripple's program; the ripple WebGL-only, refused once and
+    wrapping its map; the game's wading puts no pass on a look that has no water of its own).
+    The river fingerprints are re-recorded (the bed is now meshes); with the bed left out all
+    four hash the same as main's. `salmons-play.mjs --rig` now expects the rig drawn dry in the
+    water. Not run here: the pixel harnesses (`river-pixels.mjs` now hands a checkout its ripple)
+    and the playtests, because the headless browser cannot start in this sandbox.
+  - **Bundle:** the Salmons art chunk, built alone with esbuild: −3,381 B minified, −423 B gzip.
+
 - 2026-11-27 — **Performance T5: the water a body is drawn under, in its own shaders**
   ([design/salmons-performance](../design/salmons-performance.md) §3 cause 2, §4 T5; branch
   `claude/salmons-perf-t5-shaders`, PR #1989; in review). No config, layout or flow change.
