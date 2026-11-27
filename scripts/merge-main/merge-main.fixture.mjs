@@ -9,6 +9,7 @@
 // real one would. What the real commands do on the real tree is CI's to prove on the pushed head.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import {
 	chmodSync,
@@ -1428,7 +1429,7 @@ check(
 
 // ── Both steps, end to end: the CLI, the token service and the launcher ───────
 
-async function endToEnd() {
+async function endToEnd(big = false) {
 	const job = propose(mixed, mixedMerge.out);
 	const seen = [];
 	const server = createServer((req, res) => {
@@ -1444,10 +1445,20 @@ async function endToEnd() {
 				body: Buffer.concat(chunks),
 			});
 			res.setHeader('content-type', 'application/json');
+			const here = `http://127.0.0.1:${server.address().port}`;
 			res.end(
 				url.pathname === '/token'
 					? json({ value: `oidc-for-${url.searchParams.get('audience')}` })
-					: json({ status: 'proposed', spendUsd: 2.5 }),
+					: url.pathname.endsWith('/result-upload')
+						? json({
+								url: `${here}/put`,
+								key: `_runs/merge/${job.input.mergeRun}/result.json.gz`,
+								expiresAt: 'x',
+								maxBytes: 8 * 1024 * 1024,
+							})
+						: url.pathname === '/put'
+							? '{}'
+							: json({ status: 'proposed', spendUsd: 2.5 }),
 			);
 		});
 	});
@@ -1481,14 +1492,43 @@ async function endToEnd() {
 		staging.code === 0 && read(dirname(output), 'github-output') === 'model=true\n',
 		`stage CLI: exits 0 and tells the workflow to run the model (${staging.stdout})`,
 	);
-	apply(job.p.workspace, { 'src/a.ts': RESOLVED });
+	const noise = Array.from({ length: 4000 }, () => `// ${randomBytes(150).toString('base64')}`);
+	apply(job.p.workspace, {
+		'src/a.ts': big ? `${RESOLVED}${noise.join('\n')}\n` : RESOLVED,
+	});
 	writeFileSync(join(job.p.out, 'result.json'), json(goodResult()));
 	mkdirSync(job.p.claude, { recursive: true });
 	writeFileSync(join(job.p.claude, 'stream.jsonl'), STREAM_OK);
 	const posting = await cli('result');
 	server.close();
 	const token = seen.find((s) => s.path === '/token');
-	const post = seen.find((s) => s.method === 'POST');
+	const put = seen.find((s) => s.method === 'PUT');
+	const post = seen.findLast((s) => s.method === 'POST' && s.path.endsWith('/result'));
+	if (big) {
+		const pointer = post && JSON.parse(post.body.toString('utf8'));
+		check(
+			seen.some((s) => s.path.endsWith('/result-upload')) &&
+				put?.path === '/put' &&
+				put.headers['content-type'] === 'application/gzip' &&
+				post?.path === `/api/pipeline/merge-runs/${job.input.mergeRun}/result` &&
+				post.headers['content-encoding'] === undefined &&
+				JSON.stringify(pointer) ===
+					JSON.stringify({
+						upload: {
+							key: `_runs/merge/${job.input.mergeRun}/result.json.gz`,
+							sha256: createHash('sha256').update(put.body).digest('hex'),
+							bytes: put.body.length,
+						},
+					}) &&
+				JSON.parse(gunzipSync(put.body).toString('utf8')).outcome === 'proposed',
+			`result CLI, a result gzipping past 400 KB: uploaded to the run's key, only the pointer posted (${posting.stdout})`,
+		);
+		return;
+	}
+	check(
+		!seen.some((s) => s.path.endsWith('/result-upload') || s.method === 'PUT'),
+		'result CLI, a small result: posted inline, no upload address asked for',
+	);
 	const body =
 		post &&
 		JSON.parse(
@@ -1522,6 +1562,13 @@ async function endToEnd() {
 	);
 }
 await endToEnd();
+await endToEnd(true);
+check(
+	encodeBody({ x: randomBytes(600 * 1024).toString('base64') }).upload === true &&
+		encodeBody({ x: 'y'.repeat(500 * 1024) }).upload === false &&
+		encodeBody({ x: randomBytes(100 * 1024).toString('base64') }).upload === false,
+	'a body whose gzip is past 400 KB is flagged for upload; one that gzips smaller, or is under 400 KB, is not',
+);
 
 // `collect.mjs prepare`: the CLI's settings, agents and prompt, rendered with no placeholder left.
 {

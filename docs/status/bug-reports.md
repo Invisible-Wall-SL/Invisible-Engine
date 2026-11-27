@@ -275,6 +275,21 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Large run results travel through R2 (ADR-0013 §4 / ADR-0015 §10, owner's option B).**
+  adapter-node refuses a body past 512 KB (gzipped), and a fix run's result (whole files) or a
+  Resolve-conflict result can pass it. A result whose gzip is past 400 KB is now PUT by the job to a
+  presigned R2 URL (`POST /api/pipeline/{fix,merge}-runs/<id>/result-upload`, same OIDC claims and run
+  binding as the result, live runs only, key `_runs/{fix,merge}/<id>/result.json.gz`, 15 minutes), and
+  the job posts `{ upload: { key, sha256, bytes } }`. The launcher accepts either body: for a pointer it
+  checks the run's own key, reads the object bounded at 8 MB, checks size and sha256, gunzips within
+  8 MB, parses as inline, and deletes the object whatever happened (a bad pointer is a 400, the run waits
+  for the backstop). The backstops delete a leftover object when they end a run. The job's allowlist
+  takes only the exact URL the launcher returned, over https, at `<account>.r2.cloudflarestorage.com`
+  (bucket label and `eu` allowed), no redirects, never printed. Code: `pipelineRunResultUpload.ts`,
+  `bugFixRuns.ts` (`readResultBody`), `scripts/bug-fix/collect.mjs` (`postResult`, shared by
+  `scripts/merge-main/collect.mjs`). Not provable offline: a real presigned PUT to R2 and a real runner
+  (see the PR). Optional owner step: a 1-day lifecycle rule on `_runs/` (`docs/INFRA.md`).
+
 - 2026-11-27 — **Resolve conflict's job code (ADR-0015 card 15B1).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline". `scripts/merge-main/`,
   runnable on a local checkout. Wiring for 15B2 is in its `README.md`; nothing calls it yet.

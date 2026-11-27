@@ -11,7 +11,7 @@
 // CLI's output: an error is a fixed sentence and an HTTP status, and the result step prints one
 // line — `fix run <id>: <status>, $<spend>` — inside a stop-commands span.
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
 	appendFileSync,
@@ -56,6 +56,8 @@ const MAX_SCREENSHOTS = 20;
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 /** adapter-node refuses a body past 512 KB: a larger result goes gzipped. */
 const GZIP_OVER = 400 * 1024;
+/** Safely under adapter-node's 512 KB: a result whose gzip is past this goes through R2. */
+export const UPLOAD_OVER = 400 * 1024;
 /** What the launcher unpacks at most: it takes whole files, one of them up to 2 MB, and a size
  *  counted by lines lets a 1.6 MB file in beside the rest. */
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
@@ -940,16 +942,118 @@ export function resultBody({ baseSha, ended, result, files, usage, key, failure:
 	return body;
 }
 
-/** The body as sent: JSON, gzipped past {@link GZIP_OVER}; null when even gzipped it is too large. */
+/**
+ * The body as sent: JSON, gzipped past {@link GZIP_OVER}; null when it unpacks to too much. A body
+ * whose gzip is still past {@link UPLOAD_OVER} is flagged `upload`: it goes through R2
+ * ({@link postResult}), for adapter-node would refuse it at 512 KB.
+ */
 export function encodeBody(body) {
 	const raw = Buffer.from(JSON.stringify(body), 'utf8');
 	if (raw.length > MAX_RESULT_BYTES) return null;
 	if (raw.length <= GZIP_OVER)
-		return { bytes: raw, headers: { 'content-type': 'application/json' } };
+		return { bytes: raw, headers: { 'content-type': 'application/json' }, upload: false };
+	const bytes = gzipSync(raw);
 	return {
-		bytes: gzipSync(raw),
+		bytes,
 		headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
+		upload: bytes.length > UPLOAD_OVER,
 	};
+}
+
+/**
+ * The only host a result's PUT may go to: the R2 S3 endpoint the launcher signs for
+ * (`https://<account>.r2.cloudflarestorage.com`, `r2.ts`), a bucket label ahead of it or a
+ * jurisdiction (`eu`) inside it allowed. Loopback is the fixture's.
+ */
+const R2_HOST =
+	/^(?:[a-z0-9][a-z0-9-]*\.)?[0-9a-f]{32}\.(?:(?:eu|fedramp)\.)?r2\.cloudflarestorage\.com$/;
+
+/**
+ * The address a result is PUT to: exactly the one the launcher just returned, over https, at an R2
+ * S3 host. A signed URL is never printed — this fails with a fixed sentence.
+ */
+export function uploadUrl(raw, issued) {
+	if (typeof raw !== 'string' || raw !== issued)
+		fail('The result’s upload address is not the one issued.');
+	let url;
+	try {
+		url = new URL(raw);
+	} catch {
+		return fail('The result’s upload address is not a URL.');
+	}
+	const loopback = url.protocol === 'http:' && url.hostname === '127.0.0.1';
+	const r2 =
+		url.protocol === 'https:' && !url.username && !url.password && R2_HOST.test(url.hostname);
+	if (!loopback && !r2) fail('The result’s upload address is not an R2 address.');
+	return url;
+}
+
+/** The run's one key in R2 (`pipelineRunResultUpload.ts`'s `resultObjectKey`). */
+export const resultKey = (kind, id) => `_runs/${kind}/${id}/result.json.gz`;
+
+/**
+ * Put `bytes` (the gzipped result) where the launcher says and answer the pointer to post in its
+ * place: ask `…/result-upload` (own OIDC token), PUT to the address it returns, hash what was put.
+ */
+export async function uploadResult({ base, kind, id, audience, bytes }) {
+	const token = await oidcToken(audience);
+	const asked = await request(
+		`${base}/result-upload`,
+		{ method: 'POST', headers: { authorization: `Bearer ${token}`, accept: 'application/json' } },
+		'for an upload address',
+	);
+	if (!asked.ok) fail(`The launcher answered ${asked.status} for an upload address.`);
+	const got = await asked.json().catch(() => null);
+	const key = resultKey(kind, id);
+	if (got?.key !== key) fail('The launcher’s upload address is not for this run.');
+	if (!Number.isSafeInteger(got.maxBytes) || bytes.length > got.maxBytes) {
+		fail('The result is larger than the launcher takes.');
+	}
+	const url = uploadUrl(got.url, got.url);
+	const put = await request(
+		url,
+		{
+			method: 'PUT',
+			headers: { 'content-type': 'application/gzip' },
+			body: bytes,
+			redirect: 'error',
+		},
+		'with the result file',
+		{ tries: 2, timeoutMs: 5 * 60_000 },
+	);
+	if (!put.ok) fail(`The result’s storage answered ${put.status}.`);
+	return {
+		upload: { key, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length },
+	};
+}
+
+/**
+ * POST an encoded result to `<base>/result`: the body itself, or — when it is flagged `upload` —
+ * the pointer to the file {@link uploadResult} put in R2. An upload that fails ends the run with
+ * its own sentence (`rebuild(why)`: the encoded failure body), spend and all. Answers the response.
+ */
+export async function postResult({ base, kind, id, audience, sent, rebuild }) {
+	let toSend = sent;
+	if (sent.upload) {
+		try {
+			const pointer = await uploadResult({ base, kind, id, audience, bytes: sent.bytes });
+			toSend = encodeBody(pointer);
+		} catch (err) {
+			if (!(err instanceof JobError)) throw err;
+			toSend = rebuild(err.message);
+		}
+	}
+	const token = await oidcToken(audience);
+	return request(
+		`${base}/result`,
+		{
+			method: 'POST',
+			headers: { ...toSend.headers, authorization: `Bearer ${token}` },
+			body: toSend.bytes,
+		},
+		'with the result',
+		{ tries: 1, timeoutMs: 10 * 60_000 },
+	);
 }
 
 /**
@@ -1027,17 +1131,14 @@ async function result() {
 	const post = async (b) => {
 		const sent =
 			encodeBody(b) ?? encodeBody(failed('The change is too large to send (over 8 MB).'));
-		const token = await oidcToken();
-		return request(
-			launcher(`${id}/result`),
-			{
-				method: 'POST',
-				headers: { ...sent.headers, authorization: `Bearer ${token}` },
-				body: sent.bytes,
-			},
-			'with the result',
-			{ tries: 1, timeoutMs: 10 * 60_000 },
-		);
+		return postResult({
+			base: launcher(id),
+			kind: 'fix',
+			id,
+			audience: AUDIENCE,
+			sent,
+			rebuild: (why) => encodeBody(failed(why)),
+		});
 	};
 	let res = await post(body);
 	// A body the launcher could not take (400, 413) still ends the run, with its spend.
