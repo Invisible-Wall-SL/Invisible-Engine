@@ -31,6 +31,7 @@
 import { PROP_NAME } from './rigCutEdits';
 import { apartFace, faceNote, frameFace } from './rigFrameFace';
 import { HEAD_TURN_DEFAULT, HEAD_TURN_MAX, headTurn } from './rigHeadTurn';
+import { sheetBones, type SheetBone } from './rigSheetBones';
 import { fitFromJoints, framePose, skinBends, turnedAtSetup, type Fitted } from './rigFrameFit';
 import {
 	boneWorld,
@@ -79,6 +80,8 @@ const NAME = /^[^\0/\\]{1,200}$/;
 /** The face mesh the tracker finds (468, or 478 with the irises). */
 const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
+/** The most template bones a mapping keeps with nothing drawn on them. */
+const MAX_KEEP = 1024;
 /** The slot the template's mouth shapes swap in. */
 const MOUTH_SLOT = 'mouth';
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
@@ -101,6 +104,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		'swapSides',
 		'layers',
 		'turn',
+		'keep',
 	]);
 	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
 	if (raw.swapSides !== undefined && typeof raw.swapSides !== 'boolean')
@@ -197,6 +201,17 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 			return no(`\`layers\` is a list of up to ${MAX_LAYERS} slot names, front to back, each once`);
 		layers = [...(raw.layers as string[])];
 	}
+	let keep: string[] | undefined;
+	if (raw.keep !== undefined) {
+		if (
+			!Array.isArray(raw.keep) ||
+			raw.keep.length > MAX_KEEP ||
+			!raw.keep.every((n) => typeof n === 'string' && NAME.test(n)) ||
+			new Set(raw.keep).size !== raw.keep.length
+		)
+			return no(`\`keep\` is a list of up to ${MAX_KEEP} bone names, each once`);
+		keep = [...(raw.keep as string[])];
+	}
 	const mapping: SheetMapping = {
 		sheet: 1,
 		manifestKey: raw.manifestKey,
@@ -212,6 +227,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		...(raw.swapSides === true ? { swapSides: true as const } : {}),
 		...(layers ? { layers } : {}),
 		...(raw.turn !== undefined ? { turn: raw.turn as number } : {}),
+		...(keep?.length ? { keep } : {}),
 	};
 	return { mapping };
 }
@@ -275,6 +291,8 @@ export function sheetMappingProblem(
 		if (stray !== undefined)
 			return `the layers list "${stray}", which no mapped part or prop is drawn in`;
 	}
+	const unknown = m.keep?.find((b) => !bones.has(b));
+	if (unknown !== undefined) return `it keeps a bone "${unknown}" the template does not have`;
 	return null;
 }
 
@@ -293,6 +311,8 @@ export interface SheetRig {
 	origin: P;
 	/** Jointed mouth parts made with their slots empty: mouth shapes are mapped too, and win. */
 	hidden: string[];
+	/** Every bone of the template, made or left out, and why (`sheetBones`, §13.1i). */
+	skeleton: SheetBone[];
 }
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -741,6 +761,13 @@ export function sheetRig(
 	if (Object.keys(bends).length) fit.bends = bends;
 	// One slot per region, named as the region is (§13.1h): the fit names the roles, and this the rig's.
 	fit.slots = names;
+	// Only the bones the mapping needs (§13.1i): each drawing's, what ends its length, what its limb
+	// moves by, what the author keeps, and the bones above them.
+	const ends = mapped
+		.filter((x) => x.main)
+		.flatMap((x) => lengthOf(x.kind, x.side).map((b) => b.name));
+	const skeleton = sheetBones(t, fit, ends, m.keep ?? []);
+	if (skeleton.leftOut.length) fit.leftOut = skeleton.leftOut;
 	const problem = templateFitProblem(t, fit);
 	if (problem) return no(problem);
 	return {
@@ -757,6 +784,7 @@ export function sheetRig(
 				.join(' '),
 			origin,
 			hidden,
+			skeleton: skeleton.bones,
 		},
 	};
 }
@@ -878,6 +906,8 @@ export interface SheetPreview {
 	bones: Record<string, P>;
 	/** Whether the rig has a `frame` clip (the sheet is arranged). */
 	frame: boolean;
+	/** The template's bones, made or left out, and why (`sheetBones`): the dialog's 🦴 Bones list. */
+	skeleton: SheetBone[];
 }
 
 /**
@@ -893,7 +923,7 @@ export function sheetPreview(
 ): LayersFitted<SheetPreview> {
 	const made = sheetRig(t, regions, m, { fitLayers: !edit });
 	if (!made.ok) return made;
-	const { fit, art, scale, origin } = made.value;
+	const { fit, art, scale, origin, skeleton } = made.value;
 	const all = fitTemplate(t, fit);
 	const ft = templateMade(
 		all,
@@ -916,6 +946,7 @@ export function sheetPreview(
 				.sort((a, b) => (slotAt.get(slotOf(a.name)) ?? 0) - (slotAt.get(slotOf(b.name)) ?? 0)),
 			bones: Object.fromEntries([...W].map(([n, w]): [string, P] => [n, [w[4], w[5]]])),
 			frame: !!fit.frame,
+			skeleton,
 		},
 	};
 }
