@@ -448,6 +448,14 @@
 			...(q.mode === 'adaptive' ? [switches] : []),
 			...(verdict ? [verdict] : []),
 			...(q.downStopped ? ['no more steps down'] : []),
+			...(q.stepUp
+				? [
+						Number.isFinite(q.stepUp.goodWindows)
+							? `L${q.stepUp.level} again after ${q.stepUp.good}/${q.stepUp.goodWindows} good ` +
+								`windows (${q.stepUp.failures} failed)`
+							: `L${q.stepUp.level} never again`,
+					]
+				: []),
 		].join(' · ');
 	};
 
