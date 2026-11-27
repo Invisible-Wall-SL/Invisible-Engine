@@ -2646,8 +2646,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   players, a push per player, the own player's reconcile); after a stall up to 82 land between two
   frames (Mali reading `914870b5`: `netMs` max 91.9 ms on the frame with 82 patches), each pass
   replaced by the next. Now `online.ts` `recordState` (the room's `onStateChange`) keeps only what
-  interpolation needs from each state (its arrival for the render clock, everyone else's place at
-  its step) and `applyState`, first in `tickOnline`, does the rest once from the newest. An old
+  interpolation and Flow need from each state (its arrival for the render clock, everyone else's
+  place at its step, the server variables) and `applyState`, first in `tickOnline`, does the rest
+  once from the newest. An old
   server and a new runtime, or the reverse, see no difference on the wire.
   - **Measured** (`salmons-play.mjs --stall`, headless shell, a room of 20, a 2 s block, three
     trials, main + the same probe counters vs this branch): passes on the catch-up 43 → 1 (`applied`
@@ -2683,6 +2684,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `salmons-rejoin-play.mjs` 58/58, `salmons-play.mjs` 103/103, `--stall` 4/4.
     `check:runtime-bytes`: only `arcade` (+110 B gzip) and `arcade3d` (+88 B) move, re-recorded;
     the slot, match-3 and card runtimes are byte-identical.
+  - **Code review (`code-reviewer`, 2026-11-27).** The Flow's server variables are written as each
+    state lands again, not once a frame: the play field ticks only from the basegame screen, and
+    Salmons' seed flow checks `var:phase` / `var:secondsLeft` on the start screen's tap, so a cold
+    boot into a lobby read `''` and the lobby never showed. A room event about the own player (or a
+    round start, which clears its cooldowns) applies the newest state first, since a step's events
+    follow its patch. `check:netcode`'s per-frame model keeps the newest state by step (a datagram
+    can overtake). The `--stall` playtest reads its two counters in one call.
   - **Guard:** the invariant in [families/arcade](../knowledge/families/arcade.md) "Online, device
     Flow is presentation" (record each state, apply the newest once a frame), `check:netcode`'s
     stall rows and source checks, `salmons-play.mjs --stall` ([playtest](../playtest/salmons.md)

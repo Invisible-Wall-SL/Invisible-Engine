@@ -57,9 +57,9 @@ A seed and the same keys replay the same game.
   both predictors. Its choices hash the seed; a change re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
   (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
-  `server` variables (`variable-server-owned`). `online.ts` RECORDS each state as it lands (arrival,
-  others' places) and APPLIES the newest once a frame (Flow's values, own reconcile, `acked`): a
-  stall's burst never runs a pass per state (`check:netcode` stall rows). The own `ability` is raised on the press (`createAbilityPredictor`); the room's echo of it is dropped per
+  `server` variables (`variable-server-owned`), written as each state lands with others' places;
+  the own reconcile and `acked` take the newest once a frame (`check:netcode` stall rows). Own
+  `ability` is raised on the press (`createAbilityPredictor`); the room's echo is dropped per
   button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).

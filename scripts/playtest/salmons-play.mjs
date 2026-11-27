@@ -48,8 +48,9 @@
 //
 // `--stall` plays ONE room too (the net client once a frame, docs/design/salmons-performance.md
 // T6): page ST's main thread is blocked 2 s while the room keeps sending, three times. Each held
-// state is recorded as it lands and only the next frame applies one, the newest (`online.net`);
-// the prediction still agrees with it. `result.json` `stall` has the message and frame timings.
+// state is recorded as it lands; the own player is applied a handful of times, the newest
+// (`online.net`), and the prediction still agrees with it (engine netcode; under `colyseus` the
+// probe counts no corrections). `result.json` `stall` has the message and frame timings.
 //
 // `--trees` plays ONE room too (zone art's scenery, docs/design/zone-art.md): page T boots the game
 // with `arcade.zoneArt['@trees']` set to a magenta frame of a stub sheet exported as a publish
@@ -1483,13 +1484,17 @@ play: try {
 	if (opt.stall) {
 		// The main thread blocked 2 s while the room keeps sending (a GC, a level mount, a slow
 		// frame): its states queue and land together. Each is recorded as it lands (interpolation
-		// needs every one); the own player and the flow's values take the newest, once, on the next
-		// frame — not a whole pass per state. The page's frames are stepped by the harness, so the
+		// and Flow need every one); the own player takes the newest, once, on the next frame — not a
+		// whole pass per state. The page's frames are stepped by the harness, so the
 		// catch-up frame is the one stepped next.
 		const st = await ready(await boot('st', { rooms_name: 'Stella', rooms_character: 'salmon' }));
 		await settle(st, 1500);
-		const netOf = async () => (await drawnOf(st)).net ?? { states: 0, applied: 0 };
-		const tasks = () => st.page.evaluate('({ ...window.__NET_TASKS__ })');
+		// Both in one call: the room keeps sending between two.
+		const counters = () =>
+			st.page.evaluate(
+				`(async () => { const s = await window.__IE_DETERMINISM__.state(); return { tasks: { ...window.__NET_TASKS__ }, net: s.arcade?.online?.net ?? { states: 0, applied: 0 } }; })()`,
+			);
+		const netOf = async () => (await counters()).net;
 		const timedStep = () =>
 			st.page.evaluate(
 				`(async () => { const t = __REAL_NOW__(); await window.__IE_DETERMINISM__.step(1, { draw: 'last' }); return __REAL_NOW__() - t; })()`,
@@ -1498,16 +1503,14 @@ play: try {
 		for (let trial = 0; trial < 3; trial++) {
 			await st.key('ArrowUp', 'down');
 			await settle(st, 600);
-			const tasks0 = await tasks();
-			const net0 = await netOf();
+			const { tasks: tasks0, net: net0 } = await counters();
 			const shown0 = (await drawnOf(st)).corrections ?? 0;
 			await st.page.evaluate(
 				'(() => { const end = __REAL_NOW__() + 2000; while (__REAL_NOW__() < end); return 0; })()',
 			);
 			// The held messages are handled as their own tasks once the thread is free.
 			await st.page.evaluate('new Promise((r) => __REAL_TIMEOUT__(r, 150))');
-			const tasks1 = await tasks();
-			const net1 = await netOf();
+			const { tasks: tasks1, net: net1 } = await counters();
 			const catchUpMs = await timedStep();
 			const net2 = await netOf();
 			const nextMs = await timedStep();
@@ -1531,9 +1534,11 @@ play: try {
 			trials.every((t) => t.states >= 30 && t.messages >= t.states),
 			trials,
 		);
+		// Applied once on the frame, and before it only for an event about the own salmon (a step's
+		// events follow its patch): a handful, never one a state.
 		verdict(
-			'…and none is applied until the next frame, which applies one: the newest',
-			trials.every((t) => t.appliedBeforeFrame === 0 && t.appliedInFrame === 1),
+			'…and they are applied a handful of times, not once a state: the next frame applies the newest',
+			trials.every((t) => t.appliedInFrame <= 1 && t.appliedBeforeFrame + t.appliedInFrame <= 5),
 			trials,
 		);
 		const { me } = await drawnOf(st);
