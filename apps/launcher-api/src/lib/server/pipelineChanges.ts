@@ -94,7 +94,7 @@ interface GhUser {
 	type?: string;
 }
 
-interface GhPull {
+export interface GhPull {
 	number: number;
 	title: string;
 	body: string | null;
