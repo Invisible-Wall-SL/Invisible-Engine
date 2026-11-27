@@ -207,3 +207,64 @@ export const pickMappingForConfig = (cfg: {
 /** Resolve a symbol name through the mapping. Unmapped names pass through. */
 export const mapSymbol = (mapping: GameMapping, name: string): string =>
 	mapping.symbols[name] ?? name;
+
+/** A line symbol's pay tier: High, Medium or Low. */
+export type PayTier = 'H' | 'M' | 'L';
+
+/** The shares of the top symbol's pay at which a symbol stops being High, then Medium. */
+export const PAY_TIER_SHARES = { H: 0.4, M: 0.15 } as const;
+
+/** One server line symbol and what its longest paying run pays (the 5-of-a-kind on a 5-reel game). */
+export type TierInput = { server: string; topPay: number };
+
+const tierOf = (topPay: number, best: number): PayTier =>
+	topPay >= best * PAY_TIER_SHARES.H ? 'H' : topPay >= best * PAY_TIER_SHARES.M ? 'M' : 'L';
+
+/**
+ * Our names for a server's line symbols, from what each pays: `H` when it pays at least 40% of the
+ * top symbol, `M` at least 15%, `L` below that, numbered from 1 by pay within a tier (a tie keeps the
+ * server's order). `overrides` moves a symbol to another tier by hand; the numbering follows.
+ * Returns server name → our name. One rule for the `/config` import that suggests the names and the
+ * facade that checks them at boot, so the two cannot disagree on what a server pays.
+ */
+export const tierSymbolNames = (
+	inputs: readonly TierInput[],
+	overrides: Readonly<Record<string, PayTier>> = {},
+): Record<string, string> => {
+	const paying = inputs.filter((i) => Number.isFinite(i.topPay) && i.topPay > 0);
+	const best = Math.max(0, ...paying.map((i) => i.topPay));
+	const ranked = paying
+		.map((input, order) => ({ ...input, order }))
+		.sort((a, b) => b.topPay - a.topPay || a.order - b.order);
+	const counts: Record<PayTier, number> = { H: 0, M: 0, L: 0 };
+	const out: Record<string, string> = {};
+	for (const { server, topPay } of ranked) {
+		const tier = overrides[server] ?? tierOf(topPay, best);
+		counts[tier] += 1;
+		out[server] = `${tier}${counts[tier]}`;
+	}
+	return out;
+};
+
+/**
+ * `base` with a project's own names laid over it: `names` is our name → server name, the project's
+ * `serverSymbolNames`. A base entry whose server name the project names is renamed in place; one
+ * whose name the project gives another server symbol is dropped, so no two server names land on one
+ * of ours. Every other base entry (`SCAT`, `WILD`, `MULT`) stands.
+ */
+export const withServerSymbolNames = (
+	base: GameMapping,
+	names: Readonly<Record<string, string>>,
+): GameMapping => {
+	const byServer = new Map(Object.entries(names).map(([client, server]) => [server, client]));
+	const ours = new Set(byServer.values());
+	const symbols: Record<string, string> = {};
+	// In the base's order, so a project's pool and strips keep the order the shared mapping gives them.
+	for (const [server, client] of Object.entries(base.symbols)) {
+		const own = byServer.get(server);
+		if (own) symbols[server] = own;
+		else if (!ours.has(client)) symbols[server] = client;
+	}
+	for (const [server, client] of byServer) symbols[server] ??= client;
+	return { ...base, symbols };
+};
