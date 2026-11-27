@@ -277,6 +277,101 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 shares). `--rooms`, `--seconds`, `--span` and `--salmon` are in its header. Results:
 [status/salmons](../status/salmons.md), Recent changes 2026-11-21.
 
+## The lab run (`scripts/playtest/salmons-lab.mjs`)
+
+The before / after harness for the Salmons performance tracks
+([design/salmons-performance](../design/salmons-performance.md) T2). One command boots Salmons as a
+player does — the built runtime on the **real frame clock** with `?perf=1` and no determinism flag —
+against a local game server, joins a room of bots, plays a scripted minute and prints the probe's
+counters. Unlike the verdict scripts above it checks nothing: it measures.
+
+```
+pnpm --filter lines build        # once; any build that plays arcade
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-lab.mjs --runs 3 \
+  --compare scripts/playtest/fixtures/salmons-lab-baseline.json
+```
+
+What a run does (`lab-sequence.mjs` `playArcadeLabSequence`):
+
+1. Serves the export's own config (`salmonsMapRiver` + `salmonsConfig`: the original game's level,
+   bots by shares) with the level **pinned** (`online.levels.seeds`, `--seed`, default 31337), so
+   every run draws the same river. The page joins a **test room** of `--bots + 1` places
+   (`room_size=21`, default 20 bots) as a salmon (`--character`).
+2. Waits for the room to be `running` with the own player in it (Flow variables `phase`, `status`).
+   The river is not drawn until a tap passes the start screen, so Space is pressed until a frame
+   creates the level (≥ 5000 objects) and two quiet seconds follow.
+3. Takes the **mount reading** (boot to the mount: the 39 448-sprite frame), presses Reset (probe and
+   socket counts), plays `SALMONS_INPUT_LOOP` for `--seconds` (default 60: up-river, taps of Space,
+   side steps — a function of time alone), and takes the **play reading**.
+4. The socket is counted in the page (`LAB_WS_HOOK`: messages and bytes by direction and Colyseus
+   protocol code, Reset with the probe), since the probe has no socket counts yet.
+
+Output, in `--out` (default `.cache/salmons-lab`): `salmons-lab.<n>.report.json` (the play reading),
+`salmons-lab.<n>.mount.report.json`, and `salmons-lab.json` — every run's counters, the room
+statuses it sampled, the socket by code, and with `--runs` > 1 the **spread** (min, mean, max, range %)
+of each counter. `--compare` prints each counter beside the baseline's mean and range and marks it
+`within`, `below` or `ABOVE`. Compare runs of the same `--seconds`, `--bots` and `--seed` (the script
+warns when they differ), and read a counter as changed only when it leaves the baseline's range.
+
+**The baseline** is `scripts/playtest/fixtures/salmons-lab-baseline.json`: five runs on `main` at
+`665b407`, this container's headless Chromium (SwiftShader, 1280 × 720, DPR 1). Re-record it, with
+the commit it was measured on, only when a track changes what the lab measures on purpose.
+
+**Noise floor** (five 60 s runs; per-frame means of the `play` phase):
+
+| counter | min – max | mean | range |
+|---|---|---|---|
+| draws | 14 – 14.6 | 14.4 | 4.2 % |
+| vertices | 25365.2 – 26843.7 | 26263.8 | 5.6 % |
+| passes | 5.1 – 5.6 | 5.3 | 9.5 % |
+| targetSwitches | 7.2 – 7.6 | 7.3 | 5.4 % |
+| filterPasses | 1.6 – 1.8 | 1.6 | 12.2 % |
+| invalidations | 1 – 1 | 1 | 0 % |
+| created | 0.3 – 0.6 | 0.5 | 57.7 % |
+| destroyed | 1 – 1.2 | 1.1 | 18.5 % |
+| calls | 108.5 – 113.6 | 110.3 | 4.6 % |
+| jsMs | 19.4 – 22.5 | 21 | 14.8 % |
+| renderMs | 14.4 – 17 | 15.7 | 16.5 % |
+| tickMs | 18.5 – 21.6 | 20.1 | 15.4 % |
+| simDroppedMs | 245.5 – 307.7 | 272.3 | 22.8 % |
+| netMs | 0.2 – 0.4 | 0.2 | 83.3 % |
+| inMessagesPerSec | 20.8 – 21.4 | 21.1 | 2.8 % |
+| inBytesPerSec | 706 – 836.5 | 775.1 | 16.8 % |
+| outMessagesPerSec | 7.8 – 9 | 8.4 | 14.3 % |
+| outBytesPerSec | 61.8 – 72.5 | 67.4 | 15.9 % |
+
+The level mount (the one frame that builds the river, from the mount reading):
+
+| counter | min – max | mean | range |
+|---|---|---|---|
+| mount.created | 39660 – 39712 | 39680.8 | 0.1 % |
+| mount.createdSprites | 39448 – 39448 | 39448 | 0 % |
+| mount.createdGraphics | 150 – 150 | 150 | 0 % |
+| mount.createdMeshes | 52 – 52 | 52 | 0 % |
+| mount.uploadBytes | 13676076 – 15673448 | 14075550.4 | 14.2 % |
+| mount.textureUploads | 10 – 11 | 10.2 | 9.8 % |
+| mount.jsMs | 289.9 – 484 | 381.3 | 50.9 % |
+| mount.renderMs | 118.5 – 143.7 | 130.9 | 19.3 % |
+| mount.textureMb | 38.1 – 111.3 | 60.4 | 121.3 % |
+
+Reading it: **counts the scene decides are stable** — draws, vertices, GL calls, target switches
+(±5 %), `invalidations` is exactly 1 a frame, the socket messages a second ±3 %, and the mount's
+object counts (sprites, graphics, meshes) are identical run to run. **Mixed**: passes and filter
+passes move with what is on screen (how many salmon and bears the camera holds, 10–12 %), bytes a
+second with the same (±17 %). **Noisy**: `created` / `netMs` are fractions of one, `mount.jsMs`
+(±51 %) and `mount.textureMb` (38–111, it depends on when the textures upload) — do not compare them.
+**Headless timings are slow and carry no verdict**: this container renders in SwiftShader at about
+3 fps (frame p50 ≈ 330 ms; `jsMs` ≈ 21 ms of it), so `simDroppedMs` is the frame stall and
+`frames` ≈ 168 over the minute. A change in `jsMs` / `renderMs` under about 20 % is noise; use the
+counters, and a real device for time.
+
+Where it runs on CI: **Profiler lab run** (`.github/workflows/profiler-lab.yml`), dispatched with
+`salmons` ticked: builds the runtime, runs three times, compares with the baseline, uploads `lab/`.
+It posts nothing (no secret). The published-game lab (`lab-run.mjs`) does not play Salmons' room: its
+sequence idles an arcade game at boot (its `play` counts stay empty), and a lab against the live
+game server would put a bot-less test client among real players.
+
 ## Checks (`result.json` verdicts)
 
 1. One room on the server; both pages are in it and see themselves.

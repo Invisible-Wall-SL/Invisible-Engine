@@ -48,7 +48,7 @@
 //    - partialface: a brow or a mouth drawing makes the rig (it was a bare 500), each face drawing
 //      drawn where placed and bent on its bones from there, the starred parts left out listed;
 //    - proportions: every drawing where it was arranged, at the sheet's scale; at rest and with every
-//      chain bone turned it rides its own bone whole, and the torso and head fold nowhere;
+//      chain bone turned it rides its own bone whole, and the torso, neck and head fold nowhere;
 //    - headturn: turning the head turns the head's drawing, its face, the nose and the brows with it;
 //    - faceturn: a face capture's head turn on a head drawn without its face turns the head with it —
 //      its middle under the features drawn apart moving as they do, its outline staying, nothing
@@ -1765,7 +1765,6 @@ const GUARDS = {
 				JSON.stringify(skinned[part]),
 			) && good;
 		for (const part of [
-			'neck',
 			...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
 			ALTERNATE.part,
 		]) {
@@ -1773,6 +1772,27 @@ const GUARDS = {
 			good = only(part, doc.slots.find((s) => s.name === slot).bone);
 		}
 		good = only('torso', 'torso_image', 'spine', 'clavicle_l', 'clavicle_r');
+		// The neck bends along its two bones, its foot into the torso and its top into the head.
+		const underHead = (b) => {
+			for (
+				let x = doc.bones.find((y) => y.name === b);
+				x;
+				x = doc.bones.find((y) => y.name === x.parent)
+			)
+				if (x.name === 'head') return true;
+			return false;
+		};
+		good =
+			ok(
+				'skin: the neck bends along its two bones and at its seams into the torso and the head',
+				['neck', 'neck_upper', 'torso_image', 'head_image'].every((b) =>
+					skinned.neck.includes(b),
+				) &&
+					skinned.neck.every(
+						(b) => ['neck', 'neck_upper', 'torso_image'].includes(b) || underHead(b),
+					),
+				JSON.stringify(skinned.neck),
+			) && good;
 		good =
 			ok(
 				'skin: the torso bends at its waist and both shoulder lines',
@@ -2278,7 +2298,7 @@ const GUARDS = {
 				name,
 				bone: doc.slots.find((s) => s.name === slot).bone,
 				size: size.get(att.path ?? name),
-				bends: name === 'torso' || name === 'head',
+				bends: name === 'torso' || name === 'head' || name === 'neck',
 			})),
 		);
 		const frame = framePosed(rig);

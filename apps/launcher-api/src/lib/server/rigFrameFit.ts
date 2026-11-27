@@ -270,6 +270,15 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 		neck: 'head',
 		head: 'face',
 	};
+	// The neck's upper half (a link: a template from before it has none) halfway up the drawn neck,
+	// the neck straight in the frame.
+	const lengths = [...LENGTHS];
+	if (byName.get('neck_upper')?.parent === 'neck' && byName.get('head')?.parent === 'neck_upper') {
+		J.neck_upper = mid(N, Hd);
+		aims.neck = 'neck_upper';
+		aims.neck_upper = 'head';
+		lengths.push('neck_upper');
+	}
 	for (const s of SIDES) {
 		J[`upper_arm_${s}`] = S[s];
 		J[`lower_arm_${s}`] = R(j.elbow[s]);
@@ -282,10 +291,10 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 			aims[`hand_${s}`] = `middle_1_${s}`;
 		}
 	}
-	const short = LENGTHS.filter((n) => len(sub(J[n], J[byName.get(n)!.parent!])) < 1e-3);
+	const short = lengths.filter((n) => len(sub(J[n], J[byName.get(n)!.parent!])) < 1e-3);
 	if (short.length)
 		return { ok: false, problem: `the joints of ${short.join(', ')} are on top of each other` };
-	const fit = fitFromJoints(t, J, aims, LENGTHS);
+	const fit = fitFromJoints(t, J, aims, lengths);
 	const fingers: NonNullable<RigFit['fingers']> = {};
 	const bends: NonNullable<RigFit['bends']> = {};
 	for (const s of SIDES) {
@@ -473,11 +482,13 @@ const NECK_SHOULDERS = 0.2;
 /** A limb's width at a joint, as a share of the segment's length (a drawn arm's, about). */
 const LIMB_WIDTH = { shoulder: 0.38, elbow: 0.34, wrist: 0.28 };
 /**
- * The joints inside one drawing, where a part drawn apart (`skinBends` `apart`) still bends: the
- * torso's waist and its shoulder lines.
+ * The joints where a part drawn apart (`skinBends` `apart`) still bends: the torso's waist and its
+ * shoulder lines; the neck along its length and at its seams, its foot (under the collar) riding the
+ * torso and its top (under the chin) the head, so a bent neck stays in its collar and under the jaw.
  */
 const OWN_JOINTS: Record<string, readonly string[]> = {
 	torso: ['spine', 'clavicle_l', 'clavicle_r'],
+	neck: ['neck_upper', 'torso_image', 'head_image'],
 };
 /** Each skinned part's mesh: columns × rows over its (untrimmed) image. */
 const SKIN_GRID: Record<string, [number, number]> = {
@@ -602,8 +613,12 @@ export function skinBends(
 	both(['torso', 'torso_image'], ['neck', 'neck'], N, collar, 0.6 * neckWidth, neckWidth);
 	const jaw = across(sub(Hd, N), sub(Fc, Hd));
 	const faced = face.filter((j) => skel.findBone(j.bone));
+	const Nu = at('neck_upper');
 	joint('neck', 'head_image', Hd, jaw, 0.6 * neckWidth, neckWidth, faced);
-	joint('head', 'neck', Hd, [-jaw[0], -jaw[1]], 0.6 * neckWidth, neckWidth);
+	joint('head', Nu ? 'neck_upper' : 'neck', Hd, [-jaw[0], -jaw[1]], 0.6 * neckWidth, neckWidth);
+	// The neck bends along its length across its upper half (each takes half a turn of it): last, so
+	// the collar and the jaw keep their blends whole.
+	if (Nu) joint('neck', 'neck_upper', Nu, sub(Hd, N), len(sub(Hd, N)), len(sub(Hd, N)) + neckWidth);
 	const headBone = slotBone('head');
 	if (apart && faced.length && parts.includes('head') && headBone)
 		out.head ??= { bones: [{ bone: headBone }], grid: SKIN_GRID.face };
