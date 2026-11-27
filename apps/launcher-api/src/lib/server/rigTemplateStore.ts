@@ -18,6 +18,7 @@ import {
 	rigTemplateSummary,
 	sidecarTemplate,
 	templateFitProblem,
+	templateWithLinks,
 	type RigTemplate,
 	type RigTemplateRef,
 	type RigTemplateSaved,
@@ -152,7 +153,8 @@ export function sidecarOnRig(
 /**
  * The template a bundle's `template.json` names, at the version the rig was made from, fitted as
  * the rig was when it was made from a frame (`sidecarTemplate`); with `rigBones` (the saved rig's),
- * on that rig's own limb lengths (`sidecarOnRig`).
+ * as that rig has it — a link it was made before folded away (`templateWithLinks`) — on its own limb
+ * lengths (`sidecarOnRig`).
  */
 export async function rigTemplateForSidecar(
 	text: string | null,
@@ -160,13 +162,15 @@ export async function rigTemplateForSidecar(
 ): Promise<RigTemplateSummary | null> {
 	const ref = parseTemplateRef(text);
 	if (!ref || text === null) return null;
-	const on = (t: RigTemplate) => (rigBones ? sidecarOnRig(t, text, rigBones) : text);
+	const has = rigBones && new Set(rigBones.map((b) => b.name));
+	const fitted = (given: RigTemplate) => {
+		const t = has ? templateWithLinks(given, has) : given;
+		return sidecarTemplate(t, rigBones ? sidecarOnRig(t, text, rigBones) : text);
+	};
 	const builtin = rigTemplateById(ref.id, ref.version);
-	if (builtin) return rigTemplateSummary(sidecarTemplate(builtin, on(builtin)));
+	if (builtin) return rigTemplateSummary(fitted(builtin));
 	const got = await userRigTemplate(ref.id, ref.version);
-	return got
-		? rigTemplateSummary(sidecarTemplate(got.template, on(got.template)), got.saved)
-		: null;
+	return got ? rigTemplateSummary(fitted(got.template), got.saved) : null;
 }
 
 /** The template ＋ New rig builds from: a built-in, or a user template's head version. */

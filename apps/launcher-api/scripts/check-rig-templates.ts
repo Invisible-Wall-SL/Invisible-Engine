@@ -654,8 +654,8 @@ const chainOf = (n: string): string[] => {
 const DIGITS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 const FINGERS = DIGITS.slice(1);
 check(
-	'half-body: the spine chain is root → hip → spine → chest → neck → head',
-	chainOf('head').join() === 'neck,chest,spine,hip,root',
+	'half-body: the spine chain is root → hip → spine → chest → neck → neck_upper → head',
+	chainOf('head').join() === 'neck_upper,neck,chest,spine,hip,root',
 	chainOf('head').join(),
 );
 for (const s of ['l', 'r']) {
@@ -1255,9 +1255,11 @@ const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 	const plain = fullBody;
 	const d = derive({ ...plainRig, animations: { wave } }, specOf(plain, ['wave']));
 	const t = d.template;
+	// A rig has no links: a template saved from it is the one its bones make (`link` is a built-in's).
+	const unlinked = plain.bones.map(({ link: _link, ...b }) => b);
 	check(
 		'derived: bones in order, with their setup places',
-		JSON.stringify(t.bones) === JSON.stringify(plain.bones),
+		JSON.stringify(t.bones) === JSON.stringify(unlinked),
 		JSON.stringify(t.bones.slice(0, 3)),
 	);
 	check(

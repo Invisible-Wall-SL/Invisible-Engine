@@ -144,14 +144,15 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `scripts/check-commit-scope.mjs`, `scripts/check-all.mjs`,
     `scripts/svelte-check-ratchet.mjs`, `scripts/svelte-check-ratchet.test.mjs`,
     `scripts/check-agents-knowledge.mjs`, `scripts/agents-knowledge-baseline.json`,
-    `scripts/bug-fix/` and `scripts/current-games/`;
+    `scripts/bug-fix/`, `scripts/merge-main/` and `scripts/current-games/`;
   - what agents read: `services/director-worker/agents/`, `services/director-worker/families/`,
     `services/director-worker/src/untrusted.ts`, `docs/knowledge/` and `docs/director/DECISIONS/`;
   - the launcher's fix-run code and what it leans on, Invisible Pipeline Changes' server and API
     (the console that gates and merges this run's pull request), the configs that decide what an
     import loads, the bug, fix-run and Pipeline Changes fixtures, and the launcher's migrations
     and their runner: `apps/launcher-api/src/lib/bugFixRuns.ts`,
-    `apps/launcher-api/src/lib/bugReports.ts`, `apps/launcher-api/src/lib/server/bugFix*.ts`,
+    `apps/launcher-api/src/lib/bugReports.ts`, `apps/launcher-api/src/lib/mergeMainRuns.ts`,
+    `apps/launcher-api/src/lib/server/bugFix*.ts`,
     `apps/launcher-api/src/lib/server/pipeline*.ts`,
     `apps/launcher-api/src/lib/server/concurrency.ts`,
     `apps/launcher-api/src/lib/server/githubApp.ts`,
@@ -161,6 +162,8 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `apps/launcher-api/vite.config.js`, `apps/launcher-api/svelte.config.js`,
     `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
     `apps/launcher-api/scripts/check-bug-reports.ts`,
+    `apps/launcher-api/scripts/check-merge-main-join.ts`,
+    `apps/launcher-api/scripts/check-merge-main-runs.ts`,
     `apps/launcher-api/scripts/check-pipeline-changes.ts`,
     `apps/launcher-api/scripts/check-pipeline-games.ts`,
     `apps/launcher-api/src/lib/server/db/migrate.ts` and `apps/launcher-api/drizzle/`. A test

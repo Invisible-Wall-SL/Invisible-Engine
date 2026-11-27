@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
+	import type { MergeRunsAnswer } from '$lib/mergeMainRuns';
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
 	import type { MergeResult } from '$lib/server/pipelineMerge';
@@ -7,6 +8,7 @@
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import AgentEvalSection from './AgentEvalSection.svelte';
+	import MergeRunCards from './MergeRunCards.svelte';
 	import Pill from './Pill.svelte';
 	import ScreenCompare from './ScreenCompare.svelte';
 	import {
@@ -36,6 +38,7 @@
 		plural,
 		readyBar,
 		rerecordBar,
+		resolveOffered,
 		reportImageUrl,
 		rowCells,
 		safeHref,
@@ -80,6 +83,8 @@
 	let updateError = $state<{ text: string; href: string | null } | null>(null);
 	let updated = $state<string | null>(null);
 	let holdError = $state<string | null>(null);
+	let mergeRuns = $state<MergeRunsAnswer | null>(null);
+	let resolveError = $state<string | null>(null);
 
 	const harness = $derived({
 		...detail.harness,
@@ -126,6 +131,54 @@
 	const update = $derived(updateBar(detail, canMerge));
 	const hold = $derived(holdBar(detail, canMerge, now));
 	const canHold = $derived(holdOffered(detail, canMerge));
+	const canResolve = $derived(resolveOffered(detail, mergeRuns, canMerge));
+
+	async function loadMerge(number: number): Promise<void> {
+		try {
+			const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
+			const body: unknown = await res.json().catch(() => null);
+			if (number === detail.number) mergeRuns = res.ok ? (body as MergeRunsAnswer) : null;
+		} catch {
+			if (number === detail.number) mergeRuns = null;
+		}
+	}
+
+	$effect(() => {
+		void detail;
+		void loadMerge(detail.number);
+	});
+
+	async function rereadAll(): Promise<void> {
+		await Promise.all([reread(), loadMerge(detail.number)]);
+	}
+
+	async function resolveConflict(): Promise<void> {
+		if (busy || !canResolve) return;
+		const { number } = detail;
+		const confirmed = await askConfirm({
+			title: `Resolve the conflict on #${number}`,
+			message:
+				'A run merges main into this change, clears the mechanical conflicts itself and, for the rest, proposes a resolution for you to read. Nothing is pushed until you accept. It may cost a few dollars.',
+			confirmLabel: 'Resolve conflict',
+		});
+		if (!confirmed) return;
+		busy = 'resolve';
+		resolveError = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${number}/resolve`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ requestId: crypto.randomUUID() }),
+			});
+			const body: unknown = await res.json().catch(() => null);
+			if (!res.ok) resolveError = apiErrorText(res.status, body);
+			await rereadAll();
+		} catch (err) {
+			resolveError = err instanceof Error ? err.message : String(err);
+		} finally {
+			busy = null;
+		}
+	}
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -381,8 +434,14 @@
 			{blocked.text}
 			{#if blocked.url}<a href={blocked.url} target="_blank" rel="external noopener">Details ↗</a
 				>{/if}
+			{#if canResolve}
+				<button type="button" class="btn" disabled={busy !== null} onclick={resolveConflict}>
+					{busy === 'resolve' ? 'Starting…' : 'Resolve conflict'}
+				</button>
+			{/if}
 		</div>
 	{/if}
+	{#if resolveError}<div class="callout red" role="alert">{resolveError}</div>{/if}
 
 	{#if hold}
 		<div class="bar {hold.action === 'hold' ? 'amber' : 'muted'}">
@@ -450,6 +509,8 @@
 			{#if fix.blocked}<p class="fix-blocked" role="alert">{fix.blocked}</p>{/if}
 		</SectionCard>
 	{/if}
+
+	<MergeRunCards {detail} merge={mergeRuns} {canMerge} {now} onchanged={rereadAll} />
 
 	<section class="card" aria-label="Change summary">
 		<div class="head">

@@ -63,9 +63,9 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_RESULT_JSON = 256 * 1024;
 const HTTP_TIMEOUT_MS = 30_000;
 
-class JobError extends Error {}
+export class JobError extends Error {}
 
-const fail = (message) => {
+export const fail = (message) => {
 	throw new JobError(message);
 };
 
@@ -84,7 +84,7 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
  * POST is tried once: the launcher opens the pull request inside it, so a second POST of a result
  * still being opened would only be refused.
  */
-async function request(url, init, doing, { tries = 3, timeoutMs = HTTP_TIMEOUT_MS } = {}) {
+export async function request(url, init, doing, { tries = 3, timeoutMs = HTTP_TIMEOUT_MS } = {}) {
 	for (let attempt = 0; ; attempt++) {
 		let res;
 		try {
@@ -125,9 +125,9 @@ export function trustedUrl(raw, hosts) {
  * A GitHub OIDC token for the launcher. The request URL and token are the job's own, which
  * `id-token: write` gives every step — but step 4 starts the CLI without them.
  */
-export async function oidcToken() {
+export async function oidcToken(audience = AUDIENCE) {
 	const url = trustedUrl(env('ACTIONS_ID_TOKEN_REQUEST_URL'), ['.actions.githubusercontent.com']);
-	url.searchParams.set('audience', AUDIENCE);
+	url.searchParams.set('audience', audience);
 	const res = await request(
 		url,
 		{ headers: { authorization: `bearer ${env('ACTIONS_ID_TOKEN_REQUEST_TOKEN')}` } },
@@ -539,7 +539,7 @@ const modeOf = (st) => ((st.mode & 0o111) !== 0 ? '100755' : '100644');
  * (`O_NONBLOCK`, then `fstat`), the same file `lstat` saw (nothing swapped in between), with no
  * second hard link, and at most `limit` bytes. Anything else is refused, never followed.
  */
-function readPlain(workspaceReal, path, limit) {
+export function readPlain(workspaceReal, path, limit) {
 	const dir = realpathSync(dirname(path));
 	if (dir !== workspaceReal && !dir.startsWith(workspaceReal + sep)) {
 		fail('The change reaches outside the workspace through a linked folder.');
@@ -578,10 +578,11 @@ function readPlain(workspaceReal, path, limit) {
 
 /** A path as this job may print it: the log is public and reads `::` commands, so only a plain
  *  printable-ASCII path is shown. */
-const shown = (path) => (/^[!-~]{1,300}$/.test(path) ? path : 'a path outside printable ASCII');
+export const shown = (path) =>
+	/^[!-~]{1,300}$/.test(path) ? path : 'a path outside printable ASCII';
 
 /** A changed file's text, which must be UTF-8 with no NUL: a NUL means a binary file. */
-function textOf(bytes, path) {
+export function textOf(bytes, path) {
 	let text;
 	try {
 		text = decoder.decode(bytes);
@@ -981,7 +982,7 @@ export function logLine(id, answer, origin = null) {
 }
 
 /** Print `line` where no workflow command can be read into it. */
-function printFenced(line) {
+export function printFenced(line) {
 	const token = randomBytes(12).toString('hex');
 	console.log(`::stop-commands::${token}`);
 	console.log(line);

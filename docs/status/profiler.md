@@ -448,6 +448,21 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-27 — **One-off token scrub of the readings already kept** (the owner asked, after #1949).
+  #1949 redacts route tokens on receipt from its deploy on; a `perf: 9` reading kept before it could
+  hold a published game's read token in its R2 file and in its row's `network` / `facts`.
+  `profiler/tokenScrub.ts` `scrubStoredReadings` pages through every `perf_version >= 9` row and
+  rewrites each file through `redactReportText` (an R2 write conditional on the ETag it read, so a
+  file purged or replaced meanwhile is skipped, never resurrected) and each row's columns through
+  `redactValue`; a clean reading is not written. `purgeJob.ts` `runTokenScrubOnce` runs it before the
+  first purge after a boot (beside it, never holding it up) and sets
+  `app_settings.profilerTokenScrub = v1` once a pass skipped nothing; until then each boot retries.
+  A file or row that fails is counted as skipped and the pass goes on; a file with no unredacted
+  route (`mayHoldToken`, one linear scan) is never parsed, and the pass yields between readings. It logs `profiler token scrub: N reading(s) read, …`.
+  Gate 20 runs it on a fake store (two pages, a clean reading left untouched, a raced write left for
+  the next pass, a missing file, a second pass changing nothing, and a mutant that skips `facts`).
+  Not yet seen run against production: check the launcher's log after the deploy.
+
 - 2026-11-27 — **P10 "Probe accuracy"** (`claude/salmons-perf-t1-probe`; plan:
   `docs/design/salmons-performance.md` §2, track T1; `perf: 10`, perf 7 / 8 / 9 stay readable and a
   slot reading's summary is unchanged — a `perf: 10` slot twin of a `perf: 9` one reads the same but
