@@ -98,6 +98,12 @@ export interface SheetMapping {
 	 * template's order, each prop over its part (or behind it where the artist's file says so).
 	 */
 	layers?: string[];
+	/**
+	 * The head turn's strength (`rigHeadTurn.ts`): the drawn head turns round with a 3D capture's
+	 * yaw and nod and with the Head turn and Head up / down controls, 1 as round as the template's
+	 * head, 0 off (the face slides alone over a still head). None: 1.
+	 */
+	turn?: number;
 }
 
 export const SHEET_SIDECAR = 'sheet.json';

@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { FrameSourceDoc } from '../rigFrameSource';
-import { fitTemplate, frameWorld, type Affine, type RigFit } from './rigTemplateFit';
+import {
+	HEAD_TURN_BONES,
+	fitTemplate,
+	frameWorld,
+	type Affine,
+	type RigFit,
+} from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
 /**
@@ -394,6 +400,8 @@ export interface FrameUpdateReport {
 	handEdited: { part: string; kept: boolean }[];
 	/** Props new to the rig: a bone and a slot each. */
 	added: string[];
+	/** The head turn's bones new to the rig (frame-to-rig §13.1g), its head weighted to them. */
+	turned: string[];
 	/** What the cut no longer makes, removed, with what named it; `keptBone` when its bone stayed. */
 	removed: (Removal & { references: string[]; keptBone: boolean })[];
 	/** A prop the cut hangs from another bone now, or with another motion: its bone re-hung. */
@@ -486,6 +494,7 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		replaced: [],
 		handEdited: [],
 		added: [],
+		turned: [],
 		removed: [],
 		rehung: [],
 		deformDropped: [],
@@ -509,8 +518,10 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		report.removed.push({ ...r, references: refs, keptBone });
 	}
 
-	// New props' bones, appended in the build's order (a parent before its child), so nothing moves.
+	// New props' bones and the head turn's, appended in the build's order (a parent before its
+	// child), so nothing moves.
 	const has = (n: string) => doc.bones.some((b) => b.name === n);
+	const turning = new Set<string>(HEAD_TURN_BONES);
 	const nearest = (n: string): string => {
 		for (
 			let b: Bone | undefined = freshBones.get(n);
@@ -521,9 +532,9 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		return doc.bones[0].name;
 	};
 	for (const b of fresh.bones) {
-		if (has(b.name) || !isProp(b.name) || !made.has(b.name)) continue;
+		if (has(b.name) || !((isProp(b.name) && made.has(b.name)) || turning.has(b.name))) continue;
 		doc.bones.push(placedOn(b, nearest(b.parent ?? b.name), fresh, doc));
-		report.added.push(b.name);
+		(turning.has(b.name) ? report.turned : report.added).push(b.name);
 	}
 	// A prop whose bone or motion the cut changed hangs where the new build hangs it.
 	const before = new Map(input.made.props.map((p) => [p.name, p]));

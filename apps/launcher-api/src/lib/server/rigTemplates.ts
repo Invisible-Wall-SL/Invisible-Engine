@@ -3306,6 +3306,8 @@ function bodyDepthProblem(
 /** Every joint and region a part is skinned across, those their shares are split across too. */
 const skinList = (list: readonly RigSkin[]): RigSkin[] =>
 	list.flatMap((j) => [j, ...skinList(j.then ?? [])]);
+/** The bones a joint or region hands its share to: its own, or the four it splits it across. */
+const skinTo = (j: RigSkin): readonly string[] => (isSpot(j) && j.split ? j.split : [j.bone]);
 
 /** Why a bending part could not be built, or null. */
 function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
@@ -3343,7 +3345,7 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 				reached.add(c.bones[k]);
 			}
 		}
-		const skinned = new Set(skinList(bend.skin ?? []).map((j) => j.bone));
+		const skinned = new Set(skinList(bend.skin ?? []).flatMap(skinTo));
 		if (bend.bones.some((b, i) => i > 0 && !reached.has(i) && !skinned.has(b.bone)))
 			return 'leaves a bone on no branch';
 	}
@@ -3364,8 +3366,9 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 	}
 	const above0 = (v: number) => v > 0 && v < Infinity;
 	for (const j of skinList(bend.skin ?? [])) {
-		if (j.bone === bend.bones[0].bone || !used.has(j.bone))
-			return `is skinned across a joint to "${j.bone}", not one of its other bones`;
+		for (const to of skinTo(j))
+			if (to === bend.bones[0].bone || !used.has(to))
+				return `is skinned across a joint to "${to}", not one of its other bones`;
 		const placed = [...j.at, ...j.dir].every(Number.isFinite) && Math.hypot(...j.dir) > 0;
 		if (isSpot(j)) {
 			if (

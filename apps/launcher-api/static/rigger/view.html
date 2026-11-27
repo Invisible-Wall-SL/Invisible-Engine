@@ -1075,6 +1075,7 @@
       <div style="display:flex;gap:6px;align-items:center;">
         <select id="s2rSheet" style="flex:1;min-width:0;" title="One of this project's sheets or atlases."></select>
         <span class="seg"><button id="s2rSwapSides" aria-pressed="false" title="⇄ Swap sides — which side your names mean. The template's _l is the picture's left: on a character facing you, its own right arm is upper_arm_l. If your names say the character's own left and right (UpperArmL is the arm on the picture's right), switch this on: every part matched by name takes the other side's drawing (arms, hands, ears, eyes, lids, brows, cheeks…), its joints guessed again, a prop goes with the drawing it is worn on, and a moved part's place in ◧ Arranged starts over on its bones. You are asked about the parts you mapped by hand. Kept with the rig's mapping; a new rig starts with it off.">⇄ Swap sides</button></span>
+        <label class="s2rTurn" title="↻ Head turn — how round the drawn head turns with a 3D capture's turn and nod, and with the Head turn and Head up / down controls. The head's drawing is weighted in a dome about the face: the face slides with its features, the head's round part-way on four head_turn bones, the skull's outline stays; what the head wears (glasses, an earring) turns with it at its depth, a prop drawn behind it the other way. 1× is as round as the template's head (the face's slide is cut where a 40° turn would fold the skin); off leaves the face sliding alone over a still head. Kept with the rig's mapping: 🔄 Update rig gives a rig made before it the head turn too." style="display:flex;align-items:center;gap:4px;white-space:nowrap;">↻ Head turn <input type="range" id="s2rTurn" min="0" max="2" step="0.25" value="1" style="width:64px;margin:0;"><span id="s2rTurnVal" style="min-width:24px;">1×</span></label>
         <span id="s2rReuse" style="display:contents;"></span>
         <button id="s2rStartOver" class="f2rIcon" title="↺ Start over: the mapping back to the first guess. Every part takes the region its name says (as ⇄ Swap sides reads them), its joints guessed from its drawing, the worn things suggested as props, nothing arranged. Asks first when you changed it; ↶ brings it back." aria-label="Start over">↺</button>
         <button id="s2rUndoStart" class="f2rIcon" style="display:none;" title="↶ The mapping as it was before ↺ Start over." aria-label="Undo start over">↶</button>
@@ -12342,6 +12343,8 @@ const s2r = {
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
   view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false, pgen: 0, ptimer: 0,
   aview: null, adrag: null, swap: false,
+  // turn: ↻ Head turn's strength (0 off), the mapping's `turn`.
+  turn: 1,
   // layers: the author's Layers list, slot names front to back (null: the template's order, `sheetLayerList`).
   layers: null, ldrag: null,
   // left: { mapping, at } a new rig's mapping closed unmade (↺ Reuse); undo: what ↺ Start over replaced.
@@ -12554,12 +12557,26 @@ function s2rApplyUpdate(plan){
     rawDoc = plan.skeleton;
     normalizeKeys(rawDoc);
     sheetSrc.doc = plan.sheet;
+    s2rTurnDepths(plan.depths);
     rebuildFromRawDoc(sel);
     markDirty();
   });
   s2r.dirty = false;
   renderAnimSection();
   renderTimeline();
+}
+
+// The depths the mapping's ↻ Head turn gives its bones and what the head wears (the update's
+// `depths`) into the rig's 3D data, when it has some: its 3D clips bake the head turn from them.
+function s2rTurnDepths(depths){
+  if (!rig3d.doc || !depths) return;
+  const bones = rig3d.doc.bones = rig3d.doc.bones || {};
+  for (const [b, z] of Object.entries(depths)){
+    const own = Object.assign({}, bones[b]);
+    if (z) own.depth = z; else delete own.depth;
+    if (Object.keys(own).length) bones[b] = own; else delete bones[b];
+  }
+  if (!Object.keys(bones).length) delete rig3d.doc.bones;
 }
 
 function reportSheetUpdate(stem, rep){
@@ -12575,6 +12592,7 @@ function reportSheetUpdate(stem, rep){
     "“" + stem + "” is updated from its mapping" + (dirty ? " but NOT saved yet: 💾 Save keeps it." : " and saved.") + " ↶ undoes it.\n\n" +
     "Rebuilt from the mapping: " + rep.replaced.join(", ") + ".\n\n" + frame +
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
+    (rep.turned && rep.turned.length ? "↻ The head turns round now, its drawing weighted to " + rep.turned.join(", ") + (rig3d.doc ? " (their depths and the face's are in its 3D data, so its 3D clips bake the turn again)" : "") + ".\n\n" : "") +
     (removed.length ? "Removed (the mapping no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
     (rep.layered && rep.layered.length ? "Drawn in the order of your Layers list: " + rep.layered.join(", ") + " moved.\n\n" : "") +
@@ -12614,8 +12632,9 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept, from){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false, aview: null, adrag: null, swap: !!kept && kept.swapSides === true });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: from || null, dirty: false, undo: null, arrange: null, layers: null, preview: null, previewKey: "", previewProblem: "", previewLayers: false, aview: null, adrag: null, swap: !!kept && kept.swapSides === true, turn: kept && typeof kept.turn === "number" ? kept.turn : 1 });
   s2rSwapUi();
+  s2rTurnUi();
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
   if (!key){ s2rNote("pick one of this project's sheets"); return; }
@@ -12767,6 +12786,8 @@ function s2rKeep(kept){
   const placed = Object.entries(kept.arrange || {}).filter(([p]) => s2r.map[p]);
   s2r.arrange = placed.length ? Object.fromEntries(placed.map(([p, a]) => [p, { at: [...a.at], turn: a.turn }])) : null;
   s2r.layers = Array.isArray(kept.layers) ? [...kept.layers] : null;
+  s2r.turn = typeof kept.turn === "number" ? kept.turn : 1;
+  s2rTurnUi();
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
   const what = s2r.edit ? "“" + s2r.from + "”'s mapping: 🔄 Update rig rebuilds it from your changes"
@@ -12813,7 +12834,16 @@ function s2rMapping(st = s2r){
     ...(Object.keys(arrange).length ? { arrange } : {}),
     ...(st.swap ? { swapSides: true } : {}),
     ...s2rLayersOut(st),
+    ...(s2r.turn !== 1 ? { turn: s2r.turn } : {}),
   };
+}
+
+// ↻ Head turn (rigHeadTurn.ts): the drawn head's strength of turn, 0 off; kept in the mapping (`turn`,
+// none = 1).
+function s2rTurnUi(){
+  const r = $("#s2rTurn"); if (!r) return;
+  r.value = String(s2r.turn);
+  $("#s2rTurnVal").textContent = s2r.turn ? s2r.turn + "×" : "off";
 }
 
 // ⇄ Swap sides: the sheet's names read with their sides the other way round (the character's own
@@ -13719,6 +13749,11 @@ function wireSheetToRig(){
   $("#s2rModal").onmousedown = (e) => { if (e.target === $("#s2rModal")) closeSheetToRig(); };
   $("#s2rSheet").onchange = () => s2rPickSheet($("#s2rSheet").value);
   $("#s2rSwapSides").onclick = s2rToggleSwap;
+  $("#s2rTurn").oninput = () => {
+    s2r.turn = Number($("#s2rTurn").value);
+    s2r.dirty = true;
+    s2rTurnUi();
+  };
   $("#s2rStartOver").onclick = s2rStartOver;
   $("#s2rUndoStart").onclick = s2rUndoStartOver;
   $("#s2rCreate").onclick = () => (s2r.edit ? s2rUpdate() : s2rCreate());
