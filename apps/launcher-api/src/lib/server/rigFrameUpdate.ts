@@ -21,7 +21,9 @@ import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplat
  * so a user bone before it moves it), at the offset the cut gives the art on that bone, so the art sits
  * on its bones as on a new rig and moves with a bone the author moved, as their mesh did. A bone of the
  * new build the rig no longer has hands its share to its nearest ancestor the rig has, at the same
- * place in the build's bind pose.
+ * place in the build's bind pose. A link the template gained since (`links`: the neck's upper half)
+ * is put in where the build has it, on the rig's own line between its parent and its child, every
+ * weighted vertex renumbered and every key kept: the bones below it keep their places and poses.
  *
  * A part still made keeps its slot and attachment name, so its keys still apply; a part whose mesh
  * the author edited (its hash is not the one it was made with) is replaced unless listed in `keep`,
@@ -391,6 +393,8 @@ export interface FrameUpdateInput {
 	props: { name: string; bone?: string; motion: string }[];
 	/** Parts whose hand-edited mesh the author keeps. */
 	keep?: ReadonlySet<string>;
+	/** The template's links (`RigTemplateBone.link`): a rig made before one gets it. */
+	links?: readonly string[];
 }
 
 export interface FrameUpdateReport {
@@ -402,6 +406,8 @@ export interface FrameUpdateReport {
 	added: string[];
 	/** The head turn's bones new to the rig (frame-to-rig §13.1g), its head weighted to them. */
 	turned: string[];
+	/** The template's links new to the rig (the neck's upper half), each with the bone below it. */
+	linked: { bone: string; below: string }[];
 	/** What the cut no longer makes, removed, with what named it; `keptBone` when its bone stayed. */
 	removed: (Removal & { references: string[]; keptBone: boolean })[];
 	/** A prop the cut hangs from another bone now, or with another motion: its bone re-hung. */
@@ -415,6 +421,47 @@ export interface FrameUpdateReport {
 }
 
 type MergeInput = Pick<FrameUpdateInput, 'current' | 'fresh' | 'made' | 'props'>;
+
+/**
+ * Put the build's link `name` into the rig between its parent and the one bone the build hangs
+ * from it, where the rig has them hung together: at the share of that bone's offset the build gives
+ * the link (on the rig's own line, unturned), the bone below it moved by as much, the bones put in
+ * order and every weighted vertex renumbered. Not where a constraint chains the two (an IK from the
+ * parent to the bone would no longer be a chain). The bone below it, or null when not put in.
+ */
+function insertLink(doc: Doc, fresh: Doc, name: string): string | null {
+	const fb = fresh.bones.find((b) => b.name === name);
+	if (!fb?.parent || doc.bones.some((b) => b.name === name)) return null;
+	const under = fresh.bones.filter((b) => b.parent === name);
+	const kid = under.length === 1 ? doc.bones.find((b) => b.name === under[0].name) : undefined;
+	if (!kid || kid.parent !== fb.parent || (fb.rotation ?? 0) !== 0) return null;
+	const chained = CONSTRAINT_KINDS.some((kind) =>
+		((doc[kind] as Json[] | undefined) ?? []).some(
+			(c) => Array.isArray(c.bones) && c.bones.includes(kid.name) && c.bones.includes(fb.parent),
+		),
+	);
+	if (chained) return null;
+	const num = (v: unknown) => (typeof v === 'number' ? v : 0);
+	const [lx, ly, kx, ky] = [num(fb.x), num(fb.y), num(under[0].x), num(under[0].y)];
+	const share = Math.hypot(lx, ly) / Math.max(1e-9, Math.hypot(lx, ly) + Math.hypot(kx, ky));
+	const [x, y] = [num(kid.x) * share, num(kid.y) * share];
+	const link: Bone = { name, parent: fb.parent };
+	if (round4(x)) link.x = round4(x);
+	if (round4(y)) link.y = round4(y);
+	kid.parent = name;
+	for (const [k, v] of [
+		['x', num(kid.x) - x],
+		['y', num(kid.y) - y],
+	] as const) {
+		if (round4(v)) kid[k] = round4(v);
+		else delete kid[k];
+	}
+	doc.bones.push(link);
+	const order = doc.bones.map((b) => b.name).filter((n) => n !== name);
+	order.splice(order.indexOf(kid.name), 0, name);
+	reorderBones(doc, order);
+	return kid.name;
+}
 
 /** Whether a name is a prop's: `prop_…`, or one the input names (a sheet's custom part, named freely). */
 function propTest(input: Pick<FrameUpdateInput, 'made' | 'props'>): (name: string) => boolean {
@@ -495,6 +542,7 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		handEdited: [],
 		added: [],
 		turned: [],
+		linked: [],
 		removed: [],
 		rehung: [],
 		deformDropped: [],
@@ -516,6 +564,12 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		const refs = references(doc, r);
 		const { keptBone } = remove(doc, r);
 		report.removed.push({ ...r, references: refs, keptBone });
+	}
+
+	// The template's links the rig was made before, each between its bones (renumbering them).
+	for (const name of input.links ?? []) {
+		const below = insertLink(doc, fresh, name);
+		if (below) report.linked.push({ bone: name, below });
 	}
 
 	// New props' bones and the head turn's, appended in the build's order (a parent before its
@@ -857,7 +911,8 @@ export function updateFrameRig(o: UpdateInput): UpdateResult {
 			motion: p.motion ?? 'rides',
 			...(p.boneSet ? { bone: p.bone } : {}),
 		}));
-	const base = { current: o.current, fresh, freshBind, made: o.made, props };
+	const links = o.template.bones.filter((b) => b.link).map((b) => b.name);
+	const base = { current: o.current, fresh, freshBind, made: o.made, props, links };
 	const looked = frameRigUpdate(base).report.handEdited;
 	const verdict = new Map(
 		looked.map(({ part }) => {

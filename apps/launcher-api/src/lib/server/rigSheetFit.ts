@@ -353,14 +353,17 @@ function placed(qa: P, qd: P, wa: P, wd: P, k: number): Affine {
 	return [c, -s, s, c, wa[0] - (c * qa[0] - s * qa[1]), wa[1] - (s * qa[0] + c * qa[1])];
 }
 
-/** The bone whose offset is the length a part's two joints draw, by kind (`_s` its side). */
-const LENGTH: Partial<Record<SheetKind, string>> = {
-	upper_arm: 'lower_arm_s',
-	lower_arm: 'hand_s',
-	thigh: 'shin_s',
-	shin: 'foot_s',
-	neck: 'head',
-	head: 'face',
+/**
+ * The bones whose offsets are the length a part's two joints draw, by kind (`_s` its side): the
+ * neck's is shared by its upper half and the head, as the template shares it.
+ */
+const LENGTH: Partial<Record<SheetKind, string[]>> = {
+	upper_arm: ['lower_arm_s'],
+	lower_arm: ['hand_s'],
+	thigh: ['shin_s'],
+	shin: ['foot_s'],
+	neck: ['neck_upper', 'head'],
+	head: ['face'],
 };
 /** The bones a part's first joint and its direction lie on, by kind. */
 const ON: Partial<Record<SheetKind, [string, string]>> = {
@@ -403,6 +406,9 @@ export function sheetRig(
 		return { part, map, r, q, ...info };
 	});
 	const sided = (name: string, s: 'l' | 'r' | null) => name.replace(/_s$/, `_${s ?? 'l'}`);
+	/** The template's bones a kind's drawn length is the offsets of (those it has). */
+	const lengthOf = (kind: SheetKind, s: 'l' | 'r' | null) =>
+		(LENGTH[kind] ?? []).flatMap((n) => byName.get(sided(n, s)) ?? []);
 
 	// The scale: the torso's shoulders, else the limbs' drawn lengths against the template's.
 	const torso = mapped.find((x) => x.kind === 'torso' && x.main);
@@ -418,11 +424,10 @@ export function sheetRig(
 	if (k === undefined) {
 		const ratios: number[] = [];
 		for (const x of mapped) {
-			const lb = LENGTH[x.kind] && sided(LENGTH[x.kind]!, x.side);
-			const b = lb ? byName.get(lb) : undefined;
+			const tl = lengthOf(x.kind, x.side).reduce((s, b) => s + Math.hypot(b.x, b.y), 0);
 			const [j0, j1] = SHEET_JOINTS[x.kind];
 			const drawn = j1 ? len(sub(x.q(j1), x.q(j0))) : 0;
-			if (x.main && b && drawn > 1e-6) ratios.push(Math.hypot(b.x, b.y) / drawn);
+			if (x.main && tl > 0 && drawn > 1e-6) ratios.push(tl / drawn);
 		}
 		ratios.sort((a, b) => a - b);
 		k = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
@@ -442,10 +447,12 @@ export function sheetRig(
 	};
 	for (const x of mapped) {
 		if (!x.main) continue;
-		const lb = LENGTH[x.kind];
+		const lb = lengthOf(x.kind, x.side);
 		const [j0, j1 = j0] = SHEET_JOINTS[x.kind];
-		if (lb) {
-			const problem = setLength(sided(lb, x.side), len(sub(x.q(j1), x.q(j0))) * k, x.part);
+		const tl = lb.reduce((s, b) => s + Math.hypot(b.x, b.y), 0);
+		for (const b of lb) {
+			const share = tl > 0 ? Math.hypot(b.x, b.y) / tl : 1 / lb.length;
+			const problem = setLength(b.name, len(sub(x.q(j1), x.q(j0))) * k * share, x.part);
 			if (problem) return no(problem);
 		}
 	}

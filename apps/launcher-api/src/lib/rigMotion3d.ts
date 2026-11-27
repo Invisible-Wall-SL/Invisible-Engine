@@ -124,17 +124,20 @@ export interface FollowLimb {
 
 /**
  * Following positions (rig-templates §5.8): the root moves with the performer, limbs reach the
- * tracked ends, and the head is shifted onto the tracked face, on top of the bones' turns.
+ * tracked ends, and the neck bends the head toward the tracked face, on top of the bones' turns.
  */
 export interface RigPositions3d {
 	/** The root (no parent), translated so its anchors land on their points (their mean). */
 	root: { bone: string; anchors: FollowMark[] };
 	limbs: FollowLimb[];
 	/**
-	 * A bone translated in its parent (a flat bone the head hangs from) so its marks land on their
-	 * points, at most `limit` rig units from its place.
+	 * The neck: its bones (base first, each hanging from the one before, none turned by the map)
+	 * bent sideways as one — each by the same share, about its own z, in the plane its parent faces —
+	 * so the marks' middle lies on the line from the neck's base toward their tracked points' middle,
+	 * at most `limit` degrees in all. Nothing is translated: the neck's base stays on the body and the
+	 * head on the neck (turned as the face is). A bone the rig lacks is left out.
 	 */
-	head?: { bone: string; marks: FollowMark[]; limit: number };
+	neck?: { bones: string[]; marks: FollowMark[]; limit: number };
 }
 
 /**
@@ -209,8 +212,8 @@ export interface FollowReport {
 	placed: number;
 	/** Per limb (its upper bone): frames reaching the end, and frames it was out of reach (turned as tracked). */
 	limbs: Record<string, { reached: number; outOfReach: number }>;
-	/** The head's shift in rig units (median, largest) and the frames held at its limit. */
-	head?: { bone: string; median: number; max: number; clamped: number; limit: number };
+	/** The neck's bend in degrees (median, largest, either way) and the frames held at its limit. */
+	neck?: { bones: string[]; median: number; max: number; clamped: number; limit: number };
 }
 
 /** A bone's 2D keys from time 0: following positions' translates, the fingers' turns and stretches. */
@@ -223,7 +226,7 @@ export interface Keys2d {
 export interface Solve3d {
 	/** Per bone, its `orient` keys from time 0. */
 	bones: Record<string, BoneKeys3d>;
-	/** Per bone, 2D keys from time 0: the root's and the head's translates, the fingers'. */
+	/** Per bone, 2D keys from time 0: the root's translates (the neck's held), the fingers'. */
 	keys2d?: Record<string, Keys2d>;
 	follow?: FollowReport;
 	/** Bones never read (their points were never seen). */
@@ -406,10 +409,12 @@ export const BODY_LINES: [number, number][] = [
 export const FOLLOW_TOLERANCE = 0.5;
 
 /**
- * The head is shifted only while its parent's card faces the viewer at least this much (the share of
- * its area the picture shows): edge-on, a shift in the picture is a long way in the card.
+ * The neck bends only while its parent's card faces the viewer at least this much (the share of its
+ * area the picture shows): edge-on, a bend in the card barely moves the head in the picture.
  */
-const HEAD_FACING = 0.25;
+const NECK_FACING = 0.25;
+/** Steps of the neck's bend toward the face (each a secant step: the bend is smooth in its angle). */
+const NECK_STEPS = 6;
 
 type Pic = [number, number];
 
@@ -750,7 +755,31 @@ export function solveBones3d(
 	const { frames, width: W, height: H } = track;
 	const n = frames.length;
 	const byName = new Map(tpl.bones.map((b) => [b.name, b]));
-	const entryOf = new Map(map.entries.map((e) => [e.bone, e]));
+	// Following positions (rig-templates §5.8): the neck's bones (those the rig has) are entries of
+	// their own, turned by the bend toward the face; the bones under them are solved after it.
+	const fm = follow && map.positions ? map.positions : null;
+	const neckChain = fm?.neck ? fm.neck.bones.filter((b) => byName.has(b)) : [];
+	const neckSet = new Set(neckChain);
+	const inNeck = (name: string): boolean => {
+		for (let b = byName.get(name); b; b = b.parent ? byName.get(b.parent) : undefined)
+			if (neckSet.has(b.name)) return true;
+		return false;
+	};
+	/** Whether `name` is `above` or hangs from it. */
+	const inChain = (name: string, above: string): boolean => {
+		for (let b = byName.get(name); b; b = b.parent ? byName.get(b.parent) : undefined)
+			if (b.name === above) return true;
+		return false;
+	};
+	const neckAt = map.entries.findIndex((e) => inNeck(e.bone));
+	const entries: Bone3dMotion[] = neckChain.length
+		? [
+				...map.entries.slice(0, neckAt < 0 ? map.entries.length : neckAt),
+				...neckChain.map((bone): Bone3dMotion => ({ kind: 'bone3d', bone })),
+				...(neckAt < 0 ? [] : map.entries.slice(neckAt)),
+			]
+		: map.entries;
+	const entryOf = new Map(entries.map((e) => [e.bone, e]));
 	const restOf = (bone: string, given?: [number, number]): V3 | null => {
 		if (given) return unit([given[0], given[1], 0]);
 		const child = tpl.bones.find((b) => b.parent === bone && (b.x !== 0 || b.y !== 0));
@@ -894,21 +923,23 @@ export function solveBones3d(
 	const faceFilled = held(faceTurn);
 	const faceSmooth = faceFilled ? smoothTurns(faceFilled, times, map) : null;
 
-	// Following positions (rig-templates §5.8). The bones a limb reaches with are solved after every
-	// other bone of the frame, so the root is placed on the solved body before an arm reaches from it.
-	const fm = follow && map.positions ? map.positions : null;
+	// The bones a limb reaches with, and the neck's, are solved after every other bone of the frame,
+	// so the root is placed on the solved body before an arm reaches from it or the neck bends.
 	const limbOf = new Map((fm?.limbs ?? []).map((l) => [l.upper, l]));
 	const underLimb = (name: string): boolean => {
 		for (let b = byName.get(name); b; b = b.parent ? byName.get(b.parent) : undefined)
 			if (limbOf.has(b.name)) return true;
 		return false;
 	};
+	/** Solved once the rig is placed, in the second pass. */
+	const late = (name: string) => underLimb(name) || inNeck(name);
 	const order = fm
 		? [
-				...map.entries.filter((e) => !underLimb(e.bone)),
-				...map.entries.filter((e) => underLimb(e.bone)),
+				...entries.filter((e) => !late(e.bone)),
+				...entries.filter((e) => inNeck(e.bone)),
+				...entries.filter((e) => underLimb(e.bone)),
 			]
-		: map.entries;
+		: entries;
 	const pic = followPictures(
 		track,
 		bodies,
@@ -929,17 +960,17 @@ export function solveBones3d(
 	];
 	const rootBone = fm ? byName.get(fm.root.bone) : undefined;
 	const rootAt: ([number, number] | null)[] = Array(n).fill(null);
-	const headAt: ([number, number] | null)[] = Array(n).fill(null);
+	const bendAt: (number | null)[] = Array(n).fill(null);
 	const limbStats = new Map((fm?.limbs ?? []).map((l) => [l.upper, { reached: 0, outOfReach: 0 }]));
-	let headClamped = 0;
+	let neckClamped = 0;
 	let lastRoot: [number, number] | null = null;
 
 	// Solved frame by frame, parents first: each bone's turn from the setup and its world rotation.
 	// With `fit`, the bones `played` names take those turns (the body as its keys play it) and the
 	// rig is placed on the performer from them.
 	const solvePass = (fit: RigPositions3d | null, played: Map<string, Quat[]> | null) => {
-		const turns = new Map(map.entries.map((e) => [e.bone, Array<Quat | null>(n).fill(null)]));
-		const worlds = new Map(map.entries.map((e) => [e.bone, [] as M3[]]));
+		const turns = new Map(entries.map((e) => [e.bone, Array<Quat | null>(n).fill(null)]));
+		const worlds = new Map(entries.map((e) => [e.bone, [] as M3[]]));
 		const normals = new Map<string, V3>();
 		const facing = new Map<string, number>();
 		const beyond = new Map<string, number>();
@@ -994,25 +1025,73 @@ export function solveBones3d(
 				const found = offBy(fit.root.anchors, [0, 0], true);
 				root = found ?? lastRoot;
 				if (found) rootAt[i] = lastRoot = found;
-				const h = fit.head;
-				const hb = h && byName.get(h.bone);
-				const shift = h && hb && root ? offBy(h.marks, root, false) : null;
-				if (!h || !hb || !shift) return;
-				// The shift in the picture, as a translate in the parent's frame (as the bake projects it).
-				const m = worldOf(hb.parent);
-				const [a, b, c, d] = [m[0], m[1], m[3], m[4]].map((v) => v * scale);
-				const det = a * d - b * c;
-				if (!(Math.abs(det) > HEAD_FACING * scale * scale)) return;
-				let x = (d * shift[0] - b * shift[1]) / det;
-				let y = (a * shift[1] - c * shift[0]) / det;
-				const len = Math.hypot(x, y);
-				if (len > h.limit) {
-					x *= h.limit / len;
-					y *= h.limit / len;
-					headClamped++;
-				}
-				headAt[i] = [x, y];
 			};
+			// The neck's bend (degrees, in all) that puts the marks' middle on the line from the neck's
+			// base toward their tracked middle; null on a frame with no face or a neck edge-on.
+			const bendFor = (): number | null => {
+				const nk = fit?.neck;
+				const base = byName.get(neckChain[0]);
+				if (!nk || !root || !base) return null;
+				const m = worldOf(base.parent);
+				if (!(Math.abs(m[0] * m[4] - m[1] * m[3]) > NECK_FACING)) return null;
+				const seen = nk.marks.filter((mk) => pic.of(mk.point, false)[i]);
+				if (!seen.length) return null;
+				const T = seen
+					.map((mk) => toRig(pic.of(mk.point, false)[i]!))
+					.reduce((s, p) => [s[0] + p[0] / seen.length, s[1] + p[1] / seen.length], [0, 0]);
+				const B = placed(neckChain[0], root);
+				const under = tpl.bones.filter((b) => inNeck(b.name)).map((b) => b.name);
+				const kept = new Map(under.map((b) => [b, last.get(b)]));
+				// The marks' middle with the neck bent by `deg`, each bone under it solved as it will be.
+				const marksAt = (deg: number): [number, number] => {
+					for (const b of under) world.delete(b);
+					for (const b of neckChain) last.set(b, quatOf(rotZ(deg / neckChain.length)));
+					for (const e of order) {
+						if (!e.face || !inNeck(e.bone) || neckSet.has(e.bone)) continue;
+						const b = byName.get(e.bone);
+						if (!b || !faceTurn[i] || !faceSmooth) continue;
+						last.set(e.bone, localTurn(worldOf(b.parent), b.rotation ?? 0, matOf(faceSmooth[i])));
+						world.delete(e.bone);
+					}
+					return seen
+						.map((mk) => placed(mk.bone, root!))
+						.reduce((s, p) => [s[0] + p[0] / seen.length, s[1] + p[1] / seen.length], [0, 0]);
+				};
+				// The marks' miss across the neck, square to its line unbent (rig units): a rig whose head
+				// stands higher or lower on its shoulders than the performer's keeps that difference,
+				// sideways it lands.
+				const M0 = marksAt(0);
+				const top = tpl.bones.find(
+					(b) => b.parent === neckChain[neckChain.length - 1] && inChain(seen[0].bone, b.name),
+				);
+				const H = top ? placed(top.name, root) : M0;
+				const up = [H[0] - B[0], H[1] - B[1]];
+				const l = Math.hypot(up[0], up[1]);
+				const across = [-up[1] / l, up[0] / l];
+				const off = (deg: number) => {
+					const M = deg ? marksAt(deg) : M0;
+					return (T[0] - M[0]) * across[0] + (T[1] - M[1]) * across[1];
+				};
+				let [d0, f0] = [0, off(0)];
+				let d1 = f0 > 0 ? 1 : -1;
+				for (let k = 0; k < NECK_STEPS && l > 1e-6 && Math.abs(f0) > 1e-3; k++) {
+					const f1 = off(d1);
+					if (!Number.isFinite(f1) || Math.abs(f1) < 1e-3 || Math.abs(f1 - f0) < 1e-9) break;
+					[d0, f0, d1] = [d1, f1, d1 - (f1 * (d1 - d0)) / (f1 - f0)];
+					d1 = Math.max(-90, Math.min(90, d1));
+				}
+				if (!(l > 1e-6) || !(Math.abs(off(0)) > 1e-3)) d1 = 0;
+				for (const [b, q] of kept) {
+					world.delete(b);
+					if (q) last.set(b, q);
+					else last.delete(b);
+				}
+				if (!Number.isFinite(d1)) return null;
+				if (Math.abs(d1) <= nk.limit) return d1;
+				neckClamped++;
+				return Math.sign(d1) * nk.limit;
+			};
+			let bend: number | null = null;
 			// Each limb's two bones aimed so its end lands on the tracked end (two-bone IK in 3D).
 			const reach = new Map<string, V3>();
 			const reachFor = (l: FollowLimb) => {
@@ -1052,11 +1131,12 @@ export function solveBones3d(
 				reach.set(l.lower, [ik.end[0] - ik.mid[0], ik.end[1] - ik.mid[1], ik.end[2] - ik.mid[2]]);
 			};
 			let isPlaced = false;
-			for (const e of fit ? order : map.entries) {
-				if (fit && !isPlaced && underLimb(e.bone)) {
+			for (const e of fit ? order : entries) {
+				if (fit && !isPlaced && late(e.bone)) {
 					place();
 					isPlaced = true;
 				}
+				if (fit && e.bone === neckChain[0]) bend = bendAt[i] = bendFor();
 				const limb = fit && limbOf.get(e.bone);
 				if (limb) reachFor(limb);
 				const b = byName.get(e.bone);
@@ -1073,7 +1153,9 @@ export function solveBones3d(
 				const setup = b.rotation ?? 0;
 				const base = mul3(parent, rotZ(setup));
 				let turn: Quat | null = null;
-				if (e.face) {
+				if (neckSet.has(e.bone)) {
+					if (bend !== null) turn = quatOf(rotZ(bend / neckChain.length));
+				} else if (e.face) {
 					if (faceTurn[i] && faceSmooth) turn = localTurn(parent, setup, matOf(faceSmooth[i]));
 				} else if (e.viewer) {
 					const up = apply3(base, [0, 1, 0]);
@@ -1135,16 +1217,17 @@ export function solveBones3d(
 	let { turns, worlds, beyond } = first;
 	if (fm) {
 		const played = new Map<string, Quat[]>();
-		for (const e of map.entries) {
-			const filled = underLimb(e.bone) ? null : held(first.turns.get(e.bone)!);
+		for (const e of entries) {
+			const filled = late(e.bone) ? null : held(first.turns.get(e.bone)!);
 			if (filled) played.set(e.bone, keyedTurns(times, orientKeys(times, filled)));
 		}
 		const second = solvePass(fm, played);
-		// The limbs as they reached, every other bone as first solved (its keys unchanged).
+		// The limbs as they reached and the neck as it bent, every other bone as first solved (its keys
+		// unchanged).
 		const pick = <T>(a: Map<string, T>, b: Map<string, T>) => {
 			const out = new Map<string, T>();
-			for (const e of map.entries) {
-				const v = (underLimb(e.bone) ? b : a).get(e.bone);
+			for (const e of entries) {
+				const v = (late(e.bone) ? b : a).get(e.bone);
 				if (v !== undefined) out.set(e.bone, v);
 			}
 			return out;
@@ -1171,16 +1254,24 @@ export function solveBones3d(
 			placed: rootAt.filter((p) => p !== null).length,
 			limbs: Object.fromEntries(limbStats),
 		};
-		if (fm.head) {
-			const headKeys = pathKeys(times, headAt);
-			if (headKeys) keys2d[fm.head.bone] = { translate: headKeys };
-			const sizes = headAt.filter((p) => p !== null).map((p) => Math.hypot(p[0], p[1]));
-			out.follow.head = {
-				bone: fm.head.bone,
+		if (fm.neck && neckChain.length) {
+			// The neck is placed by its bend alone: under the import its translate is held at its setup
+			// place (an import made before kept it moved).
+			const end = times[n - 1] ?? 0;
+			for (const b of neckChain)
+				keys2d[b] = {
+					translate: [
+						{ time: 0, x: 0, y: 0 },
+						...(end > 0 ? [{ time: round(end, 4), x: 0, y: 0 }] : []),
+					],
+				};
+			const sizes = bendAt.filter((d) => d !== null).map((d) => Math.abs(d));
+			out.follow.neck = {
+				bones: neckChain,
 				median: round(sizes.length ? median(sizes) : 0, 1),
 				max: round(sizes.length ? Math.max(...sizes) : 0, 1),
-				clamped: headClamped,
-				limit: fm.head.limit,
+				clamped: neckClamped,
+				limit: fm.neck.limit,
 			};
 		}
 	}
@@ -1189,12 +1280,12 @@ export function solveBones3d(
 		out.turns = {};
 		out.worlds = Object.fromEntries(worlds);
 	}
-	for (const e of map.entries) {
+	for (const e of entries) {
 		const filled = held(turns.get(e.bone)!);
 		// An image turned square to the viewer under parents that never turned stays at its setup.
 		const still = !filled || (e.viewer && filled.every((q) => turnBetween(q, [1, 0, 0, 0]) < 1e-6));
 		if (!filled || still) {
-			if (!e.viewer) out.unseen.push(e.bone);
+			if (!e.viewer && !neckSet.has(e.bone)) out.unseen.push(e.bone);
 			continue;
 		}
 		out.bones[e.bone] = { orient: orientKeys(times, filled) };

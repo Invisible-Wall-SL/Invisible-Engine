@@ -26,7 +26,10 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 const SHIPPED =
 	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigTemplateFit|rigTemplates|rig2p5d|rig3d|rig3dImport)\.ts$/;
 let bundles = 0;
-/** The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first. */
+/**
+ * The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first; `page`
+ * builds functions of the page's script (`view.html`, a mutant there swapped in too).
+ */
 export async function load(mutate = []) {
 	const out = join(tmp, `m${bundles++}.mjs`);
 	await esbuild.build({
@@ -76,7 +79,25 @@ export async function load(mutate = []) {
 			},
 		],
 	});
-	return import(pathToFileURL(out).href);
+	let page = src;
+	for (const [file, from, to] of mutate) {
+		if (file !== 'view.html') continue;
+		if (!page.includes(from)) throw new Error(`mutant: "${from}" is not in ${file}`);
+		page = page.replace(from, to);
+	}
+	const mod = await import(pathToFileURL(out).href);
+	return {
+		...mod,
+		/** The page's functions `names` (and its consts `consts`), by name. */
+		page: (names, consts = []) =>
+			new Function(
+				[
+					...consts.map((n) => grabConst(n, page)),
+					...names.map((n) => pageFn(n, page)),
+					`return { ${names.join(', ')} };`,
+				].join('\n'),
+			)(),
+	};
 }
 
 // The page's keying of a solved capture (`faceKeyMotion` and what it calls), as the Rigger runs it.
@@ -84,22 +105,22 @@ const html = readFileSync(join(APP, 'static/rigger/view.html'), 'utf8');
 const src = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
 	.map((m) => m[1])
 	.join('\n');
-/** A function of the page's script, by name, as written there. */
-export const pageFn = (name) => {
-	const at = src.indexOf(`\nfunction ${name}(`);
+/** A function of the page's script (`from`: the script, mutated), by name, as written there. */
+export const pageFn = (name, text = src) => {
+	const at = text.indexOf(`\nfunction ${name}(`);
 	if (at === -1) throw new Error(`view.html has no function ${name}`);
 	let depth = 0;
-	let j = src.indexOf('{', at);
-	for (; j < src.length; j++) {
-		if (src[j] === '{') depth++;
-		else if (src[j] === '}' && --depth === 0) break;
+	let j = text.indexOf('{', at);
+	for (; j < text.length; j++) {
+		if (text[j] === '{') depth++;
+		else if (text[j] === '}' && --depth === 0) break;
 	}
-	return src.slice(at, j + 1);
+	return text.slice(at, j + 1);
 };
-const grabConst = (name) => src.match(new RegExp(`\\nconst ${name} = [^\\n]*`))[0];
+const grabConst = (name, text = src) => text.match(new RegExp(`\\nconst ${name} = [^\\n]*`))[0];
 export const PAGE = new Function(
 	[
-		...['roundN', 'FACE_TIMELINE', 'FACE_FIELD', 'faceClamp'].map(grabConst),
+		...['roundN', 'FACE_TIMELINE', 'FACE_FIELD', 'faceClamp'].map((n) => grabConst(n)),
 		...[
 			'bezierValue',
 			'sampleChannel',
@@ -125,7 +146,7 @@ export const PAGE = new Function(
 			'faceKeyShape',
 			'faceKeyMotion',
 			'face3dReplaced',
-		].map(pageFn),
+		].map((n) => pageFn(n)),
 		'return { faceKeyMotion, face3dReplaced };',
 	].join('\n'),
 )();

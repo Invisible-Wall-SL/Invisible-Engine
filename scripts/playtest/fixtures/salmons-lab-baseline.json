@@ -1,0 +1,689 @@
+{
+	"game": "salmons",
+	"bots": 20,
+	"seed": 31337,
+	"seconds": 60,
+	"character": "salmon",
+	"source": "665b407",
+	"chrome": "chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
+	"recordedAt": "2026-11-27T11:33:26.155Z",
+	"runs": [
+		{
+			"run": 1,
+			"ok": true,
+			"counters": {
+				"phase": "play",
+				"frames": 178,
+				"fps": 2.9,
+				"frameP95Ms": 450,
+				"draws": 14.5,
+				"vertices": 26535.3,
+				"passes": 5.2,
+				"targetSwitches": 7.3,
+				"filterPasses": 1.6,
+				"invalidations": 1,
+				"created": 0.6,
+				"createdSprites": 0.1,
+				"createdGraphics": 0,
+				"createdMeshes": 0.1,
+				"destroyed": 1,
+				"textureUploads": 0,
+				"calls": 110.3,
+				"jsMs": 20.4,
+				"renderMs": 15.2,
+				"tickMs": 19.6,
+				"uploadBytes": 51211.4,
+				"simCatchUp": 1,
+				"simDroppedMs": 246.9,
+				"simMs": 0.4,
+				"netMs": 0.2,
+				"bodies": 2.8,
+				"spawns": 0,
+				"despawns": 0.1,
+				"drawsMax": 33,
+				"passesMax": 8,
+				"invalidationsMax": 1,
+				"createdMax": 15,
+				"jsMsMax": 42.6,
+				"renderMsMax": 35.6,
+				"socket": {
+					"inMessagesPerSec": 21,
+					"inBytesPerSec": 827.3,
+					"outMessagesPerSec": 8.9,
+					"outBytesPerSec": 71.7,
+					"byCode": {
+						"in": {
+							"13": {
+								"messages": 42,
+								"bytes": 1815
+							},
+							"143": {
+								"messages": 1217,
+								"bytes": 47821
+							}
+						},
+						"out": {
+							"19": {
+								"messages": 534,
+								"bytes": 4300
+							}
+						}
+					}
+				}
+			},
+			"mount": {
+				"frames": 22,
+				"created": 39660,
+				"createdSprites": 39448,
+				"createdGraphics": 150,
+				"createdMeshes": 52,
+				"uploadBytes": 13676076,
+				"textureUploads": 10,
+				"jsMs": 301.7,
+				"renderMs": 134.9,
+				"textureMb": 50.8
+			},
+			"seen": {
+				"phases": {
+					"running": 28
+				},
+				"statuses": {
+					"free": 10,
+					"grounded": 18
+				},
+				"taps": 16,
+				"mounted": true
+			}
+		},
+		{
+			"run": 2,
+			"ok": true,
+			"counters": {
+				"phase": "play",
+				"frames": 162,
+				"fps": 2.6,
+				"frameP95Ms": 499.9,
+				"draws": 14.5,
+				"vertices": 26199.4,
+				"passes": 5.6,
+				"targetSwitches": 7.6,
+				"filterPasses": 1.8,
+				"invalidations": 1,
+				"created": 0.3,
+				"createdSprites": 0.1,
+				"createdGraphics": 0,
+				"createdMeshes": 0.1,
+				"destroyed": 1.1,
+				"textureUploads": 0,
+				"calls": 113.6,
+				"jsMs": 22.2,
+				"renderMs": 17,
+				"tickMs": 21.6,
+				"uploadBytes": 0,
+				"simCatchUp": 1,
+				"simDroppedMs": 286.8,
+				"simMs": 0.4,
+				"netMs": 0.2,
+				"bodies": 2.4,
+				"spawns": 0,
+				"despawns": 0.1,
+				"drawsMax": 34,
+				"passesMax": 8,
+				"invalidationsMax": 1,
+				"createdMax": 12,
+				"jsMsMax": 38.5,
+				"renderMsMax": 33.8,
+				"socket": {
+					"inMessagesPerSec": 21.2,
+					"inBytesPerSec": 706,
+					"outMessagesPerSec": 8.1,
+					"outBytesPerSec": 65.3,
+					"byCode": {
+						"in": {
+							"13": {
+								"messages": 33,
+								"bytes": 1389
+							},
+							"143": {
+								"messages": 1236,
+								"bytes": 40971
+							}
+						},
+						"out": {
+							"19": {
+								"messages": 486,
+								"bytes": 3915
+							}
+						}
+					}
+				}
+			},
+			"mount": {
+				"frames": 24,
+				"created": 39660,
+				"createdSprites": 39448,
+				"createdGraphics": 150,
+				"createdMeshes": 52,
+				"uploadBytes": 15673448,
+				"textureUploads": 11,
+				"jsMs": 405.8,
+				"renderMs": 133.5,
+				"textureMb": 111.3
+			},
+			"seen": {
+				"phases": {
+					"running": 28
+				},
+				"statuses": {
+					"free": 13,
+					"grounded": 15
+				},
+				"taps": 15,
+				"mounted": true
+			}
+		},
+		{
+			"run": 3,
+			"ok": true,
+			"counters": {
+				"phase": "play",
+				"frames": 155,
+				"fps": 2.5,
+				"frameP95Ms": 533.3,
+				"draws": 14,
+				"vertices": 26375.4,
+				"passes": 5.2,
+				"targetSwitches": 7.3,
+				"filterPasses": 1.6,
+				"invalidations": 1,
+				"created": 0.6,
+				"createdSprites": 0.1,
+				"createdGraphics": 0,
+				"createdMeshes": 0.1,
+				"destroyed": 1.2,
+				"textureUploads": 0.1,
+				"calls": 108.5,
+				"jsMs": 22.5,
+				"renderMs": 16.8,
+				"tickMs": 21.5,
+				"uploadBytes": 244407.5,
+				"simCatchUp": 1,
+				"simDroppedMs": 307.7,
+				"simMs": 0.4,
+				"netMs": 0.4,
+				"bodies": 2.5,
+				"spawns": 0,
+				"despawns": 0.1,
+				"drawsMax": 35,
+				"passesMax": 8,
+				"invalidationsMax": 1,
+				"createdMax": 22,
+				"jsMsMax": 57.9,
+				"renderMsMax": 44.7,
+				"socket": {
+					"inMessagesPerSec": 21.4,
+					"inBytesPerSec": 732.4,
+					"outMessagesPerSec": 7.8,
+					"outBytesPerSec": 61.8,
+					"byCode": {
+						"in": {
+							"13": {
+								"messages": 42,
+								"bytes": 1832
+							},
+							"143": {
+								"messages": 1241,
+								"bytes": 42109
+							}
+						},
+						"out": {
+							"19": {
+								"messages": 465,
+								"bytes": 3705
+							}
+						}
+					}
+				}
+			},
+			"mount": {
+				"frames": 16,
+				"created": 39712,
+				"createdSprites": 39448,
+				"createdGraphics": 150,
+				"createdMeshes": 52,
+				"uploadBytes": 13676076,
+				"textureUploads": 10,
+				"jsMs": 484,
+				"renderMs": 143.7,
+				"textureMb": 50.8
+			},
+			"seen": {
+				"phases": {
+					"running": 25
+				},
+				"statuses": {
+					"free": 5,
+					"grounded": 20
+				},
+				"taps": 15,
+				"mounted": true
+			}
+		},
+		{
+			"run": 4,
+			"ok": true,
+			"counters": {
+				"phase": "play",
+				"frames": 163,
+				"fps": 2.7,
+				"frameP95Ms": 450,
+				"draws": 14.2,
+				"vertices": 25365.2,
+				"passes": 5.1,
+				"targetSwitches": 7.2,
+				"filterPasses": 1.6,
+				"invalidations": 1,
+				"created": 0.5,
+				"createdSprites": 0.1,
+				"createdGraphics": 0,
+				"createdMeshes": 0.1,
+				"destroyed": 1.1,
+				"textureUploads": 0.1,
+				"calls": 108.9,
+				"jsMs": 20.5,
+				"renderMs": 15.2,
+				"tickMs": 19.5,
+				"uploadBytes": 170773.1,
+				"simCatchUp": 1,
+				"simDroppedMs": 274.7,
+				"simMs": 0.4,
+				"netMs": 0.2,
+				"bodies": 2.8,
+				"spawns": 0,
+				"despawns": 0.1,
+				"drawsMax": 37,
+				"passesMax": 8,
+				"invalidationsMax": 1,
+				"createdMax": 15,
+				"jsMsMax": 56.7,
+				"renderMsMax": 50.5,
+				"socket": {
+					"inMessagesPerSec": 20.8,
+					"inBytesPerSec": 773.1,
+					"outMessagesPerSec": 8.2,
+					"outBytesPerSec": 65.5,
+					"byCode": {
+						"in": {
+							"13": {
+								"messages": 43,
+								"bytes": 1838
+							},
+							"143": {
+								"messages": 1203,
+								"bytes": 44547
+							}
+						},
+						"out": {
+							"19": {
+								"messages": 489,
+								"bytes": 3932
+							}
+						}
+					}
+				}
+			},
+			"mount": {
+				"frames": 18,
+				"created": 39712,
+				"createdSprites": 39448,
+				"createdGraphics": 150,
+				"createdMeshes": 52,
+				"uploadBytes": 13676076,
+				"textureUploads": 10,
+				"jsMs": 425.3,
+				"renderMs": 118.5,
+				"textureMb": 50.8
+			},
+			"seen": {
+				"phases": {
+					"running": 27
+				},
+				"statuses": {
+					"free": 9,
+					"grounded": 18
+				},
+				"taps": 15,
+				"mounted": true
+			}
+		},
+		{
+			"run": 5,
+			"ok": true,
+			"counters": {
+				"phase": "play",
+				"frames": 180,
+				"fps": 2.9,
+				"frameP95Ms": 416.6,
+				"draws": 14.6,
+				"vertices": 26843.7,
+				"passes": 5.2,
+				"targetSwitches": 7.3,
+				"filterPasses": 1.6,
+				"invalidations": 1,
+				"created": 0.6,
+				"createdSprites": 0.1,
+				"createdGraphics": 0,
+				"createdMeshes": 0.1,
+				"destroyed": 1,
+				"textureUploads": 0,
+				"calls": 110.3,
+				"jsMs": 19.4,
+				"renderMs": 14.4,
+				"tickMs": 18.5,
+				"uploadBytes": 63949.1,
+				"simCatchUp": 1,
+				"simDroppedMs": 245.5,
+				"simMs": 0.4,
+				"netMs": 0.2,
+				"bodies": 2.9,
+				"spawns": 0,
+				"despawns": 0.1,
+				"drawsMax": 35,
+				"passesMax": 8,
+				"invalidationsMax": 1,
+				"createdMax": 20,
+				"jsMsMax": 49.5,
+				"renderMsMax": 42.6,
+				"socket": {
+					"inMessagesPerSec": 21.1,
+					"inBytesPerSec": 836.5,
+					"outMessagesPerSec": 9,
+					"outBytesPerSec": 72.5,
+					"byCode": {
+						"in": {
+							"13": {
+								"messages": 43,
+								"bytes": 1823
+							},
+							"143": {
+								"messages": 1224,
+								"bytes": 48364
+							}
+						},
+						"out": {
+							"19": {
+								"messages": 540,
+								"bytes": 4352
+							}
+						}
+					}
+				}
+			},
+			"mount": {
+				"frames": 21,
+				"created": 39660,
+				"createdSprites": 39448,
+				"createdGraphics": 150,
+				"createdMeshes": 52,
+				"uploadBytes": 13676076,
+				"textureUploads": 10,
+				"jsMs": 289.9,
+				"renderMs": 123.8,
+				"textureMb": 38.1
+			},
+			"seen": {
+				"phases": {
+					"running": 31
+				},
+				"statuses": {
+					"free": 10,
+					"grounded": 21
+				},
+				"taps": 16,
+				"mounted": true
+			}
+		}
+	],
+	"spread": {
+		"draws": {
+			"min": 14,
+			"mean": 14.4,
+			"max": 14.6,
+			"rangePct": 4.2
+		},
+		"vertices": {
+			"min": 25365.2,
+			"mean": 26263.8,
+			"max": 26843.7,
+			"rangePct": 5.6
+		},
+		"passes": {
+			"min": 5.1,
+			"mean": 5.3,
+			"max": 5.6,
+			"rangePct": 9.5
+		},
+		"targetSwitches": {
+			"min": 7.2,
+			"mean": 7.3,
+			"max": 7.6,
+			"rangePct": 5.4
+		},
+		"filterPasses": {
+			"min": 1.6,
+			"mean": 1.6,
+			"max": 1.8,
+			"rangePct": 12.2
+		},
+		"invalidations": {
+			"min": 1,
+			"mean": 1,
+			"max": 1,
+			"rangePct": 0
+		},
+		"created": {
+			"min": 0.3,
+			"mean": 0.5,
+			"max": 0.6,
+			"rangePct": 57.7
+		},
+		"createdSprites": {
+			"min": 0.1,
+			"mean": 0.1,
+			"max": 0.1,
+			"rangePct": 0
+		},
+		"createdGraphics": {
+			"min": 0,
+			"mean": 0,
+			"max": 0,
+			"rangePct": 0
+		},
+		"createdMeshes": {
+			"min": 0.1,
+			"mean": 0.1,
+			"max": 0.1,
+			"rangePct": 0
+		},
+		"destroyed": {
+			"min": 1,
+			"mean": 1.1,
+			"max": 1.2,
+			"rangePct": 18.5
+		},
+		"textureUploads": {
+			"min": 0,
+			"mean": 0,
+			"max": 0.1,
+			"rangePct": 250
+		},
+		"calls": {
+			"min": 108.5,
+			"mean": 110.3,
+			"max": 113.6,
+			"rangePct": 4.6
+		},
+		"jsMs": {
+			"min": 19.4,
+			"mean": 21,
+			"max": 22.5,
+			"rangePct": 14.8
+		},
+		"renderMs": {
+			"min": 14.4,
+			"mean": 15.7,
+			"max": 17,
+			"rangePct": 16.5
+		},
+		"tickMs": {
+			"min": 18.5,
+			"mean": 20.1,
+			"max": 21.6,
+			"rangePct": 15.4
+		},
+		"uploadBytes": {
+			"min": 0,
+			"mean": 106068.2,
+			"max": 244407.5,
+			"rangePct": 230.4
+		},
+		"simCatchUp": {
+			"min": 1,
+			"mean": 1,
+			"max": 1,
+			"rangePct": 0
+		},
+		"simDroppedMs": {
+			"min": 245.5,
+			"mean": 272.3,
+			"max": 307.7,
+			"rangePct": 22.8
+		},
+		"simMs": {
+			"min": 0.4,
+			"mean": 0.4,
+			"max": 0.4,
+			"rangePct": 0
+		},
+		"netMs": {
+			"min": 0.2,
+			"mean": 0.2,
+			"max": 0.4,
+			"rangePct": 83.3
+		},
+		"bodies": {
+			"min": 2.4,
+			"mean": 2.7,
+			"max": 2.9,
+			"rangePct": 18.7
+		},
+		"spawns": {
+			"min": 0,
+			"mean": 0,
+			"max": 0,
+			"rangePct": 0
+		},
+		"despawns": {
+			"min": 0.1,
+			"mean": 0.1,
+			"max": 0.1,
+			"rangePct": 0
+		},
+		"frames": {
+			"min": 155,
+			"mean": 167.6,
+			"max": 180,
+			"rangePct": 14.9
+		},
+		"jsMsMax": {
+			"min": 38.5,
+			"mean": 49,
+			"max": 57.9,
+			"rangePct": 39.6
+		},
+		"inMessagesPerSec": {
+			"min": 20.8,
+			"mean": 21.1,
+			"max": 21.4,
+			"rangePct": 2.8
+		},
+		"inBytesPerSec": {
+			"min": 706,
+			"mean": 775.1,
+			"max": 836.5,
+			"rangePct": 16.8
+		},
+		"outMessagesPerSec": {
+			"min": 7.8,
+			"mean": 8.4,
+			"max": 9,
+			"rangePct": 14.3
+		},
+		"outBytesPerSec": {
+			"min": 61.8,
+			"mean": 67.4,
+			"max": 72.5,
+			"rangePct": 15.9
+		},
+		"mount.frames": {
+			"min": 16,
+			"mean": 20.2,
+			"max": 24,
+			"rangePct": 39.6
+		},
+		"mount.created": {
+			"min": 39660,
+			"mean": 39680.8,
+			"max": 39712,
+			"rangePct": 0.1
+		},
+		"mount.createdSprites": {
+			"min": 39448,
+			"mean": 39448,
+			"max": 39448,
+			"rangePct": 0
+		},
+		"mount.createdGraphics": {
+			"min": 150,
+			"mean": 150,
+			"max": 150,
+			"rangePct": 0
+		},
+		"mount.createdMeshes": {
+			"min": 52,
+			"mean": 52,
+			"max": 52,
+			"rangePct": 0
+		},
+		"mount.uploadBytes": {
+			"min": 13676076,
+			"mean": 14075550.4,
+			"max": 15673448,
+			"rangePct": 14.2
+		},
+		"mount.textureUploads": {
+			"min": 10,
+			"mean": 10.2,
+			"max": 11,
+			"rangePct": 9.8
+		},
+		"mount.jsMs": {
+			"min": 289.9,
+			"mean": 381.3,
+			"max": 484,
+			"rangePct": 50.9
+		},
+		"mount.renderMs": {
+			"min": 118.5,
+			"mean": 130.9,
+			"max": 143.7,
+			"rangePct": 19.3
+		},
+		"mount.textureMb": {
+			"min": 38.1,
+			"mean": 60.4,
+			"max": 111.3,
+			"rangePct": 121.3
+		}
+	}
+}

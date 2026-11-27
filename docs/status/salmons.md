@@ -2711,6 +2711,25 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     stall rows and source checks, `salmons-play.mjs --stall` ([playtest](../playtest/salmons.md)
     "A stall").
 
+- 2026-11-27 — **Salmons lab run (performance T2; in review; branch `claude/salmons-perf-t2-lab`;
+  scripts and docs only, no game code)**: `scripts/playtest/salmons-lab.mjs` plays Salmons' room on
+  the real frame clock with `?perf=1` — a local game server, the export's config on the original
+  level pinned to one seed, a test room of 21 (20 bots), a salmon that joins, waits for `running`
+  and the level mount, presses Reset, plays a scripted 60 s input loop and takes the reading
+  (`lab-sequence.mjs` `playArcadeLabSequence`, with `LAB_WS_HOOK` for socket bytes by protocol
+  code). `--runs n` reports the spread, `--compare` marks counters outside the committed baseline
+  (`scripts/playtest/fixtures/salmons-lab-baseline.json`: five runs on `main` at `665b407`); the
+  **Profiler lab run** workflow runs it on demand (`salmons`). Noise floor, five runs, play per frame:
+  draws 14.0–14.6, passes 5.1–5.6, filter passes 1.6–1.8, `invalidations` 1 (every frame), GL calls
+  108–114, vertices 25.4k–26.8k; the mount frame creates 39 660 objects (39 448 sprites, 150
+  graphics, 52 meshes) every run; socket in 21 msg/s and 0.7–0.8 KB/s, out 8 msg/s and 67 B/s in a
+  room of 21. Headless is ~3 fps (SwiftShader): counters compare, timings do not. Table and
+  commands: [playtest/salmons](../playtest/salmons.md) "The lab run". Found on the way: the river is
+  not drawn until a tap passes the start screen (a lab that only waits for `running` plays an empty
+  field), and `lab-run.mjs` cannot play it (its published-game URL joins the live game server).
+  **Not verified:** the workflow job on GitHub's runner (it was never run there); the numbers on a
+  device.
+
 - 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
   room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was
   gone. The line now rests at `room / 1.15` there (including canvases that only just fit it), so the whole pop fits inside the margins
