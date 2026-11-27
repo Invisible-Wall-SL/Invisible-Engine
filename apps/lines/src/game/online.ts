@@ -1951,7 +1951,11 @@ function easeLift(current: Session, id: string, at: { x: number; y: number }, dt
 		lift = was.lift + (target - was.lift) * Math.min(1, (dtMs / 1000) * LIFT_FOLLOW);
 		if (Math.abs(target - lift) < 0.01) lift = target;
 	}
-	current.lifts.set(id, { lift, x: at.x, y: at.y });
+	if (was) {
+		was.lift = lift;
+		was.x = at.x;
+		was.y = at.y;
+	} else current.lifts.set(id, { lift, x: at.x, y: at.y });
 	return lift;
 }
 
@@ -2011,6 +2015,14 @@ function handLift(current: Session, id: string, player: PlayerState) {
 	return Math.max(0, hands.lift - (standOf(current, id).middle ?? bodyOf(current, player).h / 2));
 }
 
+/** What {@link draw} hands on each frame, kept between frames so a frame makes none of it anew:
+ *  the moves of the drawn players' instances (from a pool of move objects) and each shown player's
+ *  place. Nothing keeps them past the frame: the spawn store copies a move's place into a handle,
+ *  and the passes below only read the places. */
+const drawMoves: { id: string; x: number; y: number }[] = [];
+const movePool: { id: string; x: number; y: number }[] = [];
+const drawPlaces = new Map<string, { x: number; y: number }>();
+
 /** Put every player of the room where it is drawn. */
 function draw(current: Session, dtMs: number) {
 	const live = spawnStore();
@@ -2051,8 +2063,10 @@ function draw(current: Session, dtMs: number) {
 		const look = current.looks.get(id);
 		if (look) restart(look);
 	}
-	const moves: { id: string; x: number; y: number }[] = [];
-	const places = new Map<string, { x: number; y: number }>();
+	const moves = drawMoves;
+	moves.length = 0;
+	const places = drawPlaces;
+	places.clear();
 	players.forEach((player, id) => {
 		if (!shownInRoom(player)) return;
 		const at = carriedPlace(current, players, player) ?? placeOf(current, id, player);
@@ -2060,7 +2074,12 @@ function draw(current: Session, dtMs: number) {
 		const shown = raisedPlace(at, easeLift(current, id, at, dtMs) + handLift(current, id, player));
 		const instance = current.drawn.get(id);
 		if (instance) {
-			moves.push({ id: instance, x: shown.x, y: shown.y });
+			let move = movePool[moves.length];
+			if (!move) movePool.push((move = { id: instance, x: 0, y: 0 }));
+			move.id = instance;
+			move.x = shown.x;
+			move.y = shown.y;
+			moves.push(move);
 			// Held for its catch and shown again (it respawned): its clips start afresh.
 			const look = current.looks.get(id);
 			if (look?.leaving) restart(look);

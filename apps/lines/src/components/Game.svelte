@@ -338,7 +338,9 @@
 	import { Match3Input } from '../families/match3';
 	import { ArcadeStage } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
+	import { arcadePerf } from '../game/arcadePerf';
 	import { gameMechanic } from '../game/mechanic';
+	import { lastFieldTick, qualityGate } from '../game/qualityGate';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
@@ -1287,15 +1289,27 @@
 	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round
 	// plays draws fewer pixels (`pixi-svelte` `renderQuality`), switched only while no reel rolls:
 	// at idle in manual play; in autoplay, which is one long state and never idle, in the moments
-	// of a round with the reels stopped. A deterministic render and a `?render=` pin never adapt.
+	// of a round with the reels stopped. An arcade game, which never leaves idle, is measured while
+	// its play field ticks and switched as a level mounts (`game/qualityGate.ts`). A deterministic
+	// render and a `?render=` pin never adapt.
 	onDestroy(
 		configureRenderQuality({
 			adaptive: !globalThis.__IE_DETERMINISM__ && renderPin() === undefined,
-			measuring: () => context.stateXstateDerived.isPlaying(),
-			quiet: () =>
-				context.stateXstateDerived.isIdle() ||
-				(context.stateXstateDerived.isAutoBetting() &&
-					!stateGame.board.some((reel) => reel.reelState.rolling)),
+			...qualityGate(
+				mechanic.playField,
+				{
+					measuring: () => context.stateXstateDerived.isPlaying(),
+					quiet: () =>
+						context.stateXstateDerived.isIdle() ||
+						(context.stateXstateDerived.isAutoBetting() &&
+							!stateGame.board.some((reel) => reel.reelState.rolling)),
+				},
+				() => ({
+					now: performance.now(),
+					tickedAt: lastFieldTick(),
+					mountedAt: arcadePerf.mountedAt,
+				}),
+			),
 		}),
 	);
 

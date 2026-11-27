@@ -5,6 +5,7 @@ import {
 	DisplacementFilter,
 	Graphics,
 	Matrix,
+	Point,
 	Sprite,
 	Texture,
 	TilingSprite,
@@ -307,6 +308,9 @@ const UPRIGHT_GRID = 256;
 const AMONG_GRID = 256;
 /** Ground pieces made a frame ahead of the view (the ring of chunks just past it), at most. */
 const AHEAD_PER_FRAME = 1500;
+/** A ground chunk whose box meets more cells of the {@link CHUNK_PX} grid than this is not indexed
+ *  by cell but looked at on every move of the view. */
+const WIDE_CELLS = 64;
 
 /**
  * Ground tiles kept together: made at once (`make`, in the order they were laid), drawn in place
@@ -359,20 +363,14 @@ const grow = (box: Box, by: Box) => {
 	box.x1 = Math.max(box.x1, by.x1);
 	box.y1 = Math.max(box.y1, by.y1);
 };
-/** `box` rounded out to a grid of `step` px. */
-const roundOut = (box: Box, step: number): Box => ({
-	x0: Math.floor(box.x0 / step) * step,
-	y0: Math.floor(box.y0 / step) * step,
-	x1: Math.ceil(box.x1 / step) * step,
-	y1: Math.ceil(box.y1 / step) * step,
-});
-const keyOf = (box: Box) => `${box.x0},${box.y0},${box.x1},${box.y1}`;
-const padded = (box: Box, by: number): Box => ({
-	x0: box.x0 - by,
-	y0: box.y0 - by,
-	x1: box.x1 + by,
-	y1: box.y1 + by,
-});
+const copyBox = (to: Box, from: Box) => {
+	to.x0 = from.x0;
+	to.y0 = from.y0;
+	to.x1 = from.x1;
+	to.y1 = from.y1;
+};
+/** Two numbers the same as their printed forms are: equal, or both not a number. */
+const same = (a: number, b: number) => a === b || (Number.isNaN(a) && Number.isNaN(b));
 
 /**
  * The container the players' spawn layer draws its instances in: under the layer's own container
@@ -1243,15 +1241,19 @@ export function mountSalmonsRiver(
 	const bedChunks = chunks.filter((chunk) => chunk.boxes);
 	/** The riverbed's tiles that meet the view's ground box: the ones a riverbed culled tile by
 	 *  tile drew, as its chunks are shown whole. */
-	let rippling: Container[] = [];
+	const rippling: Container[] = [];
+	/** Counts the lists {@link rippleBy} has made, so the ripple's area is measured again on a new one. */
+	let rippleList = 0;
 	const rippleBy = (ground: Box) => {
-		rippling = [];
+		rippling.length = 0;
+		rippleList++;
 		for (const chunk of bedChunks) {
 			const { boxes } = chunk;
 			if (!boxes || !chunk.built || !meets(chunk.box, ground)) continue;
 			const tiles = chunk.view.children;
-			if (within(chunk.box, ground)) rippling.push(...tiles);
-			else boxes.forEach((box, i) => meets(box, ground) && rippling.push(tiles[i]));
+			if (within(chunk.box, ground)) for (const tile of tiles) rippling.push(tile);
+			else
+				for (let i = 0; i < boxes.length; i++) if (meets(boxes[i], ground)) rippling.push(tiles[i]);
 		}
 	};
 	/**
@@ -1262,10 +1264,42 @@ export function mountSalmonsRiver(
 	 * chunks add only identities to that chain.
 	 */
 	const chain = { bed: new Matrix(), group: new Matrix(), tile: new Matrix() };
+	/**
+	 * The area last measured, before the scene's transform: kept while the list of tiles and the
+	 * ground's place in the scene are the ones it was measured by (the planes, the groups and the
+	 * tiles under it never move), so a frame the view holds still re-measures nothing. The scene's
+	 * transform is applied to it afresh each time, as it was to the measured one.
+	 */
+	const measured = {
+		list: -1,
+		scene: null as unknown,
+		at: new Float64Array(6),
+		area: new Float64Array(4),
+	};
+	const sameMeasure = (scene: unknown, m: Matrix) => {
+		const { at } = measured;
+		return (
+			measured.list === rippleList &&
+			measured.scene === scene &&
+			at[0] === m.a &&
+			at[1] === m.b &&
+			at[2] === m.c &&
+			at[3] === m.d &&
+			at[4] === m.tx &&
+			at[5] === m.ty
+		);
+	};
 	rippled.getFastGlobalBounds = (_factorRenderLayers?: boolean, bounds = new Bounds()) => {
 		bounds.clear();
 		const scene = turn.parentRenderGroup;
 		if (!scene) return bounds;
+		const placedAt = turn.relativeGroupTransform;
+		if (sameMeasure(scene, placedAt)) {
+			const { area } = measured;
+			bounds.set(area[0], area[1], area[2], area[3]);
+			bounds.applyMatrix(scene.worldTransform);
+			return bounds;
+		}
 		bedPlane.updateLocalTransform();
 		bed.updateLocalTransform();
 		chain.bed
@@ -1287,6 +1321,19 @@ export function mountSalmonsRiver(
 			bounds.addFrame(frame.minX, frame.minY, frame.maxX, frame.maxY, chain.tile);
 		}
 		if (!bounds.isValid) bounds.set(0, 0, 0, 0);
+		measured.list = rippleList;
+		measured.scene = scene;
+		const { at, area } = measured;
+		at[0] = placedAt.a;
+		at[1] = placedAt.b;
+		at[2] = placedAt.c;
+		at[3] = placedAt.d;
+		at[4] = placedAt.tx;
+		at[5] = placedAt.ty;
+		area[0] = bounds.minX;
+		area[1] = bounds.minY;
+		area[2] = bounds.maxX;
+		area[3] = bounds.maxY;
 		bounds.applyMatrix(scene.worldTransform);
 		return bounds;
 	};
@@ -1298,21 +1345,110 @@ export function mountSalmonsRiver(
 		if (at < 0) chunk.home.addChild(chunk.view);
 		else chunk.home.addChildAt(chunk.view, at);
 	};
-	let ahead: Chunk[] = [];
-	/** The chunks that meet the view's ground box shown (made and put in place first), the rest
-	 *  hidden: a chunk's `visible` changes, and the ground's draw list is rebuilt, only when one
-	 *  comes or goes. The ring a chunk past them is queued to be made ahead. */
-	const cullGround = (ground: Box) => {
-		const ring = padded(ground, CHUNK_PX);
-		ahead = [];
-		for (const chunk of chunks) {
-			const show = meets(chunk.box, ground);
-			if (show) {
-				if (!chunk.built) build(chunk);
-				attach(chunk);
-			} else if (!chunk.built && meets(chunk.box, ring)) ahead.push(chunk);
-			chunk.view.visible = show;
+	const ahead: Chunk[] = [];
+	/**
+	 * The chunks by the cells of a {@link CHUNK_PX} grid their boxes meet (by index in `chunks`), so
+	 * a move of the view looks only at the chunks near the ground box it had and the ring it has.
+	 * A chunk over more than {@link WIDE_CELLS} cells is looked at on every move; one with nothing
+	 * in it (an empty box) only on the first, which hides it for good.
+	 */
+	const chunkGrid = new Map<number, number[]>();
+	const wide: number[] = [];
+	const cellSpan = (box: Box) => {
+		const x0 = Math.floor(box.x0 / CHUNK_PX);
+		const y0 = Math.floor(box.y0 / CHUNK_PX);
+		const x1 = Math.floor(box.x1 / CHUNK_PX);
+		const y1 = Math.floor(box.y1 / CHUNK_PX);
+		const cells = (x1 - x0 + 1) * (y1 - y0 + 1);
+		return Number.isFinite(cells) && cells > 0 ? { x0, y0, x1, y1, cells } : undefined;
+	};
+	chunks.forEach((chunk, i) => {
+		const span = cellSpan(chunk.box);
+		if (!span) {
+			if (chunk.box.x0 <= chunk.box.x1 && chunk.box.y0 <= chunk.box.y1) wide.push(i);
+			return;
 		}
+		if (span.cells > WIDE_CELLS) {
+			wide.push(i);
+			return;
+		}
+		for (let gy = span.y0; gy <= span.y1; gy++)
+			for (let gx = span.x0; gx <= span.x1; gx++) {
+				const key = cellKey(gx, gy);
+				const list = chunkGrid.get(key);
+				if (list) list.push(i);
+				else chunkGrid.set(key, [i]);
+			}
+	});
+	const looked = new Uint32Array(chunks.length);
+	let look = 0;
+	const nearChunks: number[] = [];
+	/** Add the chunks indexed on the cells `box` meets to {@link nearChunks}; false when `box` is too big
+	 *  (or not finite) to walk by cells. */
+	const nearBox = (box: Box) => {
+		const span = cellSpan(box);
+		if (!span) return false;
+		if (span.cells > chunks.length + WIDE_CELLS) return false;
+		for (let gy = span.y0; gy <= span.y1; gy++)
+			for (let gx = span.x0; gx <= span.x1; gx++) {
+				const list = chunkGrid.get(cellKey(gx, gy));
+				if (list)
+					for (const i of list)
+						if (looked[i] !== look) {
+							looked[i] = look;
+							nearChunks.push(i);
+						}
+			}
+		return true;
+	};
+	const ring: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	/** The ground box of the last cull, once there was one. */
+	const lastGround: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	let culledOnce = false;
+	const cullChunk = (chunk: Chunk, ground: Box) => {
+		const show = meets(chunk.box, ground);
+		if (show) {
+			if (!chunk.built) build(chunk);
+			attach(chunk);
+		} else if (!chunk.built && meets(chunk.box, ring)) ahead.push(chunk);
+		chunk.view.visible = show;
+	};
+	/**
+	 * The chunks that meet the view's ground box shown (made and put in place first), the rest
+	 * hidden: a chunk's `visible` changes, and the ground's draw list is rebuilt, only when one
+	 * comes or goes. The ring a chunk past them is queued to be made ahead. After the first cull
+	 * only the chunks near the last ground box or the new ring are looked at, in their order: every
+	 * other one was hidden and stays hidden, and is not near enough to be made ahead.
+	 */
+	const cullGround = (ground: Box) => {
+		ring.x0 = ground.x0 - CHUNK_PX;
+		ring.y0 = ground.y0 - CHUNK_PX;
+		ring.x1 = ground.x1 + CHUNK_PX;
+		ring.y1 = ground.y1 + CHUNK_PX;
+		ahead.length = 0;
+		look = (look + 1) >>> 0;
+		if (look === 0) {
+			looked.fill(0);
+			look = 1;
+		}
+		nearChunks.length = 0;
+		const walked = culledOnce && nearBox(lastGround) && nearBox(ring);
+		culledOnce = true;
+		lastGround.x0 = ground.x0;
+		lastGround.y0 = ground.y0;
+		lastGround.x1 = ground.x1;
+		lastGround.y1 = ground.y1;
+		if (!walked) {
+			for (const chunk of chunks) cullChunk(chunk, ground);
+			return;
+		}
+		for (const i of wide)
+			if (looked[i] !== look) {
+				looked[i] = look;
+				nearChunks.push(i);
+			}
+		nearChunks.sort((a, b) => a - b);
+		for (const i of nearChunks) cullChunk(chunks[i], ground);
 	};
 	const buildAhead = () => {
 		let budget = AHEAD_PER_FRAME;
@@ -1329,15 +1465,31 @@ export function mountSalmonsRiver(
 	const animated = new Set<Container>([...ticking, ...rigs.map((rig) => rig.view)]);
 	const clocked = uprightCulled.filter(({ view }) => animated.has(view));
 	const stopped = new Set<Container>();
-	let uprightSeen = '';
+	/** The view box rounded out to {@link UPRIGHT_GRID}, as the upright pieces were last culled by. */
+	const uprightBy: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	let uprightOnce = false;
 	const cullUpright = (view: Box) => {
 		for (const { view: v, box } of clocked)
 			if (meets(box, view)) stopped.delete(v);
 			else stopped.add(v);
-		const near = roundOut(view, UPRIGHT_GRID);
-		const key = keyOf(near);
-		if (key === uprightSeen) return;
-		uprightSeen = key;
+		const x0 = Math.floor(view.x0 / UPRIGHT_GRID) * UPRIGHT_GRID;
+		const y0 = Math.floor(view.y0 / UPRIGHT_GRID) * UPRIGHT_GRID;
+		const x1 = Math.ceil(view.x1 / UPRIGHT_GRID) * UPRIGHT_GRID;
+		const y1 = Math.ceil(view.y1 / UPRIGHT_GRID) * UPRIGHT_GRID;
+		const near = uprightBy;
+		if (
+			uprightOnce &&
+			same(near.x0, x0) &&
+			same(near.y0, y0) &&
+			same(near.x1, x1) &&
+			same(near.y1, y1)
+		)
+			return;
+		uprightOnce = true;
+		near.x0 = x0;
+		near.y0 = y0;
+		near.x1 = x1;
+		near.y1 = y1;
 		for (const { view: v, box } of uprightCulled) v.visible = meets(box, near);
 	};
 
@@ -1364,53 +1516,79 @@ export function mountSalmonsRiver(
 	let layerShift = { x: 0, y: 0 };
 	let amongDrawn = 0;
 	/** The view box the pieces among the players were last placed by. */
-	let placedBy: Box | undefined;
+	const placedBy: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	let placedOnce = false;
 	const findLayer = () => {
 		const now = spawnLayerOf(SALMONS_FIELD_LAYER);
 		if (now === layer && (!now || !now.destroyed)) return layer;
 		amongDrawn = 0;
-		placedBy = undefined;
+		placedOnce = false;
 		for (const piece of among) if (piece.view?.parent) piece.view.removeFromParent();
 		layer = now && !now.destroyed ? now : undefined;
 		if (layer) layerShift = layer.toLocal({ x: 0, y: 0 }, into);
 		return layer;
 	};
 
-	let seen = '';
+	/** What the view was last culled by: the river's world transform and the screen's size. */
+	const seen = new Float64Array(8);
+	let culled = false;
 	const inverse = new Matrix();
-	let viewBox: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	const viewBox: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	const ground: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+	const viewCorners = [new Point(), new Point(), new Point(), new Point()];
+	const screenCorner = new Point();
 	const cull = () => {
 		const m = into.worldTransform;
 		const screen = app.renderer.screen;
-		const key = `${m.a},${m.b},${m.c},${m.d},${m.tx},${m.ty},${screen.width},${screen.height}`;
-		if (key === seen) return false;
-		seen = key;
+		if (
+			culled &&
+			same(seen[0], m.a) &&
+			same(seen[1], m.b) &&
+			same(seen[2], m.c) &&
+			same(seen[3], m.d) &&
+			same(seen[4], m.tx) &&
+			same(seen[5], m.ty) &&
+			same(seen[6], screen.width) &&
+			same(seen[7], screen.height)
+		)
+			return false;
+		culled = true;
+		seen[0] = m.a;
+		seen[1] = m.b;
+		seen[2] = m.c;
+		seen[3] = m.d;
+		seen[4] = m.tx;
+		seen[5] = m.ty;
+		seen[6] = screen.width;
+		seen[7] = screen.height;
 		inverse.copyFrom(m).invert();
-		const pts = [
-			[0, 0],
-			[screen.width, 0],
-			[0, screen.height],
-			[screen.width, screen.height],
-		].map(([x, y]) => inverse.apply({ x, y }));
-		viewBox = {
-			x0: Math.min(...pts.map((p) => p.x)) - CULL_PAD,
-			y0: Math.min(...pts.map((p) => p.y)) - CULL_PAD,
-			x1: Math.max(...pts.map((p) => p.x)) + CULL_PAD,
-			y1: Math.max(...pts.map((p) => p.y)) + CULL_PAD,
-		};
+		for (let i = 0; i < 4; i++) {
+			screenCorner.set(i & 1 ? screen.width : 0, i & 2 ? screen.height : 0);
+			inverse.apply(screenCorner, viewCorners[i]);
+		}
+		const [p0, p1, p2, p3] = viewCorners;
+		viewBox.x0 = Math.min(p0.x, p1.x, p2.x, p3.x) - CULL_PAD;
+		viewBox.y0 = Math.min(p0.y, p1.y, p2.y, p3.y) - CULL_PAD;
+		viewBox.x1 = Math.max(p0.x, p1.x, p2.x, p3.x) + CULL_PAD;
+		viewBox.y1 = Math.max(p0.y, p1.y, p2.y, p3.y) + CULL_PAD;
 		// The world box under the view: the projected corners turned back.
-		const world = pts.map((p) => unproject(p.x, p.y));
-		const ground: Box = {
-			x0: Math.min(...world.map((p) => p.x)) - CELL,
-			y0: Math.min(...world.map((p) => p.y)) - CELL,
-			x1: Math.max(...world.map((p) => p.x)) + CELL,
-			y1: Math.max(...world.map((p) => p.y)) + CELL,
-		};
+		const w0 = unproject(p0.x, p0.y);
+		const w1 = unproject(p1.x, p1.y);
+		const w2 = unproject(p2.x, p2.y);
+		const w3 = unproject(p3.x, p3.y);
+		ground.x0 = Math.min(w0.x, w1.x, w2.x, w3.x) - CELL;
+		ground.y0 = Math.min(w0.y, w1.y, w2.y, w3.y) - CELL;
+		ground.x1 = Math.max(w0.x, w1.x, w2.x, w3.x) + CELL;
+		ground.y1 = Math.max(w0.y, w1.y, w2.y, w3.y) + CELL;
 		cullGround(ground);
 		rippleBy(ground);
 		cullUpright(viewBox);
 		return true;
 	};
+	/** The pieces near the edge of the view as {@link placeAmong} looks at them, and their order. */
+	const nearAmong = new Set<Among>();
+	const nearOrder: Among[] = [];
+	const byIndex = (a: Among, b: Among) => a.index - b.index;
 	/** A piece among the players put in the spawn layer if `show`, else taken out of it. */
 	const place = (piece: Among, show: boolean, target: Container) => {
 		const was = !!piece.view && piece.view.parent === target;
@@ -1437,8 +1615,10 @@ export function mountSalmonsRiver(
 		if (!target) return;
 		if (!moved && had === target) return;
 		const was = placedBy;
-		placedBy = viewBox;
-		if (!was) {
+		const first = !placedOnce;
+		placedOnce = true;
+		if (first) {
+			copyBox(placedBy, viewBox);
 			for (const piece of among) place(piece, meets(piece.box, viewBox), target);
 			return;
 		}
@@ -1454,7 +1634,9 @@ export function mountSalmonsRiver(
 			x1: Math.max(was.x1, viewBox.x1),
 			y1: Math.max(was.y1, viewBox.y1),
 		});
-		const near = new Set<Among>();
+		copyBox(placedBy, viewBox);
+		nearAmong.clear();
+		nearOrder.length = 0;
 		for (let gy = span.y0; gy <= span.y1; gy++)
 			for (let gx = span.x0; gx <= span.x1; gx++) {
 				const list = amongAt.get(cellKey(gx, gy));
@@ -1466,10 +1648,15 @@ export function mountSalmonsRiver(
 					y0 >= inBoth.y0 &&
 					x0 + AMONG_GRID <= inBoth.x1 &&
 					y0 + AMONG_GRID <= inBoth.y1;
-				if (!inside) for (const piece of list) near.add(piece);
+				if (inside) continue;
+				for (const piece of list)
+					if (!nearAmong.has(piece)) {
+						nearAmong.add(piece);
+						nearOrder.push(piece);
+					}
 			}
-		for (const piece of [...near].sort((a, b) => a.index - b.index))
-			place(piece, meets(piece.box, viewBox), target);
+		nearOrder.sort(byIndex);
+		for (const piece of nearOrder) place(piece, meets(piece.box, viewBox), target);
 	};
 
 	let frame = 0;
