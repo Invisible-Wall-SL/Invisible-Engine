@@ -67,6 +67,10 @@ const { values: opt } = parseArgs({
 	},
 });
 const out = resolve(opt.out);
+if (!/^\d+x\d+$/.test(opt.size)) {
+	console.error(`--size is WIDTHxHEIGHT in CSS px (e.g. 390x844), not "${opt.size}"`);
+	process.exit(2);
+}
 const [WIDTH, HEIGHT] = opt.size.split('x').map(Number);
 mkdirSync(out, { recursive: true });
 const KEY = 'salmons';

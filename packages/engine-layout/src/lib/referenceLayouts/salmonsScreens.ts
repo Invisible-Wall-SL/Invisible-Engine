@@ -20,11 +20,6 @@ export const SALMONS_SCREEN_ART = {
 	lobby: 'sm-lobby-menu',
 	/** The loading screen's phrases. */
 	phrases: 'sm-loading-phrases',
-	/** Salmons' own backdrop (owner, 2026-11-27: "give Salmons its own loading background"): behind
-	 *  every screen, the loading and tap-to-start screen above all, in place of the slot sample's
-	 *  background. Not a node: the arcade runtime's backdrop draws it (`ArcadeBackdrop.svelte`), so
-	 *  a layout published before it shows it too. */
-	backdrop: 'sm-backdrop',
 	/** The lobby's clock: the seconds to round 1, red and pulsing in the last
 	 *  {@link SALMONS_CLOCK_URGENT} of them. Drawn in place of the countdown screen's seconds, a
 	 *  text node every published layout has, which shows the plain number until the art is in. */

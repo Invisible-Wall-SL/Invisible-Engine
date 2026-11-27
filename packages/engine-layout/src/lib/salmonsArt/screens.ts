@@ -9,6 +9,7 @@ import {
 } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
+import { BACKDROP_ART } from '../backdropArt';
 import {
 	LOADING_PHRASES,
 	LOADING_PHRASE_MS,
@@ -31,7 +32,8 @@ import {
  * (`GuiltyForever/Salmon-` `client/src/components/*.svelte`, `client/style.css`), each in place of
  * its node on a screen the Flow shows (`referenceLayouts/salmonsScreens.ts`): the win animation,
  * the death screen (with what to respawn as, owner decision 4), the lobby's note (with what to
- * play as, owner 2026-11-25), the lobby's clock, the loading phrases and the backdrop behind them all. The runtime says what each shows (`show`),
+ * play as, owner 2026-11-25), the lobby's clock, the loading phrases and the backdrop behind them
+ * all (published under `BACKDROP_ART`, not a node). The runtime says what each shows (`show`),
  * and does what their buttons ask through its {@link SalmonsScreenHost}: nothing here talks to the
  * room. The start menu is not one of them: it comes before the join, over the page
  * (`startMenu.ts`).
@@ -630,6 +632,8 @@ function createBackdrop(fish: Texture) {
 	let size = { w: 0, h: 0 };
 	const part = screenPart(root, (dtMs, w, h) => {
 		clock += dtMs;
+		// Hidden (the field is played): every place below follows from `clock`, so nothing is moved.
+		if (!onScreen(root)) return;
 		if (w !== size.w || h !== size.h) {
 			size = { w, h };
 			water.clear();
@@ -653,7 +657,11 @@ function createBackdrop(fish: Texture) {
 	});
 	return {
 		mount: part.mount,
-		drawn: () => ({ shown: onScreen(root), fish: Math.round(big.width) }),
+		// Drawn only once mounted under a visible parent, and sized only once it has ticked there.
+		drawn: () => ({
+			shown: root.parent !== null && onScreen(root),
+			fish: size.w > 0 ? Math.round(big.width) : 0,
+		}),
 		destroy: () => {
 			part.stop();
 			root.destroy({ children: true });
@@ -674,7 +682,7 @@ export function createSalmonsScreens(
 	const backdrop = createBackdrop(fish.pink);
 	return {
 		mounts: new Map([
-			[SALMONS_SCREEN_ART.backdrop, backdrop.mount],
+			[BACKDROP_ART, backdrop.mount],
 			[SALMONS_SCREEN_ART.won, won.mount],
 			[SALMONS_SCREEN_ART.caught, caught.mount],
 			[SALMONS_SCREEN_ART.lobby, lobby.mount],

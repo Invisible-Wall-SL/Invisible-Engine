@@ -6,12 +6,11 @@
 	import { playFieldPlaying } from '../game/playFieldPhase';
 
 	/**
-	 * THE BACKDROP OF A PLAY FIELD WHOSE ROOM HAS ART (Salmons; owner 2026-11-27: "give Salmons its
-	 * own loading background"), mounted in place of the slot sample's `<Background>` (`Game.svelte`),
-	 * so it also stands behind a published layout's coded `Background` anchor with no re-upload.
-	 * Until the room's art is in, the deep water its backdrop darkens to; then the art's own
-	 * (`BACKDROP_ART`). While the field is played the world covers the screen, so nothing of it is
-	 * drawn then.
+	 * THE BACKDROP OF A PLAY FIELD WHOSE ROOM HAS ART (Salmons), mounted in place of the slot
+	 * sample's `<Background>` (`Game.svelte`), so it also stands behind a published layout's coded
+	 * `Background` anchor with no re-upload. The deep water its art darkens to is always under it;
+	 * the art itself (`BACKDROP_ART`) is left out while the field is played, when the world covers
+	 * the screen.
 	 */
 	const BASE = 0x06263d;
 
@@ -33,8 +32,8 @@
 	});
 </script>
 
+<Rectangle {...context.stateLayoutDerived.canvasSizes()} backgroundColor={BASE} />
 <Container visible={!playing}>
-	<Rectangle {...context.stateLayoutDerived.canvasSizes()} backgroundColor={BASE} />
 	{#if art}
 		{#key art}
 			<MountedArt mount={art} />
