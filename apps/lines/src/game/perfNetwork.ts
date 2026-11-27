@@ -124,13 +124,36 @@ export interface SocketTally {
 	outMessages: number;
 	outBytes: number;
 	outLargest: number;
+	/** Per kind of message (`messageLabel`), in and out. */
+	inByCode?: Record<string, CodeTally>;
+	outByCode?: Record<string, CodeTally>;
+	/** Fixed sim steps run since the first message. */
+	steps?: number;
 }
+
+/** One kind of room message: how many, their bytes, the largest. */
+export interface CodeTally {
+	messages: number;
+	bytes: number;
+	largest: number;
+}
+
+export { CODES_KEPT, OTHER_CODE, messageLabel, tallyCode } from './arcadePerf';
 
 export interface SocketStats {
 	seconds: number;
 	in: { messages: number; bytes: number; largest: number; states: number; stateBytes: number };
 	out: { messages: number; bytes: number; largest: number };
 	perSecond: { inMessages: number; inBytes: number; outMessages: number; outBytes: number };
+	/** Bytes by kind of message in and out, heaviest first (`perf: 10`). */
+	byCode?: {
+		in: ({ code: string } & CodeTally)[];
+		out: ({ code: string } & CodeTally)[];
+	};
+	/** The room's state bytes against every other message's, in (`perf: 10`). */
+	stateShare?: { stateBytes: number; otherBytes: number };
+	/** Fixed sim steps run while metered, and what went out and came in per step (`perf: 10`). */
+	perStep?: { steps: number; outMessages: number; outBytes: number; inMessages: number };
 }
 
 export interface NetworkBlock {
@@ -391,9 +414,16 @@ export function msStats(values: readonly number[]): MsStats {
 const heavier = (a: NetFile, b: NetFile) =>
 	(weightOf(b) ?? -1) - (weightOf(a) ?? -1) || b.ms - a.ms || a.start - b.start;
 
+const codesOf = (by: Record<string, CodeTally> | undefined) =>
+	Object.entries(by ?? {})
+		.map(([code, t]) => ({ code, ...t }))
+		.sort((a, b) => b.bytes - a.bytes);
+
 export function socketStats(t: SocketTally): SocketStats {
 	const seconds = Math.max(0.001, (t.last - t.since) / 1000);
 	const per = (n: number) => Math.round((n / seconds) * 10) / 10;
+	const steps = t.steps ?? 0;
+	const perStep = (n: number) => Math.round((n / steps) * 100) / 100;
 	return {
 		seconds: Math.round(seconds * 10) / 10,
 		in: {
@@ -410,6 +440,22 @@ export function socketStats(t: SocketTally): SocketStats {
 			outMessages: per(t.outMessages),
 			outBytes: per(t.outBytes),
 		},
+		...(t.inByCode || t.outByCode
+			? { byCode: { in: codesOf(t.inByCode), out: codesOf(t.outByCode) } }
+			: {}),
+		...(t.inByCode
+			? { stateShare: { stateBytes: t.stateBytes, otherBytes: t.inBytes - t.stateBytes } }
+			: {}),
+		...(steps > 0
+			? {
+					perStep: {
+						steps,
+						outMessages: perStep(t.outMessages),
+						outBytes: perStep(t.outBytes),
+						inMessages: perStep(t.inMessages),
+					},
+				}
+			: {}),
 	};
 }
 
@@ -642,6 +688,7 @@ export function networkLines(n: NetworkBlock): string[] {
 		...(n.socket
 			? [
 					`room in ${mb(n.socket.perSecond.inBytes)}/s (${n.socket.perSecond.inMessages}/s, max ${mb(n.socket.in.largest)}) · out ${mb(n.socket.perSecond.outBytes)}/s`,
+					...(n.socket.perStep ? [`${n.socket.perStep.outMessages} sends per step`] : []),
 				]
 			: []),
 	];

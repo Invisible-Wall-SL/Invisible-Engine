@@ -7,6 +7,7 @@
  */
 
 import type { PhaseSet } from './profiler';
+import type { PerfTiming } from './profilerTiming';
 
 /** The work keys a lab reading is compared on, as the probe names them (`work.<phase>.perFrame`). */
 export const LAB_COUNT_KEYS = ['draws', 'passes', 'textureUploads', 'calls', 'jsMs'] as const;
@@ -45,11 +46,19 @@ export const ARCADE_COUNT_LABELS: Record<ArcadeCountKey, string> = {
 };
 
 /** The phases counts are kept for: a slot's idle and spinning, an arcade game's menu and play. */
-export const LAB_PHASES = ['idle', 'spinning', 'menu', 'play'] as const;
+export const LAB_PHASES = [
+	'idle',
+	'spinning',
+	'loading',
+	'lobby',
+	'menu',
+	'play',
+	'spectate',
+] as const;
 export type LabPhase = (typeof LAB_PHASES)[number];
 export const LAB_PHASE_SETS: Record<PhaseSet, readonly LabPhase[]> = {
 	slot: ['idle', 'spinning'],
-	arcade: ['menu', 'play'],
+	arcade: ['loading', 'lobby', 'menu', 'play', 'spectate'],
 };
 
 type Band = { rel: number; abs: number };
@@ -80,8 +89,11 @@ export const LAB_TOLERANCE: Record<LabPhase, Record<LabCountKey, Band>> & { text
 		jsMs: { rel: 0.5, abs: 1 },
 	},
 	idle: IDLE_BAND,
+	loading: IDLE_BAND,
+	lobby: IDLE_BAND,
 	menu: IDLE_BAND,
 	play: IDLE_BAND,
+	spectate: IDLE_BAND,
 	textureMb: { rel: 0.02, abs: 1 },
 };
 
@@ -90,14 +102,22 @@ export type ArcadePhaseCounts = PerfPhaseCounts & Record<ArcadeCountKey, number 
 
 /**
  * What a reading's `counts` column holds: the per-frame means of each phase of its set, and texture
- * MB. `menu` / `play` only on an arcade reading (a slot reading's row never had them).
+ * MB. The arcade phases only on an arcade reading (a slot reading's row never had them): `menu` on
+ * a `perf: 8` / `9` one, `loading`, `lobby` and `spectate` on a `perf: 10` one (a phase with no
+ * frames is left out). `timing` (busy time, hidden time) is a `perf: 10` reading's, and `throttled`
+ * the reason a reading of any version is not comparable (`profilerTiming.ts`).
  */
 export interface PerfCounts {
 	idle: PerfPhaseCounts | null;
 	spinning: PerfPhaseCounts | null;
 	menu?: ArcadePhaseCounts | null;
 	play?: ArcadePhaseCounts | null;
+	loading?: ArcadePhaseCounts;
+	lobby?: ArcadePhaseCounts;
+	spectate?: ArcadePhaseCounts;
 	textureMb: number | null;
+	timing?: PerfTiming;
+	throttled?: string;
 }
 
 type Obj = Record<string, unknown>;
@@ -132,11 +152,16 @@ export function perfCounts(report: unknown, set: PhaseSet = 'slot'): PerfCounts 
 		: null;
 	const textureMb = mb === null ? null : Math.round(mb * 10) / 10;
 	if (set === 'arcade') {
+		const extra = (['loading', 'lobby', 'spectate'] as const).flatMap((phase) => {
+			const counts = phaseCounts(report, phase, ARCADE_KEYS);
+			return counts ? [[phase, counts] as const] : [];
+		});
 		return {
 			idle: null,
 			spinning: null,
 			menu: phaseCounts(report, 'menu', ARCADE_KEYS),
 			play: phaseCounts(report, 'play', ARCADE_KEYS),
+			...Object.fromEntries(extra),
 			textureMb,
 		};
 	}

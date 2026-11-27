@@ -124,7 +124,11 @@ request is unchanged.
    rig changes it; gate `rig-modules-frame.mjs`, atlas-tool's `test_rig_frame_parts.py` (`merged`).
 4. **Presets of modules**: Bust with face, Half body and Full body written as a base and the same
    module builders (neck, head and face, arms, hands, legs), so a module is defined once; gated to
-   produce today's templates exactly (a snapshot of each), so no rig sees a difference.
+   produce today's templates exactly (a snapshot of each), so no rig sees a difference. The pieces
+   live in `rigTemplateBody.ts` (`neck`, `FACE_HEAD`, `arms`, `fingerHands` / `posedHands`, `legs`,
+   each sized by its template and returning per-side lists, so the preset alone writes the order);
+   gate `rig-template-presets.mjs` (every built-in and module option, hashed section by section).
+   Still written per template: the clips, the controls plans, `replaces` / `cannot`, the torso.
 
 ## 6. Not doing
 
