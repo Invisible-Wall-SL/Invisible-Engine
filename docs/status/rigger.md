@@ -183,6 +183,17 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-27 — **A graph box scale no longer drifts with the mouse still.** `renderGraphBody`
+  re-fits the value range (keys ± 14%) on every redraw and kept the old range only while
+  `graphDrag` was set; a box scale sets `graphBox`, so each mousemove rescaled the keys, the redraw
+  re-fit, and the same cursor pixel read a new value. The range is now frozen while `graphDrag` OR
+  `graphBox` is set; the mouseup still clears `graphBox` before `refreshAnimCounts()` →
+  `renderTimeline()`, so it re-fits once on release. Guard: a new
+  `check:rigger-graph-range` 10/10 (pulls the range fit, `refreshAnimCounts` and the mouseup's
+  box-release branch out of `view.html` into a VM: no drag re-fits, a key drag and a box scale keep
+  `graphMap`'s range, release redraws once with `graphBox` cleared and re-fits); red on the old line
+  (the box-scale case) and on a mouseup that redraws before clearing `graphBox` (2 checks).
+  `check:rigger-writes` 265. ⏳ Not live-verified.
 - 2026-11-26 — **🗺 Edit mapping's Layers preview agrees with 🔄 Update rig (the #1942 review).**
   The preview judged the list without the update's "the merged order moves" condition, on the open
   rig's slots (so a prop worn anew was missing) and then again on the template's order: a rig whose
