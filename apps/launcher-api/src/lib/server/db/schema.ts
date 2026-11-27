@@ -1253,6 +1253,8 @@ export const mergeMainRuns = pgTable(
 		headSha: text('head_sha').notNull(),
 		/** `main`'s commit when the run was dispatched. */
 		mainSha: text('main_sha').notNull(),
+		/** The merge base the run's hunks were cut against, from its result; Accept checks it. */
+		baseSha: text('base_sha'),
 		status: text('status').$type<MergeRunStatus>().notNull().default('dispatched'),
 		reason: text('reason'),
 		files: jsonb('files').$type<MergeRunFile[]>(),

@@ -160,6 +160,7 @@ export interface MergeRunEnd {
 	files?: MergeRunFile[] | null;
 	explanation?: MergeRunExplanation | null;
 	mergeSha?: string;
+	baseSha?: string;
 	acceptedBy?: { id: string; name: string };
 }
 
@@ -185,6 +186,7 @@ export async function settleMergeRun(
 			...(end.files === undefined ? {} : { files: end.files }),
 			...(end.explanation === undefined ? {} : { explanation: end.explanation }),
 			...(end.mergeSha === undefined ? {} : { mergeSha: end.mergeSha }),
+			...(end.baseSha === undefined ? {} : { baseSha: end.baseSha }),
 			...(end.acceptedBy
 				? { acceptedById: end.acceptedBy.id, acceptedBy: end.acceptedBy.name }
 				: {}),

@@ -192,6 +192,7 @@ const store = {
 			branch: values.branch,
 			headSha: values.headSha,
 			mainSha: values.mainSha,
+			baseSha: null,
 			status: 'dispatched',
 			reason: null,
 			files: null,
@@ -238,6 +239,7 @@ const store = {
 		if (end.files !== undefined) r.files = end.files;
 		if (end.explanation !== undefined) r.explanation = end.explanation;
 		if (end.mergeSha !== undefined) r.mergeSha = end.mergeSha;
+		if (end.baseSha !== undefined) r.baseSha = end.baseSha;
 		if (end.acceptedBy) {
 			r.acceptedById = end.acceptedBy.id;
 			r.acceptedBy = end.acceptedBy.name;
@@ -1009,7 +1011,13 @@ check(
 		true,
 		true,
 		'main',
-		{ merge_run: R1, pr: String(w1.n), head_sha: w1.head, main_sha: w1.main },
+		{
+			merge_run: R1,
+			pr: String(w1.n),
+			head_sha: w1.head,
+			main_sha: w1.main,
+			budget_usd: '0',
+		},
 		9001,
 		true,
 		'Gualtiero',
@@ -1089,6 +1097,63 @@ check(
 	[1, 'dispatched', null],
 );
 gh.dispatch = () => answer(200, { workflow_run_id: 9001 });
+
+// the budget_usd input: the smaller of the run cap and what is left of the month, "0" once spent
+check(
+	'budget_usd: pure — a full month, part spent, spent, the cap the smaller, two places at most',
+	[
+		shared.dispatchBudget(6, 150, 0),
+		shared.dispatchBudget(6, 150, 147.5),
+		shared.dispatchBudget(6, 150, 150),
+		shared.dispatchBudget(6, 150, 400),
+		shared.dispatchBudget(6, 10, 0),
+		shared.dispatchBudget(6, 150, 144.005),
+	],
+	['6.00', '2.50', '0', '0', '6.00', '5.99'],
+);
+const budgetSent = async (spent: number, monthly = 150, cap = 6) => {
+	settings.monthly = monthly;
+	settings.budget = cap;
+	ledger.length = 0;
+	if (spent) {
+		ledger.push({
+			runId: 'fix:old',
+			agent: 'bug-fix',
+			model: 'm',
+			usd: spent / 2,
+			requestId: 'b1',
+			at: new Date(clock),
+		});
+		ledger.push({
+			runId: 'merge:old',
+			agent: 'merge-main',
+			model: 'm',
+			usd: spent / 2,
+			requestId: 'b2',
+			at: new Date(clock),
+		});
+	}
+	const w = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+	gh.calls.length = 0;
+	await resolve(ADMIN, w.n);
+	return (
+		gh.calls.find((c) => c.path.endsWith('/dispatches'))!.body as { inputs: { budget_usd: string } }
+	).inputs.budget_usd;
+};
+check(
+	'budget_usd: dispatched as a decimal string — a full month the run cap, a part-spent one what is left (both agents’ spend), a spent one "0", a small ceiling its remainder',
+	[
+		await budgetSent(0),
+		await budgetSent(147.5),
+		await budgetSent(150),
+		await budgetSent(0, 4.25),
+		await budgetSent(1, 100, 0.5),
+	],
+	['6.00', '2.50', '0', '4.25', '0.50'],
+);
+settings.monthly = 150;
+settings.budget = 6;
+ledger.length = 0;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // The job's token
@@ -2061,6 +2126,27 @@ await staleMain(
 		'accept: main no longer holds the run’s SHA (rewritten) → stale',
 		[a2.status, runOf(p2.id).status],
 		[409, 'stale'],
+	);
+}
+
+// the merge base: a run kept its own, and Accept refuses another
+{
+	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p = await proposed(w, both);
+	check('base: the result’s baseSha is stored', runOf(p.id).baseSha, w.base);
+	gh.mergeBase = 'e'.repeat(40);
+	gh.calls.length = 0;
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'accept: a merge base other than the stored one → stale with the sentence, nothing written',
+		[a.status, a.body.code, runOf(p.id).status, runOf(p.id).reason, writesOf()],
+		[
+			409,
+			'stale',
+			'stale',
+			'main and this change were merged against another base; resolve again',
+			[],
+		],
 	);
 }
 

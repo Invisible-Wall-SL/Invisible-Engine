@@ -11,6 +11,7 @@ import {
 	MERGE_CAPS,
 	OUTCOME_REASONS,
 	capMergeReason,
+	dispatchBudget,
 	isLiveMergeRun,
 	isMergeRunTitle,
 	isWorkingMergeRun,
@@ -34,7 +35,7 @@ import {
 import { fixSpendSince } from './bugFixRunsStore';
 import { cancelActionsRun, messageOf, readActionsRun } from './bugFixRunsActions';
 import { cleanLine } from './bugFixRunsChange';
-import { getPipelineFixMonthlyCap } from './appSettings';
+import { getPipelineFixMonthlyCap, getPipelineMergeMainBudget } from './appSettings';
 import { createKeyedMutex, mapWithConcurrency } from './concurrency';
 import { getDirectorPricing } from './costs/pricingConfig';
 import { ENV } from './env';
@@ -211,7 +212,12 @@ export async function startMergeRun(
  * (or give up on at 15 minutes).
  */
 async function dispatch(app: GithubApp, run: MergeMainRun): Promise<MergeMainRun> {
-	const sent = await dispatchMergeRun(app, run);
+	const [cap, monthly, spent] = await Promise.all([
+		getPipelineMergeMainBudget(),
+		getPipelineFixMonthlyCap(),
+		monthSpendBefore(0),
+	]);
+	const sent = await dispatchMergeRun(app, run, dispatchBudget(cap, monthly, spent));
 	if (sent.kind === 'refused') {
 		const ended = await settleMergeRun(run.id, ['dispatched'], {
 			status: 'failed',
@@ -390,7 +396,7 @@ async function decide(
 	if (byModel && (await monthSpendBefore(spendUsd)) >= (await getPipelineFixMonthlyCap())) {
 		return { status: 'needs_person', reason: MERGE_RUN_REASONS.budgetSpent, explanation };
 	}
-	return { status: 'proposed', files: r.files, explanation };
+	return { status: 'proposed', files: r.files, explanation, baseSha: r.baseSha ?? undefined };
 }
 
 // ── Accept ────────────────────────────────────────────────────────────────────
@@ -578,6 +584,13 @@ async function build(
 	);
 	const baseSha = base.merge_base_commit?.sha;
 	if (!baseSha) return needsPerson('GitHub reports no merge base for this change.');
+	if (baseSha !== run.baseSha) {
+		await settleMergeRun(run.id, ['proposed'], {
+			status: 'stale',
+			reason: MERGE_RUN_REASONS.otherBase,
+		});
+		return conflict('stale', MERGE_RUN_REASONS.otherBase);
+	}
 	const [baseTree, headTree, mainTree] = await Promise.all(
 		[baseSha, run.headSha, run.mainSha].map((sha) => readFiles(app, sha)),
 	);

@@ -190,6 +190,7 @@ export const MERGE_RUN_REASONS = {
 	budgetSpent:
 		"This month's fix-run budget is spent, so only the mechanical part could be kept; resolve the rest by hand.",
 	headMoved: 'The branch moved; resolve again.',
+	otherBase: 'main and this change were merged against another base; resolve again',
 	mainMoved: 'main changed a conflicted file since this run; resolve again.',
 } as const;
 
@@ -199,6 +200,15 @@ export const capMergeReason = (text: string): string => {
 		? `${points.slice(0, MERGE_CAPS.reason - 1).join('')}…`
 		: text;
 };
+
+/**
+ * The `budget_usd` a run is dispatched with (ADR-0015 §10): the smaller of the run's cap and what is
+ * left of the month's ceiling, to two places, as a decimal string; "0" once the month is spent.
+ */
+export function dispatchBudget(capUsd: number, monthlyUsd: number, spentUsd: number): string {
+	const cents = Math.floor(Math.min(capUsd, monthlyUsd - spentUsd) * 100 + 1e-9);
+	return cents > 0 ? (cents / 100).toFixed(2) : '0';
+}
 
 /** The sentence for a job-side refusal that carries only the outcome. */
 export const OUTCOME_REASONS: Record<Exclude<MergeRunOutcome, 'proposed'>, string> = {

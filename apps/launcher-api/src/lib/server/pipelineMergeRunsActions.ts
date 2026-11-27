@@ -79,13 +79,17 @@ export type Dispatched =
 	| { kind: 'unknown' };
 
 /**
- * Dispatch the workflow on `main` with ADR-0015 §10's four inputs: the run's id, the pull request,
- * the head and `main`'s SHA. All four are public. GitHub answers 200 with the new run's id when asked
+ * Dispatch the workflow on `main` with ADR-0015 §10's inputs: the run's id, the pull request,
+ * the head and `main`'s SHA, and the budget. All are public. GitHub answers 200 with the new run's id when asked
  * for it (`return_run_details`), else 204; a 422 naming that field is asked once more without it.
  * Only a definitive 4xx refuses the run; a timeout, a network error or a 5xx may still have started
  * one, so the run stays `dispatched` for the backstop to find or give up on.
  */
-export async function dispatchMergeRun(app: GithubApp, run: MergeMainRun): Promise<Dispatched> {
+export async function dispatchMergeRun(
+	app: GithubApp,
+	run: MergeMainRun,
+	budgetUsd: string,
+): Promise<Dispatched> {
 	const send = (details: boolean) =>
 		app.fetch(`/repos/${repo()}/actions/workflows/${MERGE_RUN_WORKFLOW}/dispatches`, {
 			method: 'POST',
@@ -96,6 +100,7 @@ export async function dispatchMergeRun(app: GithubApp, run: MergeMainRun): Promi
 					pr: String(run.prNumber),
 					head_sha: run.headSha,
 					main_sha: run.mainSha,
+					budget_usd: budgetUsd,
 				},
 				...(details ? { return_run_details: true } : {}),
 			}),

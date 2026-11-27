@@ -4,6 +4,7 @@ CREATE TABLE "merge_main_runs" (
 	"branch" text NOT NULL,
 	"head_sha" text NOT NULL,
 	"main_sha" text NOT NULL,
+	"base_sha" text,
 	"status" text DEFAULT 'dispatched' NOT NULL,
 	"reason" text,
 	"files" jsonb,
