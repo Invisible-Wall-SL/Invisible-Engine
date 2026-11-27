@@ -808,7 +808,7 @@
 							list={readingList}
 							archivedCount={data.archived.readings}
 							showArchived={data.showArchived}
-							onShowArchived={showArchived}
+							onShowArchived={(next) => showArchived(next)}
 							perf={newestPerf}
 						/>
 					{/snippet}
@@ -1124,7 +1124,7 @@
 							list={buildList}
 							archivedCount={data.archived.builds}
 							showArchived={data.showArchived}
-							onShowArchived={showArchived}
+							onShowArchived={(next) => showArchived(next)}
 							since={sincePerf}
 						/>
 					{/snippet}
