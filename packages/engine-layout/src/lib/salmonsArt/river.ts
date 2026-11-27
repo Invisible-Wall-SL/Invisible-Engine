@@ -4,6 +4,7 @@ import {
 	DisplacementFilter,
 	Graphics,
 	Matrix,
+	Rectangle,
 	Sprite,
 	Texture,
 	TilingSprite,
@@ -55,7 +56,20 @@ import { zoneFrames, type RiverZoneArt, type ZoneFrames } from './zoneArt';
  * ground is drawn at its world place less its lift on both axes, which the turn makes straight up,
  * and an upright thing that much higher. Under each waterfall's lip a cliff of `cliff.png` and the
  * falling water stand on its line, behind the ground at its foot. Animated parts tick on the app's
- * ticker. Only what the view holds is drawn (each piece is culled by its box).
+ * ticker, each only while the view holds it.
+ *
+ * DRAWN IN CHUNKS: each ground layer's tiles are kept in containers of {@link CHUNK} × CHUNK cells,
+ * made the first time they near the view and shown or hidden whole when the view moves onto
+ * another chunk. The ground is a render group, so a camera move is one transform for all of it and
+ * its draw list is rebuilt only when a chunk comes or goes. (The upright pieces, the cliffs and the
+ * reflections are not: they are few, and drawn relative to a group a world wide their see-through
+ * layers round a level differently on the GPU.) A chunk keeps its tiles in the order they were
+ * laid, and the chunks of a layer are ordered so that any two tiles that overlap are drawn in that
+ * order too ({@link chunkFor}); the riverbed's ripple covers the tiles in view, not their chunks
+ * ({@link rippleBy}): the river draws as if every tile were laid loose. The upright pieces are
+ * culled by a coarser box, their clocks by the view; the pieces among the players come and go
+ * with the view exactly, as loose pieces did (their order among the players is by depth, ties by
+ * arrival).
  *
  * ZONE ART (`zoneArt.ts`, Game Config `arcade.zoneArt`): a rock or a whirlpool whose zone has a
  * stamp is drawn with the stamp's picture in the built-in one's place, at its size times the
@@ -273,14 +287,96 @@ export type RiverArt = {
  *  view's edge (the view is read a frame behind the camera). */
 const CULL_PAD = TREE_W * 1.5;
 
-/** A piece that stands among the players: made the first time it is in view, then kept. */
+/** A piece that stands among the players: made the first time it is in view, then kept. `index` is
+ *  its place in the river's list of them, the order they join the players in. */
 type Among = {
 	make: () => Container;
 	view?: Container;
 	box: Box;
 	z: number;
 	at: { x: number; y: number };
+	index: number;
 };
+
+/** A ground chunk's side, cells, and the grid the view's ground box is rounded out to, px: the
+ *  chunks shown change only when that rounded box does. */
+const CHUNK = 8;
+const CHUNK_PX = CHUNK * CELL;
+/** The grid the upright pieces' view box is rounded out to, px, and the one the pieces among the
+ *  players are indexed on. */
+const UPRIGHT_GRID = 256;
+const AMONG_GRID = 256;
+/** Ground pieces made a frame ahead of the view (the ring of chunks just past it), at most. */
+const AHEAD_PER_FRAME = 1500;
+
+/**
+ * Ground tiles kept together: made at once (`make`, in the order they were laid), drawn in place
+ * of loose tiles. `at` orders the chunks of a group: by generation, then row, then column.
+ */
+type Chunk = {
+	view: Container;
+	box: Box;
+	make: (() => Container)[];
+	built: boolean;
+	at: readonly [number, number, number];
+	/** Its group's container, and its place in the group's order. */
+	home: Container;
+	rank: number;
+	/** A riverbed chunk's tiles: each one's box in the world, and, once made, the box its picture
+	 *  covers under the ripple, and theirs all together. */
+	boxes?: Box[];
+	areas?: Box[];
+	area?: Box;
+};
+/**
+ * A run of a ground layer's tiles drawn as a loose layer drew them: the tiles raised by one lift
+ * (moved back by it on both axes, as one container), or a stretch of unraised ones between two such
+ * containers. `placed` is the chunk each cell's last tile went into; `from` the first generation a
+ * tile may take (past every run of tiles off the cell grid); `gens` one past the highest taken.
+ */
+type Group = {
+	view: Container;
+	lift: number;
+	chunks: Map<number, Chunk>;
+	placed: Map<number, Chunk>;
+	from: number;
+	gens: number;
+	run?: Chunk;
+};
+const cellKey = (c: number, r: number) => (r + 32768) * 65536 + (c + 32768);
+const chunkKey = (gen: number, ky: number, kx: number) =>
+	(gen * 4096 + (ky + 2048)) * 4096 + (kx + 2048);
+/** A cell and the cells whose tiles overlap its own (a tile's picture reaches into its four
+ *  neighbours; a diagonal one meets it only along an edge, transparent but at a corner). */
+const OVERLAPPING = [
+	[0, 0],
+	[-1, 0],
+	[1, 0],
+	[0, -1],
+	[0, 1],
+];
+const byPlace = (a: Chunk, b: Chunk) => a.at[0] - b.at[0] || a.at[1] - b.at[1] || a.at[2] - b.at[2];
+const emptyBox = (): Box => ({ x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+const grow = (box: Box, by: Box) => {
+	box.x0 = Math.min(box.x0, by.x0);
+	box.y0 = Math.min(box.y0, by.y0);
+	box.x1 = Math.max(box.x1, by.x1);
+	box.y1 = Math.max(box.y1, by.y1);
+};
+/** `box` rounded out to a grid of `step` px. */
+const roundOut = (box: Box, step: number): Box => ({
+	x0: Math.floor(box.x0 / step) * step,
+	y0: Math.floor(box.y0 / step) * step,
+	x1: Math.ceil(box.x1 / step) * step,
+	y1: Math.ceil(box.y1 / step) * step,
+});
+const keyOf = (box: Box) => `${box.x0},${box.y0},${box.x1},${box.y1}`;
+const padded = (box: Box, by: number): Box => ({
+	x0: box.x0 - by,
+	y0: box.y0 - by,
+	x1: box.x1 + by,
+	y1: box.y1 + by,
+});
 
 /**
  * The container the players' spawn layer draws its instances in: under the layer's own container
@@ -481,13 +577,26 @@ export function mountSalmonsRiver(
 		)
 		.fill(colour(kindOf(0).forestFloor));
 
+	// The ground: drawn flat (`flat`, the plane turned 45° and squashed by `turn`), the riverbed
+	// apart in `rippled`, a container square to the screen that its ripple (the displacement filter)
+	// is drawn over: under it, `filterArea` is the box the riverbed's tiles in view cover.
 	const turn = new Container();
 	turn.scale.set(1, 0.5);
-	const flat = new Container();
-	flat.rotation = projector.ground.rotation;
-	flat.scale.set(flip * Math.SQRT2, Math.SQRT2);
-	turn.addChild(flat);
+	turn.isRenderGroup = true;
+	const flatPlane = () => {
+		const plane = new Container();
+		plane.rotation = projector.ground.rotation;
+		plane.scale.set(flip * Math.SQRT2, Math.SQRT2);
+		return plane;
+	};
+	const flat = flatPlane();
+	const rippled = new Container();
+	const bedPlane = flatPlane();
+	const overBed = flatPlane();
+	rippled.addChild(bedPlane);
+	turn.addChild(flat, rippled, overBed);
 	const bed = new Container();
+	bedPlane.addChild(bed);
 	const seaLayer = new Container();
 	const tint = new Container();
 	const grass = new Container();
@@ -495,17 +604,21 @@ export function mountSalmonsRiver(
 	// An authored river's floor, biome by biome, under everything else on the ground.
 	const floors = river.biomes ? new Container() : undefined;
 	if (floors) flat.addChild(floors);
-	flat.addChild(bed, seaLayer, tint, grass, sand);
+	overBed.addChild(seaLayer, tint, grass, sand);
 	const cliffs = new Container();
 	const reflections = new Container();
 	const upright = new Container();
+	// Only read for its place (the filter maps its texture by the sprite's transform): never drawn.
 	const displacement = new Sprite(noise);
-	displacement.alpha = 0;
+	displacement.renderable = false;
 	const filter = new DisplacementFilter({ sprite: displacement, scale: { x: 6, y: 4 } });
-	bed.filters = [filter];
-	into.addChild(floor, displacement, cliffs, turn, reflections, upright);
+	rippled.filters = [filter];
+	const rippleArea = new Rectangle();
+	rippled.filterArea = rippleArea;
+	const host = into;
+	const roots = [floor, displacement, cliffs, turn, reflections, upright];
+	host.addChild(...roots);
 
-	const flatCulled: Culled[] = [];
 	const uprightCulled: Culled[] = [];
 	const among: Among[] = [];
 	const cellBox = (c: number, r: number): Box => ({
@@ -514,34 +627,127 @@ export function mountSalmonsRiver(
 		x1: (c + 1) * CELL,
 		y1: (r + 1) * CELL,
 	});
-	/** Each ground layer's raised parts, by lift: a container moved back by it on both axes. */
-	const raised = new Map<Container, Map<number, Container>>();
+	/** The authored floor's raised parts, by lift: a container moved back by it on both axes. */
+	const raised = new Map<number, Container>();
 	const liftedIn = (layer: Container, lift: number) => {
 		if (!lift) return layer;
-		let byLift = raised.get(layer);
-		if (!byLift) raised.set(layer, (byLift = new Map()));
-		let part = byLift.get(lift);
+		let part = raised.get(lift);
 		if (!part) {
 			part = new Container();
 			part.position.set(-lift, -lift);
 			layer.addChild(part);
-			byLift.set(lift, part);
+			raised.set(lift, part);
 		}
 		return part;
 	};
-	const onGround = (layer: Container, view: Container, box: Box) => {
+	/** Each ground layer's groups, in its order, and its raised ones by lift. */
+	const groups = new Map<Container, { byLift: Map<number, Group>; last?: Group }>();
+	const allGroups: Group[] = [];
+	const chunks: Chunk[] = [];
+	const newGroup = (layer: Container, lift: number): Group => {
+		const group: Group = {
+			view: new Container(),
+			lift,
+			chunks: new Map(),
+			placed: new Map(),
+			from: 0,
+			gens: 0,
+		};
+		if (lift) group.view.position.set(-lift, -lift);
+		layer.addChild(group.view);
+		allGroups.push(group);
+		return group;
+	};
+	/** The group a tile raised by `lift` is laid in: as a loose tile was laid in the layer itself, or
+	 *  in the layer's container for that lift (made on its first tile, where the layer then ends). */
+	const groupOf = (layer: Container, lift: number): Group => {
+		let own = groups.get(layer);
+		if (!own) groups.set(layer, (own = { byLift: new Map() }));
+		if (lift) {
+			let group = own.byLift.get(lift);
+			if (!group) {
+				group = own.last = newGroup(layer, lift);
+				own.byLift.set(lift, group);
+			}
+			return group;
+		}
+		if (own.last?.lift !== 0) own.last = newGroup(layer, 0);
+		return own.last;
+	};
+	const chunkAt = (group: Group, gen: number, ky: number, kx: number): Chunk => {
+		const key = chunkKey(gen, ky, kx);
+		let chunk = group.chunks.get(key);
+		if (!chunk) {
+			chunk = {
+				view: new Container(),
+				box: emptyBox(),
+				make: [],
+				built: false,
+				at: [gen, ky, kx],
+				home: group.view,
+				rank: 0,
+			};
+			group.chunks.set(key, chunk);
+			chunks.push(chunk);
+			group.gens = Math.max(group.gens, gen + 1);
+		}
+		return chunk;
+	};
+	/**
+	 * The chunk a tile on cell (c, r) is laid in, so that it is drawn after every tile laid before it
+	 * that it overlaps (the same cell's, its four neighbours'): its own chunk of the first
+	 * generation that comes after each of theirs. Laid row by row, every tile is of generation 0.
+	 * A tile off the cell grid (a patch of sand cut to its own size) is laid in a run of its own
+	 * after everything laid before it, as is every grid tile after that.
+	 */
+	const chunkFor = (group: Group, cell: { c: number; r: number } | undefined): Chunk => {
+		if (!cell) {
+			if (!group.run || group.run.at[0] !== group.gens - 1)
+				group.run = chunkAt(group, Math.max(group.gens, group.from), 0, 0);
+			group.from = group.run.at[0] + 1;
+			return group.run;
+		}
+		const { c, r } = cell;
+		const kx = Math.floor(c / CHUNK);
+		const ky = Math.floor(r / CHUNK);
+		let gen = group.from;
+		for (const [dc, dr] of OVERLAPPING) {
+			const under = group.placed.get(cellKey(c + dc, r + dr));
+			if (!under) continue;
+			const [g, uy, ux] = under.at;
+			gen = Math.max(gen, g + (uy > ky || (uy === ky && ux > kx) ? 1 : 0));
+		}
+		const chunk = chunkAt(group, gen, ky, kx);
+		group.placed.set(cellKey(c, r), chunk);
+		return chunk;
+	};
+	/** Lay a ground tile, made by `make` once its chunk nears the view; `cell` its cell, if it is
+	 *  one cell of the grid. */
+	const onGround = (
+		layer: Container,
+		make: () => Container,
+		box: Box,
+		cell?: { c: number; r: number },
+	) => {
 		const lift = elevation.at(box.y0);
-		liftedIn(layer, lift).addChild(view);
-		flatCulled.push({
-			view,
-			box: { x0: box.x0 - lift, y0: box.y0 - lift, x1: box.x1 - lift, y1: box.y1 - lift },
-		});
+		const chunk = chunkFor(groupOf(layer, lift), cell);
+		const lifted = { x0: box.x0 - lift, y0: box.y0 - lift, x1: box.x1 - lift, y1: box.y1 - lift };
+		chunk.make.push(make);
+		grow(chunk.box, lifted);
+		if (layer === bed) (chunk.boxes ??= []).push(lifted);
 	};
 	const tile = (layer: Container, texture: Texture, c: number, r: number, tinted = UNTINTED) => {
 		const box = cellBox(c, r);
-		const view = groundTile(texture, box.x0, box.y0, CELL, CELL, flip);
-		if (tinted !== UNTINTED) view.tint = colour(tinted);
-		onGround(layer, view, box);
+		onGround(
+			layer,
+			() => {
+				const view = groundTile(texture, box.x0, box.y0, CELL, CELL, flip);
+				if (tinted !== UNTINTED) view.tint = colour(tinted);
+				return view;
+			},
+			box,
+			{ c, r },
+		);
 	};
 	// An authored river's floor, biome by biome: a strip of each stretch's floor across the world
 	// and the forest's reach past it, cut at each waterfall's line and raised with the ground.
@@ -573,15 +779,21 @@ export function mountSalmonsRiver(
 		const beds = bedsOf(kindOf(r));
 		return beds[((Math.imul(c, 73856093) ^ Math.imul(r, 19349663)) >>> 0) % beds.length];
 	};
-	const tintTile = (c: number, r: number, color: number) => {
-		const square = new Sprite(Texture.WHITE);
-		square.position.set(c * CELL, r * CELL);
-		square.width = CELL;
-		square.height = CELL;
-		square.tint = color;
-		square.alpha = TINT_ALPHA;
-		onGround(tint, square, cellBox(c, r));
-	};
+	const tintTile = (c: number, r: number, color: number) =>
+		onGround(
+			tint,
+			() => {
+				const square = new Sprite(Texture.WHITE);
+				square.position.set(c * CELL, r * CELL);
+				square.width = CELL;
+				square.height = CELL;
+				square.tint = color;
+				square.alpha = TINT_ALPHA;
+				return square;
+			},
+			cellBox(c, r),
+			{ c, r },
+		);
 	const water = (c: number, r: number, wet: Wet) => {
 		if (wet === 'sea') return tile(seaLayer, sea, c, r);
 		tile(bed, bedTile(c, r), c, r);
@@ -631,6 +843,7 @@ export function mountSalmonsRiver(
 			},
 			z: amongZ(x, y, Z.forest),
 			at: { x: at.x, y: at.y + CELL / 4 - lift },
+			index: among.length,
 		});
 	};
 	/** A piece among the players drawn in ground-depth order (`isoDepthOrder`): over every player
@@ -714,13 +927,15 @@ export function mountSalmonsRiver(
 	const sandAt = (x: number, y: number) => sandCells.has(`${x},${y}`);
 	for (const cell of sandCells) {
 		const [x, y] = cell.split(',').map(Number);
-		const name = `sand_${compass((dc, dr) => sandAt(x + dc * CELL, y + dr * CELL))}`;
-		onGround(sand, groundTile(region(name), x, y, CELL, CELL, flip), {
-			x0: x,
-			y0: y,
-			x1: x + CELL,
-			y1: y + CELL,
-		});
+		const texture = region(`sand_${compass((dc, dr) => sandAt(x + dc * CELL, y + dr * CELL))}`);
+		const c = x / CELL;
+		const r = y / CELL;
+		onGround(
+			sand,
+			() => groundTile(texture, x, y, CELL, CELL, flip),
+			{ x0: x, y0: y, x1: x + CELL, y1: y + CELL },
+			Number.isInteger(c) && Number.isInteger(r) ? { c, r } : undefined,
+		);
 	}
 	for (const bank of river.sandbanks ?? []) {
 		if (onGrid) continue;
@@ -731,9 +946,10 @@ export function mountSalmonsRiver(
 		for (let j = 0; j < down; j++)
 			for (let i = 0; i < across; i++) {
 				const name = `sand_${compass((di, dj) => i + di >= 0 && i + di < across && j + dj >= 0 && j + dj < down)}`;
+				const texture = region(name);
 				const x = bank.x + i * w;
 				const y = bank.y + j * h;
-				onGround(sand, groundTile(region(name), x, y, w, h, flip), {
+				onGround(sand, () => groundTile(texture, x, y, w, h, flip), {
 					x0: x,
 					y0: y,
 					x1: x + w,
@@ -988,6 +1204,7 @@ export function mountSalmonsRiver(
 				},
 				z: amongZ(x, y, Z.deck),
 				at: { x: base.x, y: base.y - deck },
+				index: among.length,
 			});
 		}
 		// The slopes up to the deck from both banks.
@@ -1019,16 +1236,143 @@ export function mountSalmonsRiver(
 	upright.sortChildren();
 	upright.sortableChildren = false;
 
+	// Each group's chunks in their order: a chunk joins its group's container the first time it is
+	// shown, in its place among the ones already there.
+	for (const group of allGroups)
+		[...group.chunks.values()].sort(byPlace).forEach((chunk, i) => (chunk.rank = i));
+	const chunkOf = new Map(chunks.map((chunk) => [chunk.view, chunk]));
+	/** The box a riverbed tile's picture covers under the ripple, in its container's frame. */
+	const rippledBox = (view: Container, home: Container): Box => {
+		for (const node of [bedPlane, home, view]) node.updateLocalTransform();
+		const m = new Matrix()
+			.copyFrom(bedPlane.localTransform)
+			.append(home.localTransform)
+			.append(view.localTransform);
+		const b = view.getLocalBounds();
+		const xs = [b.minX, b.maxX, b.minX, b.maxX];
+		const ys = [b.minY, b.minY, b.maxY, b.maxY];
+		const x = xs.map((px, i) => m.a * px + m.c * ys[i] + m.tx);
+		const y = xs.map((px, i) => m.b * px + m.d * ys[i] + m.ty);
+		return { x0: Math.min(...x), y0: Math.min(...y), x1: Math.max(...x), y1: Math.max(...y) };
+	};
+	const build = (chunk: Chunk) => {
+		const views = chunk.make.map((make) => make());
+		chunk.view.addChild(...views);
+		chunk.make = [];
+		chunk.built = true;
+		if (chunk.boxes) {
+			chunk.areas = views.map((view) => rippledBox(view, chunk.home));
+			chunk.area = emptyBox();
+			for (const area of chunk.areas) grow(chunk.area, area);
+		}
+	};
+	const bedChunks = chunks.filter((chunk) => chunk.boxes);
+	/**
+	 * The ripple's area: the box the riverbed's tiles that meet the view's ground box cover, as when
+	 * each tile was culled on its own and the filter measured the ones shown. A chunk is shown whole,
+	 * so the box is not the chunks'.
+	 */
+	const rippleBy = (ground: Box) => {
+		const covered = emptyBox();
+		for (const chunk of bedChunks) {
+			const { boxes, areas, area } = chunk;
+			if (!boxes || !areas || !area || !meets(chunk.box, ground)) continue;
+			if (within(chunk.box, ground)) grow(covered, area);
+			else boxes.forEach((box, i) => meets(box, ground) && grow(covered, areas[i]));
+		}
+		const none = covered.x0 > covered.x1;
+		rippleArea.x = none ? 0 : covered.x0;
+		rippleArea.y = none ? 0 : covered.y0;
+		rippleArea.width = none ? 0 : covered.x1 - covered.x0;
+		rippleArea.height = none ? 0 : covered.y1 - covered.y0;
+	};
+	const attach = (chunk: Chunk) => {
+		if (chunk.view.parent === chunk.home) return;
+		const at = chunk.home.children.findIndex(
+			(child) => (chunkOf.get(child)?.rank ?? 0) > chunk.rank,
+		);
+		if (at < 0) chunk.home.addChild(chunk.view);
+		else chunk.home.addChildAt(chunk.view, at);
+	};
+	let groundSeen = '';
+	let ahead: Chunk[] = [];
+	/** The chunks that meet the view's ground box rounded out to the chunk grid, shown (made and put
+	 *  in place first); the rest hidden; the ring just past them queued to be made ahead. */
+	const cullGround = (ground: Box) => {
+		const near = roundOut(ground, CHUNK_PX);
+		const key = keyOf(near);
+		if (key === groundSeen) return;
+		groundSeen = key;
+		const ring = padded(near, CHUNK_PX);
+		ahead = [];
+		for (const chunk of chunks) {
+			const show = meets(chunk.box, near);
+			if (show) {
+				if (!chunk.built) build(chunk);
+				attach(chunk);
+			} else if (!chunk.built && meets(chunk.box, ring)) ahead.push(chunk);
+			chunk.view.visible = show;
+		}
+	};
+	const buildAhead = () => {
+		let budget = AHEAD_PER_FRAME;
+		while (budget > 0 && ahead.length) {
+			const chunk = ahead.pop();
+			if (!chunk || chunk.built) continue;
+			budget -= chunk.make.length;
+			build(chunk);
+		}
+	};
+
+	// What animates in the upright pieces moves on only while the view holds it, as each piece did
+	// when it was culled on its own: their drawing is culled by a coarser box, their clocks by the view.
+	const animated = new Set<Container>([...ticking, ...rigs.map((rig) => rig.view)]);
+	const clocked = uprightCulled.filter(({ view }) => animated.has(view));
+	const stopped = new Set<Container>();
+	let uprightSeen = '';
+	const cullUpright = (view: Box) => {
+		for (const { view: v, box } of clocked)
+			if (meets(box, view)) stopped.delete(v);
+			else stopped.add(v);
+		const near = roundOut(view, UPRIGHT_GRID);
+		const key = keyOf(near);
+		if (key === uprightSeen) return;
+		uprightSeen = key;
+		for (const { view: v, box } of uprightCulled) v.visible = meets(box, near);
+	};
+
+	/** The pieces among the players by the cells of {@link AMONG_GRID} their boxes meet. */
+	const amongAt = new Map<number, Among[]>();
+	const cellsOf = (box: Box) => ({
+		x0: Math.floor(box.x0 / AMONG_GRID),
+		y0: Math.floor(box.y0 / AMONG_GRID),
+		x1: Math.floor(box.x1 / AMONG_GRID),
+		y1: Math.floor(box.y1 / AMONG_GRID),
+	});
+	for (const piece of among) {
+		const { x0, y0, x1, y1 } = cellsOf(piece.box);
+		for (let gy = y0; gy <= y1; gy++)
+			for (let gx = x0; gx <= x1; gx++) {
+				const key = cellKey(gx, gy);
+				const list = amongAt.get(key);
+				if (list) list.push(piece);
+				else amongAt.set(key, [piece]);
+			}
+	}
+
 	let layer: Container | undefined;
 	let layerShift = { x: 0, y: 0 };
 	let amongDrawn = 0;
+	/** The view box the pieces among the players were last placed by. */
+	let placedBy: Box | undefined;
 	const findLayer = () => {
 		const now = spawnLayerOf(SALMONS_FIELD_LAYER);
 		if (now === layer && (!now || !now.destroyed)) return layer;
 		amongDrawn = 0;
+		placedBy = undefined;
 		for (const piece of among) if (piece.view?.parent) piece.view.removeFromParent();
 		layer = now && !now.destroyed ? now : undefined;
-		if (layer) layerShift = layer.toLocal({ x: 0, y: 0 }, into);
+		if (layer) layerShift = layer.toLocal({ x: 0, y: 0 }, host);
 		return layer;
 	};
 
@@ -1036,7 +1380,7 @@ export function mountSalmonsRiver(
 	const inverse = new Matrix();
 	let viewBox: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
 	const cull = () => {
-		const m = into.worldTransform;
+		const m = host.worldTransform;
 		const screen = app.renderer.screen;
 		const key = `${m.a},${m.b},${m.c},${m.d},${m.tx},${m.ty},${screen.width},${screen.height}`;
 		if (key === seen) return false;
@@ -1062,33 +1406,70 @@ export function mountSalmonsRiver(
 			x1: Math.max(...world.map((p) => p.x)) + CELL,
 			y1: Math.max(...world.map((p) => p.y)) + CELL,
 		};
-		const show = (items: Culled[], b: Box) => {
-			for (const { view: v, box } of items) v.visible = meets(box, b);
-		};
-		show(flatCulled, ground);
-		show(uprightCulled, viewBox);
+		cullGround(ground);
+		rippleBy(ground);
+		cullUpright(viewBox);
 		return true;
 	};
-	/** The pieces among the players in view, in the spawn layer; the rest out of it. */
+	/** A piece among the players put in the spawn layer if `show`, else taken out of it. */
+	const place = (piece: Among, show: boolean, target: Container) => {
+		const was = !!piece.view && piece.view.parent === target;
+		if (show) {
+			if (!piece.view) {
+				piece.view = piece.make();
+				piece.view.label = AMONG;
+				piece.view.zIndex = piece.z;
+			}
+			piece.view.position.set(piece.at.x + layerShift.x, piece.at.y + layerShift.y);
+			if (!was) target.addChild(piece.view);
+		} else if (piece.view?.parent) piece.view.removeFromParent();
+		amongDrawn += (show ? 1 : 0) - (was ? 1 : 0);
+	};
+	/**
+	 * The pieces among the players in view, in the spawn layer; the rest out of it. Each joins the
+	 * layer the frame the view first holds it, after the ones that were there, with the others that
+	 * join that frame in the list's order; it leaves the frame the view lets it go. Only the pieces
+	 * near the edge of the view, then or before, are looked at.
+	 */
 	const placeAmong = (moved: boolean) => {
 		const had = layer;
 		const target = findLayer();
 		if (!target) return;
 		if (!moved && had === target) return;
-		amongDrawn = 0;
-		for (const piece of among) {
-			const show = meets(piece.box, viewBox);
-			if (show) {
-				if (!piece.view) {
-					piece.view = piece.make();
-					piece.view.label = AMONG;
-					piece.view.zIndex = piece.z;
-				}
-				piece.view.position.set(piece.at.x + layerShift.x, piece.at.y + layerShift.y);
-				if (piece.view.parent !== target) target.addChild(piece.view);
-				amongDrawn += 1;
-			} else if (piece.view?.parent) piece.view.removeFromParent();
+		const was = placedBy;
+		placedBy = viewBox;
+		if (!was) {
+			for (const piece of among) place(piece, meets(piece.box, viewBox), target);
+			return;
 		}
+		const inBoth: Box = {
+			x0: Math.max(was.x0, viewBox.x0),
+			y0: Math.max(was.y0, viewBox.y0),
+			x1: Math.min(was.x1, viewBox.x1),
+			y1: Math.min(was.y1, viewBox.y1),
+		};
+		const span = cellsOf({
+			x0: Math.min(was.x0, viewBox.x0),
+			y0: Math.min(was.y0, viewBox.y0),
+			x1: Math.max(was.x1, viewBox.x1),
+			y1: Math.max(was.y1, viewBox.y1),
+		});
+		const near = new Set<Among>();
+		for (let gy = span.y0; gy <= span.y1; gy++)
+			for (let gx = span.x0; gx <= span.x1; gx++) {
+				const list = amongAt.get(cellKey(gx, gy));
+				if (!list) continue;
+				const x0 = gx * AMONG_GRID;
+				const y0 = gy * AMONG_GRID;
+				const inside =
+					x0 >= inBoth.x0 &&
+					y0 >= inBoth.y0 &&
+					x0 + AMONG_GRID <= inBoth.x1 &&
+					y0 + AMONG_GRID <= inBoth.y1;
+				if (!inside) for (const piece of list) near.add(piece);
+			}
+		for (const piece of [...near].sort((a, b) => a.index - b.index))
+			place(piece, meets(piece.box, viewBox), target);
 	};
 
 	let frame = 0;
@@ -1101,8 +1482,10 @@ export function mountSalmonsRiver(
 			faces[i].tilePosition.y += 0.8 * frames;
 			faces[i + 1].tilePosition.y += 0.45 * frames;
 		}
-		for (const sprite of ticking) if (sprite.visible && sprite.parent) sprite.update(ticker);
-		for (const rig of rigs) if (rig.view.visible && rig.view.parent) rig.update(ticker.deltaMS);
+		for (const sprite of ticking)
+			if (sprite.visible && sprite.parent && !stopped.has(sprite)) sprite.update(ticker);
+		for (const rig of rigs)
+			if (rig.view.visible && rig.view.parent && !stopped.has(rig.view)) rig.update(ticker.deltaMS);
 		for (const s of shimmer) {
 			if (!s.view.visible) continue;
 			const t = frame * 0.04 + s.phase;
@@ -1110,18 +1493,19 @@ export function mountSalmonsRiver(
 			s.view.scale.x = 1 + Math.sin(t) * 0.04;
 		}
 		placeAmong(cull());
+		buildAhead();
 	};
 	app.ticker.add(tick);
 	placeAmong(cull());
 
-	const roots = [floor, displacement, cliffs, turn, reflections, upright];
 	return {
 		teardown: () => {
 			app.ticker.remove(tick);
-			bed.filters = [];
+			rippled.filters = [];
 			filter.destroy();
 			for (const rig of rigs) rig.destroy();
 			for (const piece of among) piece.view?.destroy();
+			for (const chunk of chunks) if (!chunk.view.parent) chunk.view.destroy({ children: true });
 			for (const root of roots) root.destroy({ children: true });
 			for (const texture of made) texture.destroy(true);
 		},
@@ -1129,9 +1513,10 @@ export function mountSalmonsRiver(
 		destroyed: () => roots.every((root) => root.destroyed),
 		among: () => ({ drawn: amongDrawn, layer: !!layer }),
 		aboveWater: () => {
-			into.addChild(reflections, upright);
+			host.addChild(reflections, upright);
 		},
 	};
 }
 
 const meets = (a: Box, b: Box) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
+const within = (a: Box, b: Box) => a.x0 >= b.x0 && a.x1 <= b.x1 && a.y0 >= b.y0 && a.y1 <= b.y1;
