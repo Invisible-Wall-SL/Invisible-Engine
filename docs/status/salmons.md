@@ -2699,9 +2699,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     code-look bear wades with no pass, the rig through it), `--trees`, `salmons-river-tour.mjs`
     seeds 1 and 4, `salmons-levels-play.mjs`: all pass.
   - **Bundles** (`check:runtime-bytes`, re-recorded on Linux): all five move — `SpawnLayer` ships
-    in every runtime, the Salmons art chunk in arcade and arcade3d. Against T4's manifests, in gzip: `lines` +6 B, `match3` +5 B, `card` +1 B
-    (the gold line), `arcade` +3,229 B and `arcade3d` +3,286 B, almost all in the lazy Salmons art
-    chunk (the programs' GLSL); their main bundles +42 B and +101 B.
+    in every runtime, the Salmons art chunk in arcade and arcade3d. Against main f4f8484 (T4 merged), in gzip: `lines` 0 B (its hashes move), `match3` +8 B,
+    `card` +12 B (the gold line), `arcade` +3,244 B and `arcade3d` +3,260 B, almost all in the
+    lazy Salmons art chunk (the programs' GLSL).
   - **Reviewed** (`code-reviewer`): fixed a trimmed bear texture's UVs (`quadOf`: Pixi's
     `textureMatrix` takes UVs over the untrimmed rect), the bear's quad geometry never destroyed,
     the glint's alpha without its ancestors', two glint point counts, the three programs linked
