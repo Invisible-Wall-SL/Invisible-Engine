@@ -11,6 +11,7 @@ import type { BotAim, BotPlay } from './onlineBots';
 
 export { GRACE_MS, STATUS } from './abilities';
 export const REWIND_MS: 250;
+export function rewindMsFor(patchHz: number | undefined): number;
 export const ONLINE_EVENT: 'event';
 
 export type OnlinePhase = 'waiting' | 'running' | 'ended';

@@ -1,6 +1,7 @@
 import {
 	MERGE_CAPS,
 	MERGE_CHOICES,
+	MERGE_HUNK_KINDS,
 	MERGE_MODES,
 	MERGE_RUN_ID,
 	MERGE_RULES,
@@ -9,7 +10,7 @@ import {
 	isMergeRunOutcome,
 	type MergeChoice,
 	type MergeRule,
-	type MergeRunExplanation,
+	type JobExplanation,
 	type MergeRunFile,
 	type MergeRunHunk,
 	type MergeRunOutcome,
@@ -26,8 +27,9 @@ import {
 	protectedEntry,
 	secretIn,
 	unmarked,
-	withoutDirectives,
 } from './bugFixRunsChange';
+import { blobSha, type Files } from './pipelineMergeRunsBuild';
+import { visibleText } from './pipelineMergeRunsDiff';
 
 /**
  * Reading what a merge run's job posts (ADR-0015 §10) and judging the part of it that needs no
@@ -60,7 +62,7 @@ export interface ParsedMergeResult {
 	failure: string | null;
 	reason: string;
 	files: MergeRunFile[];
-	explanation: MergeRunExplanation | null;
+	explanation: JobExplanation | null;
 	/** `usage`, unread: `parseUsage` judges it. */
 	usage: unknown;
 }
@@ -90,7 +92,19 @@ const REQUIRED_KEYS = [
 ];
 const FILE_KEYS = ['path', 'choice', 'rule', 'content', 'mode'];
 const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks'];
-const HUNK_KEYS = ['path', 'index', 'main', 'change', 'takes', 'why', 'nowDoes', 'otherwise'];
+const HUNK_KEYS = [
+	'path',
+	'index',
+	'main',
+	'change',
+	'result',
+	'resultCut',
+	'kind',
+	'takes',
+	'why',
+	'nowDoes',
+	'otherwise',
+];
 const MAX_LIST = 100;
 const TITLE_CAP = 300;
 const COMMAND_CAP = 300;
@@ -150,7 +164,7 @@ function parseFiles(v: unknown): MergeRunFile[] {
 	});
 }
 
-function parseExplanation(v: unknown): MergeRunExplanation {
+function parseExplanation(v: unknown): JobExplanation {
 	const e = record(v, 'explanation');
 	only(e, EXPLANATION_KEYS, 'explanation');
 	const conflicted = list(e.conflicted, 'conflicted').map((raw) => {
@@ -176,14 +190,28 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 		if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > 100_000) {
 			return bad('hunks has an index that is not a whole number');
 		}
+		const cut = h.resultCut;
+		if (typeof cut !== 'number' || !Number.isSafeInteger(cut) || cut < 0 || cut > 10_000_000) {
+			return bad('hunks has a resultCut that is not a count of lines');
+		}
+		if (typeof h.kind !== 'string' || !(MERGE_HUNK_KINDS as readonly string[]).includes(h.kind)) {
+			return bad('hunks has a kind the launcher does not know');
+		}
 		if (typeof h.takes !== 'string' || !(MERGE_TAKES as readonly string[]).includes(h.takes)) {
 			return bad('hunks has a choice the launcher does not know');
 		}
 		return {
 			path: text(h.path, 'a path', MERGE_CAPS.path),
 			index,
-			main: text(h.main, 'a hunk'),
-			change: text(h.change, 'a hunk'),
+			main: text(h.main, 'a hunk', MERGE_CAPS.lines),
+			change: text(h.change, 'a hunk', MERGE_CAPS.lines),
+			result: !('result' in h)
+				? bad('a hunk has no result field')
+				: h.result === null
+					? null
+					: text(h.result, 'a hunk', MERGE_CAPS.lines),
+			resultCut: cut,
+			kind: h.kind as MergeRunHunk['kind'],
 			takes: h.takes as MergeRunHunk['takes'],
 			why: text(h.why, 'a hunk'),
 			nowDoes: optionalText(h.nowDoes, 'a hunk'),
@@ -242,7 +270,7 @@ export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResu
 	const baseSha = sha('baseSha', outcome !== 'proposed');
 	let reason = '';
 	let files: MergeRunFile[] = [];
-	let explanation: MergeRunExplanation | null = null;
+	let explanation: JobExplanation | null = null;
 	if (outcome === 'proposed') {
 		if (body.reason !== null) bad('reason is not null in a proposal');
 		files = parseFiles(body.files);
@@ -276,20 +304,50 @@ export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResu
 const FORMAT = /\p{Cf}/gu;
 
 /**
- * A code excerpt as the card shows it: no format characters (bidi, zero-width), no CI-skip
- * directive, capped. Its tags and brackets stay, since the card renders it as text, never HTML.
+ * A code excerpt as the card shows it, and how many lines the launcher cut from it. The RAW text is
+ * capped first and only then are its format characters made visible (a `⟨U+200D⟩` is 8 characters:
+ * made visible first, a result under the cap could be cut again with no notice). Nothing is
+ * stripped from code: not a CI-skip token either, since the card is not a commit message. Its tags
+ * and brackets stay, the card renders it as text, never HTML, and its indentation stays: only the
+ * last line break is dropped.
  */
-function cleanExcerpt(excerpt: string, max: number): string {
-	const kept = withoutDirectives(excerpt.replace(/\r\n?/g, '\n').replace(FORMAT, '')).trim();
+function cleanExcerpt(excerpt: string, max: number): { text: string; cut: number } {
+	// Only a CRLF is a line break here: a lone CR stays in its line and is shown as ⟨CR⟩.
+	const kept = excerpt.replace(/\r\n/g, '\n').replace(/\n$/, '');
 	const points = Array.from(kept);
-	return points.length > max ? `${points.slice(0, max - 1).join('')}…` : kept;
+	if (points.length <= max) return { text: visibleText(kept), cut: 0 };
+	const shown = points.slice(0, max - 1);
+	return {
+		text: visibleText(`${shown.join('')}…`),
+		cut: kept.split('\n').length - shown.filter((c) => c === '\n').length,
+	};
 }
+
+const excerpt = (text: string, max: number): string => cleanExcerpt(text, max).text;
+
+const HIDDEN_LINE = '[line hidden: it looks like a secret]';
+
+/** A side's own line that looks like a secret is hidden from the page, not a reason to refuse: the repository holds such lines (docs, env names). */
+const hideSecretLines = (text: string): string =>
+	text
+		.split('\n')
+		.map((line) => (secretIn(line) ? HIDDEN_LINE : line))
+		.join('\n');
 
 const optionalClean = (v: string | null, max: number): string | null =>
 	v === null ? null : cleanText(v, max) || null;
 
+/** A hunk's result cleaned, with the lines the launcher cut added to what the job said it cut. */
+function cleanedResult(h: MergeRunHunk): Pick<MergeRunHunk, 'result' | 'resultCut'> {
+	if (h.result === null) return { result: null, resultCut: h.resultCut };
+	const { text, cut } = cleanExcerpt(h.result, MERGE_CAPS.lines);
+	// A cut the job made already counted its partial last line, which the launcher's may cut again.
+	const more = cut === 0 ? 0 : h.resultCut > 0 ? cut - 1 : cut;
+	return { result: hideSecretLines(text), resultCut: h.resultCut + more };
+}
+
 /** Every text of the explanation cleaned as a fix run's are: plain, capped, unlinked and quiet. */
-export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
+export function cleanExplanation(e: JobExplanation): JobExplanation {
 	return {
 		conflicted: e.conflicted.map((c) => ({
 			path: c.path,
@@ -298,8 +356,10 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 		hunks: e.hunks.map((h) => ({
 			path: h.path,
 			index: h.index,
-			main: cleanExcerpt(h.main, MERGE_CAPS.text),
-			change: cleanExcerpt(h.change, MERGE_CAPS.text),
+			main: hideSecretLines(excerpt(h.main, MERGE_CAPS.lines)),
+			change: hideSecretLines(excerpt(h.change, MERGE_CAPS.lines)),
+			...cleanedResult(h),
+			kind: h.kind,
 			takes: h.takes,
 			why: cleanText(h.why, MERGE_CAPS.text),
 			nowDoes: optionalClean(h.nowDoes, MERGE_CAPS.text),
@@ -314,30 +374,85 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 	};
 }
 
-/** Every text of an explanation, for the scan and the size cap. */
-export function explanationTexts(e: MergeRunExplanation): string[] {
+/**
+ * Every prose text of an explanation, for the scan and the 16,000-character cap. The real lines of
+ * a hunk (`main`, `change`, `result`) are not prose: they are code the repository already holds,
+ * capped on their own ({@link explanationLines}), and a `result` must be inside its file, which
+ * Accept's content scan reads.
+ */
+export function explanationTexts(e: JobExplanation): string[] {
 	return [
 		...e.conflicted.flatMap((c) => [c.path, ...c.met.map((m) => m.title)]),
-		...e.hunks.flatMap((h) => [
-			h.path,
-			h.main,
-			h.change,
-			h.why,
-			h.nowDoes ?? '',
-			h.otherwise ?? '',
-		]),
+		...e.hunks.flatMap((h) => [h.path, h.why, h.nowDoes ?? '', h.otherwise ?? '']),
 		...e.outside.flatMap((o) => [o.path, o.what]),
 		...e.checks.map((c) => c.command),
 		e.risks,
 	];
 }
 
+/** The code points of every hunk's real lines, for their own cap. */
+export const explanationLines = (e: JobExplanation): number =>
+	e.hunks.reduce(
+		(n, h) =>
+			n +
+			Array.from(h.main).length +
+			Array.from(h.change).length +
+			(h.result === null ? 0 : Array.from(h.result).length),
+		0,
+	);
+
+const linesOf = (text: string): string[] => text.replace(/\r\n?/g, '\n').split('\n');
+
+/**
+ * The first secret in a hunk's `result` lines that neither of its sides had, scanned as sent, as
+ * cleaned and with every format character taken out (zero-width characters can split a key a plain
+ * scan misses). A line a side already held is the repository's own and is not the result's to
+ * answer for.
+ */
+export function resultSecretProblem(raw: JobExplanation, cleaned: JobExplanation): string | null {
+	for (const [i, h] of raw.hunks.entries()) {
+		const c = cleaned.hunks[i];
+		const theirs = new Set([h.main, h.change, c.main, c.change].flatMap(linesOf));
+		for (const text of [h.result, c.result]) {
+			if (text === null) continue;
+			for (const line of linesOf(text)) {
+				if (theirs.has(line)) continue;
+				if (secretIn(line) || secretIn(line.replace(FORMAT, ''))) {
+					return 'secret scan: a secret in a hunk result';
+				}
+			}
+		}
+	}
+	return null;
+}
+
+const flat = (text: string): string => text.replace(/\r\n?/g, '\n').replace(FORMAT, '');
+
+/**
+ * The first hunk whose `result` (as the job sent it) is not in its file's content, or null. The
+ * result is cut at the cap with a trailing `…`, so that cut is allowed for; a file the files do not
+ * list, a deletion, or text the file does not hold is not.
+ */
+export function resultProblem(e: JobExplanation, files: MergeRunFile[]): string | null {
+	for (const h of e.hunks) {
+		if (h.result === null) continue;
+		const file = files.find((f) => f.path === h.path);
+		if (!file || file.content === null) return 'a hunk shows a result that is not in its file';
+		const whole = flat(file.content);
+		const shown = flat(h.result);
+		if (!whole.includes(shown) && !(shown.endsWith('…') && whole.includes(shown.slice(0, -1)))) {
+			return 'a hunk shows a result that is not in its file';
+		}
+	}
+	return null;
+}
+
 /** The characters an explanation holds in all, in code points. */
-export const explanationSize = (e: MergeRunExplanation): number =>
+export const explanationSize = (e: JobExplanation): number =>
 	explanationTexts(e).reduce((n, t) => n + Array.from(t).length, 0);
 
 /** A proposal must say something under every heading that always has content (§10). */
-export function isExplainedMerge(e: MergeRunExplanation | null): e is MergeRunExplanation {
+export function isExplainedMerge(e: JobExplanation | null): e is JobExplanation {
 	return (
 		e !== null &&
 		e.risks.length > 0 &&
@@ -366,13 +481,31 @@ export const isPendingRuleFile = (file: Pick<MergeRunFile, 'path' | 'choice' | '
 	file.rule !== 'docs-append' &&
 	RULE_PATHS[file.rule].test(file.path);
 
+/** Whether `f` is exactly what `main` holds at its path (nothing, for a deletion). */
+function isMainsEntry(f: MergeRunFile, main: Files | null): boolean {
+	if (main === null) return false;
+	const entry = main.get(f.path);
+	if (f.content === null) {
+		// Absent from `main` as written, and not merely under another case: `.GitHub/…` is not a
+		// deletion of `.github/…`.
+		const lower = f.path.toLowerCase();
+		return entry === undefined && ![...main.keys()].some((k) => k.toLowerCase() === lower);
+	}
+	return entry !== undefined && entry.sha === blobSha(f.content) && entry.mode === f.mode;
+}
+
 /**
  * The first rule the files break that needs no GitHub: their count in the model's hands, their size,
  * their paths and modes, that a file's rule and choice agree and its path is where the rule's files
  * live, a protected path (but the docs-append rule's, which may add to one), a lockfile, hidden
- * Unicode, and a secret in a path.
+ * Unicode, and a secret in a path. `main` is `main`'s tree at the run's SHA, for the one exemption
+ * (above): without it, a protected path or a lockfile is always refused.
  */
-export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<string>): string | null {
+export function filesProblem(
+	files: MergeRunFile[],
+	hunkPaths: ReadonlySet<string>,
+	main: Files | null = null,
+): string | null {
 	const seen = new Set<string>();
 	let total = 0;
 	let model = 0;
@@ -389,10 +522,11 @@ export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<strin
 		} else if (f.rule !== null) {
 			if (!isPendingRuleFile(f)) return "a build rule's file is not main's, left pending";
 		}
-		// `main`'s own entry written onto `main`'s tree changes nothing, and Accept refuses a `main`
-		// that is not (`planMerge`): it is how a path both sides changed identically, or both deleted,
-		// is listed, so a protected path or a lockfile there is not the run's change.
-		const keepsMain = f.choice === 'main' && f.rule === null;
+		// `main`'s own entry written onto `main`'s tree changes nothing: it is how a path both sides
+		// changed identically, or both deleted, is listed. So a protected path or a lockfile may be
+		// listed as `main`'s only when it IS `main`'s entry at the run's SHA, byte for byte and mode
+		// for mode (or absent from it, for a deletion): "main's" is a claim until `main` says so.
+		const keepsMain = f.choice === 'main' && f.rule === null && isMainsEntry(f, main);
 		const guarded = protectedEntry(f.path);
 		if (guarded && f.rule !== 'docs-append' && !keepsMain) {
 			return `it touches a protected path (${guarded})`;

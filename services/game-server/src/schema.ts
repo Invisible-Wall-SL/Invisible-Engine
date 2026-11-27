@@ -97,12 +97,30 @@ const playerFields = {
 
 export const Player = schema(playerFields);
 
-/** The `StateView` tags of a nearby room: every player a device is sent, and its own player. */
-export const VIEW_TAG = Object.freeze({ near: 1, own: 2 });
+/** The `StateView` tags of a nearby room: every player a device is sent, its own player, and
+ *  how a player's place is sent to it: float32 (`exact`) or packed (`packed`). */
+export const VIEW_TAG = Object.freeze({ near: 1, own: 2, exact: 4, packed: 8 });
 
-/** A player of a nearby room: `ack` matters only to its own device (which replays from it), so it
- *  goes only there — a hundred players' acks would otherwise be a quarter of every patch. */
-export const NearbyPlayer = schema({ ...playerFields, ack: t.uint32().view(VIEW_TAG.own) });
+/**
+ * A player of a nearby room: `ack` matters only to its own device (which replays from it), so it
+ * goes only there — a hundred players' acks would otherwise be a quarter of every patch.
+ *
+ * Its place goes to each device one way (`arcadeRoom.ts` `nearby`): float32 `x` / `y` (`exact`) to
+ * its own device and to every device that did not ask for packed places (a runtime older than
+ * them reads only these); to a device that joined with `positions: 'u16'` (`engine-mechanics`
+ * `PACKED_POSITIONS`), everyone else's as uint16 `px` / `py` in steps of the room's `posScale`
+ * (`positionScale`), 3 bytes a coordinate where float32 takes 5. `px` / `py` are the last fields,
+ * so an older runtime reads every other as before; view tags are the server's alone and never on
+ * the wire.
+ */
+export const NearbyPlayer = schema({
+	...playerFields,
+	x: t.float32().view(VIEW_TAG.exact),
+	y: t.float32().view(VIEW_TAG.exact),
+	ack: t.uint32().view(VIEW_TAG.own),
+	px: t.uint16().view(VIEW_TAG.packed),
+	py: t.uint16().view(VIEW_TAG.packed),
+});
 
 /** A mark a rules module left on the field, field px (Salmons' bloodstain where a salmon died). */
 export const Stain = schema({ x: t.float32(), y: t.float32() });
@@ -149,7 +167,14 @@ export type RoomStateData = SchemaType<typeof RoomState>;
 
 /** The state of a room that sends each device only the players near its own (`online.nearby`,
  *  P10.16): a player reaches the devices whose `StateView` holds it (`arcadeRoom.ts`). */
-export const NearbyRoomState = schema({ ...roomFields, players: t.map(NearbyPlayer).view() });
+export const NearbyRoomState = schema({
+	...roomFields,
+	players: t.map(NearbyPlayer).view(),
+	/** Steps per px of a player's packed place (`px`, `py`; `engine-mechanics` `positionScale`),
+	 *  written once with the room; 0 when its field is too wide to pack, and unset from a server
+	 *  older than packed places, so a device that asked for them reads `x` / `y`. */
+	posScale: t.uint8(),
+});
 
 /**
  * THE 3D WIRE (`docs/design/3d/gameplay-evaluation.md` §3), used only by the 3D room

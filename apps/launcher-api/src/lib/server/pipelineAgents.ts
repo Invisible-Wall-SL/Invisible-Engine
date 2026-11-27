@@ -15,6 +15,7 @@ import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './conc
 import { ADAPTER_OPS, opId } from './director/registry';
 import { ENV } from './env';
 import { githubApp, type GithubApp } from './githubApp';
+import { encodePath, refReadPath } from './githubPaths';
 import { AGENT_FILE } from './pipelineAgentEval';
 import {
 	AGENT_DEFINITION_LABEL,
@@ -218,9 +219,7 @@ const repo = (): string => ENV.GITHUB_ENGINE_REPO;
 const owner = (): string => repo().split('/')[0];
 
 async function mainSha(app: GithubApp): Promise<string> {
-	const ref = await app.json<{ object: { sha: string } }>(
-		`/repos/${repo()}/git/ref/heads/${BASE_BRANCH}`,
-	);
+	const ref = await app.json<{ object: { sha: string } }>(refReadPath(repo(), BASE_BRANCH));
 	return ref.object.sha;
 }
 
@@ -231,7 +230,7 @@ async function readFile(
 	ref: string,
 ): Promise<{ text: string; sha: string } | null> {
 	const res = await app.fetch(
-		`/repos/${repo()}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,
+		`/repos/${repo()}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`,
 	);
 	if (res.status === 404) return null;
 	if (!res.ok) {
@@ -505,7 +504,7 @@ async function findExisting(
 	path: string,
 	proposed: string,
 ): Promise<Existing> {
-	const ref = await app.fetch(`/repos/${repo()}/git/ref/heads/${branch}`);
+	const ref = await app.fetch(refReadPath(repo(), branch));
 	if (ref.status === 404) return { kind: 'none' };
 	if (!ref.ok) throw await failure(ref, 'reading the branch');
 	const headSha = ((await ref.json()) as { object: { sha: string } }).object.sha;

@@ -1260,6 +1260,15 @@ export const mergeMainRuns = pgTable(
 		files: jsonb('files').$type<MergeRunFile[]>(),
 		explanation: jsonb('explanation').$type<MergeRunExplanation>(),
 		mergeSha: text('merge_sha'),
+		/**
+		 * The merge commit an Accept built, stored before it moves the branch: the one commit the
+		 * launcher will call its own, compared exactly (never by parents or a public token).
+		 */
+		acceptSha: text('accept_sha'),
+		/** When an Accept took the claim (`accepting`): a lease the backstop clears. */
+		acceptingAt: timestamp('accepting_at', { withTimezone: true }),
+		/** A random id minted with the claim: every update, settle and release of an Accept matches it. */
+		acceptClaim: text('accept_claim'),
 		spendUsd: doublePrecision('spend_usd'),
 		ghRunId: bigint('gh_run_id', { mode: 'number' }),
 		startedById: text('started_by_id').notNull(),
@@ -1277,11 +1286,11 @@ export const mergeMainRuns = pgTable(
 		uniqueIndex('merge_main_runs_gh_run_id_idx').on(table.ghRunId),
 		uniqueIndex('merge_main_runs_live_idx')
 			.on(table.prNumber)
-			.where(sql`${table.status} in ('dispatched', 'running', 'proposed')`),
+			.where(sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepting')`),
 		index('merge_main_runs_pr_idx').on(table.prNumber, table.createdAt),
 		check(
 			'merge_main_runs_status_check',
-			sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')`,
+			sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepting', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')`,
 		),
 	],
 );

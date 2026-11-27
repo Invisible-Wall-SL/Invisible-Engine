@@ -36,6 +36,9 @@ import {
 	characterBody,
 	clampInput,
 	onlineLevel,
+	packPosition,
+	placeOnWire,
+	positionScale,
 	sanitizeInput,
 	stepContext,
 	stepPlayer,
@@ -43,6 +46,7 @@ import {
 import {
 	INTERPOLATION_DELAY_MS,
 	MATCH_PX,
+	interpolationDelayFor,
 	RECONCILED_FIELDS,
 	SNAP_PX,
 	createInterpolator,
@@ -350,12 +354,17 @@ const simulate = ({
 	settlePx = 0.01,
 	apply = 'frame',
 	stall,
+	patchHz,
+	packed = false,
 }) => {
 	// The runtime's own player takes the newest state once a frame (`online.ts` `applyState`); the
 	// SDK's reconciler hears every state itself.
 	const perFrame = netcode === 'engine' && apply === 'frame';
-	const game = gameOf(rules ? { rules } : {}, zones);
+	const game = gameOf({ ...(rules ? { rules } : {}), ...(patchHz ? { patchHz } : {}) }, zones);
 	const { online, field } = game;
+	// Everyone else's place as a device that asked for packed places is sent it.
+	const scale = packed ? positionScale(field) : 0;
+	const delayMs = interpolationDelayFor(online.patchHz);
 	const stepMs = 1000 / online.tickHz;
 	const patchMs = 1000 / online.patchHz;
 	const frameMs = 1000 / 60;
@@ -394,7 +403,7 @@ const simulate = ({
 				level: onlineLevel(game.zones, online.rules.zones, character.id, field, online.slide),
 				online,
 			}),
-			view: createSnapshotClock({ stepMs }),
+			view: createSnapshotClock({ stepMs, delayMs }),
 			others: createInterpolator(),
 			viewStep: 0,
 			/** When the state acknowledging the last moving input arrived, if the player rests since. */
@@ -454,6 +463,7 @@ const simulate = ({
 				id: p.id,
 				x: Math.fround(p.body.x),
 				y: Math.fround(p.body.y),
+				...(scale ? { px: packPosition(p.body.x, scale), py: packPosition(p.body.y, scale) } : {}),
 				ack: p.ack,
 				status: p.status,
 			})),
@@ -475,7 +485,8 @@ const simulate = ({
 		device.view.observe(state.step, now);
 		for (const p of state.players) {
 			if (p.id !== device.id) {
-				device.others.push(p.id, state.step, p.x, p.y);
+				const at = placeOnWire(p, scale);
+				device.others.push(p.id, state.step, at.x, at.y);
 				continue;
 			}
 			// The runtime's room state is always the newest; a datagram can arrive after a later one.
@@ -621,7 +632,12 @@ const simulate = ({
 		stats.lostDown += device.down.lost;
 		stats.sentUp += device.up.sent;
 	}
-	return { ...stats, lag: stats.lagSum / stats.lagFrames, heldShare: stats.held / stats.lagFrames };
+	return {
+		...stats,
+		delayMs,
+		lag: stats.lagSum / stats.lagFrames,
+		heldShare: stats.held / stats.lagFrames,
+	};
 };
 
 // --- 1. the predictor alone ---------------------------------------------------------------------
@@ -886,6 +902,35 @@ await check(
 		assert.ok(r.worstOwnJump <= 1.5, `the own player moved ${r.worstOwnJump} steps in a frame`);
 	},
 );
+
+// Salmons' wire since 2026-11-27 (owner): 15 states a second, drawn two of them behind
+// (`interpolationDelayFor`), and everyone else's place packed (`packPosition` at the field's
+// `positionScale`). The own player is float32 as before, so its prediction is still exact.
+for (const reliable of [true, false]) {
+	await check(
+		`15 states a second, packed places, ${reliable ? 'reliable' : 'datagram'} 150 ms: as smooth, ${Math.round(interpolationDelayFor(15))} ms behind`,
+		() => {
+			const r = simulate({
+				net: { latency: 150, jitter: 50, loss: 0.03, reliable },
+				seconds: 40,
+				seed: `wire-${reliable}`,
+				patchHz: 15,
+				packed: true,
+			});
+			assert.ok(Math.abs(r.delayMs - 2000 / 15) < 1e-9);
+			assert.ok(r.rests >= 30, `${r.rests} rests checked`);
+			if (reliable) {
+				assert.equal(r.corrections, 0, `${r.corrections} corrections`);
+				assert.equal(r.exactRests, r.rests, 'the own player is still exact');
+			} else assert.equal(r.snaps, 0);
+			assert.ok(r.worstOffPath <= 2, `${r.worstOffPath} steps off the room's path`);
+			assert.ok(r.lag >= r.delayMs + 150 - 50, `lag ${r.lag}`);
+			console.log(
+				`  15 Hz packed ${reliable ? 'reliable' : 'datagram'}: ${r.rests} rests, drawn ≤ ${r.worstOtherJumpRatio.toFixed(2)} of a step a frame, ≤ ${r.worstOffPath.toFixed(2)} steps off path, lag ${r.lag.toFixed(0)} ms, held ${(r.heldShare * 100).toFixed(1)} %`,
+			);
+		},
+	);
+}
 
 // --- 3. the same room under `netcode: 'colyseus'` (the SDK's own reconciler) -----------------
 

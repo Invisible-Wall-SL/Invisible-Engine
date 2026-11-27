@@ -77,5 +77,6 @@ person or CI runs after Accept, and the run must not change the file. `byRule` i
 
 `$RUNNER_TEMP/out/result.json`: the shape in `collect.mjs`'s header. Every hunk of every file
 needs an entry, and every file edited outside its hunks needs an `outside` line, with `checks` and
-`risks`. Missing or empty is `no_proposal`. `{ "outcome": "needs_person", "reason": "…" }` hands
+`risks`. A hunk's `main`, `change` and `result` (the real lines, from git and the final file) are
+`collect`'s, not the model's: the model says only `takes`, `why`, `nowDoes` and `otherwise`. Missing or empty is `no_proposal`. `{ "outcome": "needs_person", "reason": "…" }` hands
 the merge to a person. The run must not change any other file, create one, or leave a marker.

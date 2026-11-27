@@ -1,5 +1,5 @@
 {
-  "id": "ab70ff81-fd86-4f65-b9c8-54f9f9b79b9c",
+  "id": "b4dc9297-17b1-4c79-b8a9-c38da305e8ee",
   "prevId": "0c0b0cd6-e201-4856-baaa-bc2e4c7ff7f9",
   "version": "7",
   "dialect": "postgresql",
@@ -2670,6 +2670,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "accept_sha": {
+          "name": "accept_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accepting_at": {
+          "name": "accepting_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accept_claim": {
+          "name": "accept_claim",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "spend_usd": {
           "name": "spend_usd",
           "type": "double precision",
@@ -2781,7 +2799,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"merge_main_runs\".\"status\" in ('dispatched', 'running', 'proposed')",
+          "where": "\"merge_main_runs\".\"status\" in ('dispatched', 'running', 'proposed', 'accepting')",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2815,7 +2833,7 @@
       "checkConstraints": {
         "merge_main_runs_status_check": {
           "name": "merge_main_runs_status_check",
-          "value": "\"merge_main_runs\".\"status\" in ('dispatched', 'running', 'proposed', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')"
+          "value": "\"merge_main_runs\".\"status\" in ('dispatched', 'running', 'proposed', 'accepting', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')"
         }
       },
       "isRLSEnabled": false
@@ -3292,12 +3310,6 @@
           "notNull": true,
           "default": false
         },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "purging_at": {
           "name": "purging_at",
           "type": "timestamp with time zone",
@@ -3456,12 +3468,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::text[]"
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "filed_at": {
           "name": "filed_at",
@@ -3828,31 +3834,12 @@
           "primaryKey": false,
           "notNull": false
         },
-        "send_key": {
-          "name": "send_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "send_frames": {
-          "name": "send_frames",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "keep": {
           "name": "keep",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "purging_at": {
           "name": "purging_at",
@@ -3879,28 +3866,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "perf_reports_send_key_idx": {
-          "name": "perf_reports_send_key_idx",
-          "columns": [
-            {
-              "expression": "project_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "send_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"perf_reports\".\"send_key\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

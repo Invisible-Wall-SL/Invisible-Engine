@@ -27,10 +27,12 @@ import { mergeMain } from '../../../scripts/merge-main/merge.mjs';
 import { MERGE_CAPS } from '../src/lib/mergeMainRuns.ts';
 import {
 	cleanExplanation,
+	explanationLines,
 	explanationSize,
 	filesProblem,
 	isExplainedMerge,
 	parseMergeResult,
+	resultProblem,
 } from '../src/lib/server/pipelineMergeRunsResult.ts';
 import {
 	blobSha,
@@ -259,11 +261,18 @@ function launcherSide(label: string, repo: Repo, job: Job): void {
 		isExplainedMerge(explanation) && explanationSize(explanation) <= MERGE_CAPS.explanation,
 	);
 	const hunkPaths = new Set((explanation?.hunks ?? []).map((h) => h.path));
-	const problem = filesProblem(parsed.files, hunkPaths);
+	const problem = filesProblem(parsed.files, hunkPaths, treeOf(repo.dir, repo.main));
 	check(
 		`${label}: filesProblem finds nothing in the job's files`,
 		problem === null,
 		String(problem),
+	);
+	check(
+		`${label}: every hunk's result is inside its file, and the hunks' lines are within their cap`,
+		explanation !== null &&
+			resultProblem(explanation, parsed.files) === null &&
+			explanationLines(explanation) <= MERGE_CAPS.linesTotal,
+		String(explanation && resultProblem(explanation, parsed.files)),
 	);
 	const baseSha = git(repo.dir, 'merge-base', repo.head, repo.main);
 	const base = treeOf(repo.dir, baseSha);

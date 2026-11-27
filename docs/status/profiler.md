@@ -449,7 +449,7 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 ## Recent changes
 
 - 2026-11-27 — **Archive and delete, no duplicates, filed bugs leave the list** (owner request;
-  `claude/profiler-archive-dedupe`; migration `0053_perf_archive.sql`, additive). Why the list was
+  `claude/profiler-archive-dedupe`; migration `0054_perf_archive.sql`, additive). Why the list was
   full of old and repeated entries — read from the code, not from production data: (1) the probe's
   reading is the whole window since the last Reset, and `PerfHud` sends it on every tap, every
   time the page is hidden, every Reset, and again after a failed send, each under a fresh server
