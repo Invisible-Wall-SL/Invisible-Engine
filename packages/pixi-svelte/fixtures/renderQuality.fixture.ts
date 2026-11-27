@@ -9,16 +9,17 @@
  * after 20 quiet frames in a row (which may be measured frames too: autoplay's stopped reels); a
  * trial that helps (half the slow share, or a mean frame interval 20% shorter) keeps its level, one
  * that does not (dipping under 10% is not enough) reverts, each verdict kept for the readout; the
- * second chance after it (four slow windows, then a walk one level at a time, straight to the
- * effects level only from resolution 1, kept at the first level that helps, back to its start and
- * stopped when none does): a device just over the line keeps its effects, one slow at every
- * resolution reaches the effects level, and 15 good windows give a waiting second chance back; a
- * browser's 30 fps rhythm never adapts (Low Power Mode caps idle frames too) while rounds at 30 on
- * a device that idles at 60, a device slower than 30 (an iPhone 13 Pro at 14 fps) or a jittery
- * 25–45 ms one do; the floor holds; a step up after 30 good windows is a trial that backs off and
- * is never retried; at most 12 switches, the last only a revert. And the effects wiring of
+ * second chance after it (four slow windows, then a walk from past the level that did not help,
+ * one level at a time, kept at the first level that helps, back to its start and stopped when none
+ * does, each stepped-on level so marked): a device just over the line keeps its effects, one slow
+ * at every resolution reaches the effects level even after earlier spells spent the switches (two
+ * are held for it), and 15 windows under 1% slow give a waiting second chance back; a browser's
+ * 30 fps rhythm never adapts (Low Power Mode caps idle frames too) while rounds at 30 on a device
+ * that idles at 60, a device slower than 30 (an iPhone 13 Pro at 14 fps) or a jittery 25–45 ms one
+ * do; the floor holds; a step up after 30 good windows is a trial that backs off and is never
+ * retried; at most 12 switches, the last only a revert. And the effects wiring of
  * `installRenderQuality` on a stand-in app: the effects are lowered and given back only on a
- * change, and its teardown gives them back.
+ * change (down to the last level, up from it, down again), and its teardown gives them back.
  */
 
 import {
@@ -368,7 +369,11 @@ console.log('\nstepping down');
 	);
 	check(
 		'and its verdict is in the readout with both measures',
-		trials.length === 1 + PHONE.length - 1 &&
+		// The first step's trial, then one per level of the walk: L2 to L6, the last one reverted.
+		trials.length === 6 &&
+			trials.slice(1, -1).every((t) => !t.kept && t.steppedOn) &&
+			!trials[5].steppedOn &&
+			!trials[0].steppedOn &&
 			!trials[0].kept &&
 			!trials[0].up &&
 			trials[0].level === 1 &&
@@ -390,9 +395,9 @@ console.log('\nstepping down');
 		'then the second chance walks down the ladder, and when no level helps, back to the top, ' +
 			'and stepping down stops for the session',
 		trail(sim) ===
-			'0->1 slow 0.3, 1->0 no gain 0.3, 0->1 second chance 0.3, 1->2 second chance 0.3, ' +
-				'2->3 second chance 0.3, 3->4 second chance 0.3, 4->5 second chance 0.3, ' +
-				'5->6 second chance 0.3, 6->0 no gain 0.3' &&
+			'0->1 slow 0.3, 1->0 no gain 0.3, 0->2 second chance 0.3, 2->3 second chance 0.3, ' +
+				'3->4 second chance 0.3, 4->5 second chance 0.3, 5->6 second chance 0.3, ' +
+				'6->0 no gain 0.3' &&
 			sim.level() === 0 &&
 			sim.controller.snapshot().downStopped &&
 			sim.controller.snapshot().secondChance === 'taken',
@@ -451,10 +456,10 @@ console.log('\nthe second chance');
 		trail(sim),
 	);
 	check(
-		'the fourth steps one level down again, keeping the effects (resolution 2 is not 1)',
+		'the fourth steps past the level that did not help, keeping the effects (2 is not 1)',
 		sim.history()[2]?.reason === 'second chance' &&
 			sim.history()[2].from === 0 &&
-			sim.history()[2].to === 1 &&
+			sim.history()[2].to === 2 &&
 			sim.controller.snapshot().level.postFx === true,
 		trail(sim),
 	);
@@ -468,8 +473,8 @@ console.log('\nthe second chance');
 	check(
 		'a device just over the line stops at the first level that helps and keeps its effects',
 		trail(sim) ===
-			'0->1 slow 0.13, 1->0 no gain 0.13, 0->1 second chance 0.13, 1->2 second chance 0.13, ' +
-				'2->3 second chance 0.12, 3->4 second chance 0.08' &&
+			'0->1 slow 0.13, 1->0 no gain 0.13, 0->2 second chance 0.13, 2->3 second chance 0.12, ' +
+				'3->4 second chance 0.08' &&
 			sim.level() === 4 &&
 			snap.level.resolution === 1.25 &&
 			snap.level.postFx === true &&
@@ -487,13 +492,12 @@ console.log('\nthe second chance');
 	check(
 		'a device slow at every resolution walks to the effects level and keeps it',
 		trail(sim).startsWith(
-			'0->1 slow 0.3, 1->0 no gain 0.3, 0->1 second chance 0.3, 1->2 second chance 0.3, ' +
-				'2->3 second chance 0.3, 3->4 second chance 0.3, 4->5 second chance 0.3, ' +
-				'5->6 second chance 0.3',
+			'0->1 slow 0.3, 1->0 no gain 0.3, 0->2 second chance 0.3, 2->3 second chance 0.3, ' +
+				'3->4 second chance 0.3, 4->5 second chance 0.3, 5->6 second chance 0.3',
 		) &&
-			trials[6]?.kept === true &&
-			trials[6].level === 6 &&
-			trials[6].before.slowShare === 0.3 &&
+			trials[5]?.kept === true &&
+			trials[5].level === 6 &&
+			trials[5].before.slowShare === 0.3 &&
 			sim.controller.snapshot().level.postFx === false,
 		trail(sim),
 	);
@@ -501,7 +505,7 @@ console.log('\nthe second chance');
 	check(
 		'from there a step up that goes slow backs off and is never retried',
 		trail(sim).endsWith('5->6 second chance 0.3, 6->5 headroom 0, 5->6 slow again 0.3') &&
-			sim.history().length === 10 &&
+			sim.history().length === 9 &&
 			sim.level() === 6,
 		trail(sim),
 	);
@@ -541,7 +545,7 @@ console.log('\nthe second chance');
 	// A heavy bonus long after: a first step, as on a device that never needed the second chance.
 	sim.rounds(6, at(36, 0));
 	check(
-		'15 good windows give it back unused: a later slow spell starts from a first step',
+		'15 windows under 1% slow give it back unused: a later slow spell starts from a first step',
 		trail(sim) === '0->1 slow 0.3, 1->0 no gain 0.3, 0->1 slow 0.3' && sim.level() === 1,
 		trail(sim),
 	);
@@ -560,8 +564,8 @@ console.log('\nthe second chance');
 		kept === 2 &&
 			climbed === 0 &&
 			trail(sim) ===
-				'0->1 slow 0.3, 1->0 no gain 0.3, 0->1 second chance 0.3, 1->2 second chance 0.3, ' +
-					'2->1 headroom 0, 1->0 headroom 0, 0->1 slow 0.24, 1->0 no gain 0.3' &&
+				'0->1 slow 0.3, 1->0 no gain 0.3, 0->2 second chance 0.3, 2->1 headroom 0, ' +
+					'1->0 headroom 0, 0->1 slow 0.3, 1->0 no gain 0.3' &&
 			sim.level() === 0 &&
 			sim.controller.snapshot().downStopped &&
 			sim.controller.snapshot().secondChance === 'taken' &&
@@ -578,7 +582,7 @@ console.log('\nthe second chance');
 		'a 90%-late 45 ms device is judged at every level on its way to the floor',
 		trail(sim).startsWith(
 			'0->1 slow 0.9, 1->2 slow 0.45, 2->3 slow 0.23, 3->4 slow 0.11, 4->3 no gain 0.11, ' +
-				'3->4 second chance 0.11, 4->5 second chance 0.11, 5->6 second chance 0.11',
+				'3->5 second chance 0.11, 5->6 second chance 0.11',
 		) && sim.level() === PHONE.length - 1,
 		trail(sim),
 	);
@@ -616,9 +620,8 @@ console.log('\nthe second chance');
 	check(
 		'14 → 30 fps keeps the step though every frame is still slow',
 		trail(sim) ===
-			'0->1 slow 1, 1->2 slow 1, 2->1 no gain 1, 1->2 second chance 1, 2->3 second chance 1, ' +
-				'3->4 second chance 1, 4->5 second chance 1, 5->6 second chance 1, 6->1 no gain 1' &&
-			sim.level() === 1,
+			'0->1 slow 1, 1->2 slow 1, 2->1 no gain 1, 1->3 second chance 1, 3->4 second chance 1, ' +
+				'4->5 second chance 1, 5->6 second chance 1, 6->1 no gain 1' && sim.level() === 1,
 		trail(sim),
 	);
 	const flat = device();
@@ -626,9 +629,9 @@ console.log('\nthe second chance');
 	check(
 		'14 → 15 fps reverts',
 		trail(flat) ===
-			'0->1 slow 1, 1->0 no gain 1, 0->1 second chance 1, 1->2 second chance 1, ' +
-				'2->3 second chance 1, 3->4 second chance 1, 4->5 second chance 1, ' +
-				'5->6 second chance 1, 6->0 no gain 1' && flat.level() === 0,
+			'0->1 slow 1, 1->0 no gain 1, 0->2 second chance 1, 2->3 second chance 1, ' +
+				'3->4 second chance 1, 4->5 second chance 1, 5->6 second chance 1, 6->0 no gain 1' &&
+			flat.level() === 0,
 		trail(flat),
 	);
 }
@@ -721,14 +724,15 @@ console.log('\nswitch cap');
 	))
 		sim.rounds(rounds, phase);
 	check(
-		`a trial is only started while its revert still fits under ${RULES.maxSwitches}`,
-		sim.history().length === RULES.maxSwitches - 1 &&
+		`a trial is only started while its revert still fits under ${RULES.maxSwitches}, less the ` +
+			"second chance's two",
+		sim.history().length === RULES.maxSwitches - 3 &&
 			sim.history().every((s, i) => s.reason === (i % 2 ? 'headroom' : 'slow')),
 		trail(sim),
 	);
 	const worse = device();
-	// Heat and cool by turns until one more step and its revert just fit, then a step that does
-	// not help: its revert is the last switch, and the second chance finds no room.
+	// Heat and cool by turns until only the second chance's two switches are left, then slow at
+	// every level: the second chance takes them, to the effects level, and its revert is the last.
 	const cycles = (RULES.maxSwitches - 2) / 2;
 	for (let i = 0; i < cycles; i++) {
 		worse.rounds(6, hot);
@@ -738,8 +742,30 @@ console.log('\nswitch cap');
 	const steps = worse.history();
 	check(
 		`never more than ${RULES.maxSwitches} switches, and the last is a revert`,
-		steps.length === RULES.maxSwitches && steps.at(-1)?.reason === 'no gain',
+		steps.length === RULES.maxSwitches &&
+			steps.at(-1)?.reason === 'no gain' &&
+			steps.at(-2)?.to === PHONE.length - 1,
 		trail(worse),
+	);
+}
+for (const cycles of [3, 5]) {
+	// Slow spells that one step down did not help, each followed by a recovery that gives the
+	// second chance back: they spend the switches, then BUG-20's phone (slow at every resolution).
+	const sim = device();
+	for (let i = 0; i < cycles; i++) {
+		sim.rounds(6, at(36));
+		sim.rounds(20, at(0));
+	}
+	const spent = sim.history().length;
+	sim.rounds(100, at(36, 36, 36, 36, 36, 36, 0));
+	check(
+		`after ${cycles} spells that spent ${spent} switches, a device slow at every resolution ` +
+			'still reaches the effects level',
+		sim.level() === PHONE.length - 1 &&
+			sim.controller.snapshot().level.postFx === false &&
+			!sim.controller.snapshot().downStopped &&
+			sim.history().length <= RULES.maxSwitches,
+		trail(sim),
 	);
 }
 
@@ -851,6 +877,39 @@ console.log('\nthe effects wiring');
 			atSwitch.slice(0, -1).every((s) => s.endsWith(': ')) &&
 			atSwitch.length > 2 &&
 			app.renderer.resolution === 1,
+		atSwitch.join(' | '),
+	);
+	/** Up to `rounds` rounds, `slowOf()` saying if each played frame is late, until `done()`. */
+	const drive = (rounds: number, slowOf: () => boolean, done: () => boolean) => {
+		for (let round = 0; round < rounds && !done(); round++) {
+			for (let f = 0; f < SPIN_FRAMES + BETWEEN_SPINS && !done(); f++) {
+				playing = f < SPIN_FRAMES;
+				const before = level();
+				for (const tick of ticks) tick({ elapsedMS: playing && slowOf() ? SLOW_MS : FRAME_60 });
+				if (level() !== before) atSwitch.push(`L${level()}: ${calls.splice(0).join(', ')}`);
+			}
+		}
+	};
+	atSwitch.length = 0;
+	drive(
+		200,
+		() => false,
+		() => level() < levels - 1,
+	);
+	check(
+		'a step up from the last level gives them back once',
+		atSwitch.join(' | ') === `L${levels - 2}: postFx on, particles 1`,
+		atSwitch.join(' | '),
+	);
+	atSwitch.length = 0;
+	drive(
+		20,
+		() => frame++ % 10 < 3,
+		() => level() === levels - 1,
+	);
+	check(
+		'and the step back down lowers them once again',
+		atSwitch.join(' | ') === last,
 		atSwitch.join(' | '),
 	);
 	release();
