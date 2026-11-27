@@ -144,14 +144,15 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `scripts/check-commit-scope.mjs`, `scripts/check-all.mjs`,
     `scripts/svelte-check-ratchet.mjs`, `scripts/svelte-check-ratchet.test.mjs`,
     `scripts/check-agents-knowledge.mjs`, `scripts/agents-knowledge-baseline.json`,
-    `scripts/bug-fix/` and `scripts/current-games/`;
+    `scripts/bug-fix/`, `scripts/merge-main/` and `scripts/current-games/`;
   - what agents read: `services/director-worker/agents/`, `services/director-worker/families/`,
     `services/director-worker/src/untrusted.ts`, `docs/knowledge/` and `docs/director/DECISIONS/`;
   - the launcher's fix-run code and what it leans on, Invisible Pipeline Changes' server and API
     (the console that gates and merges this run's pull request), the configs that decide what an
     import loads, the bug, fix-run and Pipeline Changes fixtures, and the launcher's migrations
     and their runner: `apps/launcher-api/src/lib/bugFixRuns.ts`,
-    `apps/launcher-api/src/lib/bugReports.ts`, `apps/launcher-api/src/lib/server/bugFix*.ts`,
+    `apps/launcher-api/src/lib/bugReports.ts`, `apps/launcher-api/src/lib/mergeMainRuns.ts`,
+    `apps/launcher-api/src/lib/server/bugFix*.ts`,
     `apps/launcher-api/src/lib/server/pipeline*.ts`,
     `apps/launcher-api/src/lib/server/concurrency.ts`,
     `apps/launcher-api/src/lib/server/githubApp.ts`,
@@ -161,6 +162,8 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `apps/launcher-api/vite.config.js`, `apps/launcher-api/svelte.config.js`,
     `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
     `apps/launcher-api/scripts/check-bug-reports.ts`,
+    `apps/launcher-api/scripts/check-merge-main-join.ts`,
+    `apps/launcher-api/scripts/check-merge-main-runs.ts`,
     `apps/launcher-api/scripts/check-pipeline-changes.ts`,
     `apps/launcher-api/scripts/check-pipeline-games.ts`,
     `apps/launcher-api/src/lib/server/db/migrate.ts` and `apps/launcher-api/drizzle/`. A test
@@ -194,8 +197,7 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
   `apps/launcher-api/static/rigger/vendor/rigger-2p5d.js`,
   `apps/launcher-api/static/rigger/vendor/rigger-controls.js`,
   `apps/launcher-api/static/rigger/vendor/rigger-text.js` and
-  `apps/launcher-api/static/rig-viewer/vendor/invisible-rig.js`. A run never ships one, and
-  `rigger-fx.js` and `rigger-text.js` are each over the 400 KB cap on their own. A fix to code
+  `apps/launcher-api/static/rig-viewer/vendor/invisible-rig.js`. A run never ships one. A fix to code
   compiled into one (`apps/launcher-api/src/rigger-fx/`, `apps/launcher-api/src/rigger-motion/`,
   `apps/launcher-api/src/lib/rig2p5d.ts`, `apps/launcher-api/src/lib/rigControls.ts`,
   `apps/launcher-api/src/rigger-text/`,
@@ -205,8 +207,9 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
   `rigger-2p5d`, `rigger-controls`, `rigger-text` or `invisible-rig`) and
   commit the bundle. Until then `pnpm --filter launcher-api check:vendored-bundles` fails and
   names the bundle; if you ran it, record it as a gate that failed.
-- Leave anything but plain UTF-8 text files: at most 40 files and 400 KB in all (a changed file
-  counts whole, not its diff), none over 2 MB; no symlink, hard link, submodule, nested git
+- Leave anything but plain UTF-8 text files: at most 40 files and 400 KB of lines in all (the
+  bytes of the lines the change adds and removes against the base; a new or deleted file counts
+  whole, a changed file by its diff), none over 2 MB; no symlink, hard link, submodule, nested git
   repository or mode other than 644 or 755; no file replaced by a folder, or a folder by a file;
   no path outside printable ASCII, longer than 300 characters, differing from another only by
   case, or with a name ending in a dot or a space; and no NUL, Unicode tag or bidi control

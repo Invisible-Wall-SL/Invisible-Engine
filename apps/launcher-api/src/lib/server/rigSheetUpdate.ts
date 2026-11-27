@@ -33,7 +33,12 @@ import {
 	type SheetPreview,
 } from './rigSheetFit';
 import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
-import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
+import {
+	templateWithLinks,
+	templateRig,
+	type RigTemplate,
+	type TemplateRegion,
+} from './rigTemplates';
 
 type Json = Record<string, unknown>;
 const isRecord = (v: unknown): v is Json =>
@@ -133,13 +138,12 @@ export function merging(o: SheetUpdateInput): Fitted<{
 	const { skeleton: fresh, fit } = now.value;
 	const freshBind = frameWorld(fitTemplate(o.template, fit).bones, fit.frame);
 	// As made: the kept mapping built today (a rig made before the head turn, none of its bones, built
-	// without one); a kept mapping that no longer builds takes the rig's own attachments as made, so
-	// nothing reads as edited by hand.
-	const turnedBefore = ((o.current.bones ?? []) as { name?: unknown }[]).some((b) =>
-		(HEAD_TURN_BONES as readonly unknown[]).includes(b.name),
-	);
+	// without one; before a link of the template, without it); a kept mapping that no longer builds
+	// takes the rig's own attachments as made, so nothing reads as edited by hand.
+	const bones = ((o.current.bones ?? []) as { name?: unknown }[]).map((b) => String(b.name));
+	const turnedBefore = bones.some((b) => (HEAD_TURN_BONES as readonly string[]).includes(b));
 	const keptAs = turnedBefore || o.was.turn !== undefined ? o.was : { ...o.was, turn: 0 };
-	const was = build(o.template, o.regions, keptAs);
+	const was = build(templateWithLinks(o.template, new Set(bones)), o.regions, keptAs);
 	const asMade = was.ok ? was.value.skeleton : o.current;
 	const names = was.ok
 		? madeAttachments(asMade).map((m) => m.name)
@@ -170,11 +174,12 @@ export function merging(o: SheetUpdateInput): Fitted<{
 					(o.mapping.parts[part]?.region ?? o.mapping.props.find((p) => p.name === part)?.region),
 		);
 	const keep = new Set([...(o.keep ?? [])].filter(sameRegion));
+	const links = o.template.bones.filter((b) => b.link).map((b) => b.name);
 	return {
 		ok: true,
 		value: {
 			fit,
-			input: { current: o.current, fresh, freshBind, made, props, keep },
+			input: { current: o.current, fresh, freshBind, made, props, keep, links },
 			asMade: was.ok ? asMade : null,
 			sameRegion,
 		},

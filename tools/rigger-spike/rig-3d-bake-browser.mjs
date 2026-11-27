@@ -659,10 +659,22 @@ try {
 			) < 0.01,
 		q({ saves: seen.saves.length, c, overlayText }),
 	);
+	// The same keys, every number within 1e-6: the page bakes in Chromium and the save in Node, whose
+	// last digits of a value near 0 (a finger's translate, 1e-8) may differ.
+	const apart = (a, b) => {
+		if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b);
+		if (Array.isArray(a) !== Array.isArray(b) || typeof a !== typeof b) return Infinity;
+		if (a === null || typeof a !== 'object') return a === b ? 0 : Infinity;
+		const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+		let most = 0;
+		for (const k of keys) most = Math.max(most, k in a && k in b ? apart(a[k], b[k]) : Infinity);
+		return most;
+	};
+	const bakeGap = sent && saveBake ? apart(sent, saveBake) : Infinity;
 	ok(
 		'…and the bake it sends is the one the save makes of it',
-		!!sent && !!saveBake && q(sent) === q(saveBake),
-		sent && saveBake ? `${q(sent).length} vs ${q(saveBake).length} chars` : 'nothing sent',
+		bakeGap <= 1e-6,
+		sent && saveBake ? `numbers up to ${bakeGap} apart` : 'nothing sent',
 	);
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));

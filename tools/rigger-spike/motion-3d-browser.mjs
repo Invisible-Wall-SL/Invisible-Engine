@@ -16,7 +16,7 @@
 //    takes the ETag the save answers, reads back the stored bake of the clips it baked, and a save
 //    with nothing new in 3D sends no 3D data;
 //  - Follow positions (the row's default, tooltip) asks the solve to follow from the reference's line-up,
-//    keys the root and the neck in 2D, and the page's engine-rig puts the shoulders and each hand where
+//    keys the root in 2D and bends the neck's two bones, and the page's engine-rig puts the shoulders and each hand where
 //    the reference overlay draws the performer's; the report says so; undo puts back the import before;
 //  - the page throws nothing and shows no alert.
 //   node tools/rigger-spike/motion-3d-browser.mjs
@@ -428,11 +428,11 @@ try {
 		const anim = rawDoc.animations.take.bones;
 		return { lineUp: !!lu && Math.abs(lu.k - k) < 1e-9 && Math.abs(lu.x0 - (a.x - k * rec.width / 2)) < 1e-6 && Math.abs(lu.y0 - (a.y + k * rec.height / 2)) < 1e-6,
 			depth: o && o.follow && o.follow.depths.face === 95,
-			keys: !!(anim.root && anim.root.translate && anim.root.translate.length && anim.neck && anim.neck.translate && anim.neck.translate.length),
+			keys: !!(anim.root && anim.root.translate && anim.root.translate.length) && ["neck", "neck_upper"].every((b) => { const k = rig3d.doc.clips.take.bones[b]; return !!(k && k.orient && k.orient.length); }),
 			toRig: String(toRig) };
 	})()`);
 	ok('the solve is asked to follow from the reference overlay’s line-up and the rig’s depths', fol.lineUp && fol.depth, q(fol));
-	ok('the root and the neck are keyed (2D translates)', fol.keys, q(fol));
+	ok('the root is keyed (2D translates) and the neck bent (its two bones’ 3D keys)', fol.keys, q(fol));
 	const track = TRACK;
 	let far = { shoulders: 0, hand: 0 };
 	// Frames the arm can reach: tilted 60–70° toward the camera (straighter, the performer's arm is
