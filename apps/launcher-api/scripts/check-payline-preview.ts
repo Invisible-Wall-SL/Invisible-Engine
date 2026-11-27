@@ -15,6 +15,9 @@
  *   6. EFFECTS — the burst's emit time is `SymbolLayer`'s; trail layers are freed and re-keyed.
  *   7. WIRING — the preview and the game paint through the same `paintWinLine`, head and draw
  *      time; the page mounts the preview in the card; the server hands it the board.
+ *   8. THE HOST — the caption names an effect that came back missing rather than loading forever;
+ *      the board canvas resizes when either side changes; the board is redrawn only while a play
+ *      moves; a replay restarts the mounted effect stages instead of remounting them.
  *
  * Run:  pnpm --filter launcher-api check:payline-preview
  */
@@ -28,6 +31,8 @@ import { bookOfThermopylaePreset } from 'game-config';
 import { lfReaderFrom } from '../../../scripts/lib/read-lf.mjs';
 import {
 	burstEmitMs,
+	canvasBacking,
+	canvasNeedsResize,
 	cellCentre,
 	effectSettleMs,
 	freeLayers,
@@ -38,9 +43,13 @@ import {
 	PREVIEW_WAIT_MS,
 	previewBoardOf,
 	previewCues,
+	previewEffectNote,
+	previewEffectStatus,
 	previewFrame,
+	previewMoving,
 	previewPlan,
 	previewReplayKey,
+	previewSettledMs,
 	resolvePreviewLine,
 	sampleLineId,
 	samplePoints,
@@ -404,6 +413,110 @@ const ok = (label: string, value: boolean): void => check(label, value, true);
 		read('apps/launcher-api/src/routes/(app)/symbols/+page.server.ts').includes(
 			'paylineBoard: previewBoardOf(config.doc),',
 		),
+	);
+}
+
+// 8. THE HOST
+{
+	const doc = { id: 'embers', layers: [] } as unknown as EffectDoc;
+	const ids = ['embers', 'sparks', undefined, 'embers'];
+	check('an effect not back yet is loading', previewEffectStatus(ids, { embers: doc }), {
+		loading: true,
+		missing: [],
+	});
+	check(
+		'…one that came back null (deleted) is missing, once, by id',
+		previewEffectStatus(ids, { embers: doc, sparks: null }),
+		{ loading: false, missing: ['sparks'] },
+	);
+	check(
+		'the caption names the missing effect instead of loading forever',
+		previewEffectNote(previewEffectStatus(['gone'], { gone: null })),
+		'effect “gone” is missing',
+	);
+	check(
+		'…several by name, after any still loading',
+		previewEffectNote(previewEffectStatus(['a', 'b', 'c'], { b: null, c: null })),
+		'loading effects… · effects “b”, “c” are missing',
+	);
+	check(
+		'…and says nothing when every effect is in',
+		previewEffectNote(previewEffectStatus(ids, { embers: doc, sparks: doc })),
+		'',
+	);
+	check('…or there is none', previewEffectNote(previewEffectStatus([undefined], {})), '');
+
+	const five = canvasBacking(5 * PREVIEW_CELL + 180, 3 * PREVIEW_CELL + 180, 2 * 0.75);
+	const taller = canvasBacking(5 * PREVIEW_CELL + 180, 4 * PREVIEW_CELL + 180, 2 * 0.75);
+	check('the canvas backing is the CSS size at the device scale', five, {
+		width: 1170,
+		height: 810,
+	});
+	ok('a board with another row count resizes the canvas', canvasNeedsResize(five, taller));
+	ok('…as does another reel count', canvasNeedsResize(five, canvasBacking(600, 540, 1.5)));
+	ok('…and the same board does not', !canvasNeedsResize(five, { ...five }));
+
+	const length = 4 * PREVIEW_CELL;
+	const planOf = (tip?: WinLineLineStyle['tip'], burst: EffectDoc | null = null) =>
+		previewPlan(resolvePreviewLine({ animated: true, tip }), length, burst);
+	const stay = planOf();
+	const fade = planOf({ kind: 'effect', effectId: 'f', atEnd: 'fade' });
+	const burstDoc = { layers: [{ config: { emitterLifetime: 0.5 } }] } as unknown as EffectDoc;
+	const burst = planOf(
+		{ kind: 'effect', effectId: 'f', atEnd: 'burst', endEffectId: 'p' },
+		burstDoc,
+	);
+	check(
+		'a play settles as it lands, after a fade, or after the burst',
+		[previewSettledMs(stay), previewSettledMs(fade), previewSettledMs(burst)],
+		[
+			PREVIEW_WAIT_MS + stay.drawMs,
+			PREVIEW_WAIT_MS + fade.drawMs + WIN_LINE_TIP_FADE_MS,
+			PREVIEW_WAIT_MS + burst.drawMs + burst.burstMs,
+		],
+	);
+	for (const [name, plan] of [
+		['stays', stay],
+		['fades', fade],
+		['bursts', burst],
+	] as const) {
+		let last = -1;
+		let drawn = 0;
+		let final: unknown;
+		for (let t = 0; t <= previewSettledMs(plan) + 5_000; t += 16.7) {
+			if (previewMoving(plan, last)) {
+				drawn += 1;
+				final = previewFrame(plan, t);
+			}
+			last = t;
+		}
+		check(
+			`a tip that ${name}: drawn every frame to the settle, then not again, its last draw the end state`,
+			[drawn, final],
+			[Math.floor(previewSettledMs(plan) / 16.7) + 2, previewFrame(plan, 1e9)],
+		);
+	}
+	ok('a replay draws again from its first frame', previewMoving(stay, -1));
+
+	const preview = read('apps/launcher-api/src/routes/(app)/symbols/PaylinePreview.svelte');
+	const stage = read('apps/launcher-api/src/routes/(app)/fx/FxStage.svelte');
+	ok(
+		'a replay restarts the mounted stages, never remounting them (a WebGL context each)',
+		!preview.includes('{#key run}') &&
+			stage.includes('export function replay(): void') &&
+			['trailStage', 'tipStage', 'burstStage'].every(
+				(name) => preview.includes(`bind:this={${name}}`) && preview.includes(`${name}?.replay();`),
+			),
+	);
+	ok(
+		'…and the tip stage stays mounted while hidden, emitting only while shown',
+		preview.includes('{#if tipDoc?.layers.length}') && preview.includes('emitting={tipShown}'),
+	);
+	ok(
+		'the host sizes its canvas, redraws and captions through these helpers',
+		preview.includes('canvasNeedsResize(canvas, backing)') &&
+			preview.includes('previewMoving(plan, lastT)') &&
+			preview.includes('previewEffectNote(previewEffectStatus(effectIds, docs))'),
 	);
 }
 

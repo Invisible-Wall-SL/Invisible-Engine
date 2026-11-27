@@ -199,6 +199,51 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-27 — **An authored win frame fits its Rigger Bounds to the cell.** Owner: the fire-ring
+  frame only fit the symbol in game when its Bounds were drawn much smaller than the art, and off
+  centre. `SymbolWinFrame.svelte` drew every frame by the coded payframe's rule — `width =
+  SYMBOL_SIZE × 0.19` on the skeleton origin, at the symbol bundles' load scale 2. An authored
+  Highlight now mounts `anchor={0.5}`, contain-fitted to the live cell (`boardGeometry()`), with
+  `loadScaleBase={1}`: the Bounds frame's centre on the cell centre, the frame exactly one cell. The
+  coded `anticipation`/`payframe` fallback is unchanged. A frame already shrunk to compensate draws
+  smaller now: redraw its Bounds around the symbol. Guard: `check:symbol-layers` (5 checks, red on
+  the old mount).
+
+- 2026-11-27 — **Payline style laid out like Flights** (owner: "follow the layout we have in the
+  Flights section as a standard"). The Flights arrangement is now the shared
+  `$lib/ui/EditorPreviewLayout.svelte` (`list?` / `editor` / `preview` / `about?` snippets — a
+  200 px list, the framed field panel, the preview column with a "Preview" label above and an
+  "About the preview" InfoTip below; a wrapping row; the preview column is `position: sticky` so it
+  stays in view beside a long panel), registered in `docs/ui-inventory.md` §22. Flights moved onto
+  it with no visual change (headless screenshots before/after at 1400 and 800 px match to one
+  anti-aliased pixel; box metrics identical). Payline style's fields now sit in the panel and
+  `PaylinePreview` in the preview column; the preview measures its frame and scales the stage to
+  it (aspect kept, capped at 560 px), so a narrow column no longer scrolls sideways. Two `.wl-sub`
+  rules collided (the Payline sub-headings and the Symbol sounds note): the headings are
+  `.wl-heading` now, and the note lost the uppercase/bold it had been inheriting.
+  - **Seen:** a throwaway Vite harness mounting the real `+page.svelte` with load data built by
+    `symbolsPageConfig` over the lines and Hold and Win templates (deleted after).
+  - **Flights side by side (owner's call):** its caption ("Drag A … head: built-in glow") is now
+    capped to the canvas width (640 px), so the preview sits beside the panel at 1400 px instead of
+    under it; it still stacks at 800 px. Seen in a harness of `EditorPreviewLayout` with the real
+    `FlightPreview` (no sideways scroll at either width).
+- 2026-11-27 — **Payline preview fixes** (review of #1969, editor only — `WinLine.svelte`,
+  `winLineStyle.ts` and every game runtime untouched).
+  - **A missing effect no longer reads "loading effects…" forever.** The doc map now keeps
+    `undefined` = fetching and `null` = not found; the caption names the missing id
+    (`effect “pop” is missing`). Pure `previewEffectStatus` / `previewEffectNote`.
+  - **A board with another row count no longer stretches:** the canvas backing resizes when either
+    side changes (`canvasBacking` / `canvasNeedsResize`; it compared the width only).
+  - **No WebGL context churn on replay.** The `{#key run}` remount (up to three `FxStage` Pixi
+    Applications, each a WebGL context, per replay) is gone: the stages stay mounted and a replay
+    calls `FxStage`'s existing `replay()` (particles cleared, emitters rewound). The tip stage stays
+    mounted while hidden (`opacity` 0, `emitting={tipShown}`). Browser harness (Chromium, the real
+    component under Vite, effects stubbed): 30 replays created **61** contexts before, **0** after
+    (60 back-to-back: still 0); no "Too many active WebGL contexts".
+  - **The board is redrawn only while a play moves** (`previewSettledMs` / `previewMoving`: the
+    landing, the tip's fade or the burst) or a setting changes, not on every frame.
+  - `check:payline-preview` §8 covers all of it (69 → 87 checks).
+
 - 2026-11-27 — **Payline style preview.** The Payline style card opens on a live preview: a
   board of the project's grid (Game Config reels and rows; 5 × 3 without one) with a win on one of
   its paylines — the most zig-zagging by default, a **Payline** picker and a **Pays N of a kind**

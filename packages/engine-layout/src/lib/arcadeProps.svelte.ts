@@ -1,6 +1,7 @@
 import type { Container } from 'pixi.js';
 import { SvelteMap } from 'svelte/reactivity';
 
+import { hasDepth } from './depthOrder';
 import type { PropDepth } from './types';
 
 /**
@@ -61,7 +62,7 @@ export const SPAWN_PROP_LABEL = 'engine-layout:spawn-prop';
  * The container spawn layer `layer`'s instances are drawn in: under the layer's own container
  * (`worldDrawing.svelte.ts` `projectedLayer`), down `<LayoutNodeView>`'s wrappers (each a lone
  * child below ground depth) to the one whose children are the instances (zIndex in ground-depth
- * order, from `ISO_DEPTH_SPREAD`), or that has none yet. `undefined` until the layer has drawn its
+ * order, from `ISO_DEPTH_SPREAD`, or kept by `depthOrder.ts`), or that has none yet. `undefined` until the layer has drawn its
  * own wrapper.
  */
 export function spawnInstancesOf(
@@ -72,7 +73,7 @@ export function spawnInstancesOf(
 	let at: Container = layer.children[0];
 	while (at.children.length === 1) {
 		const only: Container = at.children[0];
-		if (only.label === SPAWN_PROP_LABEL || only.zIndex >= spread) break;
+		if (only.label === SPAWN_PROP_LABEL || only.zIndex >= spread || hasDepth(only)) break;
 		at = only;
 	}
 	return at;

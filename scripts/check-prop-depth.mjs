@@ -690,6 +690,93 @@ check('the prop timelines survive a later registration: made good on the next ro
 	shown.drop();
 });
 
+// The spawn layer that sorts only on reorder (main's T4, `depthOrder.ts`): the deck cells stand in
+// it with a fixed zIndex beside the players' kept depths, and a fisherman walking under, then onto,
+// the deck is drawn under, then over, the cell it passes, frame by frame, as a layer setting every
+// zIndex each frame draws him.
+const { hasDepth, setDepth } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/depthOrder.ts')).href
+);
+check(
+	'under the sort-only-on-reorder layer, a fisherman walking under then on the deck sorts right',
+	() => {
+		const [, river] = RIVERS[0];
+		const zone = { id: 'bridge0', ...river.bridges[0] };
+		const pieces = placeSalmonsProp(BRIDGE_PROP_DEF, zone, 0, 0).filter((p) => p.band === 'sorted');
+		const layer = new Container();
+		const cells = pieces.map((piece) => {
+			const view = new Container();
+			view.zIndex = isoDepthOrder(piece.x, piece.y, 0, piece.bias ?? 0);
+			layer.addChild(view);
+			return { piece, view };
+		});
+		const him = new Container();
+		layer.addChild(him);
+		/** A frame: his depth set, then the layer readied and sorted as Pixi renders it. */
+		const frame = (x, y, z) => {
+			const bias = z > 0 ? aloftDepth(deckLift(zone.height ?? 6)) : 0;
+			const depth = isoDepthOrder(x, y, 7, bias);
+			setDepth(him, depth);
+			layer.onRender?.({});
+			if (layer.sortDirty) layer.sortChildren();
+			return depth;
+		};
+		frame(zone.x - 2 * CELL, zone.y - 2 * CELL, 0);
+		assert.ok(hasDepth(him), 'the layer keeps his depth');
+		const row = zone.y + CELL / 2;
+		let checked = 0;
+		// Under the deck (the water row behind it, as a bear passes under), then up the ramp onto it.
+		const path = [
+			...Array.from({ length: 12 }, (_, k) => [zone.x + k * (CELL / 4), row - CELL, 0]),
+			...Array.from({ length: 12 }, (_, k) => [zone.x + k * (CELL / 4), row, 6 * CELL]),
+		];
+		for (const [x, y, z] of path) {
+			const depth = frame(x, y, z);
+			const at = layer.children.indexOf(him);
+			for (const { view } of cells) {
+				const over = layer.children.indexOf(view) < at;
+				assert.equal(
+					over,
+					view.zIndex < depth,
+					`at (${x}, ${y}, ${z}): drawn ${over ? 'over' : 'under'} a cell`,
+				);
+				checked++;
+			}
+			const order = layer.children.map((c) => (c === him ? depth : c.zIndex));
+			assert.deepEqual(
+				order,
+				[...order].sort((a, b) => a - b),
+				'the layer in depth order',
+			);
+		}
+		assert.ok(checked > 100);
+		const onDeck = frame(zone.x + 2 * CELL, row, 6 * CELL);
+		assert.ok(
+			cells.every(({ view }) => view.zIndex < onDeck),
+			'on the deck: over every cell',
+		);
+		const under = frame(zone.x + 2 * CELL, row - CELL, 0);
+		assert.ok(
+			cells.some(({ view }) => view.zIndex > under),
+			'under it, behind: a cell in front of him covers him',
+		);
+		// The layer's own container, `<LayoutNodeView>`'s wrapper, the instances', one player.
+		const root = new Container();
+		const wrapper = new Container();
+		const instances = new Container();
+		const only = new Container();
+		root.addChild(wrapper);
+		wrapper.addChild(instances);
+		instances.addChild(only);
+		setDepth(only, 5);
+		assert.equal(
+			spawnInstancesOf(root, 1e9),
+			instances,
+			'a lone kept instance is not searched into',
+		);
+	},
+);
+
 console.log(
 	process.exitCode ? 'check:prop-depth FAILED' : `check:prop-depth: all ${passed} checks pass`,
 );

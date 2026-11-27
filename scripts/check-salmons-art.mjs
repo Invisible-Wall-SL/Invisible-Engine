@@ -95,9 +95,16 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PIXI_CJS = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve(
 	'pixi.js',
 );
-const { Container, FilterSystem, Matrix, Rectangle, RendererType, Texture } = await import(
-	pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href
-);
+const {
+	ColorMatrixFilter,
+	colorMatrixFilterFrag,
+	Container,
+	FilterSystem,
+	Matrix,
+	Rectangle,
+	RendererType,
+	Texture,
+} = await import(pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href);
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
 const SHEETS = join(ART, 'sheets');
 
@@ -773,7 +780,9 @@ check(
 		assert.equal(into.filters, undefined, 'never touched on land');
 		assert.equal(into.filterArea, undefined);
 		assert.equal(made.length, 0, 'no filter is made for a bear that never wades');
-		assert.deepEqual(wading.drawn(), { b: { depth: 0, tint: null, line: null, filtered: false } });
+		assert.deepEqual(wading.drawn(), {
+			b: { depth: 0, tint: null, line: null, drawnUnder: false, pass: false },
+		});
 
 		// Into the water: the line rises from the feet to its level over 250 ms.
 		const levels = [];
@@ -793,7 +802,8 @@ check(
 		const wet = wading.drawn().b;
 		assert.equal(wet.depth, 1);
 		assert.equal(wet.tint, 0x0ea5e9);
-		assert.equal(wet.filtered, true);
+		assert.equal(wet.drawnUnder, true);
+		assert.equal(wet.pass, true, 'a look that does not draw its own water: through the pass');
 		assert.deepEqual(wet.line, waterlineOf(1, { middle: 54, width: 75, bottom: 0 }, at));
 		const { uLine, uUnder } = uniformsOf(surface.filter);
 		assert.deepEqual(
@@ -823,7 +833,13 @@ check(
 		step(WADE_PLACES.bank);
 		assert.deepEqual(filtersOf(into), [], 'no filter on land');
 		assert.equal(into.filterArea, undefined);
-		assert.deepEqual(wading.drawn().b, { depth: 0, tint: null, line: null, filtered: false });
+		assert.deepEqual(wading.drawn().b, {
+			depth: 0,
+			tint: null,
+			line: null,
+			drawnUnder: false,
+			pass: false,
+		});
 		assert.equal(destroyed(surface.filter), false, 'kept for the next time it wades');
 		step(WADE_PLACES.water);
 		assert.deepEqual(filtersOf(into), [surface.filter]);
@@ -977,7 +993,7 @@ check(
 				);
 			assert.equal(into.filters, undefined, 'a refused pass is never put on a look');
 			assert.deepEqual(refused.made, [undefined], 'asked once a player');
-			assert.deepEqual(refused.wading.drawn().b.filtered, false);
+			assert.deepEqual(refused.wading.drawn().b.drawnUnder, false);
 			assert.equal(warned.length, 1);
 			assert.match(warned[0], /wading pass did not compile/);
 		} finally {
@@ -993,6 +1009,116 @@ check(
 		);
 	},
 );
+
+check(
+	'wading: a look that draws its own water never takes the pass: it is told the line, and on land nothing',
+	() => {
+		const kit = wadeKit();
+		const told = [];
+		let drawsIt = true;
+		const look = wadeLook();
+		const mount = Object.assign(look.mount, {
+			water: (under) => {
+				told.push(under);
+				return drawsIt;
+			},
+		});
+		kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 0)));
+		const into = kit.publish(
+			'b',
+			kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, 16)),
+		);
+		assert.equal(into.filters, undefined, 'no filter on its container, ever');
+		assert.equal(kit.made.length, 0, 'no pass is made for it');
+		const last = told.at(-1);
+		assert.ok(last && last.line.sag > 0, 'it is told the waterline');
+		assert.deepEqual(last.under, underTint(0x0ea5e9, TINT_ALPHA), 'and the water’s colour matrix');
+		assert.deepEqual(
+			{ drawnUnder: kit.wading.drawn().b.drawnUnder, pass: kit.wading.drawn().b.pass },
+			{ drawnUnder: true, pass: false },
+		);
+		for (let t = 32; t < 600; t += 16)
+			kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.bank, t)));
+		assert.equal(told.at(-1), undefined, 'stepped out: told it is on land');
+		assert.equal(into.filters, undefined);
+		// A look whose GPU refused its programs is drawn through the pass instead.
+		drawsIt = false;
+		for (let t = 600; t < 1200; t += 16)
+			kit.publish('b', kit.wading.mount('b', mount, kit.frame('bear', WADE_PLACES.water, t)));
+		assert.deepEqual(filtersOf(into), [kit.made[0].filter], 'refused: the pass draws it');
+		assert.equal(kit.wading.drawn().b.pass, true);
+		kit.wading.destroy();
+	},
+);
+
+const { quadOf } = await import('../packages/engine-layout/src/lib/salmonsArt/looks.ts');
+check(
+	'body shaders: the salmon’s step is ColorMatrixFilter’s fragment, and the glint’s alpha packed as Pixi packs it',
+	() => {
+		assert.ok(new ColorMatrixFilter().resolution === 1, 'the pass it replaces ran at resolution 1');
+		const source = readFileSync(join(ART, 'bodyShaders.ts'), 'utf8');
+		const lines = colorMatrixFilterFrag
+			.split('\n')
+			.map((l) => l.trim())
+			.filter((l) =>
+				/^(result\.[rgba] [+]?= |if \(color\.a > 0\.0\) \{|color\.rgb \/= color\.a;|rgb \*= result\.a;|finalColor = vec4\(rgb, result\.a\);)/.test(
+					l,
+				),
+			);
+		assert.equal(
+			lines.length,
+			24,
+			'the matrix, the un-premultiply and the premultiply of Pixi’s pass',
+		);
+		for (const line of lines) assert.ok(source.includes(line), `the step has \`${line}\``);
+		assert.match(colorMatrixFilterFrag, /vec3 rgb = mix\(color\.rgb, result\.rgb, uAlpha\);/);
+		assert.match(source, /vec3 rgb = mix\(color\.rgb, result\.rgb, uMatrixAlpha\);/);
+		// `updateRenderGroupTransforms`: the group alpha clamped to 0..1, then `* 255 | 0`.
+		assert.ok(
+			source.includes('floor(clamp(uGlintAlpha * uColor.a, 0.0, 1.0) * 255.0) / 255.0'),
+			'the glint’s alpha with its ancestors’, clamped and cut to a byte',
+		);
+		assert.match(
+			readFileSync(join(ART, 'index.ts'), 'utf8'),
+			/river: \(into, app\) => \{[\s\S]*?warmBodyShaders\(app\);/,
+			'the driver is asked for the programs as the river mounts',
+		);
+	},
+);
+
+check('the bear’s quad: where a Sprite puts it, and its frame on the page, trimmed or not', () => {
+	const TextureSource = Texture.WHITE.source.constructor;
+	const base = new TextureSource({ width: 512, height: 256 });
+	const plain = new Texture({ source: base, frame: new Rectangle(100, 20, 80, 40) });
+	const trimmed = new Texture({
+		source: base,
+		frame: new Rectangle(100, 20, 60, 30),
+		orig: new Rectangle(0, 0, 80, 40),
+		trim: new Rectangle(12, 6, 60, 30),
+	});
+	for (const [name, texture, box] of [
+		['untrimmed', plain, [-40, -20, 40, 20]],
+		['trimmed', trimmed, [-28, -14, 32, 16]],
+	]) {
+		const quad = quadOf(texture, 0.5);
+		const p = [...quad.positions];
+		assert.deepEqual([p[0], p[1], p[4], p[5]], box, `${name}: Sprite's quad bounds`);
+		texture.textureMatrix.update();
+		const m = texture.textureMatrix.mapCoord;
+		const page = (i) => {
+			const [u, v] = [quad.uvs[i * 2], quad.uvs[i * 2 + 1]];
+			return [(m.a * u + m.c * v + m.tx) * base.width, (m.b * u + m.d * v + m.ty) * base.height];
+		};
+		const near = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 1e-4); // UVs are float32
+		const { frame } = texture;
+		assert.ok(near(page(0), [frame.x, frame.y]), `${name}: its first corner on the frame’s`);
+		assert.ok(
+			near(page(2), [frame.x + frame.width, frame.y + frame.height]),
+			`${name}: its far corner on the frame’s`,
+		);
+		quad.destroy();
+	}
+});
 
 check(
 	'wading: the pass draws underTint’s colour under the line and finds the look’s place at any zoom and resolution',
@@ -1556,35 +1682,30 @@ check("zone art's rigs: each moves on with the river's ticker while in view", ()
 });
 
 // Biomes (2026-11-26; `engine-mechanics` `salmonsBiomes.js`): the river drawn in Node, piece for
-// piece (`salmons/art-fingerprint.mjs`). The hashes are of the drawing at main a404522, before the
-// biomes were data, and are the same of main's after its trees' art (#1922): a level with no
-// biomes block is drawn exactly as it was. Re-pinned 2026-11-26 for the bridge's near slope drawn
-// 2 cells as the rule ramps it, not 3: with that one slope put back at 3 cells both hashes were the
-// old ones again. Re-pinned 2026-11-26 (P5) for the code bridge's deletion: the bridges are the
-// seed `bridgeProp`, published as the arcade runtime does (`art-fingerprint.mjs` `publishBridges`).
-// Piece by piece, against the river of c63f0be (which drew the code bridge):
-// - every piece that is not a bridge's is unchanged (`WITHOUT_BRIDGES`, the hashes of both rivers
-//   with the bridge pieces taken away, are c63f0be's);
-// - the water and the pillars are the same rows (place, depth and instructions);
-// - each slope (two a bridge) is drawn at its land cell's place with its path from there, where the
-//   code drew it at the layer's origin with its path in layer px: the same points on screen
-//   (`check:prop-depth`), its row's place and path numbers moved;
-// - the deck cells are no longer drawn by the river into the spawn layer: `<SpawnProps>` stands
-//   them among the players, each the code's (`check:prop-depth`), so their rows leave the hash.
+// piece (`salmons/art-fingerprint.mjs`): a level with no biomes block is drawn exactly as it was.
+// The hashes were of the drawing at main a404522, before the biomes were data, and the same of
+// main's after its trees' art (#1922). Since the river is drawn in chunks (2026-11-27) they are of
+// what is drawn and in which order, not of the containers that hold it. Re-pinned (merge of main
+// into the prop components branch, 2026-11-27) for the bridges drawn by the seed `bridgeProp`,
+// published as the arcade runtime does (`art-fingerprint.mjs` `publishBridges`), piece by piece:
+// - every piece that is not a bridge's is main's (`WITHOUT_BRIDGES`: the hashes of these rivers
+//   with every bridge piece taken away are those of main 39f4fea's drawing taken away alike);
+// - every bridge piece is the code bridge's recorded drawing (`check:prop-depth`): the water and
+//   the pillars the same, each slope at its land cell, the deck cells among the players.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
 const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
 const DRAWN_BEFORE_BIOMES = [
-	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '91478b97f7466c22e6d6322a' },
-	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '04d02b633ddd27ab5ebacea4' },
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '564a90b929cf9e375a17e28f' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '041bb8ce4de4fb1974d86299' },
 	{
 		seed: 123,
 		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
 		projector: 'mirrored',
-		hash: '8fa0ee93e3dfc302d24d30fb',
+		hash: '28bfffb4fdebfffceb651e3e',
 	},
-	{ seed: 42, levels: undefined, projector: 'plain', hash: '30b50e1efe10590c648440b9' },
+	{ seed: 42, levels: undefined, projector: 'plain', hash: '8a75f37163a373f9e8b2270a' },
 ];
 const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
 const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
@@ -1598,22 +1719,26 @@ check('biomes: with none authored the river is drawn as before them, piece for p
 		assert.equal(drawn.hash, hash, `seed ${seed}: ${drawn.pieces} pieces`);
 });
 
-/** c63f0be's rivers with their bridge pieces taken away: the drawing but the bridges. */
+/** Main 39f4fea's rivers (the code bridge) with every bridge piece taken away: the drawing but the
+ *  bridges, which this drawing must match with its own bridge pieces taken away. */
 const WITHOUT_BRIDGES = [
-	'85168d6a9af855816b99e518',
-	'8239db40af691390cbf43683',
-	'60781290366ce0031238fb85',
-	'5d80bd1544eddb23804ba20c',
+	'64604d88aad273b9912dcc32',
+	'bb28ec89da6a9f7279b615ca',
+	'fbb98d4cf0b9ba82745000ad',
+	'eff1beaa7f586d441a2d48cd',
 ];
 const firstColor = (g) => g.context?.instructions?.[0]?.data?.style?.color;
-const strip = (c, colors) => {
-	for (const g of [...c.children]) if (g.context && colors.includes(firstColor(g))) g.destroy();
-};
-/** The bridge pieces: the reflections, the pillars and slopes, and any deck cell in the layer. */
-const withoutBridges = (into, layer) => {
-	strip(into.children[4], [0x4a3020, 0x3a2412]);
-	strip(into.children[5], [0x5b3a20, 0x7a4f2a]);
-	strip(layer, [0x5b3a20]);
+/** The bridge's colours: the reflections, the pillars, the slopes and the deck's side. */
+const BRIDGE_COLOURS = [0x4a3020, 0x3a2412, 0x5b3a20, 0x7a4f2a];
+/** Every drawing of a bridge's, wherever the river holds it (in a chunk or loose). */
+const withoutBridges = (...roots) => {
+	const strip = (c) => {
+		for (const child of [...c.children]) {
+			if (child.context && BRIDGE_COLOURS.includes(firstColor(child))) child.destroy();
+			else strip(child);
+		}
+	};
+	for (const root of roots) strip(root);
 };
 const bare = [];
 for (const { seed, levels, projector } of DRAWN_BEFORE_BIOMES)
@@ -1672,10 +1797,11 @@ check('biomes: an authored stretch draws its own trees, floor, grass tint and ri
 		made.some((r) => r.at(-1).includes(`"fill",${0x101010},`)),
 		'the birch riverbed is drawn',
 	);
-	const tinted = rows.filter((r) => r[7] === 0xe0f0a0 && /^grass_/.test(r.at(-1)));
+	const TINT = 8;
+	const tinted = rows.filter((r) => r[TINT] === 0xe0f0a0 && /^grass_/.test(r.at(-1)));
 	assert.ok(tinted.length > 100, `${tinted.length} tinted grass tiles`);
 	assert.ok(
-		rows.filter((r) => /^grass_/.test(r.at(-1) ?? '') && r[7] === 0xffffff).length > 100,
+		rows.filter((r) => /^grass_/.test(r.at(-1) ?? '') && r[TINT] === 0xffffff).length > 100,
 		'the stretch below is untinted',
 	);
 	// The birch grows tree 4 alone, the original's first stretch below it trees 0 and 1.
@@ -1718,5 +1844,80 @@ check(
 		assert.equal(riverLineScale(2, top), 1 + MENU.popGrow);
 	},
 );
+
+// The spawn layer's depth order (2026-11-27, `depthOrder.ts`): a projected world's instances are
+// sorted only when a body's depth changes the order. Played against a layer whose zIndex is set
+// every frame, as before: moves (ties and crossings), spawns (sorted at once, as a mount sorts),
+// despawns and pieces with a fixed zIndex coming and going; the order drawn is the same every
+// frame, every body's zIndex is its depth whenever a draw list is built, and the lazy layer sorts
+// on far fewer of them.
+const { setDepth } = await import('../packages/engine-layout/src/lib/depthOrder.ts');
+check('the spawn layer sorts only when a depth changes the order, and draws the same order', () => {
+	let seed = 7;
+	const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const eager = new Container();
+	const lazy = new Container();
+	const bodies = [];
+	const pieces = [];
+	let next = 0;
+	const spawn = () => {
+		const id = next++;
+		const body = { id, depth: Math.floor(rand() * 40) * 4, a: new Container(), b: new Container() };
+		body.a.label = body.b.label = `b${id}`;
+		body.a.zIndex = body.depth;
+		setDepth(body.b, body.depth);
+		eager.addChild(body.a);
+		eager.sortChildren();
+		lazy.addChild(body.b);
+		lazy.sortChildren();
+		bodies.push(body);
+	};
+	const order = (parent) => parent.children.map((child) => child.label).join();
+	const sorts = { eager: 0, lazy: 0 };
+	const render = (parent, key) => {
+		parent.onRender?.(undefined);
+		if (parent.sortDirty) {
+			sorts[key]++;
+			// What reads a zIndex as the draw list is built (the underwater layer) reads the depth.
+			if (parent === lazy)
+				for (const body of bodies)
+					assert.equal(body.b.zIndex, body.depth, `${body.b.label}'s zIndex at a build`);
+		}
+		if (parent.sortableChildren) parent.sortChildren();
+	};
+	for (let i = 0; i < 12; i++) spawn();
+	for (let frame = 0; frame < 3000; frame++) {
+		for (const body of bodies) {
+			if (rand() < 0.6) body.depth += Math.floor(rand() * 3) - 1;
+			body.a.zIndex = body.depth;
+			setDepth(body.b, body.depth);
+		}
+		if (rand() < 0.02) spawn();
+		if (rand() < 0.015 && bodies.length > 4) {
+			const [gone] = bodies.splice(Math.floor(rand() * bodies.length), 1);
+			gone.a.destroy();
+			gone.b.destroy();
+		}
+		if (rand() < 0.03) {
+			const z = Math.floor(rand() * 40) * 4;
+			const a = new Container();
+			const b = new Container();
+			a.label = b.label = `p${next++}`;
+			a.zIndex = b.zIndex = z;
+			eager.addChild(a);
+			lazy.addChild(b);
+			pieces.push([a, b]);
+		}
+		if (rand() < 0.03 && pieces.length) {
+			const [a, b] = pieces.splice(Math.floor(rand() * pieces.length), 1)[0];
+			a.removeFromParent();
+			b.removeFromParent();
+		}
+		render(eager, 'eager');
+		render(lazy, 'lazy');
+		assert.equal(order(lazy), order(eager), `frame ${frame}`);
+	}
+	assert.ok(sorts.lazy * 4 < sorts.eager, `sorted ${sorts.lazy} times, every frame ${sorts.eager}`);
+});
 
 console.log(`check:salmons-art: ${passed} passed`);

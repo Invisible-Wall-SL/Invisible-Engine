@@ -12,7 +12,6 @@
 	 * container stays still and the owner follows the head, the game's `FlightView` mechanism, so
 	 * particles stay where they were born. An effect tip and the burst play on their own stages.
 	 */
-	import type { EffectDoc } from 'engine-fx';
 	import { pathLength, paintWinLine, winLineHeadAt, type WinLineGraphics } from 'engine-layout';
 	import { onMount, type Snippet } from 'svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
@@ -20,18 +19,24 @@
 	import { createFxArtResolver, fetchEffectDoc } from './fxPreview.client';
 	import {
 		boardSize,
+		canvasBacking,
+		canvasNeedsResize,
 		cellCentre,
 		freeLayers,
 		PREVIEW_CELL,
 		PREVIEW_REPLAY_DEBOUNCE_MS,
 		previewCues,
+		previewEffectNote,
+		previewEffectStatus,
 		previewFrame,
+		previewMoving,
 		previewPlan,
 		previewReplayKey,
 		sampleLineId,
 		samplePoints,
 		sampleRows,
 		type PreviewBoard,
+		type PreviewEffectDocs,
 		type PreviewLine,
 	} from './paylinePreview';
 
@@ -64,7 +69,10 @@
 	const size = $derived(boardSize(board));
 	const W = $derived(size.width + MARGIN * 2);
 	const H = $derived(size.height + MARGIN * 2);
-	const fit = $derived(Math.min(1, MAX_WIDTH / W));
+	/** The stage's widest, CSS px; the column may be narrower, and the measured frame wins. */
+	const capWidth = $derived(Math.min(W, MAX_WIDTH));
+	let frameWidth = $state(0);
+	const fit = $derived((frameWidth || capWidth) / W);
 	const rows = $derived(sampleRows(board, lineId));
 	const sample = $derived(samplePoints(board, rows, ofAKind));
 	const lineColor = $derived(board.paylines.find((l) => l.id === lineId)?.color);
@@ -75,13 +83,12 @@
 	const burstEffectId = $derived(tip?.atEnd === 'burst' ? tip.endEffectId : undefined);
 
 	/** Effect docs by id, read once each per preview. */
-	let docs = $state<Record<string, EffectDoc | null>>({});
+	let docs = $state<PreviewEffectDocs>({});
+	const effectIds = $derived([...line.trailFx, tipEffectId, burstEffectId]);
 	$effect(() => {
-		const wanted = [...line.trailFx, tipEffectId, burstEffectId].filter(
-			(id): id is string => !!id && !(id in docs),
-		);
-		for (const id of wanted) {
-			docs[id] = null;
+		for (const id of effectIds) {
+			if (!id || id in docs) continue;
+			docs[id] = undefined;
 			void fetchEffectDoc(id).then((doc) => {
 				docs[id] = doc;
 			});
@@ -91,22 +98,28 @@
 	const trailSet = $derived(freeLayers(trailDocs));
 	const tipDoc = $derived(tipEffectId ? (docs[tipEffectId] ?? null) : null);
 	const burstDoc = $derived(burstEffectId ? (docs[burstEffectId] ?? null) : null);
-	const loading = $derived(
-		[...line.trailFx, tipEffectId, burstEffectId].some((id) => !!id && !docs[id]),
-	);
+	const effectNote = $derived(previewEffectNote(previewEffectStatus(effectIds, docs)));
 
 	const plan = $derived(previewPlan(line, length, burstDoc));
 	const resolveArt = createFxArtResolver();
 
-	/** Bumped by every replay: the effect stages remount, clearing the last play's particles, as
-	 *  everything clears with the game's line. */
-	let run = $state(0);
+	/** The effect stages stay mounted (each is a WebGL context); a replay clears their particles
+	 *  and restarts their emitters, as everything clears with the game's line. */
+	let trailStage: FxStage | null = $state(null);
+	let tipStage: FxStage | null = $state(null);
+	let burstStage: FxStage | null = $state(null);
 	let runStart = 0;
 	let lastT = -1;
+	let dirty = true;
 	function replay(): void {
-		run += 1;
 		runStart = performance.now();
 		lastT = -1;
+		trailing = false;
+		tipShown = false;
+		bursting = false;
+		trailStage?.replay();
+		tipStage?.replay();
+		burstStage?.replay();
 	}
 	const replayKey = $derived(previewReplayKey(line, { lineId, ofAKind }));
 	let keyed = '';
@@ -188,9 +201,10 @@
 		if (!ctx || !canvas) return;
 		const dpr = window.devicePixelRatio || 1;
 		const scale = dpr * fit;
-		if (canvas.width !== Math.round(W * scale)) {
-			canvas.width = Math.round(W * scale);
-			canvas.height = Math.round(H * scale);
+		const backing = canvasBacking(W, H, scale);
+		if (canvasNeedsResize(canvas, backing)) {
+			canvas.width = backing.width;
+			canvas.height = backing.height;
 		}
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.globalAlpha = 1;
@@ -244,16 +258,30 @@
 		void player.play().catch(() => {});
 	}
 
+	/** Everything `draw()` and the loop read besides the clock and dpr: a change redraws a settled
+	 *  preview. */
+	$effect(() => {
+		void [line, board, rows, sample, lineColor, plan, W, H, fit, canvas, artEl];
+		dirty = true;
+	});
+
 	onMount(() => {
 		runStart = performance.now();
 		let frame = 0;
 		const loop = (now: number) => {
+			frame = requestAnimationFrame(loop);
 			const t = now - runStart;
+			const moving = previewMoving(plan, lastT);
 			const f = previewFrame(plan, t);
 			for (const cue of previewCues(plan, lastT, t)) {
 				playSound(cue === 'draw' ? line.drawSound : line.endSound);
 			}
 			lastT = t;
+			const stale =
+				!!canvas &&
+				canvasNeedsResize(canvas, canvasBacking(W, H, (window.devicePixelRatio || 1) * fit));
+			if (!moving && !dirty && !stale) return;
+			dirty = false;
 			const pose = winLineHeadAt(sample.points, f.progress);
 			head.x = pose.x;
 			head.y = pose.y;
@@ -270,7 +298,6 @@
 					(tip?.rotateWithLine ? ` rotate(${pose.angle}rad)` : '');
 			}
 			draw(f.progress, f.shown);
-			frame = requestAnimationFrame(loop);
 		};
 		frame = requestAnimationFrame(loop);
 		return () => {
@@ -284,7 +311,7 @@
 	);
 </script>
 
-<div class="payline-preview">
+<div class="payline-preview" style:max-width="min(100%, {capWidth}px)">
 	<div class="controls">
 		{#if board.paylines.length}
 			<label>
@@ -314,51 +341,62 @@
 		</label>
 		<IconButton icon="replay" label="Replay the line" onclick={replay} />
 	</div>
-	<div class="frame" style:width="{W * fit}px" style:height="{H * fit}px">
+	<div
+		class="frame"
+		bind:clientWidth={frameWidth}
+		style:width="{capWidth}px"
+		style:aspect-ratio="{W} / {H}"
+	>
 		<div class="stage" style:width="{W}px" style:height="{H}px" style:transform="scale({fit})">
 			<canvas bind:this={canvas} style:width="{W}px" style:height="{H}px"></canvas>
-			{#key run}
-				{#if trailSet.length && plan.trails && line.enabled}
-					<div class="fx-layer">
-						<FxStage
-							layers={trailSet}
-							playing
-							transparent
-							{resolveArt}
-							ownerPos={trailOwner}
-							emitting={trailing}
-							showReference={false}
-						/>
-					</div>
-				{/if}
-				{#if tipDoc?.layers.length && tipShown}
-					<div class="fx-layer" class:add={tip?.blend === 'add'} style:opacity={tipAlpha}>
-						<FxStage
-							layers={freeLayers([tipDoc])}
-							playing
-							transparent
-							worldScale={tipScale}
-							{resolveArt}
-							ownerPos={tipOwner}
-							ownerRotation={tipRotation}
-							showReference={false}
-						/>
-					</div>
-				{/if}
-				{#if burstDoc?.layers.length && plan.bursts}
-					<div class="fx-layer">
-						<FxStage
-							layers={freeLayers([burstDoc])}
-							playing
-							transparent
-							{resolveArt}
-							ownerPos={burstOwner}
-							emitting={bursting}
-							showReference={false}
-						/>
-					</div>
-				{/if}
-			{/key}
+			{#if trailSet.length && plan.trails && line.enabled}
+				<div class="fx-layer">
+					<FxStage
+						bind:this={trailStage}
+						layers={trailSet}
+						playing
+						transparent
+						{resolveArt}
+						ownerPos={trailOwner}
+						emitting={trailing}
+						showReference={false}
+					/>
+				</div>
+			{/if}
+			{#if tipDoc?.layers.length}
+				<div
+					class="fx-layer"
+					class:add={tip?.blend === 'add'}
+					style:opacity={tipShown ? tipAlpha : 0}
+				>
+					<FxStage
+						bind:this={tipStage}
+						layers={freeLayers([tipDoc])}
+						playing
+						transparent
+						worldScale={tipScale}
+						{resolveArt}
+						ownerPos={tipOwner}
+						ownerRotation={tipRotation}
+						emitting={tipShown}
+						showReference={false}
+					/>
+				</div>
+			{/if}
+			{#if burstDoc?.layers.length && plan.bursts}
+				<div class="fx-layer">
+					<FxStage
+						bind:this={burstStage}
+						layers={freeLayers([burstDoc])}
+						playing
+						transparent
+						{resolveArt}
+						ownerPos={burstOwner}
+						emitting={bursting}
+						showReference={false}
+					/>
+				</div>
+			{/if}
 			{#if tipArt && (tip?.kind === 'sprite' || tip?.kind === 'flipbook')}
 				<div
 					class="art-tip"
@@ -379,8 +417,8 @@
 		{:else}
 			{#if line.animated}{Math.round(plan.drawMs)} ms to draw{:else}Drawn whole at once, with no
 				trail (Animated draw is off){/if}{#if !board.paylines.length}
-				· a sample zig-zag (this project has no paylines){/if}{#if loading}
-				· loading effects…{/if}{#if !muted && unplayable.length}
+				· a sample zig-zag (this project has no paylines){/if}{#if effectNote}
+				· {effectNote}{/if}{#if !muted && unplayable.length}
 				· {unplayable.join(', ')} plays in the game only{/if}
 		{/if}
 	</p>
@@ -391,8 +429,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		max-width: 100%;
-		overflow-x: auto;
+		min-width: 0;
 	}
 	.controls {
 		display: flex;
@@ -410,6 +447,7 @@
 	.frame {
 		position: relative;
 		flex: none;
+		max-width: 100%;
 		border-radius: 8px;
 		overflow: hidden;
 		background: #0b0e13;

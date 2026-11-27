@@ -56,12 +56,12 @@ import {
 	agentsJson,
 	fail,
 	failureOf,
-	oidcToken,
+	UPLOAD_OVER,
+	postResult,
 	printFenced,
 	readPlain,
 	readStream,
 	render,
-	request,
 	sandboxTsx,
 	shown,
 	textOf,
@@ -830,15 +830,20 @@ export function buildResult(p, input, key = '') {
 	return body;
 }
 
-/** The body as sent: JSON, gzipped past 400 KB; null when it unpacks past {@link MAX_BODY_BYTES}. */
+/**
+ * The body as sent: JSON, gzipped past 400 KB; null when it unpacks past {@link MAX_BODY_BYTES}.
+ * One whose gzip is past the upload threshold is flagged `upload` and goes through R2 (`postResult`).
+ */
 export function encodeBody(body) {
 	const raw = Buffer.from(JSON.stringify(body), 'utf8');
 	if (raw.length > MAX_BODY_BYTES) return null;
 	if (raw.length <= GZIP_OVER)
-		return { bytes: raw, headers: { 'content-type': 'application/json' } };
+		return { bytes: raw, headers: { 'content-type': 'application/json' }, upload: false };
+	const bytes = gzipSync(raw);
 	return {
-		bytes: gzipSync(raw),
+		bytes,
 		headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
+		upload: bytes.length > UPLOAD_OVER,
 	};
 }
 
@@ -853,7 +858,7 @@ export function logLine(id, body, status, answer) {
 }
 
 const launcherUrl = (id) =>
-	`${trustedUrl(env('LAUNCHER_URL'), ['app.invisiblewall.org']).origin}/api/pipeline/merge-runs/${id}/result`;
+	`${trustedUrl(env('LAUNCHER_URL'), ['app.invisiblewall.org']).origin}/api/pipeline/merge-runs/${id}`;
 
 async function resultStep() {
 	const input = inputs();
@@ -863,17 +868,14 @@ async function resultStep() {
 		const sent =
 			encodeBody(b) ??
 			encodeBody(failureBody(input, b.baseSha, 'The result is too large to send.', b.usage));
-		const token = await oidcToken(AUDIENCE);
-		return request(
-			launcherUrl(input.mergeRun),
-			{
-				method: 'POST',
-				headers: { ...sent.headers, authorization: `Bearer ${token}` },
-				body: sent.bytes,
-			},
-			'with the result',
-			{ tries: 1, timeoutMs: 10 * 60_000 },
-		);
+		return postResult({
+			base: launcherUrl(input.mergeRun),
+			kind: 'merge',
+			id: input.mergeRun,
+			audience: AUDIENCE,
+			sent,
+			rebuild: (why) => encodeBody(failureBody(input, b.baseSha, why, b.usage)),
+		});
 	};
 	let sent = body;
 	let res = await post(sent);

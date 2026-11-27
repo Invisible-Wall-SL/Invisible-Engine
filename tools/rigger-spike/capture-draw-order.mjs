@@ -192,7 +192,16 @@ function sheetRig(M) {
 	if (!sr.ok) throw new Error(sr.problem);
 	const tpl = M.fitTemplate(t, sr.value.fit);
 	const irig = M.templateRig(t, REGIONS, sr.value.fit, sr.value.art).skeleton;
-	return { tpl, irig, setup: irig.slots.map((s) => s.name) };
+	// Each template slot by the rig's name for it, its region's (one slot per region), and back.
+	const names = sr.value.fit.slots ?? {};
+	const role = new Map(Object.entries(names).map(([r, n]) => [n, r]));
+	return {
+		tpl,
+		irig,
+		setup: irig.slots.map((s) => s.name),
+		rn: (n) => names[n] ?? n,
+		role: (n) => role.get(n) ?? n,
+	};
 }
 
 const FPS = 24;
@@ -232,7 +241,7 @@ function imported(M, rig, tr, doc = null) {
 }
 
 /** The draw order engine-rig plays at each frame of `irig`'s clip `imp`. */
-function orders(irig, n) {
+function orders(irig, n, role) {
 	const atlas = new RIG.TextureAtlas(ATLAS);
 	const stub = {
 		getImage: () => ({ width: 1, height: 1 }),
@@ -252,7 +261,7 @@ function orders(irig, n) {
 		state.update(i / FPS);
 		state.apply(skel);
 		skel.updateWorldTransform(RIG.Physics.update);
-		out.push(skel.drawOrder.map((s) => s.data.name));
+		out.push(skel.drawOrder.map((s) => role(s.data.name)));
 	}
 	return out;
 }
@@ -316,8 +325,8 @@ const GUARDS = {
 			ok(
 				'import: the torso, pelvis, neck and head get their depth at their shares of the shoulder width',
 				['torso', 'neck', 'head'].every(
-					(s) => Math.abs(doc.thick?.[s] - M.I.BODY_DEPTH[s] * width) < 1e-3,
-				) && !doc.thick?.upper_arm_l,
+					(s) => Math.abs(doc.thick?.[rig.rn(s)] - M.I.BODY_DEPTH[s] * width) < 1e-3,
+				) && !doc.thick?.[rig.rn('upper_arm_l')],
 				JSON.stringify({ thick: doc.thick, width }),
 			) && good;
 		good =
@@ -326,15 +335,18 @@ const GUARDS = {
 				Math.abs(doc.hysteresis - M.I.CAPTURE_HYSTERESIS * width) < 1e-3 && doc.hysteresis > 20,
 				String(doc.hysteresis),
 			) && good;
-		const own = { ...doc, hysteresis: 9, thick: { ...doc.thick, torso: 50 } };
+		const torso = rig.rn('torso');
+		const own = { ...doc, hysteresis: 9, thick: { ...doc.thick, [torso]: 50 } };
 		const again = imported(M, rig, track(12, beside), own).doc;
 		good =
 			ok(
 				'import: what the author set stays',
-				again.hysteresis === 9 && again.thick.torso === 50,
-				JSON.stringify({ h: again.hysteresis, t: again.thick?.torso }),
+				again.hysteresis === 9 && again.thick[torso] === 50,
+				JSON.stringify({ h: again.hysteresis, t: again.thick?.[torso] }),
 			) && good;
-		log(`shoulders ${width.toFixed(1)}: hysteresis ${doc.hysteresis}, torso ${doc.thick.torso}`);
+		log(
+			`shoulders ${width.toFixed(1)}: hysteresis ${doc.hysteresis}, ${torso} ${doc.thick[torso]}`,
+		);
 		return good;
 	},
 
@@ -342,7 +354,7 @@ const GUARDS = {
 	beside(M, log) {
 		const rig = sheetRig(M);
 		const n = 48;
-		const os = orders(imported(M, rig, track(n, beside)).irig, n);
+		const os = orders(imported(M, rig, track(n, beside)).irig, n, rig.role);
 		const under = os.findIndex((o) =>
 			[...ARM_L, 'upper_arm_r', 'lower_arm_r', 'hand_r'].some((a) =>
 				['torso', 'head'].some((b) => !over(o, a, b)),
@@ -363,7 +375,7 @@ const GUARDS = {
 	behind(M, log) {
 		const rig = sheetRig(M);
 		const n = 48;
-		const os = orders(imported(M, rig, track(n, behind)).irig, n);
+		const os = orders(imported(M, rig, track(n, behind)).irig, n, rig.role);
 		const mid = os[n >> 1];
 		const good = ok(
 			'behind: a hand reaching behind the back is under the torso, and over it at both ends',
@@ -380,8 +392,8 @@ const GUARDS = {
 	crossing(M, log) {
 		const rig = sheetRig(M);
 		const n = 48;
-		const across = orders(imported(M, rig, track(n, crossing)).irig, n);
-		const leant = orders(imported(M, rig, track(n, lean)).irig, n);
+		const across = orders(imported(M, rig, track(n, crossing)).irig, n, rig.role);
+		const leant = orders(imported(M, rig, track(n, lean)).irig, n, rig.role);
 		const good =
 			ok(
 				'crossing: the forearm across the body, 10 cm and more in front, is over the other arm',
@@ -402,7 +414,7 @@ const GUARDS = {
 	flicker(M, log) {
 		const rig = sheetRig(M);
 		const n = 72;
-		const os = orders(imported(M, rig, track(n, wobble)).irig, n);
+		const os = orders(imported(M, rig, track(n, wobble)).irig, n, rig.role);
 		const s = swaps(os, 'hand_l', 'lower_arm_r');
 		const good = ok(
 			'flicker: a hand wobbling ±3 cm across the other forearm swaps with it at most twice',
@@ -418,8 +430,8 @@ const GUARDS = {
 		const rig = sheetRig(M);
 		const n = 48;
 		const first = imported(M, rig, track(n, behind));
-		const doc = { ...first.doc, locks: [['hand_l', 'torso']] };
-		const os = orders(imported(M, rig, track(n, behind), doc).irig, n);
+		const doc = { ...first.doc, locks: [[rig.rn('hand_l'), rig.rn('torso')]] };
+		const os = orders(imported(M, rig, track(n, behind), doc).irig, n, rig.role);
 		const mid = os[n >> 1];
 		const good = ok(
 			'locks: the hand locked over the torso stays over it behind the back, while the forearm goes under',
@@ -437,7 +449,7 @@ const GUARDS = {
 		const n = 24;
 		const first = imported(M, rig, track(n, behind));
 		const doc = { ...first.doc, depthOrder: false };
-		const authored = { time: 0.25, offsets: [{ slot: 'hand_r', offset: -40 }] };
+		const authored = { time: 0.25, offsets: [{ slot: rig.rn('hand_r'), offset: -40 }] };
 		const irig = structuredClone(first.irig);
 		irig.animations.imp.drawOrder = [authored];
 		const res = M.I.rebakeClip3d
@@ -453,7 +465,9 @@ const GUARDS = {
 		const scope = { bones: res.plan.owned, slots: res.plan.slots };
 		const a = M.R3.bakedParts(res.irig, 'imp', { ...scope, order: false }, []);
 		const edited = structuredClone(res.irig);
-		edited.animations.imp.drawOrder = [{ time: 0.5, offsets: [{ slot: 'hand_l', offset: 3 }] }];
+		edited.animations.imp.drawOrder = [
+			{ time: 0.5, offsets: [{ slot: rig.rn('hand_l'), offset: 3 }] },
+		];
 		const b = M.R3.bakedParts(edited, 'imp', { ...scope, order: false }, []);
 		const on = M.R3.bakedParts(edited, 'imp', scope, []);
 		good =
@@ -540,7 +554,16 @@ const MUTANTS = [
 	[
 		'import',
 		"the author's depth taken over",
-		[IMP, '(([s]) => slots.has(s) && !out.thick?.[s])', '(([s]) => slots.has(s))'],
+		[
+			IMP,
+			'return s !== null && !out.thick?.[s] ? [[s, k]] : [];',
+			'return s !== null ? [[s, k]] : [];',
+		],
+	],
+	[
+		'import',
+		"the body found by its slot's name, not the part it draws (a sheet names it after its region)",
+		[IMP, 'drawing.find(([, names]) => names.has(part))?.[0] ?? ', ''],
 	],
 	[
 		'locks',

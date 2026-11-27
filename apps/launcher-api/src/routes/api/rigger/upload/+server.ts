@@ -1,6 +1,11 @@
 import { error, json } from '@sveltejs/kit';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { newRigControls, requestFit, resolveNewRigBody } from '$lib/server/riggerNewRig';
+import {
+	newRigControls,
+	requestFit,
+	requestModules,
+	resolveNewRigBody,
+} from '$lib/server/riggerNewRig';
 import { RIG_TEMPLATE_SIDECAR, templateReport, templateSidecar } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
@@ -81,7 +86,15 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const rigId = typeof body.rigId === 'string' ? body.rigId : '';
 	const templateId = typeof body.templateId === 'string' ? body.templateId : '';
 	const fit = requestFit(body.fit);
-	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions, fit);
+	const modules = requestModules(body.modules);
+	const { skeleton, template } = await resolveNewRigBody(
+		rigId,
+		templateId,
+		regions,
+		fit,
+		undefined,
+		modules,
+	);
 
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the

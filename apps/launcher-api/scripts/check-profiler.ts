@@ -54,6 +54,7 @@ import {
 	PERF_RETENTION_MS,
 	phaseSetOf,
 	phasesOf,
+	readingThrottled,
 	summarizePerfReport,
 	uaFamily,
 	type PerfReportListItem,
@@ -1106,8 +1107,11 @@ const reading = (over: Partial<PerfReportListItem> = {}): PerfReportListItem => 
 	idle: phaseOf(600, 59.8, 17.4),
 	spinning: phaseOf(300, 56, 19),
 	round: phaseOf(900, 57, 19.5),
+	loading: null,
+	lobby: null,
 	menu: null,
 	play: null,
+	spectate: null,
 	capped30: false,
 	drawsMean: 80,
 	textureMb: 90,
@@ -1520,7 +1524,7 @@ test('10. the Budgets tab lists its game kind’s phases, plus any phase overrid
 				.map((b) => b.phase),
 		),
 	];
-	assert.deepEqual(shown('arcade'), ['menu', 'play']);
+	assert.deepEqual(shown('arcade'), ['loading', 'lobby', 'play', 'spectate']);
 	assert.deepEqual(shown('slot'), ['idle', 'spinning', 'round', 'play'], 'an override still shows');
 	assert.deepEqual(shown('slot', 'tablet'), ['idle', 'spinning', 'round']);
 	assert.ok(
@@ -1612,6 +1616,206 @@ test('13. an arcade reading’s menu and play counts; their lab band is idle’s
 		'sim and room counts are for Compare, never lab-judged',
 	);
 });
+// ── perf: 10: busy time, hidden and throttled frames, the arcade phase split ──
+
+const busyOf = (frames: number, p50: number, p95: number) => ({ frames, p50, p95, max: p95 * 2 });
+
+const ARCADE_V10 = {
+	...ARCADE_REPORT,
+	perf: 10,
+	menu: undefined,
+	idle: undefined,
+	refreshHz: undefined,
+	achievedHz: 30,
+	displayHz: 60,
+	budgetMs: 16.7,
+	seconds: 120,
+	hiddenMs: 0,
+	hiddenFrames: 0,
+	throttledFrames: 0,
+	visibilityState: 'visible',
+	gpuTimer: 'n/a',
+	loading: bucket(90, 20),
+	lobby: bucket(300, 60),
+	play: bucket(1800, 30),
+	spectate: bucket(0, 0),
+	busy: {
+		loading: busyOf(90, 40, 300),
+		lobby: busyOf(300, 4, 6),
+		play: busyOf(1800, 12, 15.5),
+		spectate: busyOf(0, 0, 0),
+	},
+	work: {
+		loading: {
+			frames: 90,
+			perFrame: { draws: { mean: 30, p95: 60, max: 90 }, jsMs: { mean: 30, max: 300 } },
+		},
+		lobby: { frames: 300, perFrame: { draws: { mean: 14, max: 20 }, jsMs: { mean: 2.1, max: 6 } } },
+		play: ARCADE_REPORT.work.play,
+	},
+};
+
+test('14. a perf: 10 arcade report reads loading, lobby, play and spectate, and its busy time', () => {
+	const r = summarizePerfReport(ARCADE_V10);
+	assert.ok(r.ok);
+	const s = r.summary;
+	assert.deepEqual([s.perfVersion, s.kind, s.phaseSet], [10, 'arcade', 'arcade']);
+	assert.deepEqual(
+		[s.phases.loading?.frames, s.phases.lobby?.frames, s.phases.play?.frames],
+		[90, 300, 1800],
+	);
+	assert.equal(s.phases.spectate, null, 'no frames is "no frames"');
+	assert.equal(s.phases.menu, null, 'a perf: 10 reading has no menu');
+	assert.equal(s.drawsMean, 40, 'draws from play');
+	assert.deepEqual(
+		[s.counts.loading?.draws, s.counts.lobby?.draws, s.counts.play?.simMs],
+		[30, 14, 2.4],
+	);
+	assert.equal(s.counts.spectate, undefined, 'a phase with no frames is left out');
+	assert.deepEqual(
+		[s.counts.timing?.budgetMs, s.counts.timing?.achievedHz, s.counts.timing?.displayHz],
+		[16.7, 30, 60],
+	);
+	assert.deepEqual(s.counts.timing?.busy.play, { frames: 1800, p50: 12, p95: 15.5, max: 31 });
+	assert.equal(s.counts.timing?.busy.spectate, undefined);
+	assert.equal(s.counts.throttled, undefined, 'a normal reading is not throttled');
+	assert.deepEqual(phasesOf([{ ...s, phaseSet: 'arcade', ...s.phases }]), [
+		'loading',
+		'lobby',
+		'play',
+	]);
+});
+
+test('14. a perf: 10 slot report reads as its perf: 9 twin, plus its timing', () => {
+	const v9 = summarizePerfReport({ ...REPORT, perf: 9, kind: 'slot' });
+	const v10 = summarizePerfReport({
+		...REPORT,
+		perf: 10,
+		kind: 'slot',
+		achievedHz: 60,
+		budgetMs: 16.7,
+		seconds: 60,
+		hiddenMs: 0,
+		hiddenFrames: 0,
+		throttledFrames: 0,
+		busy: { idle: busyOf(600, 3, 5), spinning: busyOf(300, 7, 11), round: busyOf(0, 0, 0) },
+	});
+	assert.ok(v9.ok && v10.ok);
+	const { timing, ...counts } = v10.summary.counts;
+	assert.deepEqual(
+		{ ...v10.summary, perfVersion: 9, counts },
+		v9.summary,
+		'the same summary, but for its version and timing',
+	);
+	assert.equal(timing?.busy.spinning?.p95, 11);
+	assert.equal('loading' in v10.summary.phases, false, 'a slot summary has no arcade-split keys');
+});
+
+test('14. a throttled or hidden reading is marked, whatever its version', () => {
+	const throttled = summarizePerfReport({
+		...ARCADE_REPORT,
+		play: { ...bucket(900, 1), p50: 1004, p95: 1010, max: 1100 },
+	});
+	assert.ok(throttled.ok);
+	assert.match(throttled.summary.counts.throttled ?? '', /median frame 1004 ms/);
+	const fine = summarizePerfReport(ARCADE_REPORT);
+	assert.ok(fine.ok);
+	assert.equal(fine.summary.counts.throttled, undefined);
+	const hidden = summarizePerfReport({ ...ARCADE_V10, hiddenMs: 12_000 });
+	assert.ok(hidden.ok);
+	assert.match(hidden.summary.counts.throttled ?? '', /hidden 12 s of 120 s/);
+	const brief = summarizePerfReport({ ...ARCADE_V10, hiddenMs: 5_000 });
+	assert.ok(brief.ok);
+	assert.equal(brief.summary.counts.throttled, undefined, 'under 5% hidden is fine');
+	const slot = summarizePerfReport({
+		...REPORT,
+		idle: bucket(0, 0),
+		spinning: { ...bucket(300, 1), p50: 1004 },
+	});
+	assert.ok(slot.ok);
+	assert.ok(slot.summary.counts.throttled, 'a slot reading too');
+});
+
+const busyReading = (over: Partial<PerfReportListItem> = {}, p95 = 15.5) => {
+	const s = summarizePerfReport(ARCADE_V10);
+	assert.ok(s.ok);
+	const counts = JSON.parse(JSON.stringify(s.summary.counts)) as PerfReportListItem['counts'];
+	if (counts?.timing?.busy.play) counts.timing.busy.play.p95 = p95;
+	return arcadeReading({
+		loading: s.summary.phases.loading,
+		lobby: s.summary.phases.lobby,
+		menu: null,
+		play: s.summary.phases.play,
+		spectate: null,
+		counts,
+		...over,
+	});
+};
+
+test('14. an arcade reading is judged on busy time, not fps', () => {
+	const eff = effectiveBudgets([]);
+	const get = (deviceClass: string, phase: string) =>
+		eff.find((b) => b.deviceClass === deviceClass && b.metric === 'busy' && b.phase === phase);
+	assert.deepEqual([get('phone', 'play')?.warn, get('phone', 'play')?.fail], [14, 16.7]);
+	assert.equal(get('phone', 'loading')?.fail, null, 'loading has no line');
+	assert.equal(get('phone', 'idle')?.fail, null, 'a slot phase has none');
+	// 30 fps with 15.5 ms of busy time: a 60 Hz display waiting a second vsync, not a failure.
+	const ok = evaluateReadings('phone', [busyReading()], eff);
+	assert.equal(verdictOf(ok, 'busy', 'play'), 'warn', '15.5 ms is over the 14 ms warn line');
+	assert.equal(ok.find((m) => m.metric === 'busy' && m.phase === 'play')?.value, 15.5);
+	assert.ok(
+		!ok.some((m) => (m.metric === 'fps' || m.metric === 'p95') && m.phase === 'play'),
+		'its 30 fps is not judged',
+	);
+	assert.equal(
+		verdictOf(evaluateReadings('phone', [busyReading({}, 18)], eff), 'busy', 'play'),
+		'fail',
+	);
+	assert.equal(
+		verdictOf(evaluateReadings('phone', [busyReading({}, 9)], eff), 'busy', 'play'),
+		'pass',
+	);
+	assert.equal(
+		verdictOf(evaluateReadings('phone', [busyReading()], eff), 'busy', 'loading'),
+		'none',
+		'a phase with no line is not judged',
+	);
+	// An older arcade reading (no busy time) is still judged on its fps.
+	const old = evaluateReadings('phone', [arcadeReading()], eff);
+	assert.equal(verdictOf(old, 'fps', 'play'), 'pass');
+	assert.ok(!old.some((m) => m.metric === 'busy'), 'no busy rows where none was measured');
+	// A slot reading is judged on fps as before.
+	assert.equal(verdictOf(evaluateReadings('phone', [reading()], eff), 'fps', 'idle'), 'pass');
+});
+
+test('14. a throttled reading is never judged on timing; its counts still count', () => {
+	const eff = effectiveBudgets([]);
+	const throttled = busyReading({
+		drawsMean: 90,
+		counts: {
+			...busyReading().counts,
+			throttled: 'median frame 1004 ms',
+		} as PerfReportListItem['counts'],
+	});
+	assert.ok(readingThrottled(throttled));
+	const ms = evaluateReadings('phone', [throttled], eff);
+	assert.equal(verdictOf(ms, 'busy', 'play'), 'nodata', 'no comparable reading, no verdict');
+	assert.equal(ms.find((m) => m.metric === 'draws')?.value, 90);
+	const mixed = evaluateReadings('phone', [throttled, busyReading({}, 9)], eff);
+	assert.equal(verdictOf(mixed, 'busy', 'play'), 'pass', 'judged on the comparable reading alone');
+	const slot = evaluateReadings(
+		'phone',
+		[
+			reading({
+				counts: { idle: null, spinning: null, textureMb: null, throttled: 'x' },
+				idle: phaseOf(5000, 1, 1000),
+			}),
+		],
+		eff,
+	);
+	assert.equal(verdictOf(slot, 'fps', 'idle'), 'nodata', 'a throttled slot reading too');
+});
+
 import './check-profiler-findings.ts';
 import './check-profiler-bugs.ts';
 import './check-profiler-network.ts';

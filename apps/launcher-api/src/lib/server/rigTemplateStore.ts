@@ -12,6 +12,12 @@ import { mergeRigLengths } from '../rigCaptureFit';
 import { rigTemplateSaveProblem } from './rigTemplateCheck';
 import { parseRigFit, type RigFit } from './rigTemplateFit';
 import {
+	moduleChoiceProblem,
+	templateWithModules,
+	type RigModuleChoice,
+} from './rigTemplateModules';
+import {
+	RIG_TEMPLATE_SIDECAR,
 	parseTemplateRef,
 	rigTemplateById,
 	rigTemplateProblem,
@@ -150,11 +156,29 @@ export function sidecarOnRig(
 	return JSON.stringify(next ? { ...rest, fit: next } : rest);
 }
 
+/** The module set a rig's bundle records in its `template.json` (none: the definition's). */
+export async function bundleModules(bundlePrefix: string): Promise<RigModuleChoice> {
+	return (
+		parseTemplateRef(await getObjectText(`${bundlePrefix}/${RIG_TEMPLATE_SIDECAR}`))?.modules ?? {}
+	);
+}
+
+/** Template `t` with module set `modules` (a rig's `template.json`'s); one it does not have, as it is. */
+function withModulesOf(t: RigTemplate, modules: RigModuleChoice | undefined): RigTemplate {
+	if (!modules) return t;
+	const bad = moduleChoiceProblem(t, modules);
+	if (bad) {
+		console.warn(`[rigTemplateStore] a rig of "${t.id}" names modules it cannot have: ${bad}`);
+		return t;
+	}
+	return templateWithModules(t, modules);
+}
+
 /**
  * The template a bundle's `template.json` names, at the version the rig was made from, fitted as
  * the rig was when it was made from a frame (`sidecarTemplate`); with `rigBones` (the saved rig's),
- * as that rig has it — a link it was made before folded away (`templateWithLinks`) — on its own limb
- * lengths (`sidecarOnRig`).
+ * with the modules it was made with (`templateWithModules`), as that rig has it — a link it was made
+ * before folded away (`templateWithLinks`) — on its own limb lengths (`sidecarOnRig`).
  */
 export async function rigTemplateForSidecar(
 	text: string | null,
@@ -163,7 +187,8 @@ export async function rigTemplateForSidecar(
 	const ref = parseTemplateRef(text);
 	if (!ref || text === null) return null;
 	const has = rigBones && new Set(rigBones.map((b) => b.name));
-	const fitted = (given: RigTemplate) => {
+	const fitted = (whole: RigTemplate) => {
+		const given = withModulesOf(whole, ref.modules);
 		const t = has ? templateWithLinks(given, has) : given;
 		return sidecarTemplate(t, rigBones ? sidecarOnRig(t, text, rigBones) : text);
 	};

@@ -14,10 +14,10 @@ import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { symbolsPageConfig } from '$lib/server/symbolsPageConfig';
-import { previewBoardOf } from './paylinePreview';
 import { loadSymbolsDocWithEtag } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { previewBoardOf } from './paylinePreview';
 import type { PageServerLoad } from './$types';
 
 /**

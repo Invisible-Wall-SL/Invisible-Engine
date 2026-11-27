@@ -345,3 +345,10 @@ value and only a second click works. Set it on the `FormData` inside the enhance
 **`InfoTip.svelte`** is the field-level twin: an ⓘ with an optional short label beside a control, its explanation in the same tooltip (`alignEnd` near a right edge).
 
 → **The pipeline rule (CLAUDE.md hard rule 10):** a section's intro paragraph is a tooltip, never body text; the body keeps controls and live status only. Game Maker's client groups fold with the same chevron look (`game-maker/+page.svelte`).
+
+### 22. Settings + live preview (a field panel beside the preview it drives)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`EditorPreviewLayout.svelte`** — snippets `list?` (a leading 200 px column, e.g. one row per kind), `editor` (rendered in the framed panel: `#0d0d14`, 1 px `#1d1d26`, radius 8, a column of fields), `preview` (the live preview), `about?` (what the preview shows, in an `InfoTip` under it); props `previewLabel` (`Preview`) and `aboutLabel` (`About the preview`). A wrapping flex row, so a narrow window stacks it; the preview column is sticky (`top: 12px`) beside a long panel | A | `apps/launcher-api/src/lib/ui/EditorPreviewLayout.svelte` | **canonical for domain A** — lifted out of `/symbols` Flights; used by Flights and Payline style |
+
+→ **The standard for any "settings + live preview" section.** The preview owns its own controls (pickers, replay) and should size to its column (keep the aspect ratio, cap the width, no sideways scroll — `PaylinePreview` measures its frame). A preview's long caption widens the column and pushes it under the panel; keep captions short or capped.

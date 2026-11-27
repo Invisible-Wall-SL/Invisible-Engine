@@ -790,6 +790,36 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-27 — **Symbols named by what the server pays (H / M / L)** (owner: "change the name of our
+  symbols to reflect what the server is paying out … dynamic once we read the server"; branch
+  `claude/upbeat-rubin-sczhre`). Prompted by Getting Hot, whose shared names read backwards: `L1` paid
+  like `H4`, `H5` like the lows, and there was no `L4`. Opt-in per project; every project without it
+  maps exactly as before.
+  - **The rule** (`tierSymbolNames` in `rgs-translator-eagaming/gameMappings.ts`, one rule for the
+    import and the facade): by each line symbol's pay at its longest run, `H` ≥ 40% of the top symbol,
+    `M` ≥ 15%, `L` the rest (`PAY_TIER_SHARES`), numbered by pay within a tier, ties in server order.
+    Getting Hot: `PIC1–3` → `H1–H3`, `PIC4–5` → `M1–M2`, `PIC6–9` → `L1–L4`.
+  - **The field:** `GameConfigDoc.serverSymbolNames` (our name → server name, `./serverSymbolNames.ts`:
+    normalize keeps one claim per server name; validate warns on a name with no symbol). It ships in
+    the bundle; `engine-game` publishes it as `__IE_SERVER_SYMBOL_NAMES__` before the game
+    authenticates (`publishServerSymbolNamesToFacade`), and the facade maps the wire through
+    `withServerSymbolNames(detected mapping, names)` instead of the shared table (`activeBase` keeps
+    the vocabulary check for the expanding-symbol thresholds). The lines mock contract uses the same
+    mapping (`projectLinesMapping` in `mockContract.ts`), so it deals and prices the same symbols.
+  - **`/config`:** the server/capture import review has **Name symbols by what the server pays**
+    (on, and locked on, once a project has names): server symbol, top pay, a tier picker (H / M / L,
+    a hand override renumbers the tier) and `now → new`. Apply renames the symbols everywhere in the
+    doc in one pass (`renameSymbols`: keys and exact string values, so a swap cannot chain; refused
+    when a new name is a symbol that stays), stores the names, then writes the pay rows. Art already
+    in Invisible Symbols under an old name is listed (the endpoint returns `withArt`): it is not moved.
+  - **Verified:** `check:paytable` §9 (18 checks: the Getting Hot tiers, override, the project
+    mapping, the one-pass rename, normalize), `check:mock-contract` (a renamed lines project deals and
+    prices the same server pool), `check:rgs`, `check:mock-wire`, `check:holdandwin(-partner)`,
+    `check:resume`, `check:pots-overlay`, `check:wild-rewrite`, `check:match3-wire` green; svelte-check
+    at baseline for launcher-api, apps/lines, engine-game. **Not verified:** the dialog in a browser,
+    and Getting Hot renamed and played (owed: open `/config` on `getting-hot`, **Import paytable from
+    server**, tick the box, Apply, Save, publish, spin).
+
 - 2026-11-26 — **Zone art takes a prop component** (agent `arcade-games`; branch
   `claude/bold-cannon-3a8unw`, in review; prop components P6,
   [arcade-prop-components](../design/arcade-prop-components.md) §6).

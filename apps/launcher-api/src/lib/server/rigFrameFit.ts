@@ -744,6 +744,8 @@ export interface PartsRequest {
 	foreshortened: { part: string; ratio: number }[];
 	/** What of the drawn face the face's bones move (`faceNote`), for the report. */
 	face: string;
+	/** Parts of the cut the template draws no image for, each drawn into the part it names. */
+	merge?: Record<string, string>;
 }
 
 /**
@@ -756,6 +758,9 @@ export interface PartsRequest {
  * read off that frame), and an arm segment's length is that frame's, the frame clip bringing its
  * next joint in to where this frame draws it (the image squeezed along it, as the template's
  * shortening does), so the rig still poses as this frame and every other part comes back.
+ *
+ * A part the template draws no image for (a module left out, docs/design/rig-modules.md §5) is drawn
+ * into the part `into` names (`drawnInto`: a hand into its forearm), and so are the props it hosts.
  */
 export function framePartsRequest(
 	t: RigTemplate,
@@ -763,6 +768,7 @@ export function framePartsRequest(
 	track: TrackFrame,
 	pivots: Record<string, P> = {},
 	sources: Record<string, PartSource> = {},
+	into: Record<string, string> = {},
 ): Fitted<PartsRequest> {
 	const j = frameJoints(track, cut.size[0], cut.size[1]);
 	if (!j.ok) return j;
@@ -771,7 +777,10 @@ export function framePartsRequest(
 	const { scale: k, origin } = ff.value;
 	const props = (cut.props ?? []).filter((p) => p.take !== false);
 	const propNames = new Set((cut.props ?? []).map((p) => p.name));
-	const own = cut.names.filter((n) => !propNames.has(n));
+	const cutParts = cut.names.filter((n) => !propNames.has(n));
+	const merge = Object.fromEntries(cutParts.filter((n) => into[n]).map((n) => [n, into[n]]));
+	const own = [...new Set(cutParts.map((n) => merge[n] ?? n))];
+	const slotIn = (s?: string) => (s === undefined ? s : (into[s] ?? s));
 	const byName = new Map(t.bones.map((b) => [b.name, b]));
 	const base = ff.value.fit;
 	const lengthened: RigFit = { ...base, bones: { ...base.bones }, frame: { ...base.frame } };
@@ -781,6 +790,7 @@ export function framePartsRequest(
 	> = {};
 	let headFace: P[] | null = null;
 	for (const [part, src] of Object.entries(sources)) {
+		if (merge[part]) continue;
 		if (!own.includes(part)) return { ok: false, problem: `the cut has no part ${part}` };
 		if (!src.cut.names.includes(part))
 			return { ok: false, problem: `the frame ${part} is taken from has no ${part}` };
@@ -871,7 +881,7 @@ export function framePartsRequest(
 		fitProps.push({
 			name: p.name,
 			bone: parent,
-			...(p.before !== undefined ? { before: p.before } : { after: p.after }),
+			...(p.before !== undefined ? { before: slotIn(p.before) } : { after: slotIn(p.after) }),
 			at: [Math.round(local.x * 1e4) / 1e4, Math.round(local.y * 1e4) / 1e4],
 		});
 	}
@@ -912,6 +922,7 @@ export function framePartsRequest(
 			joints: ff.value.joints,
 			foreshortened: foreshortened(track, cut.size[0], cut.size[1]).filter((f) => !sources[f.part]),
 			face: faceNote(drawn?.moves ?? []),
+			...(Object.keys(merge).length ? { merge } : {}),
 		},
 	};
 }
