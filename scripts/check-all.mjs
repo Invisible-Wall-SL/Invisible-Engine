@@ -108,6 +108,14 @@ const ARGS = {
 	'tools/game-config-spike:inspect': ['../../apps/lines/src/game/config.ts'],
 };
 
+/** A longer limit for a check that is slow by design, and why; every other check gets TIMEOUT_MS. */
+const TIMEOUTS = {
+	// Drives Chromium through WebGL1 and WebGL2: 172 claims, 2,000 transitions after a warm-up. On a
+	// CI runner beside the other checks it took 260–310 s against the 300 s default, so it went red
+	// on unrelated changes and on main with every claim holding (2026-11-27).
+	'tools/fx-spike:screen-fx': 10 * 60_000,
+};
+
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);
 const opt = (name) => {
@@ -346,12 +354,12 @@ function lintGatedIds(checks) {
 }
 
 const all = discover();
-const stale = [...Object.keys(SKIP), ...Object.keys(ARGS)].filter(
+const stale = [...Object.keys(SKIP), ...Object.keys(ARGS), ...Object.keys(TIMEOUTS)].filter(
 	(id) => !all.some((c) => c.id === id) && !existsSync(join(ROOT, id)),
 );
 if (stale.length > 0) {
 	console.error(
-		`SKIP/ARGS name checks that no longer exist — delete them:\n  ${stale.join('\n  ')}`,
+		`SKIP/ARGS/TIMEOUTS name checks that no longer exist — delete them:\n  ${stale.join('\n  ')}`,
 	);
 	process.exit(1);
 }
@@ -482,10 +490,11 @@ async function runOne(check) {
 		let out = '';
 		child.stdout.on('data', (d) => (out += d));
 		child.stderr.on('data', (d) => (out += d));
+		const limit = TIMEOUTS[check.id] ?? TIMEOUT_MS;
 		const timer = setTimeout(() => {
-			out += `\n… timed out after ${TIMEOUT_MS / 1000}s`;
+			out += `\n… timed out after ${limit / 1000}s`;
 			child.kill('SIGKILL');
-		}, TIMEOUT_MS);
+		}, limit);
 		child.on('close', (code) => {
 			clearTimeout(timer);
 			done({ check, ok: code === 0, ms: Date.now() - started, out });

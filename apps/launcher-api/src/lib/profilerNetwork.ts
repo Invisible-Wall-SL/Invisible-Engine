@@ -218,14 +218,30 @@ export function redactTokens(text: string): string {
 const pathOnly = (v: unknown): string =>
 	redactTokens((str(v, 400) ?? '?').split(/[?#]/)[0]).slice(0, 200) || '/';
 
-const scrub = (v: unknown): unknown =>
+/** Any JSON value with every string in it, keys included, through {@link redactTokens}. */
+export const redactValue = (v: unknown): unknown =>
 	typeof v === 'string'
 		? redactTokens(v)
 		: Array.isArray(v)
-			? v.map(scrub)
+			? v.map(redactValue)
 			: isObj(v)
-				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), scrub(x)]))
+				? Object.fromEntries(Object.entries(v).map(([k, x]) => [redactTokens(k), redactValue(x)]))
 				: v;
+
+/** Each route not followed by its token segments already read `…`. */
+const UNREDACTED_ROUTE_RES = Object.entries(TOKEN_ROUTES).map(
+	([route, n]) => new RegExp(`${escapeRe(route)}/(?!${'…/'.repeat(n - 1)}…(?:[/"?#\\\\]|$))`, 'i'),
+);
+
+/**
+ * Whether a JSON text can hold a {@link TOKEN_ROUTES} token anywhere (any slash spelling, a JSON
+ * `/` escape, doubled slashes): a route whose segments are not all `…` yet. Linear, so a clean
+ * report, redacted or never carrying one, is not parsed.
+ */
+export function mayHoldToken(text: string): boolean {
+	const slashes = text.replace(/%2F|\\+u002f|\\+\//gi, '/').replace(/\/{2,}/g, '/');
+	return UNREDACTED_ROUTE_RES.some((re) => re.test(slashes));
+}
 
 /**
  * A report's text as the launcher keeps it in R2: every string in it, keys included, with its route
@@ -233,13 +249,14 @@ const scrub = (v: unknown): unknown =>
  * returned as it came (the summary refuses it).
  */
 export function redactReportText(text: string): string {
+	if (!mayHoldToken(text)) return text;
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
 	} catch {
 		return text;
 	}
-	const kept = JSON.stringify(scrub(json));
+	const kept = JSON.stringify(redactValue(json));
 	return kept === JSON.stringify(json) ? text : kept;
 }
 

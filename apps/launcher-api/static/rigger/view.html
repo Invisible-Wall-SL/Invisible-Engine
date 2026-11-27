@@ -14327,10 +14327,10 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
     const l = document.createElement("span"); l.textContent = "shows"; l.style.cssText = "width:54px;";
     const sel = document.createElement("select"); sel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
-    const o0 = document.createElement("option"); o0.value = " none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
+    const o0 = document.createElement("option"); o0.value = "\u0000none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
     defs.forEach((d) => { const o = document.createElement("option"); o.value = d.name; o.textContent = d.name; sel.appendChild(o); });
-    sel.value = curAtt == null ? " none" : curAtt;
-    sel.onchange = () => keySlotAttachment(sd.name, sel.value === " none" ? null : sel.value);
+    sel.value = curAtt == null ? "\u0000none" : curAtt;
+    sel.onchange = () => keySlotAttachment(sd.name, sel.value === "\u0000none" ? null : sel.value);
     r.appendChild(l); r.appendChild(sel); det.appendChild(r);
   }
   // colour (rgb tint): retint only, keeping the current opacity — keys at the playhead

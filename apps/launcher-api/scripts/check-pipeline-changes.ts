@@ -4100,7 +4100,7 @@ check(
 	check(
 		'a merge conflict, in words',
 		view.blockedSentence(await detailOf('15')),
-		'Merge conflict with main: bring main in and resolve it.',
+		'Merge conflict with main.',
 	);
 	check(
 		'a failed Check 1 job names the workflow and the job',
@@ -9208,9 +9208,9 @@ check(
 		[{ tone: 'muted', label: 'On hold', dot: false }, 'Blocked', [2, 4, 1, 3]],
 	);
 	check(
-		'the page: the conflict sentence is unchanged until Resolve exists',
+		'the page: the conflict sentence is "Merge conflict with main." — Resolve conflict stands beside it (ADR-0015 card 15C)',
 		view.BLOCKED_CONFLICT_TEXT,
-		'Merge conflict with main: bring main in and resolve it.',
+		'Merge conflict with main.',
 	);
 	check(
 		'the page: a refused update shows the server’s sentence, and a link only for the workflow refusal, only to GitHub',

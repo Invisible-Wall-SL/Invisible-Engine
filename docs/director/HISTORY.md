@@ -15,6 +15,63 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · director-backend + regression-guardian (15B1 and 15C joined)
+- Did: the cross-check ADR-0015 §10 asks of the last card to land.
+  - `check:merge-main-join` (new, `apps/launcher-api/scripts/check-merge-main-join.ts`): the job's
+    own code on real scratch repos, its exact JSON through `parseMergeResult`, `filesProblem` and
+    Accept's `planMerge`, and the resulting tree against git's own merge plus the resolution. Seven
+    cases, 49 checks.
+  - Two drifts found and fixed launcher side: a protected path or lockfile both sides changed
+    identically (`choice` `main`) was refused; a pending rule file (`choice` `main`) was not
+    seen as a rule file.
+  - The parser takes only the job's three forms and refuses the rest; `readResultBody` takes a cap
+    (merge runs: 8 MB, fix runs: 2 MB as before); `usage` priced from `pricing.json`, a named cost
+    ignored; the answer is `{ mergeRun, status, spendUsd }`; a `checks[].command` sentence is text.
+  - Raw NUL characters in `static/rigger/view.html` (hand-written, not built), `sheet-tool/ui.html`
+    and `optimize-build-assets.mjs` replaced by `\u0000`; `check:merge-main` fails on a new one.
+- Files: `apps/launcher-api/src/lib/server/{pipelineMergeRunsResult,bugFixRuns,pipelineMergeRuns,bugFixRunsChange}.ts`,
+  `src/lib/mergeMainRuns.ts`, `scripts/check-merge-main-{join,runs}.ts`, `package.json`,
+  `scripts/merge-main/merge-main.fixture.mjs`, `scripts/bug-fix/coordinator.md`, the three NUL files,
+  `docs/status/bug-reports.md`.
+- Branch / PR: `merge-main-join`, from `f8daa89ea`; not pushed.
+- Tests: `check:merge-main` 114, `check:merge-main-runs` 242, `check:merge-main-join` 49,
+  `check:pipeline-changes`, `check:bug-fix-runs`, `check:bug-fix-workflow`, vendored bundles,
+  migration order, svelte-check 44 (baseline 44), undefined names.
+- Decisions: a `main` choice on a path both sides changed is no change to `main`'s tree and Accept
+  checks its content, so the parser does not hold it to the protected-path and lockfile rules.
+- Next: 15B2 (the workflow), then 15D.
+
+## 2026-11-27 · Phase 12 · infra-railway + regression-guardian (15B1 built)
+- Did: `scripts/merge-main/`, runnable on a local checkout.
+  - `merge.mjs` (job `merge`) merges `main` into the change at the pinned SHAs path by path, as
+    §5's three-tree Accept does. It applies the §3 rules and the §4 job refusals, and writes the
+    `merge` record.
+  - `collect.mjs` (job `propose`): `stage` redoes the merge from main's git, refuses a record that
+    differs, and lays out the merged tree; `result` holds the run to §4, builds §10's body and
+    POSTs it with OIDC.
+  - `pnpm check:merge-main`, and a `README.md` that 15B2 wires from.
+  - §10 as amended at `e716b6d8d`: `budget_usd` is `BUDGET_USD`; `0` skips the model, and
+    `baseSha` is the merge base the merge used.
+- Files: `scripts/merge-main/{merge.mjs,collect.mjs,merge-main.fixture.mjs,README.md}`,
+  `scripts/bug-fix/collect.mjs` (helpers exported, `oidcToken(audience)`), root `package.json`,
+  `docs/status/bug-reports.md`, `PLAN.md`.
+- Branch / PR: `merge-main-15b1`, on `claude/focused-hopper-nnfkz5` at `e716b6d8d`; not pushed.
+- Tests:
+  - `check:merge-main` 113 pass; `check:bug-fix-workflow` pass; `pnpm lint` and
+    `check:undefined-names` clean.
+  - Replay of 296 merges of `main` into the window's 147 branches: 212 conflict, 106 are
+    mechanical-only, and 81 equal the person's commit (manifests aside). Each of the 25 others is
+    explained in `docs/status/bug-reports.md`.
+  - BUG-20's `fa73b7d86` with the real `check:runtime-bytes --update`: the tree equals the
+    person's merge, and the five manifests are byte for byte their re-record `3a3940ea3`.
+- Decisions:
+  - No rename detection, so nothing lands on a path only one side changed.
+  - Builds run only with no conflict left outside Markdown; otherwise they are `pending`.
+  - `docs-append` refuses a block both sides added rather than write it twice.
+  - A build that fails on a resolved tree is `needs_person`.
+- Next: 15C; 15B2 (YAML, `coordinator.md`, INFRA). The owner or launcher-studio replaces the raw
+  NUL in `static/rigger/view.html`, which makes 19 of the window's merges `needs_person`.
+
 ## 2026-11-27 · Phase 12 · coordinator (15A spike answered)
 - Did: the owner clicked Update from main on the scratch PR #1940, whose branch started before
   #1928's workflow change. GitHub accepted `update-branch` as the App (merge commit `bee763a`,
