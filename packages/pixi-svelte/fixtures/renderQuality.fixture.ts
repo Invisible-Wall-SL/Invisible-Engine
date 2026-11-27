@@ -3,18 +3,22 @@
  *   node --experimental-strip-types packages/pixi-svelte/fixtures/renderQuality.fixture.ts
  *
  * Pins, on simulated frame feeds: the ladder each pixel ratio gets (never below 1, duplicates
- * dropped, the MSAA step only where it can switch, the effects step last and only there); steady 60 Hz and 120 Hz mixed 8.3/16.7 ms
- * frames stay at the top; idle, hidden and settling frames never count, nor intervals over 250 ms;
- * the 21 ms and 10% boundaries; two slow windows step down, only after 20 quiet frames in a row
- * (which may be measured frames too: autoplay's stopped reels); a trial that helps (half the slow
- * share, or a mean frame interval 20% shorter) keeps its level, one that does not (dipping under
- * 10% is not enough) reverts, each verdict kept for the readout; the second chance after it (four
- * slow windows, straight to the effects level, kept when that helps, and stepping down stops when
- * it does not or when the step that failed was already the last); a
+ * dropped, the MSAA step only where it can switch, the effects step last and only there); steady
+ * 60 Hz and 120 Hz mixed 8.3/16.7 ms frames stay at the top; idle, hidden and settling frames never
+ * count, nor intervals over 250 ms; the 21 ms and 10% boundaries; two slow windows step down, only
+ * after 20 quiet frames in a row (which may be measured frames too: autoplay's stopped reels); a
+ * trial that helps (half the slow share, or a mean frame interval 20% shorter) keeps its level, one
+ * that does not (dipping under 10% is not enough) reverts, each verdict kept for the readout; the
+ * second chance after it (four slow windows, then a walk one level at a time, straight to the
+ * effects level only from resolution 1, kept at the first level that helps, back to its start and
+ * stopped when none does): a device just over the line keeps its effects, one slow at every
+ * resolution reaches the effects level, and 15 good windows give a waiting second chance back; a
  * browser's 30 fps rhythm never adapts (Low Power Mode caps idle frames too) while rounds at 30 on
  * a device that idles at 60, a device slower than 30 (an iPhone 13 Pro at 14 fps) or a jittery
  * 25–45 ms one do; the floor holds; a step up after 30 good windows is a trial that backs off and
- * is never retried; at most 12 switches, the last only a revert.
+ * is never retried; at most 12 switches, the last only a revert. And the effects wiring of
+ * `installRenderQuality` on a stand-in app: the effects are lowered and given back only on a
+ * change, and its teardown gives them back.
  */
 
 import {
@@ -364,7 +368,7 @@ console.log('\nstepping down');
 	);
 	check(
 		'and its verdict is in the readout with both measures',
-		trials.length >= 1 &&
+		trials.length === 1 + PHONE.length - 1 &&
 			!trials[0].kept &&
 			!trials[0].up &&
 			trials[0].level === 1 &&
@@ -383,9 +387,12 @@ console.log('\nstepping down');
 		trail(sim),
 	);
 	check(
-		'then the second chance tries the effects level, and when that does not help either, ' +
-			'stepping down stops for the session',
-		trail(sim) === '0->1 slow 0.3, 1->0 no gain 0.3, 0->6 second chance 0.3, 6->0 no gain 0.3' &&
+		'then the second chance walks down the ladder, and when no level helps, back to the top, ' +
+			'and stepping down stops for the session',
+		trail(sim) ===
+			'0->1 slow 0.3, 1->0 no gain 0.3, 0->1 second chance 0.3, 1->2 second chance 0.3, ' +
+				'2->3 second chance 0.3, 3->4 second chance 0.3, 4->5 second chance 0.3, ' +
+				'5->6 second chance 0.3, 6->0 no gain 0.3' &&
 			sim.level() === 0 &&
 			sim.controller.snapshot().downStopped &&
 			sim.controller.snapshot().secondChance === 'taken',
@@ -444,63 +451,135 @@ console.log('\nthe second chance');
 		trail(sim),
 	);
 	check(
-		'the fourth steps straight to the effects level',
+		'the fourth steps one level down again, keeping the effects (resolution 2 is not 1)',
 		sim.history()[2]?.reason === 'second chance' &&
-			sim.history()[2].to === PHONE.length - 1 &&
-			sim.controller.snapshot().level.postFx === false,
+			sim.history()[2].from === 0 &&
+			sim.history()[2].to === 1 &&
+			sim.controller.snapshot().level.postFx === true,
 		trail(sim),
 	);
 }
 {
-	// Pixels are not what costs (every resolution as slow as the top); the effects are.
+	// The Nothing Phone (1) as BUG-20's review read it: 13% slow at the top, the first step no
+	// help, each lower resolution a little lighter and the effects level lightest of all.
 	const sim = device();
-	sim.rounds(40, at(36, 36, 36, 36, 36, 36, 0));
+	sim.rounds(80, at(16, 15, 14, 9, 6, 3, 0));
+	const snap = sim.controller.snapshot();
+	check(
+		'a device just over the line stops at the first level that helps and keeps its effects',
+		trail(sim) ===
+			'0->1 slow 0.13, 1->0 no gain 0.13, 0->1 second chance 0.13, 1->2 second chance 0.13, ' +
+				'2->3 second chance 0.12, 3->4 second chance 0.08' &&
+			sim.level() === 4 &&
+			snap.level.resolution === 1.25 &&
+			snap.level.postFx === true &&
+			snap.level.particleCap === 1 &&
+			snap.trials.at(-1)?.kept === true,
+		trail(sim),
+	);
+}
+{
+	// Pixels are not what costs (every resolution as slow as the top); the effects are (BUG-20's
+	// Mali-G57 phone).
+	const sim = device();
+	sim.rounds(60, at(36, 36, 36, 36, 36, 36, 0));
 	const trials = sim.controller.snapshot().trials;
 	check(
-		'a second chance that helps keeps the effects level',
-		trail(sim).startsWith('0->1 slow 0.3, 1->0 no gain 0.3, 0->6 second chance 0.3') &&
-			trials[1]?.kept === true &&
-			trials[1].level === 6,
+		'a device slow at every resolution walks to the effects level and keeps it',
+		trail(sim).startsWith(
+			'0->1 slow 0.3, 1->0 no gain 0.3, 0->1 second chance 0.3, 1->2 second chance 0.3, ' +
+				'2->3 second chance 0.3, 3->4 second chance 0.3, 4->5 second chance 0.3, ' +
+				'5->6 second chance 0.3',
+		) &&
+			trials[6]?.kept === true &&
+			trials[6].level === 6 &&
+			trials[6].before.slowShare === 0.3 &&
+			sim.controller.snapshot().level.postFx === false,
 		trail(sim),
 	);
 	sim.rounds(100, at(36, 36, 36, 36, 36, 36, 0));
 	check(
 		'from there a step up that goes slow backs off and is never retried',
-		trail(sim) ===
-			'0->1 slow 0.3, 1->0 no gain 0.3, 0->6 second chance 0.3, 6->5 headroom 0, ' +
-				'5->6 slow again 0.3' && sim.level() === 6,
+		trail(sim).endsWith('5->6 second chance 0.3, 6->5 headroom 0, 5->6 slow again 0.3') &&
+			sim.history().length === 10 &&
+			sim.level() === 6,
+		trail(sim),
+	);
+}
+{
+	// A DPR-1 screen: a step to 1 without MSAA that did not help leaves only the effects to try.
+	const sim = device(qualityLadder(1, { msaa: true, msaaSwitchable: true }));
+	sim.rounds(40, at(36, 36, 0));
+	check(
+		'from resolution 1 the second chance steps straight to the effects level',
+		trail(sim).startsWith('0->1 slow 0.3, 1->0 no gain 0.3, 0->2 second chance 0.3') &&
+			sim.level() === 2,
 		trail(sim),
 	);
 }
 {
 	// A device that recovers after the revert (the particle budget caught up) never gets there.
+	const pause = RULES.quietFrames + RULES.settleFrames;
+	const hot = at(36);
 	const sim = device();
-	sim.rounds(6, at(36));
-	sim.rounds(40, at(0));
+	sim.play(RULES.slowWindows * RULES.windowFrames, hot);
+	sim.idle(pause);
+	sim.play(RULES.trialWindows * RULES.windowFrames, hot);
+	sim.idle(pause);
+	const waiting = sim.controller.snapshot().secondChance;
+	sim.play((RULES.retryGoodWindows - 1) * RULES.windowFrames, at(0));
+	sim.idle(pause);
+	const short = sim.controller.snapshot().secondChance;
+	sim.play(RULES.windowFrames, at(0));
+	sim.idle(pause);
+	const back = sim.controller.snapshot().secondChance;
 	check(
 		'a device that recovers after a revert takes no second chance',
-		sim.controller.snapshot().secondChance === 'waiting' && sim.level() === 0,
+		waiting === 'waiting' && short === 'waiting' && back === 'unused' && sim.level() === 0,
+		`${waiting} ${short} ${back} ${trail(sim)}`,
+	);
+	// A heavy bonus long after: a first step, as on a device that never needed the second chance.
+	sim.rounds(6, at(36, 0));
+	check(
+		'15 good windows give it back unused: a later slow spell starts from a first step',
+		trail(sim) === '0->1 slow 0.3, 1->0 no gain 0.3, 0->1 slow 0.3' && sim.level() === 1,
 		trail(sim),
 	);
 }
 {
 	// One second chance a session: once it is taken, a step down that does not help stops.
 	const sim = device();
-	sim.rounds(16, at(36, 36, 36, 36, 36, 36, 0));
+	sim.rounds(20, at(36, 36, 0));
 	const kept = sim.level();
 	// The device cools off and climbs back to the top, one kept step up at a time.
-	sim.rounds(250, at(0));
+	sim.rounds(100, at(0));
 	const climbed = sim.level();
 	sim.rounds(80, at(36));
 	check(
 		'one second chance a session: a later step down that does not help stops',
-		kept === 6 &&
+		kept === 2 &&
 			climbed === 0 &&
-			trail(sim).endsWith('1->0 headroom 0, 0->1 slow 0.24, 1->0 no gain 0.3') &&
+			trail(sim) ===
+				'0->1 slow 0.3, 1->0 no gain 0.3, 0->1 second chance 0.3, 1->2 second chance 0.3, ' +
+					'2->1 headroom 0, 1->0 headroom 0, 0->1 slow 0.24, 1->0 no gain 0.3' &&
 			sim.level() === 0 &&
 			sim.controller.snapshot().downStopped &&
 			sim.controller.snapshot().secondChance === 'taken' &&
 			sim.history().length <= RULES.maxSwitches,
+		trail(sim),
+	);
+}
+{
+	const sim = device();
+	// Late frames of 45 ms: 90% of them at 33.3 ms would be a 30 fps rhythm, read as a cap. The
+	// share halves down to 1.5 without MSAA, then 1.25 and 1 do not help and the walk goes on.
+	sim.rounds(160, at(108, 54, 27, 13, 13, 13, 0), 45);
+	check(
+		'a 90%-late 45 ms device is judged at every level on its way to the floor',
+		trail(sim).startsWith(
+			'0->1 slow 0.9, 1->2 slow 0.45, 2->3 slow 0.23, 3->4 slow 0.11, 4->3 no gain 0.11, ' +
+				'3->4 second chance 0.11, 4->5 second chance 0.11, 5->6 second chance 0.11',
+		) && sim.level() === PHONE.length - 1,
 		trail(sim),
 	);
 }
@@ -537,7 +616,8 @@ console.log('\nthe second chance');
 	check(
 		'14 → 30 fps keeps the step though every frame is still slow',
 		trail(sim) ===
-			'0->1 slow 1, 1->2 slow 1, 2->1 no gain 1, 1->6 second chance 1, 6->1 no gain 1' &&
+			'0->1 slow 1, 1->2 slow 1, 2->1 no gain 1, 1->2 second chance 1, 2->3 second chance 1, ' +
+				'3->4 second chance 1, 4->5 second chance 1, 5->6 second chance 1, 6->1 no gain 1' &&
 			sim.level() === 1,
 		trail(sim),
 	);
@@ -545,8 +625,10 @@ console.log('\nthe second chance');
 	flat.spins(40, (level, k) => (level === 0 ? IPHONE_14FPS[k % 8] : [60, 70, 66, 72, 65][k % 5]));
 	check(
 		'14 → 15 fps reverts',
-		trail(flat) === '0->1 slow 1, 1->0 no gain 1, 0->6 second chance 1, 6->0 no gain 1' &&
-			flat.level() === 0,
+		trail(flat) ===
+			'0->1 slow 1, 1->0 no gain 1, 0->1 second chance 1, 1->2 second chance 1, ' +
+				'2->3 second chance 1, 3->4 second chance 1, 4->5 second chance 1, ' +
+				'5->6 second chance 1, 6->0 no gain 1' && flat.level() === 0,
 		trail(flat),
 	);
 }
@@ -710,6 +792,79 @@ console.log('\nreadout');
 	);
 	release();
 	undo();
+}
+
+console.log('\nthe effects wiring');
+{
+	// A stand-in app (no back buffer, so no MSAA switch) and page; the effects are spies.
+	type Tick = (ticker: { elapsedMS: number }) => void;
+	const ticks = new Set<Tick>();
+	const listeners = new Set<unknown>();
+	Object.defineProperty(globalThis, 'document', {
+		value: {
+			visibilityState: 'visible',
+			addEventListener: (_: string, fn: unknown) => listeners.add(fn),
+			removeEventListener: (_: string, fn: unknown) => listeners.delete(fn),
+		},
+		configurable: true,
+	});
+	const app = {
+		renderer: { resolution: 2 },
+		ticker: { add: (fn: Tick) => ticks.add(fn), remove: (fn: Tick) => ticks.delete(fn) },
+	};
+	const calls: string[] = [];
+	const effects = {
+		suppressPostFx: (suppressed: boolean) => calls.push(`postFx ${suppressed ? 'off' : 'on'}`),
+		capParticles: (cap: number) => calls.push(`particles ${cap}`),
+	};
+	let playing = false;
+	const undo = configureRenderQuality({
+		adaptive: true,
+		measuring: () => playing,
+		quiet: () => !playing,
+	});
+	const install = () =>
+		installRenderQuality(app as unknown as Parameters<typeof installRenderQuality>[0], {
+			tier: 'full',
+			msaa: true,
+			effects,
+		});
+	const release = install();
+	const level = () => renderQualitySnapshot()?.level.index ?? -1;
+	const levels = renderQualitySnapshot()?.levels ?? 0;
+	/** Rounds slow at every level but the last (BUG-20's phone), noting the calls at each switch. */
+	const atSwitch: string[] = [];
+	let frame = 0;
+	for (let round = 0; round < 80 && level() < levels - 1; round++) {
+		for (let f = 0; f < SPIN_FRAMES + BETWEEN_SPINS; f++) {
+			playing = f < SPIN_FRAMES;
+			const slow = playing && level() < levels - 1 && frame++ % 10 < 3;
+			const before = level();
+			for (const tick of ticks) tick({ elapsedMS: slow ? SLOW_MS : FRAME_60 });
+			if (level() !== before) atSwitch.push(`L${level()}: ${calls.splice(0).join(', ')}`);
+		}
+	}
+	const last = `L${levels - 1}: postFx off, particles ${LOW_EFFECTS_PARTICLES}`;
+	check(
+		'the effects are lowered once, at the switch to the last level, and at no other',
+		atSwitch.at(-1) === last &&
+			atSwitch.slice(0, -1).every((s) => s.endsWith(': ')) &&
+			atSwitch.length > 2 &&
+			app.renderer.resolution === 1,
+		atSwitch.join(' | '),
+	);
+	release();
+	check(
+		'teardown gives the post FX back and lifts the particle cap, and unhooks the ticker',
+		calls.join(', ') === 'postFx on, particles 1' && ticks.size === 0 && listeners.size === 0,
+		calls.join(', '),
+	);
+	calls.length = 0;
+	const untouched = install();
+	untouched();
+	check('teardown at full effects calls neither', calls.length === 0, calls.join(', '));
+	undo();
+	Reflect.deleteProperty(globalThis, 'document');
 }
 
 if (failures) throw new Error(`renderQuality fixture: ${failures} check(s) FAILED`);

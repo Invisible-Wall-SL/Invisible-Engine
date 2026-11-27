@@ -36,11 +36,16 @@
  * Otherwise the old level comes back at the next quiet moment. A kept level that is still slow may
  * step down again.
  *
- * THE SECOND CHANCE: a step down that did not help says pixels are not what costs, so it is not
- * the end. Four slow windows in a row after the revert (twice the evidence a first step needs: a
- * device that recovered never gets there) step straight to the last level, the effects one, as a
- * trial of its own, with the same verdict. If that does not help either, or if the step that did
- * not help was already to the last level, stepping down stops for the session. One second chance a
+ * THE SECOND CHANCE: one step down that did not help is not the end. Four slow windows in a row
+ * after the revert (twice the evidence a first step needs) take it: one level down again, or, from
+ * a level already at resolution 1, straight to the last level, the effects one. It is a walk
+ * judged against those four windows: a level that helps is kept, one that does not steps one more
+ * level down, and at the last level that does not help the walk goes back to where it started and
+ * stepping down stops for the session. So a device slow at every resolution (a Mali-G57 phone,
+ * BUG-20) still reaches the effects level, while one just over the line stops at the first level
+ * that helps and keeps its effects. Fifteen good windows in a row while it waits give it back
+ * unused: a device that recovered starts a later slow spell from a first step again. If the step
+ * that did not help was already to the last level, stepping down stops. One second chance a
  * session. The game's controller has it ({@link installRenderQuality}); `engine-3d`, which walks
  * its own ladder with this controller, does not ({@link RenderQualityOptions}): there the first
  * step down that does not help stops stepping down.
@@ -86,6 +91,8 @@ export const QUALITY_RULES = {
 	slowWindows: 2,
 	/** Slow windows in a row, after a step down that did not help, that take the second chance. */
 	retrySlowWindows: 4,
+	/** Good windows in a row that give a waiting second chance back unused (the device recovered). */
+	retryGoodWindows: 15,
 	/** Windows a trial runs before its verdict. */
 	trialWindows: 2,
 	/** A step down is also kept when the mean frame interval fell by at least this share. */
@@ -114,11 +121,11 @@ export interface QualityLevel {
 
 export type RenderQualityMode = 'adaptive' | RenderTier;
 
-/** `slow` steps down, `second chance` steps down to the last level after a step down that did not
- *  help, `no gain` reverts a step down, `headroom` steps up, `slow again` reverts the step up. */
+/** `slow` steps down, `second chance` is a step of the walk after a step down that did not help,
+ *  `no gain` reverts a step down, `headroom` steps up, `slow again` reverts the step up. */
 export type QualitySwitchReason = 'slow' | 'second chance' | 'no gain' | 'headroom' | 'slow again';
 
-/** Where the session's one second chance is: not needed yet, waiting for its slow windows, or
+/** Where the session's one second chance is: not needed (again), waiting for its slow windows, or
  *  taken. */
 export type QualitySecondChance = 'unused' | 'waiting' | 'taken';
 
@@ -209,8 +216,22 @@ export function qualityLadder(
 
 /** A window's share of slow frames and its mean frame interval. */
 type WindowStats = { share: number; meanMs: number };
-type Pending = { to: number; reason: QualitySwitchReason; stats: WindowStats };
-type Trial = { up: boolean; from: number; baseline: WindowStats; windows: WindowStats[] };
+/** `walk`: a second-chance step on from a level that did not help, with the walk's start and
+ *  baseline. */
+type Pending = {
+	to: number;
+	reason: QualitySwitchReason;
+	stats: WindowStats;
+	walk?: { from: number; baseline: WindowStats };
+};
+type Trial = {
+	up: boolean;
+	/** A second-chance walk: a level that does not help steps on instead of reverting. */
+	walk: boolean;
+	from: number;
+	baseline: WindowStats;
+	windows: WindowStats[];
+};
 
 const mean = (values: readonly number[]): number =>
 	values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -223,7 +244,7 @@ const quantile = (sorted: readonly number[], q: number): number =>
 
 export interface RenderQualityOptions {
 	/**
-	 * A step down that did not help leaves one more try, straight to the last level (THE SECOND
+	 * A step down that did not help leaves one more try, a walk down the ladder (THE SECOND
 	 * CHANCE), and the session may switch {@link QUALITY_RULES}`.maxSwitches` times. Without it the
 	 * first step down that does not help stops stepping down, within `maxSwitchesSingleTry`.
 	 */
@@ -259,6 +280,8 @@ export function createRenderQualityController(
 	});
 
 	const room = (switches: number) => history.length + switches <= maxSwitches;
+	/** Where the second chance steps from `at`: the effects level once resolution is down to 1. */
+	const chanceStep = (at: number) => (ladder[at].resolution <= 1 ? last : at + 1);
 
 	const verdict = (current: Trial, after: WindowStats, kept: boolean) => {
 		trials.push({
@@ -288,7 +311,14 @@ export function createRenderQualityController(
 		const helped =
 			after.share <= current.baseline.share / 2 ||
 			after.meanMs <= current.baseline.meanMs * (1 - rules.trialIntervalGain);
-		if (!helped) {
+		if (!helped && current.walk && level < last && room(2)) {
+			pending = {
+				to: chanceStep(level),
+				reason: 'second chance',
+				stats: after,
+				walk: { from: current.from, baseline: current.baseline },
+			};
+		} else if (!helped) {
 			// The second chance is for a step that left the last level untried.
 			if (retries && secondChance === 'unused' && level < last) secondChance = 'waiting';
 			else downStopped = true;
@@ -308,7 +338,7 @@ export function createRenderQualityController(
 			slowRun = [...slowRun, stats].slice(-needed);
 			if (slowRun.length === needed && !downStopped && level < last && room(2)) {
 				pending = retry
-					? { to: last, reason: 'second chance', stats: meanStats(slowRun) }
+					? { to: chanceStep(level), reason: 'second chance', stats: meanStats(slowRun) }
 					: { to: level + 1, reason: 'slow', stats: meanStats(slowRun) };
 				if (retry) secondChance = 'taken';
 			}
@@ -316,6 +346,7 @@ export function createRenderQualityController(
 		}
 		slowRun = [];
 		goodRun = stats.share < rules.goodWindowShare ? goodRun + 1 : 0;
+		if (secondChance === 'waiting' && goodRun >= rules.retryGoodWindows) secondChance = 'unused';
 		if (goodRun >= rules.goodWindows && level > 0 && !upFailed.has(level - 1) && room(2))
 			pending = { to: level - 1, reason: 'headroom', stats };
 	};
@@ -336,7 +367,7 @@ export function createRenderQualityController(
 		});
 	};
 
-	const apply = ({ to, reason, stats }: Pending): QualityLevel => {
+	const apply = ({ to, reason, stats, walk }: Pending): QualityLevel => {
 		pending = undefined;
 		history.push({
 			at: seconds(),
@@ -347,7 +378,13 @@ export function createRenderQualityController(
 		});
 		trial =
 			reason === 'slow' || reason === 'second chance' || reason === 'headroom'
-				? { up: reason === 'headroom', from: level, baseline: stats, windows: [] }
+				? {
+						up: reason === 'headroom',
+						walk: reason === 'second chance',
+						from: walk?.from ?? level,
+						baseline: walk?.baseline ?? stats,
+						windows: [],
+					}
 				: undefined;
 		level = to;
 		intervals = [];
