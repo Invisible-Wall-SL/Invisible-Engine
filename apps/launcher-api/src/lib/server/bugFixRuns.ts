@@ -645,8 +645,10 @@ export async function fixRunScreenshot(
 
 // ── The result: reading it ────────────────────────────────────────────────────
 
-/** Past adapter-node's 512 KB body limit a change is sent gzipped; this is what it may unpack to. */
-const MAX_RESULT_BYTES = 2 * 1024 * 1024;
+/** Past adapter-node's 512 KB body limit a change is sent gzipped; this is what it may unpack to. A change is
+ *  counted by its lines, so whole files up to 2 MB each ride in the body; scripts/bug-fix/collect.mjs
+ *  holds the same figure. */
+const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 const MAX_MODELS = 10;
 /** `director_spend` counts tokens in a 32-bit integer. */
 const MAX_TOKENS = 2_000_000_000;
@@ -727,14 +729,14 @@ export async function acceptFixRunResult(
 
 async function readResultBody(request: Request): Promise<Record<string, unknown>> {
 	const raw = Buffer.from(await request.arrayBuffer());
-	if (raw.length > MAX_RESULT_BYTES) throw error(413, 'A result is at most 2 MB.');
+	if (raw.length > MAX_RESULT_BYTES) throw error(413, 'A result is at most 8 MB.');
 	const encoding = (request.headers.get('content-encoding') ?? '').trim().toLowerCase();
 	let bytes: Buffer;
 	if (encoding === 'gzip') {
 		try {
 			bytes = gunzipSync(raw, { maxOutputLength: MAX_RESULT_BYTES });
 		} catch (err) {
-			if (err instanceof RangeError) throw error(413, 'A result unpacks to at most 2 MB.');
+			if (err instanceof RangeError) throw error(413, 'A result unpacks to at most 8 MB.');
 			throw error(400, 'The result is not gzip.');
 		}
 	} else if (encoding === '' || encoding === 'identity') {
