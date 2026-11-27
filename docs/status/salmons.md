@@ -2664,6 +2664,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     −25 % of messages and bytes, others drawn 33 ms later. (3) WebSocket permessage-deflate: float32
     deltas compress poorly, guess 15–30 % of bytes for a zlib pass per client per patch on the
     server; measure with `scripts/room-load.mjs` before deciding.
+  - **Gates:** `check:netcode` 31, `check:room-sim` 43, `check:room-bots` 56, `check:online-rules`
+    40, `check:room-lobby` 42, `check:agents-knowledge` ok, `check:svelte --only apps/lines` 145
+    (baseline 145). Playtests: `online-play.mjs` 20/20 (engine) and 20/20 (`--netcode colyseus`),
+    `salmons-rejoin-play.mjs` 58/58, `salmons-play.mjs` 103/103, `--stall` 4/4.
+    `check:runtime-bytes`: only `arcade` (+110 B gzip) and `arcade3d` (+88 B) move, re-recorded;
+    the slot, match-3 and card runtimes are byte-identical.
   - **Guard:** the invariant in [families/arcade](../knowledge/families/arcade.md) "Online, device
     Flow is presentation" (record each state, apply the newest once a frame), `check:netcode`'s
     stall rows and source checks, `salmons-play.mjs --stall` ([playtest](../playtest/salmons.md)
