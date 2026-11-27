@@ -30,8 +30,8 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
-    T6 net client — started · T4 river chunks — draft PR #1972 (pixel-identical; mount frame 48k → 9k
-    objects, ticker CPU ~6× less; Recent changes 2026-11-27) · T5 filters → shaders — after T4.
+    T6 net client — started · T4 river chunks — draft PR #1972 (pixel-identical; lab: mount 39.7k → 6.4k
+    objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — after T4.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2648,8 +2648,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   flow change.
   - **What changed.** `salmonsArt/river.ts`: the ground's ~38k–47k tiles are laid in chunks of
     8 × 8 cells, made the first time they near the view (a ring ahead is made 1,500 tiles a frame)
-    and shown or hidden whole when the view's ground box, rounded out to the chunk grid, changes;
-    tiles that overlap keep the order they were laid in (`chunkFor`), every `random()` /
+    and shown or hidden whole when one meets the view's ground box or stops meeting it (8 against
+    4: 4 drew 15 % fewer vertices for ~15 % more JS and twice the rebuilds); tiles that overlap keep the order they were laid in (`chunkFor`), every `random()` /
     `forestRandom()` draw is made as before. The ground is one render group, so a camera move is
     one transform; the riverbed's ripple is on a container square to the screen whose
     `filterArea` is the box the tiles in view cover, as loose tiles gave it (`rippleBy`). The
@@ -2666,18 +2666,18 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     No river kept across rooms: every room plays a new seed (Salmons' levels pin none), rounds are
     new rooms, and nothing re-keys the river inside one, so its inputs always change; the lazy
     chunks cut what a switch makes and destroys instead. No baking (owner decision §5).
-  - **Measured** (headless shell, SwiftShader, 1280 × 720, seed 7 of `SALMONS_LEVELS`, bots
-    moving, the salmon's camera 4 px a frame for 480 frames, the same build steps on main
-    665b407 and the branch; `?perf=1` and the Pixi app's own counts): objects made in the river's
-    mount frame 48,402 → 9,187; real CPU in the ticker (its callbacks and the render) 28.7 → 4.6
-    ms a frame (max 61.6 → 17.9); scene objects after the run 49,092 → 30,963 (only the chunks
-    visited); the ground's draw list rebuilt 0.075 times a frame (chunk crossings) instead of
-    with the whole scene every frame. Vertices drawn 28k → 36k a frame (whole chunks drawn past
-    the view's edge; off-screen, no fill). Objects made a frame: max 99 → 847 when a chunk row is
-    crossed ahead of the ring. The root draw list is still rebuilt about once a frame, by other
-    parts: a code look's `MountedArt` re-mounting, a salmon look's `filters` set on and off (T5),
-    the blood trail's puffs, real depth reorders. The probe's `invalidations` counts
-    `invalidateFramebuffer` calls (the back buffer's), not draw-list rebuilds.
+  - **Measured** with T2's lab (`salmons-lab.mjs --runs 2 --compare` its baseline of main 665b407;
+    seed 31337, 20 bots, the original level; counters compare, headless timings only roughly): the
+    mount frame makes 6,369 objects (main 39,681); per play frame JS 4.6 ms (21), render 2.5 ms
+    (15.7), tick 4.0 ms (20.1); the mount's JS 182 ms (381); frames in the minute 300 (168). Higher:
+    vertices 36.1k (26.3k: whole chunks past the view's edge, off screen), draws 19.1 (14.4), GL
+    calls 130 (110), objects made a frame 19.7 (0.5: chunks made ahead as the camera moves).
+    `invalidations` stays 1: it counts `invalidateFramebuffer` (the back buffer's), not draw-list
+    rebuilds. Draw lists, traced in a scratch harness on seed 7 of `SALMONS_LEVELS` (the
+    camera 4 px a frame): the ground's is rebuilt only when a chunk comes or goes (0.075 a frame);
+    the root's is still rebuilt about once a frame, by other parts: a code look's `MountedArt`
+    re-mounting, a salmon look's `filters` set on and off (T5), the blood trail's puffs, real
+    depth reorders.
   - **Proof of pixels.** `scripts/salmons/river-pixels.mjs --base <main worktree>` (new): the river
     of this checkout and of main drawn by WebGL with the built-in art, the camera walked along it a
     frame at a time, compared at 9 stops × 5 cases (seeds 1, 7, 42, 123; original, levels,
@@ -2689,6 +2689,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     frame: the same order every frame, a sort on 625 frames of 3,000 instead of 2,948),
     `check:zone-art` 130, `check:salmons-levels` 27, `check:room-levels` 16,
     `check:agents-knowledge`, svelte-check `engine-layout` at baseline (290).
+  - **Played** on the branch's arcade build, alone on the machine: `salmons-play.mjs` 103/103 (main
+    103/103; a first run beside five runtime builds failed one colour read, not again),
+    `--trees` 4/4, `--zone-rig` 4/4, `salmons-river-tour.mjs` seeds 1 and 4 (seed 4's climb also
+    alone, 4/4 on branch and main), `salmons-levels-play.mjs` 57/57.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five): `lines` +299 B,
+    `match3` +314 B, `card` +283 B gzip (`SpawnLayer` ships in every runtime; its projected branch
+    runs only on an iso world screen), `arcade` +2,056 B and `arcade3d` +2,077 B (the same plus
+    the lazy Salmons art chunk).
 
 - 2026-11-27 — **Salmons lab run (performance T2; in review; branch `claude/salmons-perf-t2-lab`;
   scripts and docs only, no game code)**: `scripts/playtest/salmons-lab.mjs` plays Salmons' room on
