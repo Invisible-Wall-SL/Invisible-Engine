@@ -62,13 +62,24 @@ function grab(name) {
 
 const select = { value: '' };
 const alerts = [];
+/** The Modules row's pickers (rig-modules): what the page reads them from. */
+const pickers = [];
+const document = { querySelectorAll: () => pickers };
+const newRigTemplates = [
+	{ id: 'half-body', modules: [{ id: 'hands', default: 'fingers', options: [] }] },
+	{ id: 'bust-face' },
+];
 const { newRigApplyChoice, reportTemplateParts } = new Function(
 	'$',
 	'showAlert',
-	`${grab('newRigApplyChoice')}\n${grab('reportTemplateParts')}\nreturn { newRigApplyChoice, reportTemplateParts };`,
+	'document',
+	'newRigTemplates',
+	`${grab('newRigApplyChoice')}\n${grab('newRigTemplate')}\n${grab('newRigModuleChoice')}\n${grab('reportTemplateParts')}\nreturn { newRigApplyChoice, reportTemplateParts };`,
 )(
 	() => select,
 	(message, title) => alerts.push({ title, message }),
+	document,
+	newRigTemplates,
 );
 
 const choice = (v) => {
@@ -81,6 +92,18 @@ ok(
 	'a template is sent as templateId',
 	choice('template:bust-face') === '{"templateId":"bust-face"}',
 );
+pickers.push({ dataset: { module: 'hands' }, value: 'fingers' });
+ok(
+	'a module at its default is not sent',
+	choice('template:half-body') === '{"templateId":"half-body"}',
+);
+pickers[0].value = 'none';
+ok(
+	'a module off its default is sent with the template',
+	choice('template:half-body') === '{"templateId":"half-body","modules":{"hands":"none"}}',
+	choice('template:half-body'),
+);
+pickers.length = 0;
 
 reportTemplateParts(undefined);
 reportTemplateParts({ id: 'bust-face', missing: [], missingRequired: [] });

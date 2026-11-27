@@ -142,7 +142,10 @@ const EYES_DRAWN = [
 	['lid_lower_l', '0002s_0002s_0002_UnderEyelidL', 99, 40],
 	['lid_lower_r', '0002s_0003s_0001_UnderEyelidR', 99, 40],
 ];
-/** The sheet with the owner's eyes drawn as parts, and a hat worn on the head beside the glasses. */
+/**
+ * The sheet with the owner's eyes drawn as parts, a front hair, and a hat worn on the head beside the
+ * glasses.
+ */
 function eyesSheet(M) {
 	const mapping = baseMapping(M);
 	const drawn = EYES_DRAWN.map(([part, layer, w, h], i) => ({
@@ -156,6 +159,8 @@ function eyesSheet(M) {
 	for (const d of drawn)
 		mapping.parts[d.part] = { region: d.name, joints: { pivot: [d.w / 2, d.h / 2] } };
 	const glow = SHEET.regions.find((r) => r.name === 'bg_glow');
+	const hair = 'NellyAssetBreakdown1_0011_HairFront';
+	mapping.parts.hair_front = { region: hair, joints: { pivot: [glow.w / 2, glow.h / 2] } };
 	mapping.props.push({
 		name: 'prop_hat',
 		region: 'NellyAssetBreakdown1_0010_Hat',
@@ -168,6 +173,7 @@ function eyesSheet(M) {
 			...SHEET.regions,
 			...drawn.map(({ name, x, y, w, h }) => ({ name, x, y, w, h })),
 			{ ...glow, name: 'NellyAssetBreakdown1_0010_Hat' },
+			{ ...glow, name: hair },
 		],
 		mapping,
 	};
@@ -209,18 +215,21 @@ const GUARDS = {
 		const tplSlots = t.slots.map((s) => s.name);
 		const slotOfPart = (p) => slotOf(M, p);
 		const natural = M.sheetLayerList(tplSlots, slotOfPart, mapping);
-		const drawn = new Set(natural);
+		const plain = created(M, mapping, regions);
+		// The list names the template's slots, the rig its regions' (one slot per region, §13.1h).
+		const rn = (n) => plain.sr.fit.slots?.[n] ?? n;
+		const drawn = new Set(natural.map(rn));
 		const drawnOrder = (slots) =>
 			slots
 				.map((s) => s.name ?? s)
 				.filter((n) => drawn.has(n))
 				.reverse();
-		const plain = created(M, mapping, regions);
 		good =
 			ok(
 				'layers: the page lists every slot the mapping draws in, front first, as the rig is made',
-				natural.join() === drawnOrder(plain.rigged.skeleton.slots).join() && natural.length > 10,
-				`page ${natural.join(' ')}\n        rig  ${drawnOrder(plain.rigged.skeleton.slots).join(' ')}`,
+				natural.map(rn).join() === drawnOrder(plain.rigged.skeleton.slots).join() &&
+					natural.length > 10,
+				`page ${natural.map(rn).join(' ')}\n        rig  ${drawnOrder(plain.rigged.skeleton.slots).join(' ')}`,
 			) && good;
 		// The author's: the chain behind the torso, the watch under its forearm, the left hand in front
 		// of everything (out of its fingers' 3D layer).
@@ -244,28 +253,29 @@ const GUARDS = {
 		good =
 			ok(
 				"layers: the rig draws the mapped slots in the list's order",
-				drawnOrder(slots).join() === own.join(),
+				drawnOrder(slots).join() === own.map(rn).join(),
 				drawnOrder(slots).join(' '),
 			) && good;
-		const others = (list) =>
-			JSON.stringify(list.map((s, i) => [s.name, i]).filter(([n]) => !drawn.has(n)));
+		const others = (list) => list.map((s) => s.name).filter((n) => !drawn.has(n));
 		good =
 			ok(
-				'layers: every slot the mapping does not draw in keeps its place',
-				others(slots) === others(plain.rigged.skeleton.slots),
+				'layers: the rig makes no slot the mapping does not draw in (one slot per region)',
+				!others(slots).length && !others(plain.rigged.skeleton.slots).length,
+				others(slots).join(' '),
 			) && good;
 		good =
 			ok(
 				"layers: the page lists the author's order as the rig draws it",
-				M.sheetLayerList(tplSlots, slotOfPart, { ...mapping, layers: own }).join() ===
-					drawnOrder(slots).join(),
+				M.sheetLayerList(tplSlots, slotOfPart, { ...mapping, layers: own })
+					.map(rn)
+					.join() === drawnOrder(slots).join(),
 			) && good;
 		const skel = new RIG.Skeleton(layered.data);
 		skel.setToSetupPose();
 		good =
 			ok(
 				'layers: engine-rig draws them in that order',
-				drawnOrder(skel.drawOrder.map((s) => s.data.name)).join() === own.join(),
+				drawnOrder(skel.drawOrder.map((s) => s.data.name)).join() === own.map(rn).join(),
 			) && good;
 		const ref = JSON.stringify({ id: t.id, version: t.version, fit: layered.sr.fit });
 		const made = new Set(slots.map((s) => s.name));
@@ -288,9 +298,8 @@ const GUARDS = {
 			ok(
 				'layers: every 3D draw-order layer still together (the hand drawn apart left its own)',
 				apart.length === 0 &&
-					!ft.rig3d.layers.hand_l.includes('hand_l') &&
-					ft.rig3d.layers.hand_l.length > 1,
-				JSON.stringify(apart) + JSON.stringify(ft.rig3d?.layers?.hand_l),
+					!Object.values(ft.rig3d?.layers ?? {}).some((v) => v.includes(rn('hand_l'))),
+				JSON.stringify(apart) + JSON.stringify(ft.rig3d?.layers),
 			) && good;
 		// An order the Arm depth control cannot stand with: the arm behind the head.
 		const behindHead = [...natural];
@@ -300,7 +309,8 @@ const GUARDS = {
 		good =
 			ok(
 				'layers: the arm drawn behind the head refused, naming the depth control',
-				!refused.ok && /the Layers draw "upper_arm_l" behind "head"/.test(refused.problem),
+				!refused.ok &&
+					refused.problem.includes(`the Layers draw "${rn('upper_arm_l')}" behind "${rn('head')}"`),
 				refused.ok ? 'made' : refused.problem,
 			) && good;
 		const bad = [
@@ -337,7 +347,9 @@ const GUARDS = {
 		const { regions, mapping } = eyesSheet(M);
 		const rig = created(M, mapping, regions);
 		const order = rig.rigged.skeleton.slots.map((s) => s.name);
-		const below = (a, b) => order.indexOf(a) < order.indexOf(b);
+		// Each template slot by the rig's name for it: its region's (one slot per region, §13.1h).
+		const rn = (n) => rig.sr.fit.slots?.[n] ?? n;
+		const below = (a, b) => order.indexOf(rn(a)) < order.indexOf(rn(b));
 		const stack = (s) => [
 			`eye_white_${s}`,
 			`pupil_${s}`,
@@ -352,9 +364,11 @@ const GUARDS = {
 			ok(
 				'eyes: each eye white under its pupil, under its lids, all under the glasses',
 				stacked,
-				order.slice(order.indexOf('head'), order.indexOf('hair_front') + 2).join(' '),
+				order.slice(order.indexOf('head'), order.indexOf(rn('hair_front')) + 2).join(' '),
 			) && good;
-		const faceParts = order.filter((n) => /^(eye_white|pupil|lid|eyelid|brow|nose|mouth)/.test(n));
+		const faceParts = Object.keys(rig.sr.fit.slots).filter((n) =>
+			/^(eye_white|pupil|lid|eyelid|brow|nose|mouth)/.test(n),
+		);
 		good =
 			ok(
 				'eyes: the glasses over every face part, under the front hair; a hat over the hair',
@@ -368,11 +382,11 @@ const GUARDS = {
 			(p) => slotOf(M, p),
 			mapping,
 		);
-		const drawnOrder = order.filter((n) => list.includes(n)).reverse();
+		const drawnOrder = order.filter((n) => list.map(rn).includes(n)).reverse();
 		good =
 			ok(
 				'eyes: the Layers list the page shows has the same order, front first',
-				list.join() === drawnOrder.join() &&
+				list.map(rn).join() === drawnOrder.join() &&
 					list.indexOf('prop_glasses') < list.indexOf('lid_upper_l'),
 				list.slice(0, 12).join(' '),
 			) && good;
@@ -385,11 +399,14 @@ const GUARDS = {
 		good =
 			ok(
 				'eyes: the Layers list may put the glasses behind the pupils',
-				moved.indexOf('prop_glasses') < moved.indexOf('pupil_l'),
-				moved.slice(moved.indexOf('eye_white_l'), moved.indexOf('eye_white_l') + 6).join(' '),
+				moved.indexOf('prop_glasses') < moved.indexOf(rn('pupil_l')),
+				moved
+					.slice(moved.indexOf(rn('eye_white_l')), moved.indexOf(rn('eye_white_l')) + 6)
+					.join(' '),
 			) && good;
+		const hairAt = order.indexOf(rn('hair_front'));
 		log(
-			`${faceParts.length} face parts under the glasses; ${order.slice(order.indexOf('hair_front') - 2, order.indexOf('hair_front') + 2).join(' < ')}`,
+			`${faceParts.length} face parts under the glasses; ${order.slice(hairAt - 2, hairAt + 2).join(' < ')}`,
 		);
 		return good;
 	},
@@ -477,7 +494,7 @@ const MUTANTS = [
 		'an order the depth control cannot stand with refused without saying why',
 		[
 			FIT,
-			'\tconst against = layersAgainstDepth(t, fit);\n\tif (against) return layersRefused(against);\n',
+			'\tconst against = layersAgainstDepth(t, { ...fit, slots: names });\n\tif (against) return layersRefused(against);\n',
 			'',
 		],
 	],

@@ -1601,12 +1601,20 @@ for (const hold of ['before', 'after'] as const) {
 		},
 		props: [],
 	};
-	const attachment = (doc: string | null, slot: string) =>
-		(
-			JSON.parse(doc ?? '{}') as {
-				skins?: { attachments: Record<string, Record<string, { path?: string; type?: string }>> }[];
-			}
-		).skins?.[0]?.attachments[slot]?.[slot];
+	/** Part `part`'s attachment and the slot it is drawn in (named after its region, §13.1h). */
+	const drawnIn = (doc: string | null, part: string) => {
+		const by =
+			(
+				JSON.parse(doc ?? '{}') as {
+					skins?: {
+						attachments: Record<string, Record<string, { path?: string; type?: string }>>;
+					}[];
+				}
+			).skins?.[0]?.attachments ?? {};
+		const slot = Object.keys(by).find((s) => by[s][part]);
+		return { slot, att: slot === undefined ? undefined : by[slot][part] };
+	};
+	const attachment = (doc: string | null, part: string) => drawnIn(doc, part).att;
 	seedProject();
 	seedStore(PAGE_KEY, 'png');
 	const made = await call(newRig.POST, {
@@ -1619,17 +1627,18 @@ for (const hold of ['before', 'after'] as const) {
 	const upper = attachment(doc, 'upper_arm_l');
 	const kept = JSON.parse(text(`${RIGS}/Art/sheet.json`) ?? '{}') as typeof mapping;
 	check(
-		"sheet: the rig is made, each arm drawn apart an image of the sheet's region (by path) on its bone, the mapping kept",
+		"sheet: the rig is made, each arm drawn apart an image of the sheet's region (by path) on its bone, in a slot named after it, the mapping kept",
 		[
 			made.status,
 			upper?.type ?? 'region',
 			upper?.path,
 			attachment(doc, 'lower_arm_l')?.path,
+			drawnIn(doc, 'upper_arm_l').slot,
 			kept.parts?.upper_arm_l?.region,
 			typeof (made.body.sheet as { scale?: unknown } | undefined)?.scale,
 			listed(),
 		],
-		[200, 'region', 'ArmL1', 'ArmL2', 'ArmL1', 'number', ['A', 'Art', 'B']],
+		[200, 'region', 'ArmL1', 'ArmL2', 'arm_l_1', 'ArmL1', 'number', ['A', 'Art', 'B']],
 	);
 	const back = await get(fromSheet.GET, { dir: b64('Art') });
 	const none = await get(fromSheet.GET, { dir: b64('A') });
@@ -1688,24 +1697,20 @@ for (const hold of ['before', 'after'] as const) {
 		sheet: partialFace,
 	});
 	const faceDoc = text(`${RIGS}/Face/Face.irig`);
-	const drawnAs = (slot: string, part: string) => {
-		const a = (
-			JSON.parse(faceDoc ?? '{}') as {
-				skins?: { attachments: Record<string, Record<string, { path?: string; type?: string }>> }[];
-			}
-		).skins?.[0]?.attachments[slot]?.[part];
-		return a && `${a.type} ${a.path}`;
+	const drawnAs = (part: string) => {
+		const { slot, att } = drawnIn(faceDoc, part);
+		return att && `${att.type} ${att.path} in ${slot}`;
 	};
 	const need = (face.body.template as { missingRequired?: string[] } | undefined)?.missingRequired;
 	check(
 		'sheet: a partial face drawn (a mouth shape, a raised brow) makes the rig, each a mesh of its region, the starred parts left out listed',
 		[
 			face.status,
-			drawnAs('mouth', 'mouth_smile'),
-			drawnAs('brow_l', 'brow_l_up'),
+			drawnAs('mouth_smile'),
+			drawnAs('brow_l_up'),
 			['mouth_rest', 'brow_l_neutral'].every((p) => need?.includes(p)),
 		],
-		[200, 'mesh MouthSmile', 'mesh BrowLUp', true],
+		[200, 'mesh MouthSmile in mouth_smile', 'mesh BrowLUp in brow_l_up', true],
 	);
 	// A throw in the fit (a bug, or an art it cannot place) is a JSON 422 saying why, never a bare
 	// 500, at the create and at the preview, and the create writes nothing.
@@ -1841,12 +1846,13 @@ for (const hold of ['before', 'after'] as const) {
 		[
 			updated.status,
 			attachment(JSON.stringify(updated.body.skeleton), 'lower_arm_l')?.path,
+			drawnIn(JSON.stringify(updated.body.skeleton), 'lower_arm_l').slot,
 			(updated.body.sheet as { template?: { id?: string } } | undefined)?.template?.id,
 			writes.length - before,
 			otherTpl.status,
 			otherSheet.status,
 		],
-		[200, 'decoy', 'half-body', 0, 422, 422],
+		[200, 'decoy', 'decoy', 'half-body', 0, 422, 422],
 	);
 	const etag = keptRead.body.etag as string;
 	const putFirst = await call(fromSheet.PUT, {

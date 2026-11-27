@@ -20,7 +20,7 @@
 //                       sequence key's `delay`. A segment is mapped onto its final extent, which
 //                       also keeps it valid when only one of its two ends moved.
 //   5. CLAMPED          `startDopeScale` derives the ratio limits: no key may cross t=0 (maxRatio),
-//                       and two distinct times may never squash into one (minRatio keeps ≥1ms,
+//                       and two distinct times on one row may never squash into one (minRatio keeps ≥1ms,
 //                       10× the 1e-4 merge epsilon — rig editing has no undo).
 //
 // NOTE ON SCOPE: the stretch moves ONLY the selected keys. Unselected keys stay where they are and
@@ -345,9 +345,10 @@ for (const [animName, anim0] of anims) {
 			log(Math.abs(d.maxRatio - mid / (mid - earliest)) < 1e-9, `${animName} — maxRatio is exactly A/(A−t₀), the t=0 wall`);
 			if (earliest < 1e-9) { sawWall = true; log(d.wall === true, `${animName} — a key at 0s + a middle anchor ⇒ wall flagged (spread impossible, squash still fine)`); }
 			for (const it of d.items) it.newTime = Math.max(0, r4(mid + (it.startTime - mid) * d.minRatio));
-			const distinctBefore = new Set(d.items.map((i) => r4(i.startTime))).size;
-			const distinctAfter = new Set(d.items.map((i) => r4(i.newTime))).size;
-			log(distinctAfter === distinctBefore, `${animName} — minRatio ${d.minRatio.toExponential(2)} keeps all ${distinctBefore} distinct times apart`);
+			const distinct = (f) => d.items.reduce((n, i, k, all) => n + (all.findIndex((j) => j.tid === i.tid && r4(f(j)) === r4(f(i))) === k ? 1 : 0), 0);
+			const distinctBefore = distinct((i) => i.startTime);
+			const distinctAfter = distinct((i) => i.newTime);
+			log(distinctAfter === distinctBefore, `${animName} — minRatio ${d.minRatio.toExponential(2)} keeps all ${distinctBefore} distinct times apart on each row`);
 			sandbox.dopeScale = null;
 		}
 	}
@@ -510,6 +511,26 @@ for (const [animName, anim0] of anims) {
 	sandbox.applyDopeScale(d2);
 	sandbox.dopeScale = null;
 	log(sandbox.rawDoc.animations.__c.bones.__clash.rotate.length === 3, 'synthetic — nothing lost in that case');
+}
+
+// SYNTHETIC — the squash floor counts only keys that share a row. Two rows keyed a tenth of a
+// millisecond apart (2/3s rounded two ways) can never merge, so they must not lock the grip at ×1.
+{
+	const A = { kind: 'bone', name: '__a' }, B = { kind: 'bone', name: '__b' };
+	const ta = sandbox.trackId(A), tb = sandbox.trackId(B);
+	sandbox.rawDoc = { animations: { __s: { bones: {
+		__a: { rotate: [{ time: 0, angle: 0 }, { time: 0.6666, angle: 10 }, { time: 2, angle: 20 }] },
+		__b: { rotate: [{ time: 0.6667, angle: 0 }, { time: 2, angle: 5 }] },
+	} } } };
+	sandbox.curAnim = '__s';
+	sandbox.dopeTrackById = { [ta]: A, [tb]: B };
+	sandbox.dopeSel = [{ tid: ta, time: 0 }, { tid: ta, time: 0.6666 }, { tid: ta, time: 2 }, { tid: tb, time: 0.6667 }, { tid: tb, time: 2 }];
+	sandbox.dopeAnchorT = 0;
+	sandbox.dopeScale = null;
+	sandbox.startDopeScale({ clientX: 0 }, 'r', 1);
+	const d = sandbox.dopeScale;
+	log(!!d && d.minRatio < 0.01, `synthetic — keys 0.1ms apart on DIFFERENT rows leave squash open (minRatio ${d ? d.minRatio.toExponential(2) : 'none'})`);
+	sandbox.dopeScale = null;
 }
 
 if (!checks) { console.log('  ✗ this rig exercised NO assertion — every block skipped'); pass = false; }

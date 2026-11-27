@@ -33,7 +33,8 @@ upload.
     in review, PR #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures
     arcade), and T3b, Salmons' own loading backdrop in place of the slot background (approved;
     branch `claude/salmons-perf-t3b-loading`, GPU art → 13 MB) ·
-    T6 net client — started · T4 river chunks — started · T5 filters → shaders — after T4.
+    T6 net client — started · T4 river chunks — draft PR #1972 (pixel-identical; lab: mount 39.7k → 6.4k
+    objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — after T4.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2737,6 +2738,67 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
     (2 / 2 runs; failed on `each_key_duplicate` before the loader fix, passes on main).
 
+- 2026-11-27 — **Performance T4: the river in chunks** ([design/salmons-performance](../design/salmons-performance.md)
+  §4 T4; branch `claude/salmons-perf-t4-river`; in review). Pixel-identical; no config, layout or
+  flow change.
+  - **What changed.** `salmonsArt/river.ts`: the ground's ~38k–47k tiles are laid in chunks of
+    8 × 8 cells, made the first time they near the view (a ring ahead is made 1,500 tiles a frame)
+    and shown or hidden whole when one meets the view's ground box or stops meeting it (8 against
+    4: 4 drew 15 % fewer vertices for ~15 % more JS and twice the rebuilds); tiles that overlap in
+    area keep the order they were laid in (`chunkFor`), every `random()` / `forestRandom()` draw is
+    made as before. The ground is one render group, so a camera move is one transform; the
+    riverbed's ripple is on a container of its own whose area is measured over the bed's tiles in
+    view as when each was culled on its own, through the same chain of transforms to the same
+    floats (`rippled.getFastGlobalBounds`, `rippleBy`). The
+    displacement map is not drawn (`renderable = false`: the filter reads only its transform). The
+    upright pieces cull by a box rounded to 256 px, and what animates in them moves only while the
+    view holds it, as before. The pieces among the players join and leave the spawn layer exactly
+    when they did (their ties keep their order), looked up on a 256 px grid instead of all ~10k
+    every moved frame. `depthOrder.ts` + `ProjectedInstance.svelte`: a projected spawn layer sorts
+    only when a body's depth changes the order (each sort is given every depth first, so ties
+    resolve as before).
+  - **Not done, and why.** No render group for the upright pieces, the cliffs or the reflections:
+    drawn relative to a group a world wide, their see-through layers (the waterfalls' splashes)
+    rounded up to 5 levels differently on the GPU; they are ~1.2k pieces, moved cheaply.
+    No river kept across rooms: every room plays a new seed (Salmons' levels pin none), rounds are
+    new rooms, and nothing re-keys the river inside one, so its inputs always change; the lazy
+    chunks cut what a switch makes and destroys instead. No baking (owner decision §5).
+  - **Measured** with T2's lab (`salmons-lab.mjs --runs 2 --compare` its baseline of main 665b407;
+    seed 31337, 20 bots, the original level; counters compare, headless timings only roughly): the
+    mount frame makes 6,369 objects (main 39,681); per play frame JS 4.6 ms (21), render 2.5 ms
+    (15.7), tick 4.0 ms (20.1); the mount's JS 182 ms (381); frames in the minute 300 (168). Higher:
+    vertices 36.1k (26.3k: whole chunks past the view's edge, off screen), draws 19.1 (14.4), GL
+    calls 130 (110), objects made a frame 19.7 (0.5: chunks made ahead as the camera moves).
+    `invalidations` stays 1: it counts `invalidateFramebuffer` (the back buffer's), not draw-list
+    rebuilds. Draw lists, traced in a scratch harness on seed 7 of `SALMONS_LEVELS` (the
+    camera 4 px a frame): the ground's is rebuilt only when a chunk comes or goes (0.075 a frame);
+    the root's is still rebuilt about once a frame, by other parts: a code look's `MountedArt`
+    re-mounting, a salmon look's `filters` set on and off (T5), the blood trail's puffs, real
+    depth reorders.
+  - **Proof of pixels.** `scripts/salmons/river-pixels.mjs --base <main worktree>` (new): the river
+    of this checkout and of main drawn by WebGL with the built-in art, the camera walked along it a
+    frame at a time, compared at 9 stops × 6 cases (seeds 1, 7, 42, 123; original, levels,
+    waterfalls 5–10, authored biomes; mirrored and plain; MSAA on and off; resolution 1 and 2;
+    zoom 0.75–2; one with the camera on whole pixels): 0 pixels differ in 54 shots. The art fingerprint (`salmons/art-fingerprint.mjs`)
+    now hashes what is drawn and in which order (pieces that overlap keep theirs), not the
+    containers; its four hashes are recorded of main 665b407's river and are this one's.
+  - **Gates:** `check:salmons-art` 49 → 50 (the depth order played against a zIndex set every
+    frame: the same order every frame, every zIndex its depth whenever a draw list is built, a
+    sort on 625 frames of 3,000 instead of 2,948),
+    `check:zone-art` 130, `check:salmons-levels` 27, `check:room-levels` 16,
+    `check:agents-knowledge`, svelte-check `engine-layout` at baseline (290).
+  - **Played** on the branch's arcade build, alone on the machine: `salmons-play.mjs` 103/103 (main
+    103/103; a first run beside five runtime builds failed one colour read, not again),
+    `--trees` 4/4, `--zone-rig` 4/4, `salmons-river-tour.mjs` seeds 1 and 4 (seed 4's climb also
+    alone, 4/4 on branch and main), `salmons-levels-play.mjs` 57/57.
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five, against main 88e4409):
+    `lines` +299 B, `match3` +316 B, `card` +268 B gzip (`SpawnLayer` ships in every runtime; its
+    projected branch runs only on an iso world screen), `arcade` +2,184 B and `arcade3d` +2,185 B
+    (the same plus the lazy Salmons art chunk).
+  - **Reviewed** (`code-reviewer`): fixed a stale zIndex the underwater layer (`blood.ts` `sunk`)
+    could sort by when the players' layer was already due a sort, and a one-pixel rounding of the
+    ripple's edge with the camera on whole pixels (now measured exactly as before).
+
 - 2026-11-27 — **Salmons lab run (performance T2; in review; branch `claude/salmons-perf-t2-lab`;
   scripts and docs only, no game code)**: `scripts/playtest/salmons-lab.mjs` plays Salmons' room on
   the real frame clock with `?perf=1` — a local game server, the export's config on the original
@@ -2755,6 +2817,17 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   field), and `lab-run.mjs` cannot play it (its published-game URL joins the live game server).
   **Not verified:** the workflow job on GitHub's runner (it was never run there); the numbers on a
   device.
+
+- 2026-11-27 — **Performance, T1: the Invisible Profiler can now say why an arcade game is slow**
+  (branch `claude/salmons-perf-t1-probe`, in review; plan `docs/design/salmons-performance.md` §2 and
+  track T1; the detail is in [status/profiler](profiler.md) "P10"). Reports `perf: 10`: busy time per
+  phase against the display's frame (judged instead of fps for an arcade game), hidden / throttled
+  time (a throttled reading is marked, not comparable), `lobby` / `loading` / `play` / `spectate`
+  with the room's phase as the spike state, a p95 per counter, a scene sample (nodes, drawn, culled,
+  draws / passes per render-group layer), GPU time where offered, and the room's bytes by kind with
+  sends per step. Probe and launcher only: no game looks or plays differently, no Game Config
+  value changed. The next Salmons readings should use the capture protocol of the plan §6 and be
+  read as busy ms against 16.7, not fps.
 
 - 2026-11-26 — **The players line pops on a phone too**: #1937's fit capped the river line at the
   room it has, so on a canvas too narrow for it (the phones it was for) the "players rose" pop was

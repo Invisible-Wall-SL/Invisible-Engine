@@ -261,7 +261,9 @@ function created(M, mapping, regions = SHEET.regions) {
 	const data = new RIG.SkeletonJson(new RIG.AtlasAttachmentLoader(atlas)).readSkeletonData(
 		JSON.parse(JSON.stringify(rigged.skeleton)),
 	);
-	return { M, sr: sr.value, rigged, data, regions };
+	// Each template slot by the rig's name for it: its region's (one slot per region, §13.1h).
+	const rn = (n) => sr.value.fit.slots?.[n] ?? n;
+	return { M, sr: sr.value, rigged, data, regions, rn };
 }
 /** A slot's drawing in the world: its vertices and its own UVs (0…1 of the image). */
 function drawing(skel, slotName, attName) {
@@ -420,13 +422,16 @@ const GUARDS = {
 			) && good;
 		const plain = created(M, baseMapping(M));
 		const plainSlots = plain.rigged.skeleton.slots.map((s) => s.name);
+		// ＋ New rig from the template alone (no sheet: its slots by the template's names).
+		const sized = SHEET.regions.map(({ name, w, h }) => ({ name, w, h }));
+		const bare = M.templateRig(t, sized).skeleton.slots.map((s) => s.name);
 		good =
 			ok(
 				'mouth: a rig drawing no jointed mouth has none of its slots nor the upper teeth’s bone',
-				!JOINTED.some((n) => plainSlots.includes(n)) &&
+				!JOINTED.some((n) => plainSlots.includes(plain.rn(n)) || bare.includes(n)) &&
 					!plain.rigged.skeleton.bones.some((b) => b.name === 'teeth_upper') &&
 					t.slots.filter((s) => s.optional).length === JOINTED.length,
-				plainSlots.filter((n) => JOINTED.includes(n)).join(),
+				[...plainSlots, ...bare].filter((n) => JOINTED.includes(n)).join(),
 			) && good;
 		const { regions, mapping } = jointedSheet(M);
 		const rig = created(M, mapping, regions);
@@ -437,10 +442,10 @@ const GUARDS = {
 				'mouth: each jointed part drawn from its own region in its own slot, the upper teeth on their bone',
 				JOINTED.every(
 					(n) =>
-						skin[n]?.[n]?.path === mapping.parts[n].region &&
-						slots.find((s) => s.name === n)?.attachment === n,
-				) && slots.find((s) => s.name === 'teeth_upper')?.bone === 'teeth_upper',
-				JSON.stringify(slots.filter((s) => JOINTED.includes(s.name))),
+						skin[rig.rn(n)]?.[n]?.path === mapping.parts[n].region &&
+						slots.find((s) => s.name === rig.rn(n))?.attachment === n,
+				) && slots.find((s) => s.name === rig.rn('teeth_upper'))?.bone === 'teeth_upper',
+				JSON.stringify(slots.filter((s) => JOINTED.map(rig.rn).includes(s.name))),
 			) && good;
 		good =
 			ok(
@@ -456,7 +461,8 @@ const GUARDS = {
 		good =
 			ok(
 				'mouth: the lips bend (meshes on the corners and their own bone)',
-				skin.lip_upper.lip_upper.type === 'mesh' && skin.lip_lower.lip_lower.type === 'mesh',
+				skin[rig.rn('lip_upper')].lip_upper.type === 'mesh' &&
+					skin[rig.rn('lip_lower')].lip_lower.type === 'mesh',
 			) && good;
 		// A control driven as the Controls section keys it: each drive's bone moved by value × per.
 		const ft = M.fitTemplate(t, rig.sr.fit);
@@ -469,7 +475,7 @@ const GUARDS = {
 					if (d.prop === 'x' || d.prop === 'y') b[d.prop] += d.per * v;
 				}
 			skel.updateWorldTransform(RIG.Physics.update);
-			return Object.fromEntries(JOINTED.map((n) => [n, drawing(skel, n, n)]));
+			return Object.fromEntries(JOINTED.map((n) => [n, drawing(skel, rig.rn(n), n)]));
 		};
 		const rest = drawnBy({});
 		const open = drawnBy({ jaw: 1 });
@@ -505,8 +511,8 @@ const GUARDS = {
 		const at = (time) => {
 			const skel = posed(rig, keyed.anim, time);
 			return {
-				low: middle(drawing(skel, 'lip_lower', 'lip_lower')),
-				up: middle(drawing(skel, 'lip_upper', 'lip_upper')),
+				low: middle(drawing(skel, rig.rn('lip_lower'), 'lip_lower')),
+				up: middle(drawing(skel, rig.rn('lip_upper'), 'lip_upper')),
 			};
 		};
 		const [still, talking] = [at(0), at(keyed.length * 0.75)];
@@ -524,10 +530,11 @@ const GUARDS = {
 		good =
 			ok(
 				'mouth: shapes and parts both mapped — the shapes win: the parts made, their slots empty',
-				JOINTED.every(
-					(n) => bs.find((s) => s.name === n) && !bs.find((s) => s.name === n).attachment,
-				) &&
-					JOINTED.every((n) => bothRig.rigged.skeleton.skins[0].attachments[n]?.[n]) &&
+				JOINTED.every((n) => {
+					const s = bs.find((x) => x.name === bothRig.rn(n));
+					return s && !s.attachment;
+				}) &&
+					JOINTED.every((n) => bothRig.rigged.skeleton.skins[0].attachments[bothRig.rn(n)]?.[n]) &&
 					bothRig.sr.hidden.length === JOINTED.length &&
 					rig.sr.hidden.length === 0,
 				JSON.stringify(bothRig.sr.hidden),
@@ -626,7 +633,7 @@ const GUARDS = {
 					if (d.prop === 'x' || d.prop === 'y') b[d.prop] += d.per * v;
 				}
 			skel.updateWorldTransform(RIG.Physics.update);
-			return Object.fromEntries(parts.map((n) => [n, middle(drawing(skel, n, n))]));
+			return Object.fromEntries(parts.map((n) => [n, middle(drawing(skel, rig.rn(n), n))]));
 		};
 		const rest = drawnBy({});
 		const blink = drawnBy({ blink_l: 1 });
@@ -760,7 +767,7 @@ const MUTANTS = [
 	[
 		'names',
 		"a prop named with the Photoshop file's prefix",
-		[MAP, 'nameWords(layerName(region))\n', 'nameWords(region)\n'],
+		[MAP, 'return propNamed(layerName(region));', 'return propNamed(region);'],
 	],
 	['names', 'a region matching nothing not offered', [MAP, '\t\telse left.push(region);\n', '']],
 	[

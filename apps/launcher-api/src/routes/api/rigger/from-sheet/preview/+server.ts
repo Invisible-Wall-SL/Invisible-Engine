@@ -5,7 +5,7 @@ import { refuseOnThrow } from '$lib/server/refuseOnThrow';
 import { assertProjectArt } from '$lib/server/projectArtScope';
 import { requestSheet } from '$lib/server/riggerNewRig';
 import { parseSheetMapping, sheetPreview } from '$lib/server/rigSheetFit';
-import { sheetEditPreview, type SheetRigOutline } from '$lib/server/rigSheetUpdate';
+import { asMapped, sheetEditPreview, type SheetRigOutline } from '$lib/server/rigSheetUpdate';
 import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
 import type { SheetMapping } from '$lib/rigSheetMap';
@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const made = refuseOnThrow(`The sheet could not be placed on the "${t.label}" template`, () =>
 		rig
 			? sheetEditPreview({ template: t, regions: rs.regions, was: rig.kept, mapping: sheet, rig })
-			: sheetPreview(t, rs.regions, sheet),
+			: sheetPreview(asMapped(t, sheet), rs.regions, sheet),
 	);
 	if (made.ok) return json(made.value);
 	const message = `The sheet does not fit the "${t.label}" template: ${made.problem}.`;

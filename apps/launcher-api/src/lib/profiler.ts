@@ -1,13 +1,14 @@
 /**
  * Invisible Profiler (`/profiler`, `docs/design/invisible-profiler.md`): what the browser and the
  * server both need — the readings' retention, the capture links' test switches, and the summary a
- * `?perf=1` report (`perf: 7` / `8` / `9`, `apps/lines/src/components/PerfHud.svelte`) is reduced to
+ * `?perf=1` report (`perf: 7` – `10`, `apps/lines/src/components/PerfHud.svelte`) is reduced to
  * for its `perf_reports` row (a `perf: 9` reading's `network` block: `profilerNetwork.ts`). Pure:
  * the fixture gate (`scripts/check-profiler.ts`) runs it on plain JSON.
  */
 
 import { perfCounts, type PerfCounts } from './profilerLab';
 import { networkSummary, readNetwork, type NetworkSummary } from './profilerNetwork';
+import { readTiming, throttledReason } from './profilerTiming';
 
 /** Owner decision 2026-11-16: a reading is deleted this long after capture unless it is kept. */
 export const PERF_RETENTION_DAYS = 15;
@@ -23,7 +24,7 @@ export const PROFILER_READINGS = 'profiler:readings';
 export const PERF_SESSION_PARAM = 'perfsession';
 
 /** The report versions this summary reads. A newer probe is accepted only once it is read here. */
-export const PERF_REPORT_VERSIONS: readonly number[] = [7, 8, 9];
+export const PERF_REPORT_VERSIONS: readonly number[] = [7, 8, 9, 10];
 
 /** A report sent straight in a request body; anything larger goes by presigned upload. */
 export const PERF_INLINE_MAX_BYTES = 480 * 1024;
@@ -46,12 +47,14 @@ export type PerfReportSource = (typeof PERF_REPORT_SOURCES)[number];
 
 /**
  * The phases a reading's frames are bucketed in, by the game's family: a slot idles, spins and
- * presents a round; an arcade game (`perf: 8`, `kind: 'arcade'`) is in its menus (title, lobby,
- * countdown, win screen) or in play (the field ticking).
+ * presents a round; an arcade game (`perf: 8`, `kind: 'arcade'`) is loading a level, in its lobby
+ * (title, countdown, win screen), playing (the field ticking) or spectating (`perf: 10`). A
+ * `perf: 8` / `9` arcade reading held `menu` (the lobby, loading and spectating together) and
+ * `play`; it keeps them, and a `perf: 10` reading has no `menu`.
  */
 export const PHASE_SETS = {
 	slot: ['idle', 'spinning', 'round'],
-	arcade: ['menu', 'play'],
+	arcade: ['loading', 'lobby', 'menu', 'play', 'spectate'],
 } as const;
 export type PhaseSet = keyof typeof PHASE_SETS;
 export type PerfPhase = (typeof PHASE_SETS)[PhaseSet][number];
@@ -63,8 +66,11 @@ export const PHASE_LABELS: Record<PerfPhase, string> = {
 	idle: 'Idle',
 	spinning: 'Spinning',
 	round: 'Round',
+	loading: 'Loading',
+	lobby: 'Lobby',
 	menu: 'Menu',
 	play: 'Play',
+	spectate: 'Spectate',
 };
 
 /** A report's (or a project's) kind to its phase set: `arcade` plays, anything else is a slot. */
@@ -74,10 +80,33 @@ export const phaseSetOf = (kind: string | null | undefined): PhaseSet =>
 /** One set's phases, typed as phases (each set is its own tuple type). */
 export const setPhases = (set: PhaseSet): readonly PerfPhase[] => PHASE_SETS[set];
 
-/** The phases of every set the readings use, in {@link PERF_PHASES} order. */
-export function phasesOf(readings: readonly { phaseSet: PhaseSet }[]): PerfPhase[] {
-	const sets = [...new Set(readings.map((r) => r.phaseSet))];
-	return PERF_PHASES.filter((p) => sets.some((s) => setPhases(s).includes(p)));
+/** An arcade game's phases from `perf: 10`: the lobby, the level loading, playing, spectating. */
+const ARCADE_PHASES_V10: readonly PerfPhase[] = ['loading', 'lobby', 'play', 'spectate'];
+
+/** The phases a `perf: <version>` report of a set holds: a `perf: 8` / `9` arcade one has `menu`, not the split. */
+export const phasesFor = (set: PhaseSet, version: number): readonly PerfPhase[] =>
+	set === 'slot' ? PHASE_SETS.slot : version < 10 ? ['menu', 'play'] : ARCADE_PHASES_V10;
+
+/** The phases a summary's `phases` always has a key for, before `perf: 10` added the arcade split. */
+const LEGACY_PHASES: readonly PerfPhase[] = ['idle', 'spinning', 'round', 'menu', 'play'];
+
+/**
+ * The phases of every set the readings use, in {@link PERF_PHASES} order — of the arcade set only
+ * the ones some reading has frames in (a `perf: 10` reading has no `menu`, a `perf: 8` one no
+ * `lobby`); a slot's three are always listed. A reading that does not carry its phases (a
+ * summary) counts for its version's: `menu` and `play` before `perf: 10`.
+ */
+export function phasesOf(
+	readings: readonly ({ phaseSet: PhaseSet; perfVersion?: number } & Partial<
+		Record<PerfPhase, unknown>
+	>)[],
+): PerfPhase[] {
+	const arcade = setPhases('arcade');
+	const has = (r: (typeof readings)[number], p: PerfPhase) =>
+		arcade.some((a) => a in r) ? !!r[p] : phasesFor('arcade', r.perfVersion ?? 9).includes(p);
+	return PERF_PHASES.filter((p) =>
+		readings.some((r) => setPhases(r.phaseSet).includes(p) && (r.phaseSet === 'slot' || has(r, p))),
+	);
 }
 
 export interface PerfPhaseSummary {
@@ -89,10 +118,16 @@ export interface PerfPhaseSummary {
 	hitches: number;
 }
 
-/** An arcade reading's two phases, as `perf_reports.arcade_phases` keeps them. */
+/**
+ * An arcade reading's phases, as `perf_reports.arcade_phases` keeps them (a row stored before
+ * `perf: 10` has `menu` and `play` only).
+ */
 export interface ArcadePhaseSummaries {
-	menu: PerfPhaseSummary | null;
+	menu?: PerfPhaseSummary | null;
 	play: PerfPhaseSummary | null;
+	loading?: PerfPhaseSummary | null;
+	lobby?: PerfPhaseSummary | null;
+	spectate?: PerfPhaseSummary | null;
 }
 
 /**
@@ -217,6 +252,18 @@ function cappedBrowser(
 	return parts.reduce((sum: number, ms) => sum + (ms ?? 0), 0) < CAP_BUSY_MAX_MS;
 }
 
+/** A reading's counts with its timing and, when it cannot be compared, why (`profilerTiming.ts`). */
+function withTiming(
+	counts: PerfCounts,
+	report: Obj,
+	version: number,
+	phases: readonly PerfPhase[],
+): PerfCounts {
+	const timing = readTiming(report, version, phases);
+	const throttled = throttledReason(report, version, phases);
+	return { ...counts, ...(timing ? { timing } : {}), ...(throttled ? { throttled } : {}) };
+}
+
 function networkOf(report: Obj): NetworkSummary | null {
 	const n = readNetwork(report);
 	return n ? networkSummary(n) : null;
@@ -238,9 +285,14 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 	}
 	const kind = version >= 8 ? str(report.kind, 20) : null;
 	const phaseSet = phaseSetOf(kind);
-	const own = setPhases(phaseSet);
+	const own = phasesFor(phaseSet, version);
+	// A key for each legacy phase, and for the arcade split only where the reading has it, so what
+	// a summary held before `perf: 10` is unchanged.
 	const phases = Object.fromEntries(
-		PERF_PHASES.map((name) => [name, own.includes(name) ? phase(report[name]) : null]),
+		PERF_PHASES.filter((name) => LEGACY_PHASES.includes(name) || own.includes(name)).map((name) => [
+			name,
+			own.includes(name) ? phase(report[name]) : null,
+		]),
 	) as Record<PerfPhase, PerfPhaseSummary | null>;
 	if (own.every((name) => !phases[name])) {
 		return { ok: false, error: 'The report holds no frames yet — play a little, then send it.' };
@@ -257,7 +309,12 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 			)
 		: {};
 	const busy: PerfPhase =
-		phaseSet === 'arcade' ? (phases.play ? 'play' : 'menu') : phases.spinning ? 'spinning' : 'idle';
+		phaseSet === 'arcade'
+			? ((['play', 'lobby', 'menu', 'spectate', 'loading'] as const).find((p) => phases[p]) ??
+				'play')
+			: phases.spinning
+				? 'spinning'
+				: 'idle';
 	const textureMb = Array.isArray(report.textures)
 		? report.textures.reduce((sum: number, t) => sum + (isObj(t) ? (num(t.mb) ?? 0) : 0), 0)
 		: null;
@@ -281,7 +338,7 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 			drawsMean: workMean(report, busy, 'draws'),
 			jsMs: workMean(report, busy, 'jsMs'),
 			textureMb: textureMb === null ? null : Math.round(textureMb * 10) / 10,
-			counts: perfCounts(report, phaseSet),
+			counts: withTiming(perfCounts(report, phaseSet), report, version, own),
 			network: version >= 9 ? networkOf(report) : null,
 		},
 	};
@@ -312,8 +369,11 @@ export interface PerfReportListItem {
 	idle: PerfPhaseSummary | null;
 	spinning: PerfPhaseSummary | null;
 	round: PerfPhaseSummary | null;
+	loading: PerfPhaseSummary | null;
+	lobby: PerfPhaseSummary | null;
 	menu: PerfPhaseSummary | null;
 	play: PerfPhaseSummary | null;
+	spectate: PerfPhaseSummary | null;
 	/** A browser's 30 fps cap: fps and p95 are not judged (`PerfReportSummary.capped30`). */
 	capped30: boolean;
 	drawsMean: number | null;
@@ -325,6 +385,14 @@ export interface PerfReportListItem {
 	/** When the purge removes it (ISO), null while kept. */
 	expiresAt: string | null;
 }
+
+/**
+ * Why a reading is not comparable — the page was throttled or hidden for much of it
+ * (`profilerTiming.ts`) — or null. Such a reading is kept and marked, and left out of every verdict,
+ * finding and comparison.
+ */
+export const readingThrottled = (r: Pick<PerfReportListItem, 'counts'>): string | null =>
+	r.counts?.throttled ?? null;
 
 /** A launch URL a phone can open; a blank or relative game-card URL has no capture. */
 export function isCapturableGameUrl(url: string): boolean {

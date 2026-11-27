@@ -82,7 +82,7 @@ export function compareReadings(a: PerfReportListItem, b: PerfReportListItem): C
 		}
 	}
 	// After the lab counts, in the same "<phase> per frame" group (the page groups by first use).
-	for (const phase of ['menu', 'play'] as const) {
+	for (const phase of ['loading', 'lobby', 'menu', 'play', 'spectate'] as const) {
 		const ca = a.counts?.[phase] ?? null;
 		const cb = b.counts?.[phase] ?? null;
 		if (!ca && !cb) continue;
@@ -95,6 +95,14 @@ export function compareReadings(a: PerfReportListItem, b: PerfReportListItem): C
 				ARCADE_BETTER[key],
 			);
 		}
+	}
+	// Busy time (`perf: 10`): what the game costs a frame, whatever the display does with it.
+	for (const phase of PERF_PHASES) {
+		const ba = a.counts?.timing?.busy[phase];
+		const bb = b.counts?.timing?.busy[phase];
+		if (!ba && !bb) continue;
+		row(`${phase} busy`, 'busy p50 ms', ba?.p50 ?? null, bb?.p50 ?? null, 'lower');
+		row(`${phase} busy`, 'busy p95 ms', ba?.p95 ?? null, bb?.p95 ?? null, 'lower');
 	}
 	row('memory', 'texture MB', a.textureMb, b.textureMb, 'lower');
 	const na = a.network;

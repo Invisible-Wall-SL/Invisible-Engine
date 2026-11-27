@@ -44,6 +44,8 @@ export const DIRECTOR_PENDING_MOCKUP_DAYS_MAX = 365;
  * per-run cap to the job with its brief, and refuses a start past the other two.
  *  - `PIPELINE_FIX_BUDGET_USD`: one build run's cap, bounded like a Director run's;
  *  - `PIPELINE_DIAGNOSE_BUDGET_USD`: one diagnose run's cap (ADR-0014), bounded the same way;
+ *  - `PIPELINE_MERGE_MAIN_BUDGET_USD`: one Resolve conflict run's cap (ADR-0015 §4); its spend counts
+ *    toward the monthly ceiling below;
  *  - `PIPELINE_FIX_MONTHLY_USD`: the calendar month's (UTC) ceiling on fix-run spend — it refuses
  *    new starts, never stops a live run;
  *  - `PIPELINE_FIX_MAX_LIVE`: how many runs may be live at once, over every bug.
@@ -52,6 +54,8 @@ export const PIPELINE_FIX_BUDGET_KEY = 'PIPELINE_FIX_BUDGET_USD';
 export const PIPELINE_FIX_BUDGET_DEFAULT_USD = 15;
 export const PIPELINE_DIAGNOSE_BUDGET_KEY = 'PIPELINE_DIAGNOSE_BUDGET_USD';
 export const PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD = 5;
+export const PIPELINE_MERGE_MAIN_BUDGET_KEY = 'PIPELINE_MERGE_MAIN_BUDGET_USD';
+export const PIPELINE_MERGE_MAIN_BUDGET_DEFAULT_USD = 6;
 export const PIPELINE_FIX_MONTHLY_KEY = 'PIPELINE_FIX_MONTHLY_USD';
 export const PIPELINE_FIX_MONTHLY_DEFAULT_USD = 150;
 export const PIPELINE_FIX_MONTHLY_MIN_USD = 1;
@@ -267,6 +271,15 @@ export function getPipelineDiagnoseBudget(): Promise<number> {
 		PIPELINE_DIAGNOSE_BUDGET_KEY,
 		(raw) => budgetFromSetting(raw, PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD),
 		PIPELINE_DIAGNOSE_BUDGET_DEFAULT_USD,
+	);
+}
+
+/** One Resolve conflict run's cap in USD ({@link PIPELINE_MERGE_MAIN_BUDGET_KEY}), clamped the same way. */
+export function getPipelineMergeMainBudget(): Promise<number> {
+	return fixRunSetting(
+		PIPELINE_MERGE_MAIN_BUDGET_KEY,
+		(raw) => budgetFromSetting(raw, PIPELINE_MERGE_MAIN_BUDGET_DEFAULT_USD),
+		PIPELINE_MERGE_MAIN_BUDGET_DEFAULT_USD,
 	);
 }
 

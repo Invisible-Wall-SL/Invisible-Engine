@@ -186,7 +186,7 @@ export interface ControlPlan {
 }
 
 /** A limit per property the control keys that a channel drives: the channel's range, from setup. */
-function channelLimits(
+export function channelLimits(
 	bone: RigTemplateBone,
 	c: ControlBone,
 	channels: readonly RigTemplateChannel[],
