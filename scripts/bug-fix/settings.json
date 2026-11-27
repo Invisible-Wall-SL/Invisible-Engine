@@ -102,6 +102,7 @@
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-pipeline-games.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-fix-runs.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-bug-reports.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-merge-main-join.ts)",
 			"Edit(/{{WORKSPACE}}/apps/launcher-api/scripts/check-merge-main-runs.ts)"
 		]
 	},
