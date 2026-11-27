@@ -31,6 +31,7 @@ import {
 	withoutEditorGuides,
 } from 'engine-layout';
 import { isCubicEase } from 'engine-cinematic';
+import { PROP_MAX_SOLIDS } from 'engine-mechanics/src/propShape.js';
 import {
 	editorComponentKey,
 	editorComponentVersionKey,
@@ -863,7 +864,7 @@ function validateComponent(component: ComponentDef): ComponentDef {
 	}
 	if (component.prop !== undefined && !normalizeProp(component.prop)) {
 		throw new Error(
-			'Component prop needs a zone kind, a fromZone.length param, and a collider with a deck, ramps, a snap and a known hole.',
+			`Component prop needs a zone kind, a fromZone.length param, and a collider with a deck, ramps, a snap, a known hole and at most ${PROP_MAX_SOLIDS} solids.`,
 		);
 	}
 	return normalizeComponent(component);

@@ -169,9 +169,11 @@ export function levelHash(game, made) {
  * What a room of `seed` writes in its state beside the seed, for the level `made` by its own
  * {@link generatedOnlineGame}: `levels`, the JSON of {@link roomLevels} ('' when its generator
  * reads none, or past {@link ROOM_LEVELS_MAX}), `levelHash`, its {@link levelHash}, and, only
- * when the game has prop colliders (`online.props`), `props`, their JSON (left out past
- * {@link ROOM_LEVELS_MAX}: its devices are held to the fingerprint alone). `undefined` for a game
- * that names no generator: its room says nothing.
+ * when the game has prop colliders (`online.props`), `props`, their JSON. The props are always
+ * sent: a collider is capped (`propShape.js` `PROP_MAX_SOLIDS`, `PROP_MAX_CHARACTERS`,
+ * `PROP_MAX_ID`) and a config save refuses props past {@link ROOM_LEVELS_MAX}
+ * (`compileZoneArtProps`), since a device that is not told the room's props cannot make its level
+ * and is refused. `undefined` for a game that names no generator: its room says nothing.
  */
 export function roomLevelState(game, seed, made) {
 	if (!generatorOf(game) || !made) return undefined;
@@ -181,8 +183,7 @@ export function roomLevelState(game, seed, made) {
 		levels: text.length > ROOM_LEVELS_MAX ? '' : text,
 		levelHash: levelHash(game, made),
 	};
-	const props = game.online.props ? JSON.stringify(game.online.props) : '';
-	if (props && props.length <= ROOM_LEVELS_MAX) state.props = props;
+	if (game.online.props) state.props = JSON.stringify(game.online.props);
 	return state;
 }
 

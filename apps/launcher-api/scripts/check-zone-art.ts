@@ -1509,6 +1509,28 @@ mock.module('pixi-svelte', { namedExports: { getRigLoadScale: () => 1 } });
 		missing.warnings.some((w) => /is not in this project/.test(w.message)) &&
 			!missing.doc.arcade?.online?.props,
 	);
+	const solids = Array.from({ length: 9 }, (_, k) => ({
+		x: k,
+		y: 0,
+		w: 0.5,
+		h: 0.5,
+		collide: 'solid',
+	}));
+	const oversize = await compileZoneArtProps(
+		salmonsDoc(bridgeArt),
+		store([
+			{
+				...ramped,
+				prop: { ...ramped.prop!, collider: { ...ramped.prop!.collider, solids } },
+			} as never,
+		]),
+	);
+	ok(
+		'13. a collider past the cap is refused at save, said, and plays today’s rule',
+		oversize.warnings.some((w) => /at most 8 solids/.test(w.message)) &&
+			!oversize.doc.arcade?.online?.props,
+		JSON.stringify(oversize.warnings),
+	);
 	const pasted = await compileZoneArtProps(
 		salmonsDoc(undefined, {
 			'bridge#': { from: { component: 'x', version: 1 }, zoneKind: 'bridge', snap: 0.25 },

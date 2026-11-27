@@ -26,10 +26,13 @@ import { salmonsGeometry } from 'engine-mechanics/src/salmons.js';
 import { salmonsMapRiver } from 'engine-mechanics/src/salmonsMap.js';
 import { bridgeDeckAt, bridgeDecks, bridgeOccupancy } from 'engine-mechanics/src/salmonsRules.js';
 
+import { PROP_MAX_SOLIDS } from 'engine-mechanics/src/propShape.js';
+
 import { normalizeProp } from '../src/lib/server/componentProp';
 import {
 	PROP_CELL,
 	addPropSolid,
+	canAddPropSolid,
 	dragColliderHandle,
 	isLockedPropInput,
 	makeProp,
@@ -229,6 +232,15 @@ const blank = (): ComponentDef => ({
 	]);
 	removePropSolid(def, i);
 	eq('…removed, the list goes', 'solids' in (def.prop?.collider ?? {}), false);
+	for (let k = 0; k < PROP_MAX_SOLIDS; k++) addPropSolid(def, { x: k, y: 0, w: 0.5, h: 0.5 });
+	eq(
+		'＋ Solid stops at the cap: no more is added, the collider still compiles',
+		[canAddPropSolid(def), addPropSolid(def, { x: 9, y: 0, w: 1, h: 1 }), propShapeErrors(def)],
+		[false, -1, []],
+	);
+	const over = structuredClone(def.prop!);
+	over.collider.solids!.push({ x: 9, y: 0, w: 1, h: 1, collide: 'solid' });
+	eq('…and a saved prop past it is refused', normalizeProp(over), undefined);
 }
 
 // ---- 5. the side exit --------------------------------------------------------------------------

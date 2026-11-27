@@ -214,6 +214,20 @@ const RAMPED = {
 	ramp: { near: 3, far: 2 },
 };
 const withProps = (props) => (online) => ({ ...online, props });
+const CAPPED_IDS = Array.from({ length: 8 }, (_, k) => `${k}`.padEnd(32, 'x'));
+const CAPPED = {
+	...RAMPED,
+	characters: ['fisherman', ...CAPPED_IDS.slice(1)],
+	solids: Array.from({ length: 8 }, (_, k) => ({
+		x: -100 - k * 0.123456789,
+		y: 50.5,
+		w: 0.5,
+		h: 0.5,
+		collide: 'oneWay',
+		side: 'right',
+		characters: CAPPED_IDS,
+	})),
+};
 /** Zone art alone (`arcade.zoneArt`): cosmetic, read by no rule or room. */
 const ARTED = rawOf(undefined);
 ARTED.arcade.zoneArt = {
@@ -239,6 +253,8 @@ const SERVED = {
 		undefined,
 		withProps({ 'bridge#': { from: RAMPED.from, zoneKind: 'bridge', sideExit: true } }),
 	),
+	// A collider at the cap (`PROP_MAX_SOLIDS` solids, full character lists of the longest ids).
+	capped: rawOf(undefined, withProps({ 'bridge#': CAPPED })),
 };
 for (const [name, doc] of Object.entries(SERVED))
 	writeFileSync(join(dir, `${name}.json`), JSON.stringify(doc));
@@ -726,6 +742,20 @@ try {
 			);
 		},
 	);
+
+	await check('a collider at the cap is sent whole, and a device adopts it', async () => {
+		for (const seed of SEEDS) {
+			const { sim, said } = await roomOf('capped', seed);
+			assert.equal(said.props, JSON.stringify(sim.game.online.props), `seed ${seed}: sent`);
+			assert.ok(said.props.length <= ROOM_LEVELS_MAX);
+			assert.equal(sim.game.online.props['bridge#'].solids.length, 8);
+			const decided = roomLevelGame(deviceGame(SERVED.published), seed, said);
+			assert.ok(!('refused' in decided), `seed ${seed}: refused (${decided.refused})`);
+			assert.deepEqual(decided.differs, ['bridges']);
+			assert.equal(decided.levelHash, said.levelHash);
+			assertSame(levelOf(decided.game), levelOf(sim.game), `seed ${seed}`);
+		}
+	});
 
 	// --- 3. What must not change ------------------------------------------------------------------
 

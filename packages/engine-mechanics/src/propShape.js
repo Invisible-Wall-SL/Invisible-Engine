@@ -21,6 +21,15 @@ export const PROP_SOLID_COLLIDES = Object.freeze(['solid', 'oneWay']);
 export const PROP_SOLID_SIDES = Object.freeze(['below', 'above', 'left', 'right']);
 /** The widest snap to the deck's row, cells: beyond a cell it would take a body off the next row. */
 export const PROP_MAX_SNAP = 1;
+/**
+ * The most extra solids a prop's collider holds, the most character ids a list of it names and the
+ * longest id: what keeps a room's props, sent whole in its state (`onlineGenerators.js`
+ * `roomLevelState`), far under `ROOM_LEVELS_MAX`, so a device always gets the collider its room
+ * plays. `check:prop-shape` sizes a worst-case collider against it.
+ */
+export const PROP_MAX_SOLIDS = 8;
+export const PROP_MAX_CHARACTERS = 8;
+export const PROP_MAX_ID = 32;
 
 /**
  * Today's rule per zone kind, which a compiled shape leaves out: the bridge's ramps
@@ -53,7 +62,10 @@ export class PropShapeError extends Error {
 const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const names = (v) =>
-	Array.isArray(v) && v.length > 0 && v.every((c) => typeof c === 'string' && c !== '');
+	Array.isArray(v) &&
+	v.length > 0 &&
+	v.every((c) => typeof c === 'string' && c !== '' && c.length <= PROP_MAX_ID) &&
+	new Set(v).size <= PROP_MAX_CHARACTERS;
 const sameSet = (a, b) => a.length === b.length && a.every((c) => b.includes(c));
 
 /**
@@ -154,10 +166,14 @@ function compile(def) {
 	}
 	if (!PROP_HOLES.includes(collider.hole)) fail(`The hole is one of ${PROP_HOLES.join(', ')}.`);
 	if (collider.characters !== undefined && !names(collider.characters)) {
-		fail('The characters are a list of character ids.');
+		fail(
+			`The characters are a list of at most ${PROP_MAX_CHARACTERS} character ids of at most ${PROP_MAX_ID} letters.`,
+		);
 	}
 	if (collider.solids !== undefined && !Array.isArray(collider.solids))
 		fail('The solids are a list.');
+	if (Array.isArray(collider.solids) && collider.solids.length > PROP_MAX_SOLIDS)
+		fail(`A prop has at most ${PROP_MAX_SOLIDS} solids.`);
 	if (collider.sideExit !== undefined && typeof collider.sideExit !== 'boolean')
 		fail('The side exit is on or off.');
 	const solids = (Array.isArray(collider.solids) ? collider.solids : []).map((s, i) =>
@@ -246,7 +262,7 @@ function readShape(raw) {
 		const solid = readSolid(s);
 		return solid ? [solid] : [];
 	});
-	if (solids.length) shape.solids = solids;
+	if (solids.length) shape.solids = solids.slice(0, PROP_MAX_SOLIDS);
 	if (raw.sideExit === true) shape.sideExit = true;
 	return shape;
 }

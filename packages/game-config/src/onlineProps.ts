@@ -26,6 +26,9 @@ export const ONLINE_PROP_HOLES = Object.freeze(['deckAndRamps', 'deck', 'none'] 
 export const ONLINE_PROP_SOLID_COLLIDES = Object.freeze(['solid', 'oneWay'] as const);
 export const ONLINE_PROP_SOLID_SIDES = Object.freeze(['below', 'above', 'left', 'right'] as const);
 export const ONLINE_PROP_MAX_SNAP = 1;
+export const ONLINE_PROP_MAX_SOLIDS = 8;
+export const ONLINE_PROP_MAX_CHARACTERS = 8;
+export const ONLINE_PROP_MAX_ID = 32;
 export const ONLINE_PROP_DEFAULTS = Object.freeze({
 	bridge: Object.freeze({
 		characters: Object.freeze(['fisherman']),
@@ -49,7 +52,10 @@ const oneOf = <T extends string>(list: readonly T[], v: unknown): T | undefined 
 	list.find((item) => item === v);
 /** A list of character ids, each once, or `undefined` for none or anything else. */
 const names = (v: unknown): string[] | undefined =>
-	Array.isArray(v) && v.length > 0 && v.every((c) => typeof c === 'string' && c !== '')
+	Array.isArray(v) &&
+	v.length > 0 &&
+	v.every((c) => typeof c === 'string' && c !== '' && c.length <= ONLINE_PROP_MAX_ID) &&
+	new Set(v).size <= ONLINE_PROP_MAX_CHARACTERS
 		? [...new Set(v as string[])]
 		: undefined;
 const sameSet = (a: readonly string[], b: readonly string[]) =>
@@ -100,7 +106,7 @@ export function normalizePropShape(raw: unknown): PropShape | undefined {
 		const solid = normalizeSolid(s);
 		return solid ? [solid] : [];
 	});
-	if (solids.length) shape.solids = solids;
+	if (solids.length) shape.solids = solids.slice(0, ONLINE_PROP_MAX_SOLIDS);
 	if (raw.sideExit === true) shape.sideExit = true;
 	return shape;
 }

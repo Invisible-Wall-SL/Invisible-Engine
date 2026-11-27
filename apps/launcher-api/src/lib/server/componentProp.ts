@@ -10,6 +10,7 @@ import type {
 import { PROP_DEPTHS } from 'engine-layout';
 import {
 	PROP_HOLES,
+	PROP_MAX_SOLIDS,
 	PROP_SOLID_COLLIDES,
 	PROP_SOLID_SIDES,
 } from 'engine-mechanics/src/propShape.js';
@@ -63,7 +64,8 @@ function normalizePropSolid(v: unknown): PropSolid | undefined {
 
 /**
  * A def's `prop` as saved: its known fields of the right shape, or `undefined` when it lacks a zone
- * kind, the zone's length param, a deck, both ramps, a snap or a known hole (a save refuses such a
+ * kind, the zone's length param, a deck, both ramps, a snap or a known hole, or holds more than
+ * `PROP_MAX_SOLIDS` solids (a save refuses such a
  * block, `validateComponent`; a stored one reads as no prop and a save puts it back whole,
  * `withUnknownComponentFields`). The values are kept as authored: what the rules can play is the
  * compile's to say. A zone kind this build does not know is kept, like an input's `source`;
@@ -90,6 +92,7 @@ export function normalizeProp(input: unknown): ArcadeProp | undefined {
 		ramps: { near: { length: near }, far: { length: far } },
 		hole: c.hole as PropCollider['hole'],
 	};
+	if (Array.isArray(c.solids) && c.solids.length > PROP_MAX_SOLIDS) return undefined;
 	if (Array.isArray(c.solids)) {
 		const solids = c.solids.map(normalizePropSolid).filter((s): s is PropSolid => !!s);
 		if (solids.length) collider.solids = solids;

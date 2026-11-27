@@ -46,6 +46,11 @@
 // - it is in the launcher's built-ins and not in the lists every runtime carries, internal, and no
 //   other built-in places it.
 //
+// §6 the cap: a collider holds at most `PROP_MAX_SOLIDS` solids and lists of `PROP_MAX_CHARACTERS`
+// ids of `PROP_MAX_ID` letters; more is refused by the compile and dropped by the readers, and the
+// worst-case collider a family can carry is far under `ROOM_LEVELS_MAX`, so a room always sends
+// its props (the round trip is `check:room-levels`').
+//
 // Run: pnpm check:prop-shape
 
 import assert from 'node:assert/strict';
@@ -54,7 +59,10 @@ import { isDeepStrictEqual } from 'node:util';
 
 import {
 	PROP_HOLES,
+	PROP_MAX_CHARACTERS,
+	PROP_MAX_ID,
 	PROP_MAX_SNAP,
+	PROP_MAX_SOLIDS,
 	PROP_SHAPE_DEFAULTS,
 	PROP_SOLID_COLLIDES,
 	PROP_SOLID_SIDES,
@@ -77,7 +85,10 @@ import {
 import { salmonsConfig, salmonsGeometry } from '../packages/engine-mechanics/src/salmons.js';
 import { CELL } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
-import { generatedOnlineGame } from '../packages/engine-mechanics/src/onlineGenerators.js';
+import {
+	ROOM_LEVELS_MAX,
+	generatedOnlineGame,
+} from '../packages/engine-mechanics/src/onlineGenerators.js';
 import {
 	ONLINE_PROP_DEFAULTS,
 	ONLINE_PROP_HOLES,
@@ -1050,6 +1061,61 @@ check(
 		);
 	},
 );
+
+// ── §6 the cap ───────────────────────────────────────────────────────────────────────────────
+
+check('the cap: too many solids or characters is refused, and dropped by the readers', () => {
+	const post = (k) => ({ x: k, y: 0, w: 0.5, h: 0.5, collide: 'solid' });
+	const full = Array.from({ length: PROP_MAX_SOLIDS }, (_, k) => post(k));
+	assert.equal(compiled({ solids: full }).solids.length, PROP_MAX_SOLIDS);
+	refusedFor(
+		bridge({ solids: [...full, post(9)] }),
+		new RegExp(`at most ${PROP_MAX_SOLIDS} solids`),
+	);
+	const ids = (n, len = 8) => Array.from({ length: n }, (_, k) => `${k}`.padEnd(len, 'x'));
+	assert.ok(compiled({ characters: ids(PROP_MAX_CHARACTERS) }).characters);
+	refusedFor(bridge({ characters: ids(PROP_MAX_CHARACTERS + 1) }), /at most 8 character ids/);
+	refusedFor(bridge({ characters: ids(1, PROP_MAX_ID + 1) }), /of at most 32 letters/);
+	refusedFor(bridge({ solids: [{ ...post(0), characters: ids(9) }] }), /characters/);
+	const over = { ...FROM, solids: [...full, post(9)], characters: ids(9) };
+	for (const read of [readPropShapes, normalizeOnlineProps]) {
+		const shape = read({ 'bridge#': over })['bridge#'];
+		assert.equal(shape.solids.length, PROP_MAX_SOLIDS, read.name);
+		assert.equal(shape.characters, undefined, read.name);
+	}
+});
+
+check('the worst-case collider of a family is far under what a room sends', () => {
+	const long = -1.234567890123456e-300; // as long a number as JSON writes (23 characters)
+	const ids = Array.from({ length: PROP_MAX_CHARACTERS }, (_, k) =>
+		`${k}`.padEnd(PROP_MAX_ID, 'x'),
+	);
+	const solid = {
+		x: long,
+		y: long,
+		w: 1e308,
+		h: 1e308,
+		collide: 'oneWay',
+		side: 'right',
+		characters: ids,
+	};
+	const worst = {
+		from: { component: 'c'.repeat(64), version: Number.MAX_SAFE_INTEGER },
+		zoneKind: 'bridge',
+		characters: ids,
+		height: long,
+		snap: 0.123456789012345,
+		ramp: { near: long, far: long },
+		hole: 'deckAndRamps',
+		solids: Array.from({ length: PROP_MAX_SOLIDS }, () => solid),
+		sideExit: true,
+	};
+	const one = JSON.stringify({ 'bridge#': worst }).length;
+	// Every prop zone kind at its worst, one family each (a generator's families are its kinds'):
+	const all = one * PROP_ZONE_KINDS.length;
+	assert.ok(all * 4 < ROOM_LEVELS_MAX, `${all} characters of ${ROOM_LEVELS_MAX}`);
+	console.log(`      worst-case collider: ${one} characters a family (${ROOM_LEVELS_MAX} sent)`);
+});
 
 console.log(
 	process.exitCode ? `check:prop-shape FAILED` : `check:prop-shape: all ${passed} checks pass`,

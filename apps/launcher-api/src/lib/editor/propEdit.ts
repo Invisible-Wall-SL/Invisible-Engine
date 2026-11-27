@@ -13,6 +13,7 @@ import {
 } from 'engine-layout';
 import {
 	PROP_MAX_SNAP,
+	PROP_MAX_SOLIDS,
 	PROP_SHAPE_DEFAULTS,
 	compilePropShape,
 	propShapeErrors,
@@ -217,10 +218,15 @@ export const dragSnap = (def: ComponentDef, cells: number): boolean =>
 /** A solid's box, in cells of the deck's frame (`x` along the deck from its first cell's edge). */
 export type SolidBox = Pick<PropSolid, 'x' | 'y' | 'w' | 'h'>;
 
-/** Add a solid (a railing: one-way from below by default, as the design's example) drawn as `box`. */
+/** Whether `def`'s collider has room for another solid (`PROP_MAX_SOLIDS`). */
+export const canAddPropSolid = (def: ComponentDef): boolean =>
+	!!def.prop && (def.prop.collider.solids?.length ?? 0) < PROP_MAX_SOLIDS;
+
+/** Add a solid drawn as `box`, solid from every side; -1 when `def` is no prop or its collider
+ *  holds {@link PROP_MAX_SOLIDS} already. */
 export function addPropSolid(def: ComponentDef, box: SolidBox): number {
 	const c = def.prop?.collider;
-	if (!c) return -1;
+	if (!c || !canAddPropSolid(def)) return -1;
 	const solids = (c.solids ??= []);
 	solids.push({ ...roundBox(box), collide: 'solid' });
 	return solids.length - 1;

@@ -12,10 +12,13 @@
 	 * Every handle edits the draft (`propEdit.ts`); the page saves it with the component.
 	 */
 	import type { ComponentDef } from 'engine-layout';
+	import { PROP_MAX_SOLIDS } from 'engine-mechanics/src/propShape.js';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 
 	import { drawShapes2d, PROP_VIEW_PROJECTOR } from '$lib/editor/propCanvas';
 	import {
 		addPropSolid,
+		canAddPropSolid,
 		dragColliderHandle,
 		propColliderOverlay,
 		propPreviewZone,
@@ -248,8 +251,9 @@
 				w: Math.abs(at.x - from.x),
 				h: Math.abs(at.y - from.y),
 			};
-			if (box.w > 4 && box.h > 4) {
-				selectedSolid = addPropSolid(def, solidBoxOf(def, box));
+			const added = box.w > 4 && box.h > 4 ? addPropSolid(def, solidBoxOf(def, box)) : -1;
+			if (added >= 0) {
+				selectedSolid = added;
 				changed();
 			}
 			drawingSolid = false;
@@ -351,14 +355,21 @@
 	</svg>
 	<div class="readout">
 		{#if showCollider}
+			{@const full = !canAddPropSolid(def)}
 			<button
 				type="button"
 				class="tool"
 				class:on={drawingSolid}
-				disabled={readOnly}
+				disabled={readOnly || full}
 				title="Draw a solid (a railing, a post): drag on the ground"
 				onclick={() => (drawingSolid = !drawingSolid)}>＋ Solid</button
 			>
+			{#if full}
+				<InfoTip
+					>A prop holds at most {PROP_MAX_SOLIDS} solids: a room sends its colliders to every player,
+					so they are kept short. Remove one to draw another.</InfoTip
+				>
+			{/if}
 		{/if}
 		{#if showStandIn}
 			<span title="How many of the characters it carries stand on it (the prop's occupied)"

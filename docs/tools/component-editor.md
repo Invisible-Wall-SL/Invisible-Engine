@@ -541,7 +541,11 @@ On a prop, the editor bar shows **Prop view**, **Collider** and **Show a charact
 
   Drag a ramp's white handle along the row to set its length in whole cells. Drag the middle
   handle across the row to set the snap. **＋ Solid**, then a drag on the ground, draws a solid.
-  Click a solid to select it, drag it to move it, or drag a corner to resize it.
+  Click a solid to select it, drag it to move it, or drag a corner to resize it. A prop holds at
+  most 8 solids. At 8, **＋ Solid** is greyed out, with an InfoTip beside it saying why: a room
+  sends its colliders to every player, so they are kept short. A collider past the cap (pasted, or
+  saved by an older launcher) is refused at save, and Game Config's save warns of it and plays
+  today's bridge.
 - **Show a character** drops a stand-in fisherman. Drag him under, onto and over the prop. The
   bridge rule lifts him onto the deck and its ramps, the same rule the room plays. The corner reads
   **occupied N** and how many cells up he stands.

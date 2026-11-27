@@ -1,3 +1,4 @@
+import { ROOM_LEVELS_MAX } from 'engine-mechanics/src/onlineGenerators.js';
 import {
 	compilePropShape,
 	PropShapeError,
@@ -91,7 +92,18 @@ export async function compileZoneArtProps(
 					`No component draws ${family} (Zone art), so this collider is dropped.`,
 				),
 			);
-	const compiled = normalizeOnlineProps(props);
+	let compiled = normalizeOnlineProps(props);
+	// A room sends its props whole to every device (`roomLevelState`): props too long to send are
+	// none, or each device would be refused. The caps make this unreachable for one family each.
+	if (compiled && JSON.stringify(compiled).length > ROOM_LEVELS_MAX) {
+		warnings.push(
+			warning(
+				'arcade.online.props',
+				`The colliders are too long for a room to send (over ${ROOM_LEVELS_MAX} characters), so every family plays today's rule: draw fewer families with components.`,
+			),
+		);
+		compiled = undefined;
+	}
 	const next: GameConfigDoc = structuredClone(doc);
 	const nextOnline = next.arcade!.online!;
 	if (compiled) nextOnline.props = compiled;

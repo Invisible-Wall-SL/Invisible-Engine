@@ -8,6 +8,10 @@ export const PROP_HOLES: readonly ['deckAndRamps', 'deck', 'none'];
 export const PROP_SOLID_COLLIDES: readonly ['solid', 'oneWay'];
 export const PROP_SOLID_SIDES: readonly ['below', 'above', 'left', 'right'];
 export const PROP_MAX_SNAP: 1;
+/** The most solids, character ids per list, and letters an id, a prop's collider holds. */
+export const PROP_MAX_SOLIDS: 8;
+export const PROP_MAX_CHARACTERS: 8;
+export const PROP_MAX_ID: 32;
 
 export type PropZoneKind = (typeof PROP_ZONE_KINDS)[number];
 export type PropShapeHole = (typeof PROP_HOLES)[number];
