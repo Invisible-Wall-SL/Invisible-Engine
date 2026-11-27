@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import {
 	LIVE_MERGE_RUN_STATUSES,
 	WORKING_MERGE_RUN_STATUSES,
@@ -174,7 +175,7 @@ export async function settleMergeRun(
 	id: string,
 	from: readonly MergeRunStatus[],
 	end: MergeRunEnd,
-	opts: { result?: boolean } = {},
+	opts: { result?: boolean; claim?: string } = {},
 ): Promise<MergeMainRun | null> {
 	const now = new Date();
 	const proposing = end.status === 'proposed';
@@ -196,7 +197,13 @@ export async function settleMergeRun(
 			finishedAt: proposing ? null : now,
 			updatedAt: now,
 		})
-		.where(and(eq(mergeMainRuns.id, id), inArray(mergeMainRuns.status, [...from])))
+		.where(
+			and(
+				eq(mergeMainRuns.id, id),
+				inArray(mergeMainRuns.status, [...from]),
+				opts.claim === undefined ? undefined : eq(mergeMainRuns.acceptClaim, opts.claim),
+			),
+		)
 		.returning();
 	return run ?? null;
 }
@@ -204,70 +211,139 @@ export async function settleMergeRun(
 // ── The Accept claim ──────────────────────────────────────────────────────────
 
 /**
+ * The claim's clock is the database's, never a replica's, and a `Date` is never put in a raw `sql`
+ * template (postgres-js cannot encode one there: it throws): the column-aware operators and `now()`
+ * do the comparing.
+ */
+const lapsedBefore = (leaseMs: number) => sql`now() - make_interval(secs => ${leaseMs / 1000})`;
+
+/**
  * Take the claim on a proposal before any GitHub write: `proposed → accepting`, or an `accepting`
- * whose lease ran out (`leaseMs`), in one conditional update; null when someone else holds it, or the
- * run is neither. The person is recorded with it. Discard acts only from `proposed`, so it and an
- * Accept cannot both win, on any replica.
+ * whose lease ran out (`leaseMs`, by the database's clock), in one conditional update; null when
+ * someone else holds it, or the run is neither. The claim is a fresh id: every later update, settle
+ * and release of this Accept must carry it, so a holder that outlived its lease cannot write over
+ * whoever took the run after it. The claimer is recorded unless a commit was already built (its
+ * builder stays). Discard acts only from `proposed`, so it and an Accept cannot both win, on any
+ * replica.
  */
 export async function claimAccept(
 	id: string,
 	person: { id: string; name: string },
 	leaseMs: number,
-	nowMs = Date.now(),
 ): Promise<MergeMainRun | null> {
-	const now = new Date(nowMs);
-	const expired = new Date(nowMs - leaseMs);
 	const [run] = await getDb()
 		.update(mergeMainRuns)
 		.set({
 			status: 'accepting',
-			acceptingAt: now,
-			acceptedById: person.id,
-			acceptedBy: person.name,
-			updatedAt: now,
+			acceptingAt: sql`now()`,
+			acceptClaim: randomUUID(),
+			acceptedById: sql`case when ${mergeMainRuns.acceptSha} is null then ${person.id}::text
+				else ${mergeMainRuns.acceptedById} end`,
+			acceptedBy: sql`case when ${mergeMainRuns.acceptSha} is null then ${person.name}::text
+				else ${mergeMainRuns.acceptedBy} end`,
+			updatedAt: sql`now()`,
 		})
 		.where(
 			and(
 				eq(mergeMainRuns.id, id),
-				sql`(${mergeMainRuns.status} = 'proposed' or
-					(${mergeMainRuns.status} = 'accepting' and ${mergeMainRuns.acceptingAt} < ${expired}))`,
+				or(
+					eq(mergeMainRuns.status, 'proposed'),
+					and(
+						eq(mergeMainRuns.status, 'accepting'),
+						lt(mergeMainRuns.acceptingAt, lapsedBefore(leaseMs)),
+					),
+				),
 			),
 		)
 		.returning();
 	return run ?? null;
 }
 
-/** Record the commit an Accept built, before it moves the branch; only while it holds the claim. */
-export async function recordAcceptSha(id: string, sha: string): Promise<void> {
-	await getDb()
-		.update(mergeMainRuns)
-		.set({ acceptSha: sha, updatedAt: new Date() })
-		.where(and(eq(mergeMainRuns.id, id), eq(mergeMainRuns.status, 'accepting')));
-}
-
-/** Give the claim back (`accepting → proposed`) when nothing was pushed. */
-export async function releaseAccept(id: string): Promise<void> {
-	await getDb()
+/**
+ * Record the commit an Accept built, and who built it, right before it moves the branch. True only
+ * while this claim is still the holder's and at least `minLeftMs` of its lease is left: a holder that
+ * is late (or took the run over) is told no, and does not push.
+ */
+export async function recordAcceptSha(
+	id: string,
+	claim: string,
+	sha: string,
+	person: { id: string; name: string },
+	leaseMs: number,
+	minLeftMs: number,
+): Promise<boolean> {
+	const rows = await getDb()
 		.update(mergeMainRuns)
 		.set({
-			status: 'proposed',
-			acceptingAt: null,
-			acceptedById: null,
-			acceptedBy: null,
-			updatedAt: new Date(),
+			acceptSha: sha,
+			acceptedById: person.id,
+			acceptedBy: person.name,
+			updatedAt: sql`now()`,
 		})
-		.where(and(eq(mergeMainRuns.id, id), eq(mergeMainRuns.status, 'accepting')));
+		.where(
+			and(
+				eq(mergeMainRuns.id, id),
+				eq(mergeMainRuns.status, 'accepting'),
+				eq(mergeMainRuns.acceptClaim, claim),
+				gt(mergeMainRuns.acceptingAt, lapsedBefore(leaseMs - minLeftMs)),
+			),
+		)
+		.returning({ id: mergeMainRuns.id });
+	return rows.length > 0;
 }
 
-/** Runs whose Accept took the claim before `beforeMs` and never settled it (what the backstop clears). */
-export async function lapsedAccepts(beforeMs: number): Promise<MergeMainRun[]> {
+const given = {
+	status: 'proposed',
+	acceptingAt: null,
+	acceptClaim: null,
+	acceptSha: null,
+	acceptedById: null,
+	acceptedBy: null,
+} as const;
+
+/** Give this claim back (`accepting → proposed`) when nothing was pushed; a claim not held is left. */
+export async function releaseAccept(id: string, claim: string): Promise<void> {
+	await getDb()
+		.update(mergeMainRuns)
+		.set({ ...given, updatedAt: sql`now()` })
+		.where(
+			and(
+				eq(mergeMainRuns.id, id),
+				eq(mergeMainRuns.status, 'accepting'),
+				eq(mergeMainRuns.acceptClaim, claim),
+			),
+		);
+}
+
+/**
+ * Give back a claim whose lease ran out and that built no commit (nothing can have been pushed), so a
+ * Discard may act on it. True when it did.
+ */
+export async function releaseLapsedAccept(id: string, leaseMs: number): Promise<boolean> {
+	const rows = await getDb()
+		.update(mergeMainRuns)
+		.set({ ...given, updatedAt: sql`now()` })
+		.where(
+			and(
+				eq(mergeMainRuns.id, id),
+				eq(mergeMainRuns.status, 'accepting'),
+				isNull(mergeMainRuns.acceptSha),
+				lt(mergeMainRuns.acceptingAt, lapsedBefore(leaseMs)),
+			),
+		)
+		.returning({ id: mergeMainRuns.id });
+	return rows.length > 0;
+}
+
+/** Runs whose Accept took the claim over `leaseMs` ago and never settled it (what the backstop clears). */
+export async function lapsedAccepts(leaseMs: number): Promise<MergeMainRun[]> {
 	return getDb()
 		.select()
 		.from(mergeMainRuns)
 		.where(
 			and(
 				eq(mergeMainRuns.status, 'accepting'),
-				sql`${mergeMainRuns.acceptingAt} < ${new Date(beforeMs)}`,
+				lt(mergeMainRuns.acceptingAt, lapsedBefore(leaseMs)),
 			),
 		)
 		.orderBy(asc(mergeMainRuns.createdAt));

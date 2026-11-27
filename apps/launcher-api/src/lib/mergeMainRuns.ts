@@ -45,6 +45,12 @@ export const isLiveMergeRun = (status: MergeRunStatus): boolean =>
 export const isWorkingMergeRun = (status: MergeRunStatus): boolean =>
 	(WORKING_MERGE_RUN_STATUSES as readonly string[]).includes(status);
 
+/**
+ * An Accept holds its claim this long (the database's clock); after it a retry may take the run over,
+ * the page offers Accept again and the backstop settles it from the branch's tip.
+ */
+export const MERGE_ACCEPT_LEASE_MS = 3 * 60_000;
+
 export const MERGE_RUN_WORKFLOW = 'merge-main.yml';
 export const MERGE_RUN_WORKFLOW_PATH = `.github/workflows/${MERGE_RUN_WORKFLOW}`;
 /** The `bug-fix` environment holds the key; the job's token must come from it. */
@@ -84,6 +90,7 @@ export const MERGE_RULES = ['runtime-bytes', 'vendored-bundle', 'docs-append', '
 export type MergeRule = (typeof MERGE_RULES)[number];
 export const MERGE_MODES = ['100644', '100755'] as const;
 export type MergeMode = (typeof MERGE_MODES)[number];
+export const MERGE_HUNK_KINDS = ['lines', 'description'] as const;
 export const MERGE_TAKES = ['main', 'change', 'both', 'combined'] as const;
 export type MergeTakes = (typeof MERGE_TAKES)[number];
 
@@ -105,6 +112,12 @@ export interface MergeRunHunk {
 	why: string;
 	nowDoes: string | null;
 	otherwise: string | null;
+	/**
+	 * `lines`: `main` and `change` are real lines and `result` is where the job found them in the
+	 * final file, or null when it could not. `description`: a rule's or a modify/delete hunk, whose
+	 * `main` and `change` are words and whose result follows what it took.
+	 */
+	kind: 'lines' | 'description';
 	/**
 	 * What the resolved file holds where this hunk was: from git and the final file, never the
 	 * model's. Null for a rule's or a modify/delete hunk, whose `main` and `change` are descriptions,
@@ -267,6 +280,7 @@ export interface MergeRunRecord {
 	mergeSha: string | null;
 	spendUsd: number | null;
 	ghRunId: number | null;
+	acceptingAt: Date | null;
 	startedBy: string;
 	acceptedBy: string | null;
 	createdAt: Date;
@@ -313,6 +327,8 @@ export interface MergeRunView {
 	explanation: MergeRunExplanation | null;
 	mergeSha: string | null;
 	spendUsd: number | null;
+	/** When an Accept took its claim (`accepting`), by the database's clock; else null. */
+	acceptingAt: string | null;
 	actionsUrl: string | null;
 	startedBy: string;
 	acceptedBy: string | null;
@@ -350,6 +366,7 @@ export function mergeRunView(run: MergeRunRecord, repo: string): MergeRunView {
 		explanation: proposalOnly(run),
 		mergeSha: run.mergeSha,
 		spendUsd: run.spendUsd,
+		acceptingAt: run.acceptingAt?.toISOString() ?? null,
 		actionsUrl:
 			run.ghRunId === null ? null : `https://github.com/${repo}/actions/runs/${run.ghRunId}`,
 		startedBy: run.startedBy,

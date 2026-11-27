@@ -8,6 +8,7 @@ import {
 	MERGE_RUN_ID,
 	MERGE_RUN_REASONS,
 	MERGE_RUN_WORKFLOW_PATH,
+	MERGE_ACCEPT_LEASE_MS,
 	MERGE_CAPS,
 	UNSAFE_BRANCH_TEXT,
 	OUTCOME_REASONS,
@@ -46,9 +47,10 @@ import { isPlainBranchName, refReadPath, refWritePath } from './githubPaths';
 import { githubOidc, type GithubOidc } from './githubOidc';
 import { approverName, forgetChanges, isOnHold, readPull, type GhPull } from './pipelineChanges';
 import {
-	MERGE_ACCEPT_LEASE_MS,
+	MERGE_ACCEPT_MIN_LEFT_MS,
 	cancelListedMergeRun,
 	dispatchMergeRun,
+	holdsMerge,
 	mergeWorkflowReady,
 } from './pipelineMergeRunsActions';
 import {
@@ -70,6 +72,7 @@ import {
 	needsMainsTree,
 	parseMergeResult,
 	resultProblem,
+	resultSecretProblem,
 	textsProblem,
 	type ParsedMergeResult,
 } from './pipelineMergeRunsResult';
@@ -83,6 +86,7 @@ import {
 	recordAcceptSha,
 	recordMergeRunSpend,
 	releaseAccept,
+	releaseLapsedAccept,
 	settleMergeRun,
 	type MergeMainRun,
 	type MergeRunEnd,
@@ -420,6 +424,8 @@ async function decide(
 	) {
 		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.notExplained, explanation };
 	}
+	const secret = r.explanation && resultSecretProblem(r.explanation, explanation);
+	if (secret) return refused(secret);
 	const hunkPaths = new Set(explanation.hunks.map((h) => h.path));
 	const problem =
 		filesProblem(r.files, hunkPaths, await mainTreeFor(app, run, r.files)) ??
@@ -459,8 +465,12 @@ function conflict(code: string, message: string): never {
 	throw error(409, { message, code });
 }
 
+/** Settle a run this Accept holds the claim of: by the claim's id, so a late holder settles nothing. */
+const settleClaimed = (run: MergeMainRun, end: MergeRunEnd): Promise<MergeMainRun | null> =>
+	settleMergeRun(run.id, ['accepting'], end, { claim: run.acceptClaim ?? '' });
+
 async function stale(run: MergeMainRun, reason: string): Promise<never> {
-	await settleMergeRun(run.id, ['accepting'], { status: 'stale', reason });
+	await settleClaimed(run, { status: 'stale', reason });
 	return conflict('stale', reason);
 }
 
@@ -560,12 +570,6 @@ export async function acceptMergeRun(
 			return { run: viewOf(run), mergeSha: run.mergeSha, already: true };
 		}
 		if (
-			run.status === 'accepting' &&
-			Date.now() - (run.acceptingAt?.getTime() ?? 0) < MERGE_ACCEPT_LEASE_MS
-		) {
-			conflict('accepting', `Merge run ${id} is being accepted: wait a moment.`);
-		}
-		if (
 			(run.status !== 'proposed' && run.status !== 'accepting') ||
 			!run.files ||
 			!run.explanation
@@ -591,9 +595,10 @@ export async function acceptMergeRun(
 				pushed,
 			);
 		} catch (err) {
-			// Nothing was pushed: the proposal is given back. A push whose answer is unknown keeps the
-			// claim, and its lease lets the next Accept or the backstop find out from the branch's tip.
-			if (!pushed.sent) await releaseAccept(id);
+			// Nothing was pushed: the proposal is given back (by this claim's id: a claim since taken
+			// over is not ours to give back). A push whose answer is unknown keeps the claim, and its
+			// lease lets the next Accept or the backstop find out from the branch's tip.
+			if (!pushed.sent && claimed.acceptClaim) await releaseAccept(id, claimed.acceptClaim);
 			throw err;
 		}
 	});
@@ -612,11 +617,13 @@ async function acceptClaimed(
 	if (isOnHold(pull)) conflict('on_hold', `#${run.prNumber} is on hold: resume it first.`);
 	if (pull.head.ref !== run.branch) return stale(run, RENAMED_BRANCH_TEXT);
 	if (!isPlainBranchName(run.branch)) conflict('unsafe_branch', UNSAFE_BRANCH_TEXT);
-	if (run.acceptSha && pull.head.sha === run.acceptSha) {
-		const done = await settleMergeRun(run.id, ['accepting'], {
+	if (run.acceptSha && (await holdsMerge(app, run.acceptSha, pull.head.sha))) {
+		// An earlier Accept got its commit onto the branch (its tip, or a person pushed on top of it):
+		// it was accepted by whoever built it.
+		const done = await settleClaimed(run, {
 			status: 'accepted',
 			mergeSha: run.acceptSha,
-			acceptedBy: person,
+			acceptedBy: { id: run.acceptedById ?? person.id, name: run.acceptedBy ?? person.name },
 		});
 		forgetChanges();
 		return {
@@ -639,10 +646,10 @@ async function acceptClaimed(
 	}
 	const end = await build(app, run, pull, files, person, pushed);
 	if ('end' in end) {
-		await settleMergeRun(run.id, ['accepting'], end.end);
+		await settleClaimed(run, end.end);
 		conflict('needs_person', end.end.reason ?? 'The resolution was refused.');
 	}
-	const done = await settleMergeRun(run.id, ['accepting'], {
+	const done = await settleClaimed(run, {
 		status: 'accepted',
 		mergeSha: end.sha,
 		acceptedBy: person,
@@ -674,10 +681,7 @@ async function build(
 	const baseSha = base.merge_base_commit?.sha;
 	if (!baseSha) return needsPerson('GitHub reports no merge base for this change.');
 	if (baseSha !== run.baseSha) {
-		await settleMergeRun(run.id, ['accepting'], {
-			status: 'stale',
-			reason: MERGE_RUN_REASONS.otherBase,
-		});
+		await settleClaimed(run, { status: 'stale', reason: MERGE_RUN_REASONS.otherBase });
 		return conflict('stale', MERGE_RUN_REASONS.otherBase);
 	}
 	const [baseTree, headTree, mainTree] = await Promise.all(
@@ -726,7 +730,15 @@ async function build(
 				parents: [run.headSha, run.mainSha],
 			}),
 		});
-		await recordAcceptSha(run.id, commit.sha);
+		const holds = await recordAcceptSha(
+			run.id,
+			run.acceptClaim ?? '',
+			commit.sha,
+			person,
+			MERGE_ACCEPT_LEASE_MS,
+			MERGE_ACCEPT_MIN_LEFT_MS,
+		);
+		if (!holds) conflict('accepting', 'This Accept no longer holds the claim: try again.');
 		pushed.sent = true;
 		const moved = await app.fetch(refWritePath(r, run.branch), {
 			method: 'PATCH',
@@ -736,12 +748,11 @@ async function build(
 			const message = await messageOf(moved);
 			if (WORKFLOW_MENTION.test(message)) return needsPerson(workflowRefusal(message));
 			if (moved.status === 422) {
-				await settleMergeRun(run.id, ['accepting'], {
-					status: 'stale',
-					reason: MERGE_RUN_REASONS.headMoved,
-				});
+				await settleClaimed(run, { status: 'stale', reason: MERGE_RUN_REASONS.headMoved });
 				return conflict('stale', MERGE_RUN_REASONS.headMoved);
 			}
+			// GitHub refused outright (not a 5xx, not a lost answer): nothing moved, so give the claim back.
+			if (moved.status >= 400 && moved.status < 500) pushed.sent = false;
 			throw new GithubAppError(
 				`GitHub ${moved.status} moving the branch: ${message}`,
 				moved.status,
@@ -792,6 +803,15 @@ export async function discardMergeRun(
 	return accepting(String(number), () => discard(number, id, person, app));
 }
 
+async function discardProposal(id: string, person: MergePerson): Promise<MergeRunView> {
+	const done = await settleMergeRun(id, ['proposed'], {
+		status: 'discarded',
+		reason: `Discarded by ${person.name}.`,
+	});
+	if (!done) conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
+	return viewOf(done);
+}
+
 async function discard(
 	number: number,
 	id: string,
@@ -801,15 +821,18 @@ async function discard(
 	const run = MERGE_RUN_ID.test(id) ? await getMergeRun(id) : null;
 	if (!run || run.prNumber !== number)
 		throw error(404, `There is no merge run ${id} on #${number}.`);
-	if (run.status === 'proposed') {
-		const done = await settleMergeRun(id, ['proposed'], {
-			status: 'discarded',
-			reason: `Discarded by ${person.name}.`,
-		});
-		if (!done) conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
-		return viewOf(done);
+	if (run.status === 'proposed') return discardProposal(id, person);
+	if (run.status === 'accepting') {
+		// Only a claim whose lease ran out and that built no commit may be discarded: anything else
+		// may have moved the branch, and the backstop settles it from the branch's tip.
+		if (!(await releaseLapsedAccept(id, MERGE_ACCEPT_LEASE_MS))) {
+			conflict('accepting', `Merge run ${id} is being accepted.`);
+		}
+		const given = await getMergeRun(id);
+		if (given?.status !== 'proposed')
+			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
+		return discardProposal(id, person);
 	}
-	if (run.status === 'accepting') conflict('accepting', `Merge run ${id} is being accepted.`);
 	if (!isWorkingMergeRun(run.status)) conflict('ended', `Merge run ${id} has already ended.`);
 	if (run.ghRunId !== null) {
 		let asked: Awaited<ReturnType<typeof cancelActionsRun>>;

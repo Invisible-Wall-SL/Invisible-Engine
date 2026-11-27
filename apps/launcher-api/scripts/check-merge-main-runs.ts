@@ -155,6 +155,7 @@ const LIVE: MergeRunStatus[] = ['dispatched', 'running', 'proposed', 'accepting'
 const WORKING: MergeRunStatus[] = ['dispatched', 'running'];
 const runOf = (id: string): MergeMainRun => runs.find((r) => r.id === id)!;
 const copy = (r: MergeMainRun): MergeMainRun => ({ ...r });
+let claims = 0;
 const store = {
 	getMergeRun: async (id: string) => {
 		const r = runs.find((x) => x.id === id);
@@ -208,6 +209,7 @@ const store = {
 			resultAt: null,
 			acceptSha: null,
 			acceptingAt: null,
+			acceptClaim: null,
 			createdAt: at,
 			updatedAt: at,
 			finishedAt: null,
@@ -230,10 +232,11 @@ const store = {
 		id: string,
 		from: readonly MergeRunStatus[],
 		end: MergeRunEnd,
-		opts: { result?: boolean } = {},
+		opts: { result?: boolean; claim?: string } = {},
 	) => {
 		const r = runs.find((x) => x.id === id);
 		if (!r || !from.includes(r.status)) return null;
+		if (opts.claim !== undefined && r.acceptClaim !== opts.claim) return null;
 		const at = tick();
 		const wasDispatched = r.status === 'dispatched';
 		r.status = end.status;
@@ -252,36 +255,66 @@ const store = {
 		r.updatedAt = at;
 		return copy(r);
 	},
-	claimAccept: async (
-		id: string,
-		person: { id: string; name: string },
-		leaseMs: number,
-		nowMs = Date.now(),
-	) => {
+	/** The database's clock, here the fixture's: a claim is lapsed after `leaseMs` of real time. */
+	claimAccept: async (id: string, person: { id: string; name: string }, leaseMs: number) => {
 		const r = runs.find((x) => x.id === id);
 		if (!r) return null;
-		const lapsed = r.status === 'accepting' && +(r.acceptingAt ?? 0) < nowMs - leaseMs;
+		const lapsed = r.status === 'accepting' && +(r.acceptingAt ?? 0) < Date.now() - leaseMs;
 		if (r.status !== 'proposed' && !lapsed) return null;
 		r.status = 'accepting';
-		r.acceptingAt = new Date(nowMs);
-		r.acceptedById = person.id;
-		r.acceptedBy = person.name;
+		r.acceptingAt = new Date();
+		r.acceptClaim = `claim-${++claims}`;
+		if (r.acceptSha === null) {
+			r.acceptedById = person.id;
+			r.acceptedBy = person.name;
+		}
 		return copy(r);
 	},
-	recordAcceptSha: async (id: string, sha: string) => {
+	recordAcceptSha: async (
+		id: string,
+		claim: string,
+		sha: string,
+		person: { id: string; name: string },
+		leaseMs: number,
+		minLeftMs: number,
+	) => {
 		const r = runOf(id);
-		if (r.status === 'accepting') r.acceptSha = sha;
+		if (r.status !== 'accepting' || r.acceptClaim !== claim) return false;
+		if (+(r.acceptingAt ?? 0) <= Date.now() - (leaseMs - minLeftMs)) return false;
+		r.acceptSha = sha;
+		r.acceptedById = person.id;
+		r.acceptedBy = person.name;
+		return true;
 	},
-	releaseAccept: async (id: string) => {
+	releaseAccept: async (id: string, claim: string) => {
 		const r = runOf(id);
-		if (r.status !== 'accepting') return;
-		r.status = 'proposed';
-		r.acceptingAt = null;
-		r.acceptedById = null;
-		r.acceptedBy = null;
+		if (r.status !== 'accepting' || r.acceptClaim !== claim) return;
+		Object.assign(r, {
+			status: 'proposed',
+			acceptingAt: null,
+			acceptClaim: null,
+			acceptSha: null,
+			acceptedById: null,
+			acceptedBy: null,
+		});
 	},
-	lapsedAccepts: async (beforeMs: number) =>
-		runs.filter((r) => r.status === 'accepting' && +(r.acceptingAt ?? 0) < beforeMs).map(copy),
+	releaseLapsedAccept: async (id: string, leaseMs: number) => {
+		const r = runOf(id);
+		if (r.status !== 'accepting' || r.acceptSha !== null) return false;
+		if (+(r.acceptingAt ?? 0) >= Date.now() - leaseMs) return false;
+		Object.assign(r, {
+			status: 'proposed',
+			acceptingAt: null,
+			acceptClaim: null,
+			acceptedById: null,
+			acceptedBy: null,
+		});
+		return true;
+	},
+	lapsedAccepts: async (leaseMs: number) =>
+		runs
+			.filter((r) => r.status === 'accepting' && +(r.acceptingAt ?? 0) < Date.now() - leaseMs)
+			.map(copy),
 	recordMergeRunSpend: async (
 		id: string,
 		agent: string,
@@ -396,6 +429,8 @@ const gh = {
 	compareNoFiles: false,
 	/** Runs once, just before a ref update is judged: another replica getting there first. */
 	beforePatch: null as (() => void) | null,
+	/** Runs once, just before a commit is made: the claim's lease running out or being taken over. */
+	beforeCommit: null as (() => void) | null,
 	truncatedTrees: new Set<string>(),
 	madeCommits: [] as (Record<string, any> & { sha: string })[], // eslint-disable-line @typescript-eslint/no-explicit-any
 	/** The merge base GitHub names for any compare of a head with main. */
@@ -487,6 +522,8 @@ function route(method: string, path: string, body: Call['body']): Response {
 		return answer(201, { sha });
 	}
 	if (p === '/git/commits' && method === 'POST') {
+		gh.beforeCommit?.();
+		gh.beforeCommit = null;
 		const sha = putCommit(
 			String(body?.tree),
 			(body?.parents ?? []) as string[],
@@ -536,7 +573,13 @@ function route(method: string, path: string, body: Call['body']): Response {
 				...(gh.compareNoFiles ? {} : { files: page === 1 ? files.slice(0, 300) : [] }),
 			});
 		}
-		return answer(200, { merge_base_commit: { sha: gh.mergeBase }, ahead_by: 1, behind_by: 1 });
+		const status = from === to ? 'identical' : ancestor(from, to) ? 'ahead' : 'diverged';
+		return answer(200, {
+			status,
+			merge_base_commit: { sha: gh.mergeBase },
+			ahead_by: 1,
+			behind_by: 1,
+		});
 	}
 	return answer(404, { message: `fixture: no route for ${method} ${path}` });
 }
@@ -829,6 +872,7 @@ const explanation = (paths: string[] = ['src/a.ts'], extra: Json = {}) => ({
 		main: 'const a = 2;',
 		change: 'const a = 3;',
 		result: null,
+		kind: 'lines',
 		takes: 'combined',
 		why: 'Both lines matter.',
 		nowDoes: 'It sets a to 5.',
@@ -2099,6 +2143,49 @@ check(
 		[over.run.status, over.run.reason],
 		['no_proposal', 'The conflicting lines are too long to show for a person to read.'],
 	);
+	// R2-S4: the result is the job's, so it is scanned like any text a person did not write
+	const keyLine = `const k = "sk-ant-api03-${'z'.repeat(40)}";`;
+	const withSecretResult = await failFast({
+		files: files({
+			path: 'src/a.ts',
+			rule: null,
+			choice: 'both',
+			content: `${keyLine}\nconst a = 5;\n`,
+		}),
+		explanation: withHunks([
+			hunkWith({ main: 'const a = 1;', change: 'const a = 2;', result: keyLine }),
+		]),
+	});
+	check(
+		'result: a secret in a result line neither side has → needs_person, the scan named',
+		[withSecretResult.run.status, withSecretResult.run.reason],
+		['needs_person', 'The change was refused (secret scan: a secret in a hunk result).'],
+	);
+	const zw = `const k = "sk-ant-api\u200B03-${'z'.repeat(40)}";`;
+	const splitSecret = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${zw}\n` }),
+		explanation: withHunks([
+			hunkWith({ main: 'const a = 1;', change: 'const a = 2;', result: zw }),
+		]),
+	});
+	check(
+		'result: a key split by a zero-width character is found in the cleaned form → needs_person',
+		splitSecret.run.status,
+		'needs_person',
+	);
+	const ownLine = await failFast({
+		files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: `${keyLine}\n` }),
+		explanation: withHunks([hunkWith({ main: keyLine, change: 'const a = 2;', result: keyLine })]),
+	});
+	check(
+		'result: a line a side already held is the repository’s own — proposed, with that line hidden on the page’s sides',
+		[
+			ownLine.run.status,
+			(ownLine.run.explanation as { hunks: { main: string; change: string }[] }).hunks[0].main,
+			(ownLine.run.explanation as { hunks: { main: string; change: string }[] }).hunks[0].change,
+		],
+		['proposed', '[line hidden: it looks like a secret]', 'const a = 2;'],
+	);
 	const tooMany = await failFast({
 		explanation: withHunks([hunkWith({ main: 'm'.repeat(40_001) })]),
 	});
@@ -2984,9 +3071,11 @@ check(
 	);
 }
 {
-	// Every GitHub URL path the launcher builds from a branch goes through refReadPath/refWritePath
-	// (githubPaths.ts), and nothing else in src builds one from a name. Allowed by call site: the
-	// file and the line, not the variable's name.
+	// Every GitHub URL path the launcher builds from a branch or another name goes through
+	// refReadPath/refWritePath (githubPaths.ts), and nothing else in src builds one from a name.
+	// Whole template literals are read (a path split over lines is still one), and a call site is
+	// allowed by its file's repo-relative path and its template, never by a variable's name.
+	const root = new URL('../', import.meta.url);
 	const walk = (dir: URL): URL[] =>
 		readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
 			e.isDirectory()
@@ -2995,33 +3084,91 @@ check(
 					? [new URL(e.name, dir)]
 					: [],
 		);
+	/** The outermost template literals of a source, nested ones inside their `${…}` kept whole. */
+	const templates = (src: string): string[] => {
+		const out: string[] = [];
+		const readTemplate = (from: number): number => {
+			let i = from + 1;
+			while (i < src.length && src[i] !== '`') {
+				if (src[i] === '\\') i += 2;
+				else if (src[i] === '$' && src[i + 1] === '{') i = readExpression(i + 2);
+				else i++;
+			}
+			return i + 1;
+		};
+		const readExpression = (from: number): number => {
+			let i = from;
+			let depth = 1;
+			while (i < src.length && depth > 0) {
+				const c = src[i];
+				if (c === '`') i = readTemplate(i);
+				else if (c === "'" || c === '"') {
+					i++;
+					while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1;
+					i++;
+				} else {
+					if (c === '{') depth++;
+					else if (c === '}') depth--;
+					i++;
+				}
+			}
+			return i;
+		};
+		let i = 0;
+		while (i < src.length) {
+			if (src[i] === '`') {
+				const end = readTemplate(i);
+				out.push(src.slice(i, end));
+				i = end;
+			} else i++;
+		}
+		return out;
+	};
 	const PATTERNS = [
 		/git\/refs?\/heads/,
-		/git\/refs\/\$\{/,
+		/git\/refs?\/\$\{/,
 		/\/branches\/\$\{/,
 		/matching-refs/,
-		/\?ref=\$\{/,
+		/[?&]ref=\$\{/,
+		/\/compare\/[^`]*\$\{/,
+		/\/commits\/\$\{/,
+		/[?&]branch=\$\{/,
 	];
-	const ALLOWED = new Set([
-		'githubPaths.ts|`/repos/${repo}/git/ref/heads/${encodePath(branch)}`;',
-		'githubPaths.ts|`/repos/${repo}/git/refs/heads/${encodePath(branch)}`;',
-		'pipelineRuntimeBytes.ts|`/repos/${r}/contents/${MANIFEST_DIR}?ref=${headSha}`,',
-		'pipelineAgents.ts|`/repos/${repo()}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`,',
-		'pipelineAgents.ts|app.json<GhContentFile[]>(`/repos/${repo()}/contents/${AGENTS_DIR}?ref=${sha}`),',
+	const ALLOWED = new Set<string>([
+		'src/lib/server/bugFixRuns.ts | `/repos/${r}/git/commits/${sha}`',
+		'src/lib/server/bugFixRuns.ts | `/repos/${r}/git/commits/${head}`',
+		'src/lib/server/githubPaths.ts | `GET /repos/<repo>/git/ref/heads/<branch>`',
+		'src/lib/server/githubPaths.ts | `/repos/${repo}/git/ref/heads/${encodePath(branch)}`',
+		'src/lib/server/githubPaths.ts | `DELETE /repos/<repo>/git/refs/heads/<branch>`',
+		'src/lib/server/githubPaths.ts | `/repos/${repo}/git/refs/heads/${encodePath(branch)}`',
+		'src/lib/server/pipelineAgents.ts | `/repos/${repo()}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`',
+		'src/lib/server/pipelineAgents.ts | `/repos/${repo()}/contents/${AGENTS_DIR}?ref=${sha}`',
+		'src/lib/server/pipelineChanges.ts | `/repos/${r}/commits/${sha}/check-runs?per_page=${PAGE}`',
+		'src/lib/server/pipelineChanges.ts | `/repos/${r}/commits/${sha}/status`',
+		'src/lib/server/pipelineChanges.ts | `/repos/${repo()}/compare/${BASE_BRANCH}...${headSha}?per_page=1`',
+		'src/lib/server/pipelineChanges.ts | `/repos/${repo()}/commits/${headSha}`',
+		'src/lib/server/pipelineMerge.ts | `/repos/${repo()}/git/commits/${sha}`',
+		'src/lib/server/pipelineMerge.ts | `/repos/${r}/git/commits/${merge.mergeSha}`',
+		'src/lib/server/pipelineMerge.ts | `/repos/${r}/git/commits/${squash.parents[0].sha}`',
+		'src/lib/server/pipelineMerge.ts | `/repos/${r}/git/commits/${tip}`',
+		'src/lib/server/pipelineMergeRuns.ts | `/repos/${repo()}/compare/${from}...${BASE_BRANCH}`',
+		'src/lib/server/pipelineMergeRuns.ts | `/repos/${r}/git/commits/${commit}`',
+		'src/lib/server/pipelineMergeRuns.ts | `/repos/${r}/compare/${run.mainSha}...${run.headSha}?per_page=1`',
+		'src/lib/server/pipelineMergeRuns.ts | `/repos/${repo()}/compare/${newest.mainSha}...${BASE_BRANCH}?per_page=1`',
+		'src/lib/server/pipelineMergeRuns.ts | `/repos/${repo()}/commits/${pull.head.sha}`',
+		'src/lib/server/pipelineMergeRunsActions.ts | `/repos/${repo()}/compare/${acceptSha}...${tip}`',
 	]);
-	const strays: string[] = [];
-	for (const file of walk(new URL('../src/', import.meta.url))) {
-		const name = file.pathname.split('/').at(-1)!;
-		for (const line of readFileSync(file, 'utf8').split('\n')) {
-			const code = line.trim();
-			if (/^(\/\*|\*|\/\/)/.test(code)) continue;
-			if (PATTERNS.some((re) => re.test(code)) && !ALLOWED.has(`${name}|${code}`)) {
-				strays.push(`${name}|${code}`);
-			}
+	const found: string[] = [];
+	for (const file of walk(new URL('src/', root))) {
+		const rel = file.pathname.slice(root.pathname.length);
+		for (const t of templates(readFileSync(file, 'utf8'))) {
+			const flat = t.replace(/\s+/g, ' ');
+			if (PATTERNS.some((re) => re.test(flat))) found.push(`${rel} | ${flat}`);
 		}
 	}
+	const strays = found.filter((f) => !ALLOWED.has(f));
 	check(
-		'refs: every GitHub path built from a branch goes through refReadPath/refWritePath; no other heads/…, branches/…, matching-refs or ?ref=${…} is built from a name',
+		'refs: every GitHub path built from a branch or a name goes through refReadPath/refWritePath or is an allowed call site (a SHA, a launcher-made name, an encoded value)',
 		strays,
 		[],
 	);
@@ -3041,6 +3188,7 @@ const w0 = () =>
 	world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
 const lapse = (id: string) => {
 	runOf(id).acceptingAt = new Date(Date.now() - 10 * MIN);
+	runOf(id).acceptClaim ??= `claim-${id}`;
 };
 {
 	const w = w0();
@@ -3232,6 +3380,189 @@ const lapse = (id: string) => {
 		'accept: a compare that is ahead but lists no files at all is unknown → stale',
 		[a2.status, runOf(p2.id).status],
 		[409, 'stale'],
+	);
+}
+
+// the claim is a fence (R2-S1): a holder that is late, or was taken over, does not push
+{
+	const w = w0();
+	const p = await proposed(w, both);
+	gh.beforeCommit = () => {
+		runOf(p.id).acceptingAt = new Date(Date.now() - 170_000); // 10 s of the 3-minute lease left
+	};
+	gh.calls.length = 0;
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'fence: an Accept with under 30 s of its lease left at the moment it would push does not push, and gives the claim back',
+		[a.status, a.body.code, refPatches().length, runOf(p.id).status],
+		[409, 'accepting', 0, 'proposed'],
+	);
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	gh.beforeCommit = () => {
+		runOf(p2.id).acceptClaim = 'taken-over-by-another';
+	};
+	gh.calls.length = 0;
+	const a2 = await accept(ADMIN, w2.n, p2.id, w2.head);
+	check(
+		'fence: an Accept whose claim was taken over does not push, and leaves the new holder’s claim alone',
+		[a2.status, refPatches().length, runOf(p2.id).status, runOf(p2.id).acceptClaim],
+		[409, 0, 'accepting', 'taken-over-by-another'],
+	);
+	gh.beforeCommit = null;
+}
+{
+	// a person pulled and pushed on top of the merge after it landed (ADR §5): still the run's merge
+	const w = w0();
+	const p = await proposed(w, both);
+	const landed = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
+		w.head,
+		w.main,
+	]);
+	const onTop = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 6;\n' }), [landed]);
+	git.refs.set(w.pull.head.ref, onTop);
+	w.pull.head.sha = onTop;
+	Object.assign(runOf(p.id), {
+		status: 'accepting',
+		acceptSha: landed,
+		acceptedById: 'builder-id',
+		acceptedBy: 'The builder',
+	});
+	lapse(p.id);
+	gh.calls.length = 0;
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'accept: a lost answer with a person’s commit pushed on top of the merge is still accepted — by whoever built it, nothing written',
+		[
+			a.status,
+			a.body.already,
+			runOf(p.id).status,
+			runOf(p.id).acceptedBy,
+			runOf(p.id).mergeSha === landed,
+			writesOf(),
+		],
+		[200, true, 'accepted', 'The builder', true, []],
+	);
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	const landed2 = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
+		w2.head,
+		w2.main,
+	]);
+	const sideways = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 7;\n' }), [w2.head]);
+	git.refs.set(w2.pull.head.ref, sideways);
+	w2.pull.head.sha = sideways;
+	Object.assign(runOf(p2.id), { status: 'accepting', acceptSha: landed2 });
+	lapse(p2.id);
+	await actions.backstopMergeRuns(app, Date.now());
+	check(
+		'backstop: a tip that does not descend from the recorded commit gives the proposal back, and one that does is accepted',
+		[runOf(p2.id).status],
+		['proposed'],
+	);
+	const w3 = w0();
+	const p3 = await proposed(w3, both);
+	const landed3 = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 5;\n' }), [
+		w3.head,
+		w3.main,
+	]);
+	const top3 = putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 8;\n' }), [landed3]);
+	git.refs.set(w3.pull.head.ref, top3);
+	Object.assign(runOf(p3.id), {
+		status: 'accepting',
+		acceptSha: landed3,
+		acceptedById: 'builder-id',
+		acceptedBy: 'The builder',
+	});
+	lapse(p3.id);
+	await actions.backstopMergeRuns(app, Date.now());
+	check(
+		'backstop: a person’s commit on top of the recorded merge is accepted with it, by its builder',
+		[runOf(p3.id).status, runOf(p3.id).mergeSha === landed3, runOf(p3.id).acceptedBy],
+		['accepted', true, 'The builder'],
+	);
+}
+{
+	// a definitive 4xx from the push (not 422, not a lost answer) gives the claim back at once
+	const w = w0();
+	const p = await proposed(w, both);
+	gh.fail.set(`PATCH /git/refs/heads/${w.pull.head.ref}`, [
+		{ status: 403, message: 'Resource not accessible' },
+	]);
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	gh.fail.clear();
+	check(
+		'accept: a 403 from the push gives the claim back (proposed, nothing recorded)',
+		[a.status >= 400, runOf(p.id).status, runOf(p.id).acceptSha, runOf(p.id).acceptClaim],
+		[true, 'proposed', null, null],
+	);
+}
+{
+	// Discard on a lapsed claim: allowed when no commit was built, refused when one was
+	const w = w0();
+	const p = await proposed(w, both);
+	Object.assign(runOf(p.id), { status: 'accepting' });
+	lapse(p.id);
+	const d = await discard(ADMIN, w.n, p.id);
+	check(
+		'discard: a lapsed claim that built nothing is discarded',
+		[d.status, runOf(p.id).status],
+		[200, 'discarded'],
+	);
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	Object.assign(runOf(p2.id), { status: 'accepting', acceptSha: 'a'.repeat(40) });
+	lapse(p2.id);
+	const d2 = await discard(ADMIN, w2.n, p2.id);
+	check(
+		'discard: a lapsed claim that built a commit is not discarded (the branch may have moved)',
+		[d2.status, d2.body.code, runOf(p2.id).status],
+		[409, 'accepting', 'accepting'],
+	);
+}
+{
+	// each lapsed claim is looked at on its own: one that fails does not stop the others
+	const w = w0();
+	const p = await proposed(w, both);
+	const w2 = w0();
+	const p2 = await proposed(w2, both);
+	for (const [pp, ww] of [
+		[p, w],
+		[p2, w2],
+	] as const) {
+		Object.assign(runOf(pp.id), { status: 'accepting', acceptSha: 'a'.repeat(40) });
+		lapse(pp.id);
+		git.refs.set(ww.pull.head.ref, ww.head);
+	}
+	gh.fail.set(`GET /git/ref/heads/${w.pull.head.ref}`, [{ status: 500, message: 'boom' }]);
+	await actions.backstopMergeRuns(app, Date.now());
+	gh.fail.clear();
+	check(
+		'backstop: a GitHub error on one lapsed claim leaves it for the next pass; the other is still settled',
+		[runOf(p.id).status, runOf(p2.id).status],
+		['accepting', 'proposed'],
+	);
+}
+// Date never meets a raw sql template in the merge-run modules: postgres-js cannot encode it there
+{
+	const dir = new URL('../src/lib/server/', import.meta.url);
+	const bad: string[] = [];
+	for (const file of readdirSync(dir).filter((f) => /^pipelineMergeRuns.*\.ts$/.test(f))) {
+		const source = readFileSync(new URL(file, dir), 'utf8');
+		for (const [, body] of source.matchAll(/\bsql`([^`]*)`/g)) {
+			for (const [, expr] of body.matchAll(/\$\{([^}]*)\}/g)) {
+				const ok =
+					/^mergeMainRuns\.\w+$/.test(expr) ||
+					/^person\.(id|name)$/.test(expr) ||
+					/^leaseMs \/ 1000$/.test(expr);
+				if (!ok) bad.push(`${file}: \${${expr}}`);
+			}
+		}
+	}
+	check(
+		'sql: only columns, the person’s id and name and the lease in seconds go into a raw sql template in pipelineMergeRuns*.ts — never a Date (it throws on postgres-js)',
+		bad,
+		[],
 	);
 }
 
@@ -3511,10 +3842,11 @@ check(
 	],
 );
 // the result column: the job's own lines from the final file, the hunk's words only without them
-const hunk = (takes: string, result: string | null) => ({
+const hunk = (takes: string, result: string | null, kind = 'lines') => ({
 	main: '\t\tconst a = 3;',
 	change: '\t\tconst a = 2;',
 	result,
+	kind,
 	takes,
 	nowDoes: 'It is five.',
 });
@@ -3522,9 +3854,11 @@ check(
 	'page: a hunk is three columns — main, this change, and the result the job found in the final file (indentation kept); a hunk without one follows what it took',
 	[
 		view.hunkColumns(hunk('combined', '\t\tconst a = 2;\n\t\tconst a = 5;')),
+		view.hunkColumns(hunk('main', null, 'description')).result,
+		view.hunkColumns(hunk('change', null, 'description')).result,
+		view.hunkColumns(hunk('both', null, 'description')).result,
+		view.hunkColumns(hunk('combined', null, 'description')).result,
 		view.hunkColumns(hunk('main', null)).result,
-		view.hunkColumns(hunk('change', null)).result,
-		view.hunkColumns(hunk('both', null)).result,
 		view.hunkColumns(hunk('combined', null)).result,
 	],
 	[
@@ -3537,8 +3871,38 @@ check(
 		'\t\tconst a = 2;',
 		'\t\tconst a = 2;\n\t\tconst a = 3;',
 		'It is five.',
+		view.RESULT_NOT_LOCATED,
+		view.RESULT_NOT_LOCATED,
 	],
 );
+{
+	const accepting = (ago: number | null) =>
+		({
+			status: 'accepting',
+			acceptedBy: 'Gualtiero',
+			createdAt: new Date(clock - 20 * MIN).toISOString(),
+			updatedAt: new Date(clock - 5 * MIN).toISOString(),
+			startedBy: 'x',
+			acceptingAt: ago === null ? null : new Date(clock - ago).toISOString(),
+			mainSha: 'm'.repeat(40),
+			headSha: 'h'.repeat(40),
+			spendUsd: null,
+		}) as never;
+	const detailNow = { headSha: 'h'.repeat(40), state: 'open', onHold: false } as never;
+	const facts3 = { behindNow: 0, headCommittedAt: null };
+	check(
+		'page: while an Accept holds the claim the card says who is accepting and offers nothing; once the lease has lapsed Accept is offered again',
+		[
+			view.mergeRunLine(accepting(30_000), clock)?.text,
+			view.proposalBar(accepting(30_000), detailNow, facts3, true, clock),
+			view.mergeRunLine(accepting(4 * MIN), clock),
+			view.proposalBar(accepting(4 * MIN), detailNow, facts3, true, clock)?.canAct,
+			view.acceptLapsed(accepting(4 * MIN), clock),
+			view.acceptLapsed(accepting(30_000), clock),
+		],
+		['Accepting… by Gualtiero (just now).', null, null, true, true, false],
+	);
+}
 check(
 	'page: no whole-file content is sent, and a view of a run that is not waiting carries no hunk lines',
 	[

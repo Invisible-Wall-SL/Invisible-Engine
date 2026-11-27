@@ -380,6 +380,7 @@ const PROTECTED_PATHS = [
 	'apps/launcher-api/scripts/check-bug-reports.ts',
 	'apps/launcher-api/scripts/check-merge-main-runs.ts',
 	'apps/launcher-api/scripts/check-merge-main-join.ts',
+	'apps/launcher-api/scripts/prove-merge-runs.ts',
 	'apps/launcher-api/scripts/check-pipeline-changes.ts',
 	'apps/launcher-api/scripts/check-pipeline-games.ts',
 	'apps/launcher-api/vite.config.js',

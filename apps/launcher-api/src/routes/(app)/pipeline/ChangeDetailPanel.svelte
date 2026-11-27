@@ -138,6 +138,9 @@
 	 * that started before the action settled (an older `epoch`) is never joined: it may predate it.
 	 */
 	let epoch = 0;
+	/** Loads are numbered in the order they start; an older one never overwrites a newer answer. */
+	let started = 0;
+	let applied = 0;
 	let loading: { number: number; epoch: number; done: Promise<void> } | null = null;
 
 	function loadMerge(number: number): Promise<void> {
@@ -147,13 +150,19 @@
 			epoch,
 			done: Promise.resolve(),
 		};
+		const order = ++started;
+		const keep = (answer: MergeRunsAnswer | null) => {
+			if (number !== detail.number || order < applied) return;
+			applied = order;
+			mergeRuns = answer;
+		};
 		mine.done = (async () => {
 			try {
 				const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
 				const body: unknown = await res.json().catch(() => null);
-				if (number === detail.number) mergeRuns = res.ok ? (body as MergeRunsAnswer) : null;
+				keep(res.ok ? (body as MergeRunsAnswer) : null);
 			} catch {
-				if (number === detail.number) mergeRuns = null;
+				keep(null);
 			} finally {
 				if (loading === mine) loading = null;
 			}

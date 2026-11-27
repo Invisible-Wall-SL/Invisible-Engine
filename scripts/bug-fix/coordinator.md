@@ -164,6 +164,7 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `apps/launcher-api/scripts/check-bug-reports.ts`,
     `apps/launcher-api/scripts/check-merge-main-join.ts`,
     `apps/launcher-api/scripts/check-merge-main-runs.ts`,
+    `apps/launcher-api/scripts/prove-merge-runs.ts`,
     `apps/launcher-api/scripts/check-pipeline-changes.ts`,
     `apps/launcher-api/scripts/check-pipeline-games.ts`,
     `apps/launcher-api/src/lib/server/db/migrate.ts` and `apps/launcher-api/drizzle/`. A test

@@ -1267,6 +1267,8 @@ export const mergeMainRuns = pgTable(
 		acceptSha: text('accept_sha'),
 		/** When an Accept took the claim (`accepting`): a lease the backstop clears. */
 		acceptingAt: timestamp('accepting_at', { withTimezone: true }),
+		/** A random id minted with the claim: every update, settle and release of an Accept matches it. */
+		acceptClaim: text('accept_claim'),
 		spendUsd: doublePrecision('spend_usd'),
 		ghRunId: bigint('gh_run_id', { mode: 'number' }),
 		startedById: text('started_by_id').notNull(),

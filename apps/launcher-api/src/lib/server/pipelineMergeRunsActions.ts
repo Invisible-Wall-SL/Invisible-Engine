@@ -1,4 +1,5 @@
 import {
+	MERGE_ACCEPT_LEASE_MS,
 	MERGE_RUN_REASONS,
 	MERGE_RUN_WORKFLOW,
 	isMergeRunTitle,
@@ -13,6 +14,7 @@ import {
 	type GhWorkflowRun,
 } from './bugFixRunsActions';
 import { ENV } from './env';
+import { captureServerError } from './errorTracking';
 import { GithubAppError, githubApp, type GithubApp } from './githubApp';
 import { isPlainBranchName, refReadPath } from './githubPaths';
 import {
@@ -166,8 +168,8 @@ export async function cancelListedMergeRun(app: GithubApp, id: string): Promise<
 export const MERGE_DID_NOT_START_MS = 15 * 60_000;
 /** Any run whose job has not posted is given up after this long. */
 export const MERGE_TIMED_OUT_MS = 90 * 60_000;
-/** An Accept holds the claim this long; after it a retry may take it over and the backstop clears it. */
-export const MERGE_ACCEPT_LEASE_MS = 3 * 60_000;
+/** An Accept pushes only with at least this much of its lease left. */
+export const MERGE_ACCEPT_MIN_LEFT_MS = 30_000;
 /** An Actions run may be stamped a little before the launcher stored its merge run. */
 const BIND_SLACK_MS = 60_000;
 /** Bound runs read per pass, oldest first: the rest wait a minute. */
@@ -177,29 +179,59 @@ type Ending = { status: Exclude<MergeRunStatus, 'dispatched' | 'running'>; reaso
 const WORKING: MergeRunStatus[] = ['dispatched', 'running'];
 
 /**
- * An Accept that took the claim and never settled it (the launcher died, or the answer to the push
- * was lost), past {@link MERGE_ACCEPT_LEASE_MS}: when the branch's tip is the commit that Accept
- * recorded before pushing, the run is `accepted` with it; otherwise nothing was pushed and the
- * proposal is given back. The tip is compared exactly, never judged by its parents.
+ * Whether the branch's tip holds the merge commit an Accept recorded: it is that commit, or a person
+ * pushed on top of it (ADR-0015 §5 expects that), so the commit is an ancestor of the tip
+ * (`compare/<commit>...<tip>` is `ahead`). Never judged by parents or a message anyone can copy.
  */
-async function clearLapsedAccepts(app: GithubApp, nowMs: number): Promise<void> {
-	for (const run of await lapsedAccepts(nowMs - MERGE_ACCEPT_LEASE_MS)) {
-		let tip: string | null = null;
-		if (run.acceptSha && isPlainBranchName(run.branch)) {
-			const ref = await app.fetch(refReadPath(repo(), run.branch));
-			if (ref.ok) tip = ((await ref.json()) as { object?: { sha?: string } }).object?.sha ?? null;
-			else if (ref.status !== 404) continue;
-		}
-		if (tip !== null && tip === run.acceptSha) {
-			await settleMergeRun(run.id, ['accepting'], {
-				status: 'accepted',
-				mergeSha: tip,
-				...(run.acceptedById && run.acceptedBy
-					? { acceptedBy: { id: run.acceptedById, name: run.acceptedBy } }
-					: {}),
-			});
-		} else {
-			await releaseAccept(run.id);
+export async function holdsMerge(app: GithubApp, acceptSha: string, tip: string): Promise<boolean> {
+	if (tip === acceptSha) return true;
+	const res = await app.fetch(`/repos/${repo()}/compare/${acceptSha}...${tip}`);
+	if (res.status === 404 || res.status === 422) return false;
+	if (!res.ok)
+		throw new GithubAppError(`GitHub ${res.status}: ${await messageOf(res)}`, res.status);
+	const status = ((await res.json()) as { status?: string }).status;
+	return status === 'ahead' || status === 'identical';
+}
+
+/**
+ * An Accept that took the claim and never settled it (the launcher died, or the answer to the push
+ * was lost), past {@link MERGE_ACCEPT_LEASE_MS} by the database's clock: when the branch's tip holds
+ * the commit that Accept recorded before pushing ({@link holdsMerge}), the run is `accepted` by
+ * whoever built it; otherwise nothing was pushed and the proposal is given back. One run's failure
+ * is reported and does not stop the others.
+ */
+async function clearLapsedAccepts(app: GithubApp): Promise<void> {
+	for (const run of await lapsedAccepts(MERGE_ACCEPT_LEASE_MS)) {
+		try {
+			const claim = run.acceptClaim ?? '';
+			let landed: string | null = null;
+			if (run.acceptSha && isPlainBranchName(run.branch)) {
+				const ref = await app.fetch(refReadPath(repo(), run.branch));
+				if (ref.ok) {
+					const tip = ((await ref.json()) as { object?: { sha?: string } }).object?.sha;
+					if (tip && (await holdsMerge(app, run.acceptSha, tip))) landed = run.acceptSha;
+				} else if (ref.status !== 404) {
+					continue;
+				}
+			}
+			if (landed !== null) {
+				await settleMergeRun(
+					run.id,
+					['accepting'],
+					{
+						status: 'accepted',
+						mergeSha: landed,
+						...(run.acceptedById && run.acceptedBy
+							? { acceptedBy: { id: run.acceptedById, name: run.acceptedBy } }
+							: {}),
+					},
+					{ claim },
+				);
+			} else {
+				await releaseAccept(run.id, claim);
+			}
+		} catch (err) {
+			captureServerError(err, { source: 'merge-run accept backstop', mergeRun: run.id });
 		}
 	}
 }
@@ -215,7 +247,9 @@ async function clearLapsedAccepts(app: GithubApp, nowMs: number): Promise<void> 
  * working, so a result arriving meanwhile wins.
  */
 export async function backstopMergeRuns(app: GithubApp, nowMs = Date.now()): Promise<void> {
-	await clearLapsedAccepts(app, nowMs).catch(() => undefined);
+	await clearLapsedAccepts(app).catch((err) =>
+		captureServerError(err, { source: 'merge-run accept backstop' }),
+	);
 	const runs = await workingMergeRuns();
 	if (!runs.length) return;
 	const age = (at: Date) => nowMs - at.getTime();

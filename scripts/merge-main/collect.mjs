@@ -445,24 +445,56 @@ const piecesOf = (text) => text.split(/(?<=\n)/).filter(Boolean);
 const startsAt = (lines, piece, at) => piece.every((l, i) => lines[at + i] === l);
 
 /**
- * Whether `text` changes anything outside the conflicts of a file's merged `segments`: every clean
- * piece must still be there, in order, the first at the start and the last at the end.
+ * Where git's clean pieces lie in `text`, in order, the first at the start and the last at the end,
+ * or why they cannot be placed: `null` when a piece is missing or out of order, `ambiguous` when
+ * searching each middle piece from the front and from the back gives different places (a piece such
+ * as a lone `}` that the resolution also holds, or a copy of one: the file could be read two ways,
+ * and one of them has edited text outside the hunks). One function for both `outsideEdited` and
+ * `hunkResults`, so they can never read a file differently.
  */
-export function outsideEdited(segments, text) {
+export function placeClean(segments, text) {
 	const cleans = segments.filter((s) => s.clean !== undefined).map((s) => piecesOf(s.clean));
 	const lines = piecesOf(text);
-	if (!startsAt(lines, cleans[0], 0)) return true;
-	let at = cleans[0].length;
-	for (const piece of cleans.slice(1, -1)) {
+	const first = cleans[0];
+	const last = cleans.at(-1);
+	const lastAt = lines.length - last.length;
+	if (!startsAt(lines, first, 0) || lastAt < first.length || !startsAt(lines, last, lastAt)) {
+		return null;
+	}
+	const middle = cleans.slice(1, -1);
+	const forward = [];
+	let at = first.length;
+	for (const piece of middle) {
 		let found = -1;
-		for (let i = at; i + piece.length <= lines.length && found < 0; i++) {
+		for (let i = at; i + piece.length <= lastAt && found < 0; i++) {
 			if (startsAt(lines, piece, i)) found = i;
 		}
-		if (found < 0) return true;
+		if (found < 0) return null;
+		forward.push(found);
 		at = found + piece.length;
 	}
-	const last = cleans.at(-1);
-	return !(lines.length - last.length >= at && startsAt(lines, last, lines.length - last.length));
+	const backward = [];
+	let end = lastAt;
+	for (const piece of [...middle].reverse()) {
+		let found = -1;
+		for (let i = end - piece.length; i >= first.length && found < 0; i--) {
+			if (startsAt(lines, piece, i)) found = i;
+		}
+		if (found < 0) return null;
+		backward.unshift(found);
+		end = found;
+	}
+	const ambiguous = forward.some((place, i) => place !== backward[i]);
+	return { lines, first, middle, starts: forward, lastAt, ambiguous };
+}
+
+/**
+ * Whether `text` changes anything outside the conflicts of a file's merged `segments`: every clean
+ * piece must still be there, in order, and in one place only ({@link placeClean}).
+ */
+export function outsideEdited(segments, text) {
+	const placed = placeClean(segments, text);
+	return placed === null || placed.ambiguous;
 }
 
 /**
@@ -580,6 +612,7 @@ function ruleHunks(x) {
 			main: sideOf(x, h.index, 'main'),
 			change: sideOf(x, h.index, 'change'),
 			result: null,
+			kind: 'description',
 			takes: 'both',
 			why: DOCS_WHY,
 			nowDoes: null,
@@ -597,6 +630,7 @@ function ruleHunks(x) {
 			main: words.main,
 			change: words.change,
 			result: null,
+			kind: 'description',
 			takes: 'main',
 			why: `Never merged by hand, and never built by the job: ${how}`,
 			nowDoes: null,
@@ -636,6 +670,7 @@ function modelExplanation(result, plan, outside) {
 			main: sideOf(x, h.index, 'main'),
 			change: sideOf(x, h.index, 'change'),
 			result: null,
+			kind: x.segments ? 'lines' : 'description',
 			takes: TAKES.includes(h.takes) ? h.takes : null,
 			why: clean(h.why),
 			nowDoes: optional(h.nowDoes),
@@ -681,31 +716,18 @@ function readModelResult(file) {
 /**
  * What the final text holds at each hunk of a merged file, from git's clean pieces around the
  * hunks (the ones `outsideEdited` finds, in order): hunk i is what lies between clean piece i and
- * clean piece i + 1. Null when the pieces cannot be found in order. A middle piece is found at its
- * first place after the one before, so text of a hunk that repeats the next piece shows short.
+ * clean piece i + 1. Null when the pieces cannot be placed in order, or can be placed in two ways
+ * ({@link placeClean}): a result the job cannot place is not guessed.
  */
 export function hunkResults(segments, text) {
-	const cleans = segments.filter((s) => s.clean !== undefined).map((s) => piecesOf(s.clean));
-	const lines = piecesOf(text);
-	if (!startsAt(lines, cleans[0], 0)) return null;
-	const ends = [cleans[0].length];
-	const starts = [];
-	let at = cleans[0].length;
-	for (const piece of cleans.slice(1, -1)) {
-		let found = -1;
-		for (let i = at; i + piece.length <= lines.length && found < 0; i++) {
-			if (startsAt(lines, piece, i)) found = i;
-		}
-		if (found < 0) return null;
-		starts.push(found);
-		ends.push(found + piece.length);
-		at = found + piece.length;
-	}
-	const last = cleans.at(-1);
-	const lastAt = lines.length - last.length;
-	if (lastAt < at || !startsAt(lines, last, lastAt)) return null;
-	starts.push(lastAt);
-	return ends.map((end, i) => lines.slice(end, starts[i]).join(''));
+	const placed = placeClean(segments, text);
+	if (placed === null || placed.ambiguous) return null;
+	const ends = [
+		placed.first.length,
+		...placed.middle.map((piece, i) => placed.starts[i] + piece.length),
+	];
+	const starts = [...placed.starts, placed.lastAt];
+	return ends.map((end, i) => placed.lines.slice(end, starts[i]).join(''));
 }
 
 /** The characters of an explanation that are prose: all but each hunk's real lines. */
@@ -962,7 +984,7 @@ async function resultStep() {
 				body: sent.bytes,
 			},
 			'with the result',
-			{ tries: 1, timeoutMs: 10 * 60_000 },
+			{ tries: 3, timeoutMs: 10 * 60_000 },
 		);
 	};
 	let sent = body;

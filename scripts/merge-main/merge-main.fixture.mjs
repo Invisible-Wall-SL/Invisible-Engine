@@ -39,6 +39,7 @@ import {
 	cleanLines,
 	encodeBody,
 	hunkResults,
+	placeClean,
 	logLine,
 	measure,
 	outsideEdited,
@@ -885,11 +886,13 @@ function shapeProblems(body) {
 				'main',
 				'change',
 				'result',
+				'kind',
 				'takes',
 				'why',
 				'nowDoes',
 				'otherwise',
 			]) &&
+			['lines', 'description'].includes(h.kind) &&
 			Number.isInteger(h.index) &&
 			TAKES.includes(h.takes) &&
 			[h.main, h.change].every((t) => text(t, LINES_CAP) && t) &&
@@ -1200,6 +1203,49 @@ check(
 		"proposal: a hunk's main and change are the sides' real lines from git, not the model's words",
 	);
 }
+// Where git's clean pieces lie is one reading or none (`placeClean`, shared by outsideEdited and hunkResults)
+{
+	const seg = (A, P, Z) => [
+		{ clean: A },
+		{ hunk: { change: 'c1\n', base: 'b\n', main: 'm1\n' } },
+		{ clean: P },
+		{ hunk: { change: 'c2\n', base: 'b\n', main: 'm2\n' } },
+		{ clean: Z },
+	];
+	// a lone "}" between the hunks that hunk 1's resolution also holds: two readings, so not guessed
+	const s1 = seg('function a() {\n', '}\n', 'end\n');
+	const f1 = 'function a() {\n\tif (x) {\n\t\ty();\n}\n\tz();\n}\nR2\nend\n';
+	check(
+		placeClean(s1, f1)?.ambiguous === true &&
+			outsideEdited(s1, f1) === true &&
+			hunkResults(s1, f1) === null,
+		'placeClean: a clean piece the resolution also holds has two places → treated as edited outside the hunks, no result (not cut short and shown under the wrong hunk)',
+	);
+	// the same file with the piece in one place only
+	const f1b = 'function a() {\n\tif (x) {\n\t\ty();\n\tz();\n}\nR2\nend\n';
+	check(
+		placeClean(s1, f1b)?.ambiguous === false &&
+			outsideEdited(s1, f1b) === false &&
+			json(hunkResults(s1, f1b)) === json(['\tif (x) {\n\t\ty();\n\tz();\n', 'R2\n']),
+		'placeClean: a piece in one place gives both hunks their own lines',
+	);
+	const s2 = seg('head\n', '\tcheck(token);\n\treturn ok;\n', 'tail\n');
+	// a copy of a clean piece next to the real one: two places, so the file is not trusted
+	const copy2 =
+		'head\nR1\n\tcheck(token);\n\treturn ok;\nR1b\n\tcheck(token);\n\treturn ok;\nR2\ntail\n';
+	check(
+		placeClean(s2, copy2)?.ambiguous === true &&
+			outsideEdited(s2, copy2) === true &&
+			hunkResults(s2, copy2) === null,
+		'placeClean: a clean piece that is in the file twice has two places → edited outside the hunks, no result',
+	);
+	check(
+		outsideEdited(s2, 'head\nR1\n\tcheck(token);\n\treturn ok;\nR2\ntail\n') === false &&
+			outsideEdited(s2, 'head\nR1\n\tcheck(token);\n\treturn true;\nR2\ntail\n') === true,
+		'outsideEdited: the clean piece intact is not an edit; rewritten is',
+	);
+}
+
 // the hunk's real lines and its result, from git and the final file (§10)
 {
 	const tabs = (x) =>
@@ -1278,7 +1324,18 @@ check(
 	);
 	check(
 		json(Object.keys(h).sort()) ===
-			json(['change', 'index', 'main', 'nowDoes', 'otherwise', 'path', 'result', 'takes', 'why']),
+			json([
+				'change',
+				'index',
+				'kind',
+				'main',
+				'nowDoes',
+				'otherwise',
+				'path',
+				'result',
+				'takes',
+				'why',
+			]),
 		'result: a hunk carries exactly the §10 fields, result included',
 	);
 }
@@ -1665,6 +1722,12 @@ async function endToEnd() {
 				body: Buffer.concat(chunks),
 			});
 			res.setHeader('content-type', 'application/json');
+			// the launcher answers the first post with a 502 (a read of main's tree failed): the job sends it again
+			if (req.method === 'POST' && !seen.some((x) => x.method === 'POST' && x !== seen.at(-1))) {
+				res.statusCode = 502;
+				res.end(json({ message: 'bad gateway' }));
+				return;
+			}
 			res.end(
 				url.pathname === '/token'
 					? json({ value: `oidc-for-${url.searchParams.get('audience')}` })
@@ -1709,7 +1772,12 @@ async function endToEnd() {
 	const posting = await cli('result');
 	server.close();
 	const token = seen.find((s) => s.path === '/token');
-	const post = seen.find((s) => s.method === 'POST');
+	const posts = seen.filter((s) => s.method === 'POST');
+	const post = posts.at(-1);
+	check(
+		posts.length === 2 && posting.code === 0,
+		'result CLI: a 5xx from the launcher is sent again (up to 3 tries) and the second answer counts',
+	);
 	const body =
 		post &&
 		JSON.parse(

@@ -1,6 +1,7 @@
 import {
 	MERGE_CAPS,
 	MERGE_CHOICES,
+	MERGE_HUNK_KINDS,
 	MERGE_MODES,
 	MERGE_RUN_ID,
 	MERGE_RULES,
@@ -97,6 +98,7 @@ const HUNK_KEYS = [
 	'main',
 	'change',
 	'result',
+	'kind',
 	'takes',
 	'why',
 	'nowDoes',
@@ -187,6 +189,9 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 		if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > 100_000) {
 			return bad('hunks has an index that is not a whole number');
 		}
+		if (typeof h.kind !== 'string' || !(MERGE_HUNK_KINDS as readonly string[]).includes(h.kind)) {
+			return bad('hunks has a kind the launcher does not know');
+		}
 		if (typeof h.takes !== 'string' || !(MERGE_TAKES as readonly string[]).includes(h.takes)) {
 			return bad('hunks has a choice the launcher does not know');
 		}
@@ -200,6 +205,7 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 				: h.result === null
 					? null
 					: text(h.result, 'a hunk', MERGE_CAPS.lines),
+			kind: h.kind as MergeRunHunk['kind'],
 			takes: h.takes as MergeRunHunk['takes'],
 			why: text(h.why, 'a hunk'),
 			nowDoes: optionalText(h.nowDoes, 'a hunk'),
@@ -305,6 +311,15 @@ function cleanExcerpt(excerpt: string, max: number): string {
 	return points.length > max ? `${points.slice(0, max - 1).join('')}…` : kept;
 }
 
+const HIDDEN_LINE = '[line hidden: it looks like a secret]';
+
+/** A side's own line that looks like a secret is hidden from the page, not a reason to refuse: the repository holds such lines (docs, env names). */
+const hideSecretLines = (text: string): string =>
+	text
+		.split('\n')
+		.map((line) => (secretIn(line) ? HIDDEN_LINE : line))
+		.join('\n');
+
 const optionalExcerpt = (v: string | null, max: number): string | null =>
 	v === null ? null : cleanExcerpt(v, max);
 
@@ -321,9 +336,10 @@ export function cleanExplanation(e: MergeRunExplanation): MergeRunExplanation {
 		hunks: e.hunks.map((h) => ({
 			path: h.path,
 			index: h.index,
-			main: cleanExcerpt(h.main, MERGE_CAPS.lines),
-			change: cleanExcerpt(h.change, MERGE_CAPS.lines),
+			main: hideSecretLines(cleanExcerpt(h.main, MERGE_CAPS.lines)),
+			change: hideSecretLines(cleanExcerpt(h.change, MERGE_CAPS.lines)),
 			result: optionalExcerpt(h.result, MERGE_CAPS.lines),
+			kind: h.kind,
 			takes: h.takes,
 			why: cleanText(h.why, MERGE_CAPS.text),
 			nowDoes: optionalClean(h.nowDoes, MERGE_CAPS.text),
@@ -364,6 +380,30 @@ export const explanationLines = (e: MergeRunExplanation): number =>
 			(h.result === null ? 0 : Array.from(h.result).length),
 		0,
 	);
+
+/**
+ * The first secret in a hunk's `result` lines that neither of its sides had, scanned as sent and as
+ * cleaned (cleaning strips zero-width characters that could rejoin a key a scan of the raw text
+ * missed). A line a side already held is the repository's own and is not the result's to answer for.
+ */
+export function resultSecretProblem(
+	raw: MergeRunExplanation,
+	cleaned: MergeRunExplanation,
+): string | null {
+	for (const [i, h] of raw.hunks.entries()) {
+		const c = cleaned.hunks[i];
+		const theirs = new Set(
+			[h.main, h.change, c.main, c.change].flatMap((t) => t.replace(/\r\n?/g, '\n').split('\n')),
+		);
+		for (const text of [h.result, c.result]) {
+			if (text === null) continue;
+			for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+				if (!theirs.has(line) && secretIn(line)) return 'secret scan: a secret in a hunk result';
+			}
+		}
+	}
+	return null;
+}
 
 const flat = (text: string): string =>
 	withoutDirectives(text.replace(/\r\n?/g, '\n').replace(FORMAT, ''));

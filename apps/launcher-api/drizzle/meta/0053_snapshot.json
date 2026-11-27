@@ -1,5 +1,5 @@
 {
-  "id": "e27ed2b2-d95e-43ca-8e65-31314d3e9b25",
+  "id": "b4dc9297-17b1-4c79-b8a9-c38da305e8ee",
   "prevId": "0c0b0cd6-e201-4856-baaa-bc2e4c7ff7f9",
   "version": "7",
   "dialect": "postgresql",
@@ -2679,6 +2679,12 @@
         "accepting_at": {
           "name": "accepting_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accept_claim": {
+          "name": "accept_claim",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

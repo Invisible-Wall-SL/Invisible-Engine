@@ -288,11 +288,16 @@ server module, routes, page components, triage, screenshots, the pull-request li
     pieces, never from the model's `result.json`. They are their own field, outside the prose cap
     and scan (10,000 each, 120,000 in all); the page gets no whole-file content, and only the
     proposal waiting gets the lines (ADR-0015 §4, §10).
-  - **Accept takes a database claim** (`proposed → accepting`, a 3-minute lease, migration 0053)
-    before any GitHub write; Discard acts only from `proposed`, so on any replica one wins whole.
-    The merge commit's SHA is stored before the branch moves (`accept_sha`) and a lost answer is
-    recognised by an exact compare with the tip, never by parents or the public run id; the
-    backstop settles a lapsed claim the same way.
+  - **Accept takes a database claim** (`proposed → accepting`, a claim id, a 3-minute lease on the
+    database's clock, migration 0053) before any GitHub write; every update, settle and release
+    carries the id, and the push needs the claim with 30 s of lease left. Discard acts only from
+    `proposed` (or a lapsed claim that built nothing), so on any replica one wins whole. The merge
+    commit's SHA is stored (with its builder) before the branch moves; a lost answer is recognised by
+    the tip being that commit or a descendant, never by parents or the public run id; the backstop
+    settles a lapsed claim the same way. The store's SQL is proved on a real Postgres
+    (`pnpm --filter launcher-api prove:merge-runs`, run by `director-worker`'s `prove:idle`, so by
+    CI's `postgres-proofs`): a bare `Date` in a raw `sql` template throws on postgres-js, so the
+    store uses column-aware operators and `now()`, and `check:merge-main-runs` forbids the pattern.
   - `mainChangedSince` is unknown (stale) when the compare lists 300 files; `filesProblem` gives its
     `main`-exemption to a protected path or lockfile only when it is main's own entry at the run's SHA (read from main's tree); Accept posts the head the page
     showed. The branch's push time is not in GitHub's data, so the card still uses the head

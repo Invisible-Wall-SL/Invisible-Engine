@@ -1,6 +1,7 @@
 import { parseFixRunBranch } from '$lib/bugFixRuns';
 import { bugPath, bugRef } from '$lib/bugReports';
 import {
+	MERGE_ACCEPT_LEASE_MS,
 	afterAcceptText,
 	isLiveMergeRun,
 	type MergeChoice,
@@ -667,6 +668,14 @@ export interface MergeRunLine {
  * The newest merge run's line while it works, or when it ended without a proposal to show. Null for
  * a proposal (its card), an accepted or discarded run, and a cancelled one.
  */
+/** An Accept's claim whose lease ran out: nobody is accepting any more, and Accept is offered again. */
+export const acceptLapsed = (
+	run: Pick<MergeRunView, 'status' | 'acceptingAt'>,
+	now: number = Date.now(),
+): boolean =>
+	run.status === 'accepting' &&
+	(run.acceptingAt === null || now - Date.parse(run.acceptingAt) > MERGE_ACCEPT_LEASE_MS);
+
 export function mergeRunLine(
 	run: MergeRunView | null,
 	now: number = Date.now(),
@@ -686,6 +695,14 @@ export function mergeRunLine(
 				brief: false,
 				text: `Resolving the conflict: the job is working (${since}).`,
 			};
+		case 'accepting':
+			return acceptLapsed(run, now)
+				? null
+				: {
+						tone: 'blue',
+						brief: false,
+						text: `Accepting… by ${run.acceptedBy ?? 'a person'} (${timeAgo(run.acceptingAt ?? run.updatedAt, now)}).`,
+					};
 		case 'stale':
 			return { tone: 'amber', brief: false, text: run.reason ?? MERGE_BRANCH_MOVED_TEXT };
 		case 'needs_person':
@@ -721,11 +738,15 @@ export const takesWord = (takes: MergeTakes): string => TAKES_TEXT[takes];
  * `main` and `change` are descriptions), so its result follows what it took; a combination has only
  * what `nowDoes` says.
  */
+export const RESULT_NOT_LOCATED =
+	'The resolved lines could not be located in the final file: read the file itself.';
+
 export function hunkColumns(
-	h: Pick<MergeRunHunk, 'main' | 'change' | 'takes' | 'nowDoes' | 'result'>,
+	h: Pick<MergeRunHunk, 'main' | 'change' | 'takes' | 'nowDoes' | 'result' | 'kind'>,
 ): { main: string; change: string; result: string } {
 	let result: string;
 	if (h.result !== null) result = h.result;
+	else if (h.kind === 'lines') result = RESULT_NOT_LOCATED;
 	else if (h.takes === 'main') result = h.main;
 	else if (h.takes === 'change') result = h.change;
 	else if (h.takes === 'both') result = `${h.change}\n${h.main}`;
@@ -823,13 +844,13 @@ export interface ProposalBar {
  * is offered (the change's head must still be the run's: otherwise the proposal is stale).
  */
 export function proposalBar(
-	run: Pick<MergeRunView, 'status' | 'mainSha' | 'headSha' | 'spendUsd'>,
+	run: Pick<MergeRunView, 'status' | 'mainSha' | 'headSha' | 'spendUsd' | 'acceptingAt'>,
 	detail: Pick<ChangeDetail, 'headSha' | 'state' | 'onHold'>,
 	facts: Pick<MergeRunsAnswer, 'behindNow' | 'headCommittedAt'>,
 	canMerge: boolean,
 	now: number = Date.now(),
 ): ProposalBar | null {
-	if (run.status !== 'proposed') return null;
+	if (run.status !== 'proposed' && !acceptLapsed(run, now)) return null;
 	const behind =
 		facts.behindNow === null
 			? ''

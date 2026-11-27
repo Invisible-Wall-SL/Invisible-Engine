@@ -26,7 +26,7 @@
 		"check:recipes": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/recipe.fixture.ts",
 		"prove:art-plan": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-art-plan.ts",
 		"check:idle": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/check-director-idle.ts",
-		"prove:idle": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-idle.ts"
+		"prove:idle": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-idle.ts && pnpm --filter launcher-api prove:merge-runs"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.135.0",
