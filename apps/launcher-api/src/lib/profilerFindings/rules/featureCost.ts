@@ -50,7 +50,13 @@ function switchOf(r: PerfReportListItem): string | null {
 }
 
 const drawsOf = (r: PerfReportListItem, phase: string): number | null =>
-	phase === 'idle' || phase === 'spinning' || phase === 'menu' || phase === 'play'
+	phase === 'idle' ||
+	phase === 'spinning' ||
+	phase === 'loading' ||
+	phase === 'lobby' ||
+	phase === 'menu' ||
+	phase === 'play' ||
+	phase === 'spectate'
 		? (r.counts?.[phase]?.draws ?? null)
 		: null;
 

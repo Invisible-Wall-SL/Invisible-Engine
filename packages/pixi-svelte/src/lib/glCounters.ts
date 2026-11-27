@@ -9,6 +9,13 @@ import {
 } from './churnProbe';
 import { urlTail } from './ktx2Transcoder';
 import {
+	SCENE_EVERY,
+	sampleScene,
+	type SceneCost,
+	type SceneNode,
+	type SceneSample,
+} from './sceneProbe';
+import {
 	currentFrameAt,
 	frameJsMs,
 	setPerfProbe,
@@ -293,6 +300,8 @@ export interface FrameWork extends GpuFrameCounts, PerfProbeCounts, ChurnCounts 
 	gpuWaitMs?: number;
 	/** Where the browser reports it (Chrome's `performance.memory`): the JS heap, MB, at the end. */
 	heapMb?: number;
+	/** Every {@link SCENE_EVERY} frames when the probe was asked for it: where the scene's cost sits. */
+	scene?: SceneSample;
 }
 
 interface HeapMemory {
@@ -300,6 +309,11 @@ interface HeapMemory {
 }
 
 export interface RendererProbe {
+	/**
+	 * `on` when the browser offers `EXT_disjoint_timer_query_webgl2` and the probe times each tick's
+	 * GPU work with it (`onGpuTime`), else `n/a`.
+	 */
+	gpuTimer(): 'on' | 'n/a';
 	info(): RendererInfo;
 	textures(): TextureFormatSummary[];
 	textureList(): TextureListEntry[];
@@ -310,7 +324,29 @@ export interface InstrumentOptions {
 	/** Called once a frame, as the next tick starts, with that frame's work. */
 	onFrame: (work: FrameWork) => void;
 	waitForGpu?: boolean;
+	/**
+	 * Called with the GPU time of a tick, ms, a few frames after it (a timer query is read only once
+	 * it is ready, so it never stalls). Without the extension it is never called.
+	 */
+	onGpuTime?: (ms: number) => void;
+	/** Sample the display tree every {@link SCENE_EVERY} frames (`sceneProbe.ts`). */
+	scene?: boolean;
 }
+
+/** The parts of Pixi's render-group pipe the scene sample reads. */
+interface RenderGroupPipeInternals {
+	execute: GlMethod;
+}
+interface RenderPipesInternals {
+	renderGroup?: RenderGroupPipeInternals;
+}
+
+interface TimerQueryExt {
+	TIME_ELAPSED_EXT: number;
+	GPU_DISJOINT_EXT: number;
+}
+/** Timer queries read back at most this many ticks late; older ones are dropped unread. */
+const GPU_QUERIES_KEPT = 8;
 
 /**
  * Count every GL call `app`'s renderer makes and its filter passes, time each tick and what the
@@ -319,10 +355,11 @@ export interface InstrumentOptions {
  * canvas (`churnProbe.ts`).
  */
 export function instrumentApp(
-	app: { renderer: Renderer; ticker: Ticker },
-	{ onFrame, waitForGpu = false }: InstrumentOptions,
+	app: { renderer: Renderer; ticker: Ticker; stage?: unknown },
+	{ onFrame, waitForGpu = false, onGpuTime, scene = false }: InstrumentOptions,
 ): RendererProbe {
 	const { renderer, ticker } = app;
+	const stage = scene ? (app.stage as SceneNode | undefined) : undefined;
 	const gl = (renderer as unknown as { gl: WebGL2RenderingContext }).gl;
 	// WebGL's texture system; the type is the union of every renderer's.
 	const managedTextures = () =>
@@ -411,6 +448,90 @@ export function instrumentApp(
 	};
 	(renderer as unknown as { render: GlMethod }).render = timedRender;
 
+	// Scene sample: what each top-level layer that is a render group cost in the sampled frame.
+	let sampling = false;
+	let ticks = 0;
+	let layerCosts = new Map<SceneNode, SceneCost>();
+	const groupPipe = (renderer as unknown as { renderPipes?: RenderPipesInternals }).renderPipes
+		?.renderGroup;
+	const groupExecute = groupPipe?.execute;
+	const layerOf = (root: SceneNode | undefined): SceneNode | undefined => {
+		let node = root as (SceneNode & { parent?: SceneNode | null }) | undefined;
+		while (node?.parent && node.parent !== stage) node = node.parent as typeof node;
+		return node?.parent === stage ? node : undefined;
+	};
+	const costNow = (): SceneCost => ({
+		draws: frame.draws,
+		passes: frame.passes,
+		filterPasses: frame.filterPasses,
+		targetSwitches: frame.targetSwitches,
+	});
+	let groupDepth = 0;
+	if (stage && groupPipe && groupExecute) {
+		groupPipe.execute = function (this: unknown, ...args: unknown[]) {
+			if (!sampling) return groupExecute.apply(this, args);
+			const top = groupDepth++ === 0;
+			const before = top ? costNow() : undefined;
+			try {
+				return groupExecute.apply(this, args);
+			} finally {
+				groupDepth--;
+				if (before) {
+					const layer = layerOf((args[0] as { root?: SceneNode } | undefined)?.root);
+					if (layer) {
+						const after = costNow();
+						const sum = layerCosts.get(layer) ?? {
+							draws: 0,
+							passes: 0,
+							filterPasses: 0,
+							targetSwitches: 0,
+						};
+						sum.draws += after.draws - before.draws;
+						sum.passes += after.passes - before.passes;
+						sum.filterPasses += after.filterPasses - before.filterPasses;
+						sum.targetSwitches += after.targetSwitches - before.targetSwitches;
+						layerCosts.set(layer, sum);
+					}
+				}
+			}
+		};
+	}
+
+	// GPU time: one timer query round each tick, read back when ready (never waited for).
+	const timer = (
+		!waitForGpu && onGpuTime ? gl.getExtension('EXT_disjoint_timer_query_webgl2') : null
+	) as TimerQueryExt | null;
+	const queries: WebGLQuery[] = [];
+	let timing: WebGLQuery | undefined;
+	const readTimers = () => {
+		if (!timer) return;
+		while (queries.length) {
+			const q = queries[0];
+			const ready = (native.getQueryParameter as GlMethod).call(gl, q, gl.QUERY_RESULT_AVAILABLE);
+			if (!ready) break;
+			queries.shift();
+			const disjoint = (native.getParameter as GlMethod).call(gl, timer.GPU_DISJOINT_EXT);
+			const ns = (native.getQueryParameter as GlMethod).call(gl, q, gl.QUERY_RESULT) as number;
+			(native.deleteQuery as GlMethod).call(gl, q);
+			if (!disjoint) onGpuTime?.(ns / 1e6);
+		}
+		while (queries.length > GPU_QUERIES_KEPT)
+			(native.deleteQuery as GlMethod).call(gl, queries.shift());
+	};
+	const beginTimer = () => {
+		if (!timer || timing) return;
+		const q = (native.createQuery as GlMethod).call(gl) as WebGLQuery | null;
+		if (!q) return;
+		(native.beginQuery as GlMethod).call(gl, timer.TIME_ELAPSED_EXT, q);
+		timing = q;
+	};
+	const endTimer = () => {
+		if (!timer || !timing) return;
+		(native.endQuery as GlMethod).call(gl, timer.TIME_ELAPSED_EXT);
+		queries.push(timing);
+		timing = undefined;
+	};
+
 	const memory = (performance as unknown as { memory?: HeapMemory }).memory;
 	const heapMb = (): number | undefined =>
 		typeof memory?.usedJSHeapSize === 'number' ? memory.usedJSHeapSize / 1e6 : undefined;
@@ -433,7 +554,7 @@ export function instrumentApp(
 	watchDom();
 
 	const pixel = new Uint8Array(4);
-	type TickTimes = Pick<FrameWork, 'tickMs' | 'lateMs' | 'gpuWaitMs'>;
+	type TickTimes = Pick<FrameWork, 'tickMs' | 'lateMs' | 'gpuWaitMs' | 'scene'>;
 	let ended: TickTimes | undefined;
 	let tickStart = 0;
 	let tickEnd = 0;
@@ -462,12 +583,22 @@ export function instrumentApp(
 			onFrame(work);
 		}
 		tickStart = now;
+		readTimers();
+		beginTimer();
+		sampling = !!stage && ticks++ % SCENE_EVERY === 0;
+		layerCosts = new Map();
 		frameAt = currentFrameAt();
 		// Inside a listener `lastTime` is still the previous frame's (`frameClock.ts`).
 		lateMs = Math.max(0, now - (t.lastTime + t.elapsedMS));
 	};
 	const onTickEnd = () => {
 		ended = { tickMs: performance.now() - tickStart, lateMs };
+		endTimer();
+		if (sampling && stage) {
+			sampling = false;
+			// After the tick's time is taken, and before `tickEnd`: the walk is not the frame's busy time.
+			ended.scene = sampleScene(stage, layerCosts, costNow());
+		}
 		if (waitForGpu) {
 			const start = performance.now();
 			// The context's own method, so the wait is not counted as the next frame's work.
@@ -483,6 +614,7 @@ export function instrumentApp(
 	ticker.add(onTickEnd, undefined, UPDATE_PRIORITY.UTILITY);
 
 	return {
+		gpuTimer: () => (timer ? 'on' : 'n/a'),
 		info() {
 			const debug = gl.getExtension('WEBGL_debug_renderer_info');
 			const backBuffer = (renderer as unknown as { backBuffer?: BackBufferInternals }).backBuffer;
@@ -526,6 +658,12 @@ export function instrumentApp(
 			for (const name of wrapped) delete own[name];
 			filters.push = push;
 			filters.applyFilter = applyFilter;
+			if (groupPipe && groupExecute) groupPipe.execute = groupExecute;
+			for (const q of queries) (native.deleteQuery as GlMethod).call(gl, q);
+			if (timing) {
+				(native.endQuery as GlMethod).call(gl, timer?.TIME_ELAPSED_EXT);
+				(native.deleteQuery as GlMethod).call(gl, timing);
+			}
 			if ((renderer as unknown as { render: GlMethod }).render === timedRender)
 				(renderer as unknown as { render: typeof render }).render = render;
 		},
