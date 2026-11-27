@@ -381,6 +381,16 @@ const HEAD_NOD: RigTemplateChannel = {
 	rest: 0,
 	drives: NECK_BONES.map((bone) => ({ bone, prop: 'rotate' as const, per: 1 / NECK_BONES.length })),
 };
+/** The Breath control: the chest swells a little. */
+const BREATH: RigTemplateChannel = {
+	id: 'breath',
+	label: 'Breath',
+	tip: 'Swell the chest a little.',
+	min: 0,
+	max: 1,
+	rest: 0,
+	drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
+};
 
 /** The face block's motion map, kept to the controls `t` has. */
 function faceMotion(t: RigTemplate) {
@@ -547,20 +557,7 @@ export const BUST_FACE: RigTemplate = {
 		...angleParts('head', 'head', [260, 300]),
 		...angleParts('body', 'body', [420, 240]),
 	],
-	channels: [
-		...FACE.channels,
-		HEAD_NOD,
-		{
-			id: 'breath',
-			label: 'Breath',
-			tip: 'Swell the chest a little.',
-			min: 0,
-			max: 1,
-			rest: 0,
-			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
-		},
-		APPROACH,
-	],
+	channels: [...FACE.channels, HEAD_NOD, BREATH, APPROACH],
 	clips: [],
 	rig3d: {
 		turnaround: 'side',
@@ -881,15 +878,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 			drives: [{ bone: 'head', prop: 'rotate', per: 1 }],
 		},
 		HEAD_NOD,
-		{
-			id: 'breath',
-			label: 'Breath',
-			tip: 'Swell the chest a little.',
-			min: 0,
-			max: 1,
-			rest: 0,
-			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
-		},
+		BREATH,
 	],
 	clips: [],
 	motion: {
@@ -1077,6 +1066,8 @@ const segmentSlots = (s: string) =>
 	(['pinky', 'ring', 'middle', 'index', 'thumb'] as const).flatMap((d) =>
 		SEGMENTS.map((n) => bone(d, n, s)),
 	);
+/** A hand's digit bones in bone order: thumb to pinky, each knuckle to tip. */
+const digitBones = (s: string) => DIGITS.flatMap((d) => SEGMENTS.map((n) => bone(d, n, s)));
 
 /**
  * The upper body of a character beside the reels, drawn facing the viewer: torso, arms, and hands
@@ -1175,15 +1166,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'chest', prop: 'rotate', per: 1 }],
 		},
-		{
-			id: 'breath',
-			label: 'Breath',
-			tip: 'Swell the chest a little.',
-			min: 0,
-			max: 1,
-			rest: 0,
-			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
-		},
+		BREATH,
 		HEAD_NOD,
 		...FACE.channels,
 		...sides<RigTemplateChannel>((s, k) => {
@@ -2049,6 +2032,10 @@ const TURN_3D_CANNOT =
 	'A full turn on a side turnaround: past its side view the torso shows a front-half drawing mirrored; its back is a full turnaround’s back drawings.';
 const CROSS_CANNOT =
 	'A hand crossing in front of the other arm: an arm goes in front of or behind the body and the head only.';
+const FINGERS_CANNOT = [
+	'The drawn hand poses: the fingers are keyed instead.',
+	'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
+];
 
 const FULL_BODY_IMAGES = withImageBones(FLAT_FULL_BODY, [
 	'pelvis',
@@ -2300,16 +2287,7 @@ export const HALF_BODY: RigTemplate = {
 		),
 		APPROACH,
 		...sides((s) => [
-			armDepth(s, [
-				`upper_arm_${s}`,
-				`lower_arm_${s}`,
-				`hand_${s}`,
-				...FLAT_HALF_BODY.slots
-					.filter(
-						(x) => x.bone.endsWith(`_${s}`) && /^(thumb|index|middle|ring|pinky)_/.test(x.name),
-					)
-					.map((x) => x.name),
-			]),
+			armDepth(s, [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`, ...segmentSlots(s)]),
 		]),
 	],
 	clips: FLAT_HALF_BODY.clips,
@@ -2390,33 +2368,15 @@ HALF_BODY.motion = {
 			NEAR_CANNOT,
 			HEAD_3D_CANNOT,
 			FACE.cannot[1],
-			'The drawn hand poses: the fingers are keyed instead.',
-			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
+			...FINGERS_CANNOT,
 			'Breathing.',
 		],
 	},
-	cannot: [
-		TURN_CANNOT,
-		CROSS_CANNOT,
-		...FACE.cannot,
-		'The drawn hand poses: the fingers are keyed instead.',
-		'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
-		'Breathing.',
-	],
+	cannot: [TURN_CANNOT, CROSS_CANNOT, ...FACE.cannot, ...FINGERS_CANNOT, 'Breathing.'],
 };
 
-/**
- * The built-in templates ＋ New rig offers. Only the latest version of each is kept: a rig that names
- * another version opens as a rig with no template (its keys are ordinary timelines, so it still
- * plays; it has no Controls).
- */
 // The control layer (rig-controls §6.1, T12a): a ring on each FK bone, the face board, layers, sets,
 // the mirror line and the picker. The IK controls wait, hidden, for the IK (T12b).
-const fingersOf = (s: 'l' | 'r') =>
-	HALF_BODY.bones
-		.map((b) => b.name)
-		.filter((n) => n.endsWith(`_${s}`) && /^(thumb|index|middle|ring|pinky)_\d_/.test(n));
-
 BUST_FACE.channels = withFaceBoard(BUST_FACE.channels, FACE_BOARD);
 BUST_FACE.controls = builtinControls(BUST_FACE, {
 	rings: { chest: 70, shoulder_l: 36, shoulder_r: 36, neck: 28, neck_upper: 24, head: 80 },
@@ -2527,7 +2487,7 @@ const halfControls = builtinControls(HALF_BODY, {
 		...Object.fromEntries(
 			sides((s) => [
 				[`arm_${s}`, [`clavicle_${s}`, `upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]],
-				[`fingers_${s}`, fingersOf(s)],
+				[`fingers_${s}`, digitBones(s)],
 			]),
 		),
 		arms: sides((s) => [`clavicle_${s}`, `upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
@@ -2581,6 +2541,11 @@ function handsModule(fingers: boolean): RigTemplateModule {
 HALF_BODY.modules = [handsModule(true)];
 FULL_BODY.modules = [handsModule(false)];
 
+/**
+ * The built-in templates ＋ New rig offers. Only the latest version of each is kept: a rig that names
+ * another version opens as a rig with no template (its keys are ordinary timelines, so it still
+ * plays; it has no Controls).
+ */
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
 
 /** A built-in template by id, at `version` when one is given (null-ish when we no longer have it). */
