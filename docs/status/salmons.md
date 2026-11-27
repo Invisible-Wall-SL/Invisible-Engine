@@ -2693,9 +2693,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     103/103; a first run beside five runtime builds failed one colour read, not again),
     `--trees` 4/4, `--zone-rig` 4/4, `salmons-river-tour.mjs` seeds 1 and 4 (seed 4's climb also
     alone, 4/4 on branch and main), `salmons-levels-play.mjs` 57/57.
-  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five, against main 032a187):
-    `lines` +298 B, `match3` +336 B, `card` +304 B gzip (`SpawnLayer` ships in every runtime; its
-    projected branch runs only on an iso world screen), `arcade` +2,196 B and `arcade3d` +2,144 B
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five, against main 88e4409):
+    `lines` +299 B, `match3` +316 B, `card` +268 B gzip (`SpawnLayer` ships in every runtime; its
+    projected branch runs only on an iso world screen), `arcade` +2,184 B and `arcade3d` +2,185 B
     (the same plus the lazy Salmons art chunk).
   - **Reviewed** (`code-reviewer`): fixed a stale zIndex the underwater layer (`blood.ts` `sunk`)
     could sort by when the players' layer was already due a sort, and a one-pixel rounding of the
