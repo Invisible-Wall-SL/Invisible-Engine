@@ -8,6 +8,7 @@ import { JOB_ID } from '$lib/server/rigCutEdits';
 import { frameSourceOf, updateFrameRig } from '$lib/server/rigFrameUpdate';
 import {
 	artRevision,
+	bundlePrefixOf,
 	cutFrames,
 	readCut,
 	regionAlphas,
@@ -16,9 +17,14 @@ import {
 } from '$lib/server/rigFrameSourceStore';
 import { asIrigDocument, irigDocProblem } from '$lib/server/riggerIrig';
 import { irigTarget, scopeMismatch } from '$lib/server/riggerIrigWrite';
-import { requestFit } from '$lib/server/riggerNewRig';
+import { requestFit, requestModules } from '$lib/server/riggerNewRig';
 import { templateFitProblem } from '$lib/server/rigTemplates';
-import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
+import {
+	moduleChoiceProblem,
+	offDefault,
+	templateWithModules,
+} from '$lib/server/rigTemplateModules';
+import { bundleModules, rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -31,13 +37,16 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
  * nothing: the page takes the answer as one undo step and saves it through `/api/rigger/save`,
  * whose `frameSource` points the bundle at the new sheet once the `.irig` is stored.
  *
- * Body `{ dir, stem, projectKey, job, manifestKey, templateId, fit, skeleton, source, keep? }`: the
+ * Body `{ dir, stem, projectKey, job, manifestKey, templateId, fit, skeleton, source, keep?, modules? }`: the
  * sheet `/api/rigger/from-frame/sheet` just made for the rig (one of its two), the cut and fit it was
  * made from, the open rig and its `frame-source.json` as the page holds them (unsaved edits and all),
  * and the hand-edited parts whose mesh the author keeps. Answers the merged rig, its next
  * `frame-source.json`, the sheet as the page draws it (`atlas`) and what changed (`report`): parts
  * rebuilt, props added and removed (with what named them), hand-edited meshes (`canKeep` when the
- * part's drawing barely changed), deform keys dropped. Gated by `rigger`.
+ * part's drawing barely changed), deform keys dropped. `modules` (✂ Edit cut's) changes the rig's
+ * module set first (docs/design/rig-modules.md §5): the answer then has the change in its report and
+ * the new set's `controls`, and the page records the set (PUT `/api/rigger/modules`) once saved.
+ * Gated by `rigger`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -69,8 +78,17 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (unloadable) throw error(422, `The open rig would not load: ${unloadable}.`);
 
 	const templateId = typeof body.templateId === 'string' ? body.templateId : '';
-	const template = await rigTemplateForNewRig(templateId);
-	if (!template) throw error(404, `No rig template "${templateId}".`);
+	const whole = await rigTemplateForNewRig(templateId);
+	if (!whole) throw error(404, `No rig template "${templateId}".`);
+	// The rig's module set, or the one ✂ Edit cut changed it to (docs/design/rig-modules.md §5): the
+	// change is made first (`changeModules`), then the parts merged.
+	const was = await bundleModules(bundlePrefixOf(target));
+	const now = requestModules(body.modules) ?? was;
+	const unchosen = moduleChoiceProblem(whole, now);
+	if (unchosen) throw error(400, unchosen);
+	const template = templateWithModules(whole, now);
+	const changing =
+		JSON.stringify(offDefault(whole, was)) !== JSON.stringify(offDefault(whole, now));
 	const fit = requestFit(body.fit);
 	if (!fit) throw error(400, 'No fit was sent.');
 	const misfit = templateFitProblem(template, fit);
@@ -102,6 +120,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			props: read.cut.props,
 			keep,
 			outlines,
+			...(changing ? { from: templateWithModules(whole, was) } : {}),
 		}),
 	);
 	const broken = irigDocProblem(result.doc);
@@ -123,6 +142,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		skeleton: result.doc,
 		source: next,
 		report: result.report,
+		...(changing && template.controls ? { controls: template.controls } : {}),
+		modules: offDefault(whole, now),
 		frames,
 		atlas: {
 			text: regionsToRigAtlas(pageName, after.pageWidth, after.pageHeight, after.regions),

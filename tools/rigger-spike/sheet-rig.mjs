@@ -58,6 +58,9 @@
 //      put it there, a part's props in the layers' order, the head's props over its face, under the
 //      front hair (🗺 Layers: sheet-layers.mjs);
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
+// Two checks, so each stays well inside CI's 300 s for one (the whole ran 130–300 s there): this file
+// runs the plain sheet's guards, `sheet-rig-arranged.mjs` the arranged sheet's and the owner's sheet
+// shape's (`ARRANGED`), each guard with its mutants.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--mutants <guard>] [--write]
 //   (--mutants: only that guard's mutants.)
 //   (--write: make the sheet from the F2 fixture's parts again.)
@@ -2795,8 +2798,25 @@ const ONLY = process.argv.includes('--only')
 const MUTANTS_OF = process.argv.includes('--mutants')
 	? process.argv[process.argv.indexOf('--mutants') + 1]
 	: null;
+/** The guards `sheet-rig-arranged.mjs` runs (`--part arranged`): the sheet arranged as the frame, and the owner's sheet shape. */
+const ARRANGED = new Set([
+	'arrange',
+	'framejoints',
+	'partialface',
+	'proportions',
+	'faceturn',
+	'headturn',
+	'draworder',
+]);
+const PART = process.argv.includes('--part')
+	? process.argv[process.argv.indexOf('--part') + 1]
+	: 'plain';
+if (PART !== 'plain' && PART !== 'arranged') throw new Error(`no part "${PART}" (plain, arranged)`);
+for (const id of ARRANGED) if (!GUARDS[id]) throw new Error(`ARRANGED names no guard "${id}"`);
+/** Whether guard `id` (and its mutants) runs in this part: `--only` / `--mutants` name it whatever the part. */
+const inPart = (id) => !!(ONLY || MUTANTS_OF) || ARRANGED.has(id) === (PART === 'arranged');
 for (const [id, guard] of Object.entries(GUARDS)) {
-	if ((ONLY && id !== ONLY) || MUTANTS_OF) continue;
+	if ((ONLY && id !== ONLY) || MUTANTS_OF || !inPart(id)) continue;
 	console.log(`\n=== ${id}`);
 	guard(M0, (line) => console.log(`    ${line}`));
 }
@@ -3184,7 +3204,7 @@ const SOURCES = {
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {
-	if (MUTANTS_OF && guard !== MUTANTS_OF) continue;
+	if ((MUTANTS_OF && guard !== MUTANTS_OF) || !inPart(guard)) continue;
 	const [file, from] = mutation;
 	if (!readFileSync(SOURCES[file], 'utf8').replace(/\r\n/g, '\n').includes(from)) {
 		ok(`mutant planted: ${what}`, false, `"${from}" is not in ${file}`);

@@ -312,10 +312,13 @@ const STYLED = {
 	const stateApp = read('apps/lines/src/game/stateApp.ts');
 	check('…and registers a sprite tip’s asset', stateApp.includes('...bakedWinLineAssets(),'), true);
 	const renderer = read('apps/lines/src/components/WinLine.svelte');
+	const shared = read('packages/engine-layout/src/lib/winLineStyle.ts');
 	check(
 		'the renderer traces the line and places the head with the shared maths',
-		renderer.includes('tracePoints(graphics, pathSlice(pts, 0, p));') &&
-			renderer.includes('pathHeadPose(pts, p)'),
+		renderer.includes('paintWinLine(graphics, line, input, part)') &&
+			shared.includes('tracePoints(graphics, pathSlice(pts, 0, p));') &&
+			renderer.includes('winLineHeadAt(pts, p)') &&
+			shared.includes('pathHeadPose(pts, p) ?? { ...pts[0], angle: 0 }'),
 		true,
 	);
 	check(

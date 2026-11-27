@@ -45,6 +45,13 @@ import {
 } from '$lib/roles';
 import { getPipelineDiagnoseBudget, getPipelineFixBudget } from './appSettings';
 import {
+	issueResultUpload,
+	readUploadedResult,
+	resultPointer,
+	type ResultUpload,
+	type RunKind,
+} from './pipelineRunResultUpload';
+import {
 	actionsRunUrl,
 	cancelActionsRun,
 	cancelListedRun,
@@ -729,7 +736,7 @@ export async function acceptFixRunResult(
 	deps: FixRunJobDeps = {},
 ): Promise<FixRunResultAnswer> {
 	const run = await jobRun(request, id, deps);
-	const body = await readResultBody(request);
+	const body = await readResultBody(request, MAX_RESULT_BYTES, { kind: 'fix', id: run.id });
 	const spendUsd = await recordSpend(run.id, parseUsage(body.usage));
 	const result = parseResult(body, run.mode);
 	const claimed = await claimFixRunResult(run.id, new Date(Date.now() - CLAIM_STALE_MS));
@@ -759,9 +766,28 @@ export async function acceptFixRunResult(
 	};
 }
 
+/**
+ * The address a live run's job uploads a large result to (`POST …/result-upload`, ADR-0013 §4):
+ * the same token and run binding as the result, and only a live run gets one.
+ */
+export async function issueFixRunResultUpload(
+	request: Request,
+	id: string,
+	deps: FixRunJobDeps = {},
+): Promise<ResultUpload> {
+	const run = await jobRun(request, id, deps);
+	requireLive(run);
+	return issueResultUpload('fix', run.id, MAX_RESULT_BYTES);
+}
+
+/**
+ * The result's JSON object: plain, gzipped, or a pointer to the gzipped file the job put in R2
+ * (`upload`) — the last only for the run named in `uploaded`.
+ */
 export async function readResultBody(
 	request: Request,
 	maxBytes: number = MAX_RESULT_BYTES,
+	uploaded?: { kind: RunKind; id: string },
 ): Promise<Record<string, unknown>> {
 	const mb = `${maxBytes / (1024 * 1024)} MB`;
 	const raw = Buffer.from(await request.arrayBuffer());
@@ -780,6 +806,15 @@ export async function readResultBody(
 	} else {
 		throw error(415, 'A result is JSON, plain or gzipped.');
 	}
+	let value = jsonObject(bytes);
+	const pointer = uploaded ? resultPointer(value) : null;
+	if (uploaded && pointer !== null) {
+		value = jsonObject(await readUploadedResult(uploaded.kind, uploaded.id, pointer, maxBytes));
+	}
+	return value;
+}
+
+function jsonObject(bytes: Buffer): Record<string, unknown> {
 	let value: unknown;
 	try {
 		value = JSON.parse(bytes.toString('utf8'));

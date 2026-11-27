@@ -289,6 +289,15 @@ treats a merge base other than the stored one as `stale`. (Amended 2026-11-27, f
 without the input the job could not know the cap, and without `base_sha` Accept could not tell
 that the run's hunks were cut against another base.)
 
+**A result may arrive as a pointer** (amended 2026-11-27, ADR-0013 §4's "option B"). A result whose
+gzip is past 400 KB (a Resolve-conflict result can be several MB) is not posted: `collect` asks
+`POST /api/pipeline/merge-runs/<merge_run>/result-upload` (same token and run binding as the result;
+a working run only), PUTs the gzipped result to the presigned R2 URL it returns for
+`_runs/merge/<merge_run>/result.json.gz`, and posts `{ "upload": { "key", "sha256", "bytes" } }`
+to the result endpoint instead. The launcher reads that object (8 MB unpacked at most, size and
+sha256 checked), parses it exactly as an inline body, and deletes it whatever happened. Everything
+below describes the body, inline or uploaded.
+
 **The result**, posted once by job `propose`'s `collect` to
 `POST /api/pipeline/merge-runs/<merge_run>/result` with a GitHub OIDC token (audience
 `invisible-launcher-merge-main`), as JSON:

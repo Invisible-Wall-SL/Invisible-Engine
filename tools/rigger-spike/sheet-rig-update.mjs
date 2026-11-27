@@ -870,8 +870,8 @@ const MUTANTS = [
 		'the parts built from the kept mapping, not the edited one',
 		[
 			UPD,
-			'const now = build(o.template, o.regions, o.mapping);',
-			'const now = build(o.template, o.regions, o.was);',
+			'const now = build(tNow, o.regions, o.mapping);',
+			'const now = build(tNow, o.regions, o.was);',
 		],
 	],
 	[

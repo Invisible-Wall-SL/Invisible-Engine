@@ -20,6 +20,8 @@ poses through engine-rig for the F2 gate. Asserted here:
 - each canvas is turned to its bone's rest (an arm hangs straight down from its centre) and, drawn
   back through its matrix in the draw order, redraws the frame (alpha IoU ≥ 0.99);
 - a prop left ✗ is drawn into its host; a limb out of the picture is reported cut off;
+- a part the template draws no image for (`merge`: no hands) is drawn into the part it names, every
+  pixel of it, and so are the props it hosts; a merge into nothing placed is refused;
 - a part taken from another frame (per-part frames) is made from that frame's kept cut, placed there
   by its own matrix, and reported with the frame it came from;
 - the sheet is written as a project sheet, untrimmed and named by part, stamped as this cut's: the
@@ -315,6 +317,31 @@ def g_untaken() -> bool:
                  f" + {base['prop_chain']['visible_px']}")
 
 
+def g_merged() -> bool:
+    # No hands (rig-modules §5): each hand drawn into its forearm, no image placed for it.
+    merge = {"hand_l": "lower_arm_l", "hand_r": "lower_arm_r"}
+    vv = dict(v, merge=merge,
+              matrices={k: m for k, m in v["matrices"].items() if k not in merge},
+              order=[n for n in v["order"] if n not in merge])
+    made = P.make_parts(rgba, labels, cut, track, vv)
+    rep = made["report"]
+
+    def seen(n: str) -> int:
+        return int(((labels == cut["names"].index(n)) & (alpha > 127)).sum())
+
+    sums = all(rep[t]["visible_px"] == seen(t) + seen(p) for p, t in merge.items())
+    try:
+        P.validate({**request, "merge": {"hand_l": "tail"}})
+        refused = False
+    except ValueError as e:
+        refused = "hand_l" in str(e)
+    return (check("no hands: each hand's pixels drawn into its forearm, no image of its own",
+                  sums and not set(merge) & set(made["images"])
+                  and all(rep[t].get("drawn_in") == [p] for p, t in merge.items()),
+                  str({t: (rep[t]["visible_px"], seen(t), seen(p)) for p, t in merge.items()}))
+            & check("no hands: a merge into a part placed for no image is refused", refused))
+
+
 def g_cut_off() -> bool:
     j = R.joints_of(track, W, H)
     out = dict(j, **{"elbow_r": np.array([W + 120.0, j["elbow_r"][1]])},
@@ -535,7 +562,7 @@ def g_sources() -> bool:
 
 
 GUARDS = {"partition": g_partition, "hidden": g_hidden, "fill": g_fill, "rest": g_rest,
-          "silhouette": g_silhouette, "redraw": g_redraw, "untaken": g_untaken, "cut_off": g_cut_off, "sheet": g_sheet,
+          "silhouette": g_silhouette, "redraw": g_redraw, "untaken": g_untaken, "merged": g_merged, "cut_off": g_cut_off, "sheet": g_sheet,
           "refused": g_refused, "sources": g_sources}
 for g in GUARDS.values():
     g()
@@ -573,6 +600,11 @@ def untaken_dropped(lab, c):
     return masks, hosts
 
 
+def hands_dropped(lab, c):
+    masks, hosts = real_part_masks(lab, c)
+    return {n: np.zeros_like(m) if n.startswith("hand_") else m for n, m in masks.items()}, hosts
+
+
 def unturned(m, k, origin, size):
     s = float(np.hypot(m[0], m[2]))
     return real_canvas_map([s, 0.0, 0.0, s, m[4], m[5]], k, origin, size)
@@ -604,6 +636,8 @@ MUTANTS = [
      lambda: patched(P, "canvas_map", lambda m, k, o, s: real_canvas_map(m, k, [o[0] + 2, o[1]], s))),
     ("untaken", "a prop left ✗ dropped from its host", lambda: patched(P, "part_masks", untaken_dropped)),
     ("cut_off", "nothing ever cut off", lambda: patched(P, "cut_off", lambda *a: 0.0)),
+    ("merged", "a hand's pixels dropped, not drawn into its forearm",
+     lambda: patched(P, "part_masks", hands_dropped)),
     ("sheet", "another sheet of the name overwritten", lambda: _no_veto()),
     ("sheet", "🔄 Update rig's replace ignored",
      lambda: patched(P, "validate", lambda p: {**real_validate(p), "replace": False})),

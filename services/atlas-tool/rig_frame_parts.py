@@ -32,8 +32,10 @@ attachment's matrix, rig units, y up). Per part this makes:
 
 A part the author took from another frame (per-part frames) is made the same way from that
 frame's kept cut, placed there by its own matrix, scale and origin (`from_other_cut`), and
-reported with the frame it came from. The report goes to `parts.json` in the job's folder and back
-to the launcher.
+reported with the frame it came from. A part the rig's template draws no image for (a module left
+out: docs/design/rig-modules.md §5) is drawn into the part the request's `merge` names (a hand into
+its forearm), the props it hosts with it. The report goes to `parts.json` in the job's folder and
+back to the launcher.
 """
 from __future__ import annotations
 
@@ -100,11 +102,12 @@ def _scale_origin(o: dict, what: str) -> tuple[float, list[float]]:
 
 
 def validate(payload: dict) -> dict:
-    """`{job, sheet, scale, origin, parts: [{name, matrix, source?}], order, fill?, replace?}`
-    checked. A part with `source: {job, scale, origin}` is cut from that job's frame (per-part
+    """`{job, sheet, scale, origin, parts: [{name, matrix, source?}], order, merge?, fill?,
+    replace?}` checked. A part with `source: {job, scale, origin}` is cut from that job's frame (per-part
     frames), placed there by its matrix at that frame's scale and origin. `replace` lets the sheet
     be written over another cut's sheet of that name (🔄 Update rig) while it is still the version
-    `replace_etag` names, never over anyone else's."""
+    `replace_etag` names, never over anyone else's. `merge` maps a part of the cut no image is
+    placed for to the placed part it is drawn into."""
     job = str(payload.get("job") or "")
     if not R.JOB.match(job):
         raise ValueError("Bad job id.")
@@ -136,6 +139,13 @@ def validate(payload: dict) -> dict:
     if not (isinstance(order, list) and all(isinstance(n, str) for n in order)
             and set(matrices) <= set(order)):
         raise ValueError("The draw order does not name every part.")
+    merge = payload.get("merge") or {}
+    if not (isinstance(merge, dict) and all(isinstance(k, str) and isinstance(t, str)
+                                            for k, t in merge.items())):
+        raise ValueError("merge maps a part to the part it is drawn into.")
+    for part, into in merge.items():
+        if part in matrices or into not in matrices:
+            raise ValueError(f"The part {part} is drawn into {into}, which is not placed alone.")
     fill = payload.get("fill") or "cpu"
     if fill not in FILLS:
         raise ValueError("Only the CPU fill runs for now: the GPU fill (🎨 Fill) waits on RunPod.")
@@ -146,8 +156,8 @@ def validate(payload: dict) -> dict:
     if replace_etag is not None and not isinstance(replace_etag, str):
         raise ValueError("replace_etag is the sheet's ETag or null.")
     return {"job": job, "sheet": sheet, "scale": k, "origin": origin, "matrices": matrices,
-            "order": list(order), "fill": fill, "sources": sources, "replace": replace,
-            "replace_etag": replace_etag}
+            "order": list(order), "merge": dict(merge), "fill": fill, "sources": sources,
+            "replace": replace, "replace_etag": replace_etag}
 
 
 # --- which pixels are whose -----------------------------------------------------------------------
@@ -602,6 +612,12 @@ def make_parts(rgba: np.ndarray, labels: np.ndarray, cut: dict, track: dict, v: 
     edged = with_edges(labels, alpha)
     masks, hosts = part_masks(labels, cut)
     edge_masks, _ = part_masks(edged, cut)
+    merge = v.get("merge") or {}
+    for part, into in merge.items():
+        for m in (masks, edge_masks):
+            if part in m:
+                m[into] = m.get(into, np.zeros(labels.shape, bool)) | m.pop(part)
+        hosts = {p: into if h == part else h for p, h in hosts.items()}
     placed = {n: m for n, m in v["matrices"].items() if n not in elsewhere}
     unplaced = sorted(n for n in masks if masks[n].any() and n not in placed and n not in elsewhere)
     if unplaced:
@@ -638,6 +654,8 @@ def make_parts(rgba: np.ndarray, labels: np.ndarray, cut: dict, track: dict, v: 
             "size": list(size),
             "cut_off": round(cut_off(n, j, w, h), 2),
             **({"prop": True, "host": hosts[n]} if n in hosts else {}),
+            **({"drawn_in": sorted(p for p, t in merge.items() if t == n)}
+               if n in merge.values() else {}),
         }
     return {"images": images, "report": report}
 

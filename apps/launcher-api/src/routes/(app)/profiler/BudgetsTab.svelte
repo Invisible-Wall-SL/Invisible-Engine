@@ -139,7 +139,7 @@
 				brings back the studio default. Everyone can edit these; if someone else saved the same line first,
 				yours is not saved and theirs is shown. The phases listed are this project's game kind's —
 				{phaseSet === 'arcade'
-					? 'menu and play (studio lines by analogy: menu as idle, play as spinning)'
+					? 'loading, lobby, play and spectate (studio lines by analogy: lobby as idle, play as spinning; judged on busy time, not fps, for a perf: 10 reading — loading has no line)'
 					: 'idle, spinning and round'} — plus any other phase with a project line.
 				{#if scope === 'tablet'}The probe reports phones and desktops only for now, so no reading is
 					judged as a tablet yet.{/if}

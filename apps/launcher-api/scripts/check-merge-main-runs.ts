@@ -28,7 +28,7 @@
  *    over a workflow file refused by GitHub ends needs_person; a fix-run branch's decision untouched;
  *  - Discard, the page's decisions and its source (text, never HTML), the migration, the setting.
  */
-import { createSign, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -145,6 +145,25 @@ fake('lib/server/director/mockupPixels.ts', {});
 fake('lib/server/projects.ts', {
 	DEFAULT_PROJECT_KEY: 'cloud',
 	accessibleProjects: async () => [],
+});
+const objects = new Map<string, Uint8Array<ArrayBuffer>>();
+const r2Deleted: string[] = [];
+const r2Signed: { key: string; contentType: string; ttl: number; url: string }[] = [];
+fake('lib/server/r2.ts', {
+	getObjectBytesBounded: async (key: string, maxBytes: number) => {
+		const body = objects.get(key);
+		if (!body) return null;
+		return body.byteLength > maxBytes ? 'large' : body;
+	},
+	deleteObject: async (key: string) => {
+		r2Deleted.push(key);
+		objects.delete(key);
+	},
+	presignPut: async (key: string, contentType: string, ttl: number) => {
+		const url = `https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/bucket/${key}?X-Amz-Signature=sig-${r2Signed.length + 1}`;
+		r2Signed.push({ key, contentType, ttl, url });
+		return url;
+	},
 });
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
@@ -729,6 +748,9 @@ const discardRoute = await import(
 const resultRoute = await import(src('routes/api/pipeline/merge-runs/[id]/result/+server.ts'));
 const fileRoute = await import(
 	src('routes/api/pipeline/changes/[number]/merge-runs/[id]/file/+server.ts')
+);
+const uploadRoute = await import(
+	src('routes/api/pipeline/merge-runs/[id]/result-upload/+server.ts')
 );
 
 type Json = Record<string, unknown>;
@@ -2893,7 +2915,17 @@ gh.actionsRuns.delete(9603);
 const bGoing = await mk(9604, 'in_progress');
 const bQueued = await mk(9605, 'queued');
 gh.listed = [];
+objects.set(`_runs/merge/${bDone.id}/result.json.gz`, new Uint8Array(4));
+objects.set(`_runs/merge/${bGoing.id}/result.json.gz`, new Uint8Array(4));
 await actions.backstopMergeRuns(app, born + 5 * MIN);
+check(
+	'backstop: a run it ends loses its leftover result object; a run still working keeps its own',
+	[
+		objects.has(`_runs/merge/${bDone.id}/result.json.gz`),
+		objects.has(`_runs/merge/${bGoing.id}/result.json.gz`),
+	],
+	[false, true],
+);
 check(
 	'backstop: an Actions run that completed with no result → failed (cancelled when GitHub cancelled it); one GitHub no longer has → failed; one going → running; a queued one waits; an unbound one is looked for',
 	[bDone, bCancelled, bGone, bGoing, bQueued, bUnbound].map((b) => runOf(b.id).status),
@@ -5143,6 +5175,175 @@ check(
 	[ledger.every((s) => s.agent !== 'merge-main' || s.runId.startsWith('merge:'))],
 	[true],
 );
+
+// ═════════════════════════════════════════════════════════════════════════════
+// A result too large for the request limit travels through R2 (ADR-0015 §10)
+// ═════════════════════════════════════════════════════════════════════════════
+{
+	const keyOf = (id: string) => `_runs/merge/${id}/result.json.gz`;
+	const ask = (id: string, t: string | null) =>
+		call(uploadRoute.POST, { params: { id }, headers: t === null ? {} : bearer(t) });
+	const wu = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+	const U = await started(wu, ADMIN, 9810);
+	const issued = await ask(U.id, token({ run_id: '9810' }));
+	const again = await ask(U.id, token({ run_id: '9810' }));
+	check(
+		'result-upload: a working run gets a presigned PUT for its one key, 15 minutes, gzip, 8 MB; a second call signs it afresh',
+		[
+			issued.status,
+			Object.keys(issued.body).sort(),
+			issued.body.key,
+			String(issued.body.url).includes(keyOf(U.id)),
+			Math.round((Date.parse(String(issued.body.expiresAt)) - Date.now()) / 60_000),
+			issued.body.maxBytes,
+			r2Signed.at(-2)?.contentType,
+			r2Signed.at(-2)?.ttl,
+			again.status,
+			again.body.key,
+			again.body.url !== issued.body.url,
+		],
+		[
+			200,
+			['expiresAt', 'key', 'maxBytes', 'url'],
+			keyOf(U.id),
+			true,
+			15,
+			8 * 1024 * 1024,
+			'application/gzip',
+			900,
+			200,
+			keyOf(U.id),
+			true,
+		],
+	);
+	const wo = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+	const O = await started(wo, ADMIN, 9811);
+	const wd = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+	const D = await started(wd, ADMIN, 9812);
+	await post(D.id, D.gh, body(wd, D.id));
+	const signedBefore = r2Signed.length;
+	const refusals = [
+		await ask(U.id, null),
+		await ask(U.id, token({ run_id: String(O.gh) })),
+		await ask(U.id, token({ run_id: '9810' }, 'invisible-launcher-bug-fix')),
+		await ask(D.id, token({ run_id: String(D.gh) })),
+		await ask('0000000000', token({ run_id: '1' })),
+	];
+	check(
+		'result-upload: no token 401; another run’s Actions run 403; the bug-fix audience 401; an ended run 409; an unknown run 404 — and nothing signed',
+		[refusals.map((a) => a.status), r2Signed.length - signedBefore],
+		[[401, 403, 401, 409, 404], 0],
+	);
+
+	const pointerFor = (id: string, gz: Uint8Array, over: Record<string, unknown> = {}) => ({
+		upload: {
+			key: keyOf(id),
+			sha256: createHash('sha256').update(gz).digest('hex'),
+			bytes: gz.byteLength,
+			...over,
+		},
+	});
+	const put = (id: string, gz: Uint8Array) => objects.set(keyOf(id), new Uint8Array(gz));
+	const one = async (run: { id: string; gh: number }, json: unknown) =>
+		call(resultRoute.POST, {
+			params: { id: run.id },
+			json,
+			headers: bearer(token({ run_id: String(run.gh) })),
+		});
+
+	const wa = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+	const A = await started(wa, ADMIN, 9813);
+	const gz = gzipSync(JSON.stringify(body(wa, A.id)));
+	put(A.id, gz);
+	r2Deleted.length = 0;
+	const accepted = await one(A, pointerFor(A.id, gz));
+	check(
+		'a pointer result is accepted, goes the way an inline one does, and its object is deleted',
+		[
+			accepted.status,
+			accepted.body.status,
+			runOf(A.id).status,
+			objects.has(keyOf(A.id)),
+			r2Deleted,
+		],
+		[200, 'proposed', 'proposed', false, [keyOf(A.id)]],
+	);
+
+	let refusedCount = 0;
+	const refused = async (
+		label: string,
+		prep: (r: { id: string; gh: number }) => unknown,
+		sentence: RegExp,
+	) => {
+		const w = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+		const r = await started(w, ADMIN, 9820 + ++refusedCount);
+		r2Deleted.length = 0;
+		const a = await one(r, prep(r));
+		check(
+			`a pointer result: ${label} → 400 naming the rule, the run left waiting, the object deleted`,
+			[
+				a.status,
+				sentence.test(String(a.body.error ?? a.body.message)),
+				runOf(r.id).status,
+				objects.has(keyOf(r.id)),
+				r2Deleted,
+			],
+			[400, true, 'dispatched', false, [keyOf(r.id)]],
+		);
+	};
+	await refused(
+		'another run’s key',
+		(r) => {
+			put(r.id, gz);
+			return pointerFor(r.id, gz, { key: keyOf(A.id) });
+		},
+		/not this run’s/,
+	);
+	await refused(
+		'a wrong hash',
+		(r) => {
+			put(r.id, gz);
+			return pointerFor(r.id, gz, { sha256: 'a'.repeat(64) });
+		},
+		/not the file it said/,
+	);
+	await refused(
+		'a wrong byte count',
+		(r) => {
+			put(r.id, gz);
+			return pointerFor(r.id, gz, { bytes: gz.byteLength + 1 });
+		},
+		/not the size it said/,
+	);
+	await refused('a missing object', (r) => pointerFor(r.id, gz), /not there/);
+	const huge = new Uint8Array(8 * 1024 * 1024 + 1);
+	await refused(
+		'an object over 8 MB, whatever the pointer says',
+		(r) => {
+			put(r.id, huge);
+			return pointerFor(r.id, gz, { bytes: gz.byteLength });
+		},
+		/at most 8 MB/,
+	);
+	const bomb = gzipSync(Buffer.alloc(9 * 1024 * 1024));
+	await refused(
+		'a gzip that unpacks past 8 MB',
+		(r) => {
+			put(r.id, bomb);
+			return pointerFor(r.id, bomb);
+		},
+		/unpacks to at most 8 MB/,
+	);
+	const notGzip = Buffer.from('{"not":"gzip"}');
+	await refused(
+		'an object that is not gzip',
+		(r) => {
+			put(r.id, notGzip);
+			return pointerFor(r.id, notGzip);
+		},
+		/not gzip/,
+	);
+}
 
 if (failures) {
 	console.error(`\n${failures} of ${checks} merge-main-runs checks failed.`);

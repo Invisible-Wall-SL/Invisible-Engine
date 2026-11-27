@@ -1334,8 +1334,29 @@ template** below), listed as `<name> (template v<n>)`.
 - **A missing part is left out, never named.** The game cannot load a rig naming an image its
   atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
   have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
+- **Modules** (hover each for what it does): under a template that has switchable pieces, a row
+  of pickers. **Hands** — Half body **With fingers** (as above), **Simple (one bone)** (the hand
+  image and its drawn poses, no finger bones) or **None** (no hand drawn or rigged: the arm ends
+  at the wrist, where its IK control stays, so 🎥 Motion still reaches the tracked wrist); Full body
+  **Simple** or **None**. Hover an option for the parts it leaves out. The row applies to
+  **Create**, **🗺 From my sheet** (its parts list drops what the choice leaves out) and **🎞 From
+  a Flipbook frame** (the frame is still cut into every part; a part the choice leaves out is drawn
+  into the one above it — with no hands, each hand joins its forearm's image, so the arm still ends
+  in the drawn hand). The rig's Controls, picker, IK, 3D setup and 🎥 Motion all follow the choice:
+  a capture keys no hand the rig lacks.
+- **Change a rig's modules later** with **🧩** in the rig panel (shown when its template has
+  modules): pick, **Apply**. What the new choice leaves out leaves the rig — its bones, slots and
+  every key on them (you're told how many first); a mesh of yours weighted to a bone that goes moves
+  onto the bone above it where it stands; what it adds is made over the rig's art where a new rig
+  has it. One ↶ undo, then saved. A bone or slot of your own on a bone that would go stops it (move
+  it first). A rig made from a sheet changes its modules in **🗺 Edit mapping** (🧩 opens it): the
+  pickers sit in its top row, the parts list follows, and **🔄 Update rig** makes the change (map the
+  hands' regions to add hands back). A rig cut from a frame changes them in **✂ Edit cut** (🧩
+  opens it): the pickers sit in its top row and **🔄 Update rig** makes the parts for the new choice
+  and changes the rig; the choice is recorded once the rig is saved.
 - A template can't be combined with a saved rig: both are a whole skeleton.
-- The rig remembers its template in a `template.json` beside it in the bundle.
+- The rig remembers its template, and its modules off their default, in a `template.json` beside
+  it in the bundle (a 🗺 rig's mapping keeps them too, so 🔄 Update rig builds the same rig).
 
 #### The rig-building workspaces: zoom, pan and shortcuts
 
@@ -1554,6 +1575,10 @@ the rig's cut again. **🔄 Update rig** takes 🦴 Create rig's place:
 - A mesh you edited by hand is replaced by the rebuilt one; when its part's drawing barely changed,
   you are asked whether to keep yours instead. Deform keys on a rebuilt mesh stay when it has the same
   vertices, and are listed and dropped when it has not.
+- **Modules** (when the rig's template has them) sit in the dialog's top row, set to the rig's own.
+  Change one, then 🔄 Update rig: the parts are made for the new choice (Hands → None draws each hand
+  into its forearm), what it leaves out leaves the rig with its keys, what it adds comes back where a
+  new rig has it, and the report says what moved. The choice is recorded once the rig is saved.
 - It is **one ↶ undo** (the rig, its source and its art together) and is saved straight away through
   💾 Save, under the same conflict check. ↶ then 💾 puts the rig back on the art it had.
 

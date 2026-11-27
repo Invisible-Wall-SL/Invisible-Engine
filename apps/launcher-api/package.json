@@ -171,6 +171,7 @@
 		"check:flights": "tsx --tsconfig tsconfig.scripts.json scripts/check-flights.ts",
 		"check:win-cycle": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-cycle.ts",
 		"check:win-line-style": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-line-style.ts",
+		"check:payline-preview": "tsx --tsconfig tsconfig.scripts.json scripts/check-payline-preview.ts",
 		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",
 		"check:sound-reachability": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-sound-reachability.ts",
 		"check:symbol-fx": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-symbol-fx.ts",
