@@ -55,6 +55,7 @@ export const bodyCost: Rule = (ctx) => {
 		if (pairs !== null) detail.push(`${round1(pairs)} collision pairs tested a frame.`);
 		out.push({
 			id: `bodyCost:${key}:${group[0].r.buildVersion ?? ''}`,
+			subject: `bodyCost:${key}`,
 			rule: 'bodyCost',
 			severity: share >= BODY_COST.medium ? 'medium' : 'low',
 			title: `Sim ${round2(perBody)} ms a body a step on ${deviceOf(group[0].r)}`,

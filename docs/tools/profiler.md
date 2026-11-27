@@ -207,7 +207,42 @@ refuses forcing today, so that step is skipped.
      the largest file and the MB before the first frame. Click the number to open the reading's
      **Files** card under the list (click again to close it).
    - **Keep**: see below.
-   - **JSON**: downloads the full reading as the game sent it, with every figure the readout has.
+   - **JSON**: downloads the full reading as the game sent it, with every figure the readout has,
+     and beside it the row's **Archive** / **Unarchive** and **Delete** icons (see **Archive and
+     delete** below).
+   - The leading checkbox ticks a row for the buttons in the card's header.
+   - One reading per measuring window: the readout sends the whole window so far every time you tap
+     **Send**, switch app or Reset, and the Profiler keeps only the fullest of those sends (the
+     later one replaces the earlier). Readings kept before that, which are exact copies of each
+     other, are listed once.
+
+### Archive and delete
+
+Readings and builds pile up, and a project that changed a lot wants to start again from the new
+numbers. Both tabs have the same controls, for anyone with the Profiler and the project (the people
+who can open a capture for it). They are icon buttons in the card's header; hover for what each does.
+
+- **Archive** (box icon, per row or for the ticked rows): the row stays, with its file, but leaves
+  the **Readings**, **Devices**, **Builds**, **Findings**, **Compare** and **Budgets** figures, every
+  verdict and every finding. Anything can be archived — a kept reading, one an open bug cites.
+  Archived rows are held **90 days** from the archiving, then the daily clean-up deletes them unless
+  they are kept.
+- **Show archived** (the checkbox in the header, with the count): brings archived rows back into
+  every tab, dimmed and tagged `archived`. **Unarchive** (the same icon, per row or ticked) puts a
+  row back. A row older than 15 days and not kept is deleted by the next clean-up once it is
+  unarchived; the page asks before it does that.
+- **Archive all before…** (clock icon): archives every live row older than a day you pick. On
+  Readings it also offers **Before perf 10**, every reading taken by a probe older than the newest
+  one (so a reading's `perf` version is what decides it), and on Builds **Before the first perf 10
+  reading**. It says how many it will archive and asks first.
+- **Delete** (bin icon, per row or ticked): removes the row **and its file**, the same way the daily
+  clean-up does. It asks first and cannot be undone. A row it will not delete is listed with the
+  reason under the header: **a reading or build a bug that is still open or being fixed cites**
+  ("BUG-12 (open) cites this reading — archive it, and delete it once the bug is closed") and **a
+  kept one** ("Kept — untick Keep first, then delete"). A kept row that only a closed bug holds
+  (its Keep came from filing the bug) is deleted. Archive is always open to them.
+
+
 
 ### A reading's files
 
@@ -428,10 +463,21 @@ them, so a project with many old readings shows its full list after a few visits
     - The **Title** reads "Profiler: `<finding>`". The **Description** holds the rule and
       severity, what was measured, the saving, the owner, and a link to each reading (opening
       **Compare**) and each build (opening its card on **Builds**, `?build=`), each with its JSON.
-23. Once filed, the column reads **Filed as BUG-`<n>`**, a link to the bug, with its status under
+23. Once filed, the column reads **Filed: BUG-`<n>`**, a link to the bug, with its status under
     it. A finding is filed once: a second filing, even by two people at the same moment, is
     refused and names the bug ("This finding is already filed as BUG-`<n>`."). If the bug is
     deleted, the finding can be filed again.
+    - **A filed finding leaves the list** while its bug is open or being fixed (and when it was
+      closed as won't fix, or as fixed with no newer reading to say otherwise); **Show filed** in
+      the header brings it back, dimmed. The tab's count leaves them out too.
+    - **The bug follows the finding to the next build.** A finding is the same finding on the next
+      build (same rule, game, device and metric), so it stays under its bug rather than reappearing
+      as a new one. Where the same thing is read from several readings, it is one row with all of
+      them as its evidence.
+    - **Regressed.** If the bug was closed as fixed and a reading or build made after that still
+      shows the finding, it comes back marked `regressed`, with the old bug linked and **File as
+      bug** to report it again (on a new build; on the same build, reopen the old bug).
+
 24. Filing keeps the evidence: every reading and build the finding cites is marked **Keep** and
     stays while the bug exists (see **Keep a reading** above).
 25. Filing needs the Profiler and the bug list's own tool (**Game bugs** or **Pipeline bugs**;
@@ -523,8 +569,11 @@ Today:
   Borut — Emanuele's RGS") lands on the game without the readout: profile that game from its own card.
 - Reading the list means scanning rows; there is no filter, grouping or chart. The page shows the
   newest 500 readings.
-- A reading cannot be deleted by hand; untick **Keep** and the clean-up removes it once it is past
-  15 days.
+- A reading kept by Keep is not deleted by hand until you untick it (and while an open bug cites it
+  it cannot be deleted at all, see **Archive and delete**).
+- Readings stored before the readout named its measuring window are folded only when they are exact
+  copies; a reading sent several times with different frame counts before that is listed once per
+  send. **Archive all before…** is the way to clear those.
 - What a page downloads is read only from a readout of `perf: 9` on; older readings show `–` under
   **Transfer MB** and are not judged on it. An arcade game whose title screen is a web page (Salmons)
   draws its first frame only after the player joins, so its **1st frame** includes the time spent on

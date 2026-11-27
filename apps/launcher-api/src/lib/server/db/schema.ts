@@ -1429,11 +1429,20 @@ export const perfReports = pgTable(
 		counts: jsonb('counts').$type<PerfCounts>(),
 		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */
 		facts: jsonb('facts').$type<ReportFacts>(),
+		/** The probe's id for one measuring window (`<loadId>.<resets>`): a later send replaces an earlier. */
+		sendKey: text('send_key'),
+		/** Frames the reading holds, over every phase: of two sends of one window the fuller wins. */
+		sendFrames: integer('send_frames').notNull().default(0),
 		keep: boolean('keep').notNull().default(false),
+		/** Set when the reading was archived: out of every list and verdict unless "Show archived". */
+		archivedAt: timestamp('archived_at', { withTimezone: true }),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
 	(table) => [
 		index('perf_reports_project_idx').on(table.projectKey, table.capturedAt),
+		index('perf_reports_send_key_idx')
+			.on(table.projectKey, table.sendKey)
+			.where(sql`${table.sendKey} is not null`),
 		index('perf_reports_purge_idx').on(table.keep, table.capturedAt),
 		index('perf_reports_session_idx').on(table.session),
 		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste', 'lab')`),
@@ -1491,6 +1500,8 @@ export const perfBuilds = pgTable(
 		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
 		registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
 		keep: boolean('keep').notNull().default(false),
+		/** Set when the build record was archived: out of every list unless "Show archived". */
+		archivedAt: timestamp('archived_at', { withTimezone: true }),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
 	(table) => [
@@ -1573,6 +1584,11 @@ export const perfFindingBugs = pgTable(
 			.array()
 			.notNull()
 			.default(sql`'{}'::text[]`),
+		/**
+		 * The finding without its build (`Finding.subject`), so a bug follows the finding to the next
+		 * build; null on a link filed before it (filled in the first time its finding id is seen again).
+		 */
+		subject: text('subject'),
 		filedAt: timestamp('filed_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [

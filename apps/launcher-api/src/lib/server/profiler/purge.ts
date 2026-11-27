@@ -2,7 +2,8 @@ import { PERF_REPORT_MAX_BYTES, PERF_RETENTION_MS } from '$lib/profiler';
 
 /**
  * Invisible Profiler retention (owner decision 2026-11-16): a reading or a build record older than
- * 15 days is deleted — its R2 file and its row together — unless it is marked Keep. The newest build
+ * 15 days is deleted — its R2 file and its row together — unless it is marked Keep (an ARCHIVED one
+ * is held 90 days from its archiving instead, `ARCHIVE_RETENTION_DAYS`). The newest build
  * of each game key and kind is never claimed (`buildPurgeable`): that rule is the build store's
  * claim, so this loop is the same for both tables.
  *
@@ -37,6 +38,37 @@ export interface PurgeResult {
 
 const BATCH = 200;
 
+/**
+ * Steps 2 and 3 over rows already claimed: the file, then the row — never the row first, and a file
+ * that will not delete leaves its row claimed (hidden, retried). The purge and a person's Delete
+ * (`manage.ts`) both end here, so a row is removed one way.
+ */
+export async function removeClaimed({
+	claimed,
+	store,
+	deleteObject,
+	what = 'reading',
+}: {
+	claimed: readonly ClaimedRow[];
+	store: Pick<PurgeStore, 'deleteClaimed'>;
+	deleteObject: (key: string) => Promise<void>;
+	what?: 'reading' | 'build';
+}): Promise<{ deleted: string[]; failed: string[] }> {
+	const result = { deleted: [] as string[], failed: [] as string[] };
+	for (const row of claimed) {
+		try {
+			await deleteObject(row.r2Key);
+		} catch (e) {
+			console.error(`profiler purge: file of ${what} ${row.id} not deleted; retried next run`, e);
+			result.failed.push(row.id);
+			continue;
+		}
+		await store.deleteClaimed(row.id);
+		result.deleted.push(row.id);
+	}
+	return result;
+}
+
 export async function purgeExpired({
 	store,
 	deleteObject,
@@ -57,18 +89,10 @@ export async function purgeExpired({
 			(c) => !failed.has(c.id),
 		);
 		if (!claimed.length) return result;
-		for (const row of claimed) {
-			try {
-				await deleteObject(row.r2Key);
-			} catch (e) {
-				console.error(`profiler purge: file of ${what} ${row.id} not deleted; retried next run`, e);
-				failed.add(row.id);
-				result.failed++;
-				continue;
-			}
-			await store.deleteClaimed(row.id);
-			result.deleted++;
-		}
+		const done = await removeClaimed({ claimed, store, deleteObject, what });
+		result.deleted += done.deleted.length;
+		result.failed += done.failed.length;
+		for (const id of done.failed) failed.add(id);
 	}
 }
 

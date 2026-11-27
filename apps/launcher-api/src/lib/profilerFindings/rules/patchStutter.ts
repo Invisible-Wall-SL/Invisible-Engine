@@ -58,6 +58,7 @@ export const patchStutter: Rule = (ctx) => {
 		}
 		out.push({
 			id: `patchStutter:${key}:${group[0].r.buildVersion ?? ''}`,
+			subject: `patchStutter:${key}`,
 			rule: 'patchStutter',
 			severity: period !== null && p95 >= period ? 'medium' : 'low',
 			title: `Room patches up to ${Math.round(p95)} ms late on ${deviceOf(group[0].r)}`,

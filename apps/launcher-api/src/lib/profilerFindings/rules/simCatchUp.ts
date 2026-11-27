@@ -55,6 +55,7 @@ export const simCatchUp: Rule = (ctx) => {
 		}
 		out.push({
 			id: `simCatchUp:${key}:${group[0].r.buildVersion ?? ''}`,
+			subject: `simCatchUp:${key}`,
 			rule: 'simCatchUp',
 			severity: share >= SIM_CATCH_UP.medium || droppedMax > 0 ? 'medium' : 'low',
 			title: `${pct}% of play frames catch up the sim on ${deviceOf(group[0].r)}`,

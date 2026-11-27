@@ -58,6 +58,7 @@ export const notCached: Rule = (ctx) => {
 				const bytes = again.reduce((n, f) => n + (f.bytes ?? 0), 0);
 				out.push({
 					id: `notCached:loads:${key}:${now.r.buildVersion ?? ''}`,
+					subject: `notCached:loads:${key}`,
 					rule: 'notCached',
 					severity: severityOf(bytes),
 					title: `${toMb(bytes)} MB downloaded again on the next load on ${deviceOf(now.r)}`,
@@ -82,6 +83,7 @@ export const notCached: Rule = (ctx) => {
 			const bytes = files.reduce((n, f) => n + (f.bytes ?? 0), 0);
 			out.push({
 				id: `notCached:reload:${key}:${now.r.buildVersion ?? ''}`,
+				subject: `notCached:reload:${key}`,
 				rule: 'notCached',
 				severity: severityOf(bytes),
 				title: `A ${now.net.navigation === 'reload' ? 'reload' : 'back / forward'} downloaded ${toMb(bytes)} MB again on ${deviceOf(now.r)}`,
@@ -106,6 +108,7 @@ export const notCached: Rule = (ctx) => {
 		const extra = repeats.reduce((n, r) => n + (r.bytes * (r.count - 1)) / r.count, 0);
 		out.push({
 			id: `notCached:repeat:${game}:${hit.r.buildVersion ?? ''}`,
+			subject: `notCached:repeat:${game}`,
 			rule: 'notCached',
 			severity: severityOf(extra),
 			title: `${repeats.length} file${repeats.length === 1 ? '' : 's'} downloaded more than once in one load`,

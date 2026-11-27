@@ -89,6 +89,7 @@ export const spikes: Rule = (ctx) => {
 			const mid = group[0].phaseSet === 'arcade' ? 'mid-play' : 'mid-round';
 			out.push({
 				id: `spikes:${key}:${group[0].buildVersion ?? ''}:${cause}`,
+				subject: `spikes:${key}:${cause}`,
 				rule: 'spikes',
 				severity: n >= SPIKE_MIN.medium && cause === 'first use' ? 'medium' : 'low',
 				title: `${n} ${mid} spikes from ${cause} on ${deviceOf(group[0])}`,
