@@ -126,7 +126,8 @@ function bankAudio(bank: StockBank, input: StockSoundInput): LoadedAudio<string>
 }
 
 /** The banks of `banks` this game can play, in manifest order; all of them, and why, on a doubt.
- *  A standalone build ships exactly these (`stockSoundBuild.ts`). */
+ *  A standalone build ships these as a board would (`stockSoundBuild.ts`, no `boardless`): a
+ *  superset of what a boardless game loads. */
 export function stockBanksInReach(
 	banks: readonly StockBank[],
 	input: Pick<StockSoundInput, 'catalog' | 'flowOverridden' | 'boardless'>,

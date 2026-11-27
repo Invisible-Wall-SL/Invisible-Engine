@@ -195,7 +195,9 @@ export const PART_NEEDS: Record<string, PartNeeds> = {
 	WinVisual: winVisualNeeds,
 	WinGate: none,
 	// `Transition.svelte:28-46` → `TransitionAnimation.svelte:23`. Awaited: a missing rig never
-	// completes, so a mounted Transition keeps its rig even when nothing is known to fire it.
+	// completes, so a mounted Transition keeps its rig even when nothing is known to fire it. Not on
+	// a boardless game: the reference overlays that mount it there are not walked (its flow fires the
+	// `transition` cue only by name, which keeps the rig), but a scene of its own doc that places it is.
 	Transition: () => ['transition'],
 	// `FreeSpinIntroVisual.svelte:29,82,99,111` inside `FreeSpinAnimation.svelte:82`.
 	FreeSpinIntroVisual: (params, props) => [

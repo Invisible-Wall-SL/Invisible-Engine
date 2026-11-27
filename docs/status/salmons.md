@@ -2681,7 +2681,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     only when a flow fires a free-spin switch), has no board mounts (`BoardFrame`, win frame,
     anticipation) and no symbol rule, keeps the feature background only on a free-spin switch, and
     keeps `ALWAYS_KEPT` less `goldFont` (`BOARDLESS_ALWAYS_KEPT`). Its code plays only the presses
-    (`stockSoundRules.ts` rows marked `boardless`), and its slots only `baseMusic`, when no flow
+    (`stockSoundRules.ts`: every coded row says `boardless: true | false`, held by
+    `check-stock-sound-coverage.mjs`), and its slots only `baseMusic`, when no flow
     drives its screens (`Sound.svelte`'s boot autoplay). Everything the data names still loads;
     every doubt still loads everything. A standalone build's plan (`stockAssetBuild.ts`,
     `stockSoundBuild.ts`) is unchanged, a superset of what the boot loads.
@@ -2689,10 +2690,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     sample's purple mine (`foregroundAnimation`, the arcade reference's `background` scene holds
     only the coded anchor). Removing it changes the look: an owner decision (give the arcade
     reference its own loading background; then `mm_bg`, 2.9 MB of GPU, goes too).
-  - **The ladder measures arcade.** `game/playFieldPhase.ts`: the arcade runtime notes each frame
-    whether the field is played (online: the room `running`; offline: a body on the field; 3D the
-    same), and `Game.svelte` makes that `measuring` and its absence `quiet` for a play-field
-    mechanic. The ladder's steps are unchanged; a switch still lands only in a quiet moment, so in a
+  - **The ladder measures arcade.** `game/playFieldPhase.ts`: the 2D arcade runtime notes each
+    frame whether the field is played (online: the room `running`; offline: a body on the field,
+    `ArcadeLoop.bodyCount`), and `Game.svelte` makes that `measuring` and its absence `quiet` for a
+    play-field mechanic. Not the 3D stage: its canvas walks its own ladder (`engine-3d`
+    `createQuality3d`) and the Pixi HUD over it keeps its resolution (review, 2026-11-27). The ladder's steps are unchanged; a switch still lands only in a quiet moment, so in a
     long round it waits for the next menu or the time between rounds.
   - **Measured** (`scripts/playtest/arcade-boot-probe.mjs`, new: Salmons' exported config, its
     data naming no stock sound as a publish ships it, a 390 × 844 phone page at device scale 3 in

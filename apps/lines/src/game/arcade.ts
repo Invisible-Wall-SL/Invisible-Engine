@@ -322,8 +322,7 @@ export const tickArcade = (dtMs: number) => {
 	loop.frame(dtMs);
 	// The level the frame just counted: a field with a body on it is playing.
 	if (arcadePerf.on) arcadePerf.phase = arcadePerf.counts.bodies > 0 ? 'play' : 'menu';
-	const store = spawnStore();
-	notePlayFieldFrame(store.layers().some((layer) => store.live(layer).length > 0));
+	notePlayFieldFrame(loop.bodyCount > 0);
 	if (hops) {
 		const live = spawnStore();
 		const lifts = new Map<string, { z: number; shadow: number; foot: number }>();
