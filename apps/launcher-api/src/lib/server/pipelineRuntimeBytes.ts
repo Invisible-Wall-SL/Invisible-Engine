@@ -18,6 +18,8 @@ import { locateCentralDirectory, parseCentralDirectory, readZipEntry, type ZipEn
 export const RUNTIME_BYTES_WORKFLOW_PATH = '.github/workflows/runtime-bytes.yml';
 export const RUNTIME_BYTES_ARTIFACT = 'runtime-bytes';
 const MANIFEST_DIR = 'scripts/runtime-bytes';
+/** A manifest's file name, `<runtime id>.json`; the id is captured. */
+export const MANIFEST_NAME = /^([a-z0-9]+)\.json$/;
 /** The manifests are ~48 kB each today; these leave room to grow and none to hide a payload. */
 export const MAX_MANIFEST_BYTES = 512 * 1024;
 export const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
@@ -144,7 +146,7 @@ export function validateArtifact(zip: Buffer): [string, string][] {
 	const names = new Set<string>();
 	let declared = 0;
 	for (const e of entries) {
-		const id = /^([a-z0-9]+)\.json$/.exec(e.name)?.[1];
+		const id = MANIFEST_NAME.exec(e.name)?.[1];
 		if (!id || !ROWS.some((r) => r.id === id))
 			return bad(`${e.name.slice(0, 80)} is not a runtime's manifest`);
 		if (names.has(e.name)) return bad(`${e.name} is there twice`);
@@ -279,6 +281,9 @@ export async function rerecordRuntimeBytes(
 		const res = await app.download(`/repos/${r}/actions/artifacts/${artifact.id}/zip`, {
 			timeoutMs: ARTIFACT_TIMEOUT_MS,
 		});
+		if (res.status >= 500) {
+			throw error(502, `GitHub ${res.status} when the manifests were downloaded.`);
+		}
 		if (!res.ok) {
 			refuse('no_artifact', `GitHub ${res.status} when the manifests were downloaded.`);
 		}

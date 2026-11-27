@@ -291,6 +291,11 @@ server module, routes, page components, triage, screenshots, the pull-request li
     wait for a finished run, label off on a pass, `rerecordRuntimeBytes` as "Pipeline Changes
     (automatic)" on a failure, and give it back (label off) when a re-record still fails or is
     refused for any reason but no run yet / head moved.
+  - After review: a file the head added in a folder `main` emptied is refused (git's file-location
+    conflict); tree writes carry only path/mode/type/sha; labelling after the ref moved never fails
+    the update; GitHub 5xx is a wait; a head with no run for 6 hours is given back; fork PRs are
+    skipped; the watch runs only where `PIPELINE_RERECORD_WATCH` allows (production by default).
+    One merge base is used (`compare`'s), which squash-merged `main` makes safe.
   - `check:pipeline-changes` covers the three-way rules, the merge commit and tree, the refusals
     and every watch outcome.
   - Not done: a text merge of other files both sides changed (that is 15B1/15C's Resolve).

@@ -892,11 +892,13 @@ function gitRoutes(
 	if (method === 'GET' && rest[0] === 'commits' && rest.length === 2) {
 		const c = git.commits.get(rest[1]);
 		if (!c) return notFound();
+		const date = gh.commitDates.get(rest[1]);
 		return jsonResponse(200, {
 			sha: rest[1],
 			tree: { sha: c.tree },
 			parents: c.parents.map((sha) => ({ sha })),
 			message: c.message,
+			...(date ? { committer: { date } } : {}),
 		});
 	}
 	if (method === 'GET' && rest[0] === 'trees' && rest.length === 2) {
@@ -9298,6 +9300,35 @@ check(
 		[['x'], ['d/e'], ['scripts/runtime-bytes/x/y.json']],
 	);
 	check(
+		'threeWay: a file the head added in a folder main emptied (removed or renamed) is a conflict, as git’s file location; one in a folder main kept is not',
+		[
+			mm.threeWay(at({ 'd/a': '1' }), at({ 'd/a': '1', 'd/new': 'h' }), at({ 'e/a': '1' }))
+				.conflicts,
+			mm.threeWay(at({ 'd/a': '1' }), at({ 'd/a': '1', 'd/new': 'h' }), at({ 'd/a': '2' }))
+				.conflicts,
+		],
+		[['d/new'], []],
+	);
+	check(
+		'threeWay: what it writes is only path, mode, type and sha, whatever else GitHub listed',
+		mm.threeWay(
+			at({}),
+			new Map([['p', { path: 'p', mode: '100644', type: 'blob', sha: 'abc', size: 3, url: 'u' }]]),
+			at({}),
+		).writes,
+		[{ path: 'p', mode: '100644', type: 'blob', sha: 'abc' }],
+	);
+	check(
+		'manifestIdOf: the runtime id the re-record accepts, else null',
+		[
+			mm.manifestIdOf('scripts/runtime-bytes/lines.json'),
+			mm.manifestIdOf('scripts/runtime-bytes/a-b.json'),
+			mm.manifestIdOf('scripts/runtime-bytes/x/y.json'),
+			mm.manifestIdOf('docs/lines.json'),
+		],
+		['lines', null, null, null],
+	);
+	check(
 		'namedPaths: five named, then a count',
 		mm.namedPaths(['a', 'b', 'c', 'd', 'e', 'f', 'g']),
 		'a, b, c, d, e and 2 more',
@@ -9566,9 +9597,47 @@ check(
 		'on_hold',
 	);
 
+	const quietSha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #6');
+	const quiet = labelled(quietSha);
+	head(quietSha, []);
+	gh.commitDates.set(quietSha, '2026-11-27T00:00:00Z');
+	const quietPull = gh.pulls.get(quiet.number) as Pull;
+	check(
+		'watch: a head with no runtime-bytes run waits six hours, then is given back',
+		[
+			await mm.watchOne(githubApp, quietPull, Date.parse('2026-11-27T05:59:00Z')),
+			quietPull.labels.length,
+			await mm.watchOne(githubApp, quietPull, Date.parse('2026-11-27T06:01:00Z')),
+			quietPull.labels.length,
+		],
+		['waiting', 1, 'gave_up', 0],
+	);
+
+	const flakySha = putCommit(treeIdOf(plain), [plain], 'ci: merge main into #7');
+	const flaky = labelled(flakySha);
+	const flakyRun = runOn(flakySha, 'failure');
+	gh.artifacts.set(flakyRun.id as number, [
+		{ id: 9990, name: 'runtime-bytes', expired: false, expires_at: null, size_in_bytes: 1000 },
+	]);
+	gh.failing.set('/artifacts/9990/zip', 503);
+	check(
+		'watch: GitHub failing (5xx) on the way is a wait, not a give-up',
+		[
+			await mm.watchOne(githubApp, gh.pulls.get(flaky.number)),
+			gh.pulls.get(flaky.number)?.labels.length,
+		],
+		['waiting', 1],
+	);
+	gh.failing.delete('/artifacts/9990/zip');
+	(gh.pulls.get(flaky.number) as Pull).labels = [];
+	(gh.pulls.get(quiet.number) as Pull).state = 'closed';
+
+	const forkSha = putCommit(treeIdOf(plain), [plain], 'a fork');
+	labelled(forkSha);
+	(gh.pulls.get(n) as Pull).head.repo = { full_name: 'other/engine' };
 	const pass = await mm.watchRuntimeBytes(githubApp);
 	check(
-		'watch: the pass looks only at open changes carrying the label',
+		'watch: the pass looks only at open changes of this repository carrying the label',
 		[...pass.keys()].sort(),
 		[c.number, waiting.number, held.number].sort(),
 	);

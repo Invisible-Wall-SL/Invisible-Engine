@@ -758,6 +758,10 @@ code default, so the dashboard need not set it):
 - **Publishing / engine status:** `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (default),
   `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (default), `PARTNER_RGS` (optional,
   partner launches), `CF_API_TOKEN` + `CF_ZONE_ID` (optional cache purge — see below).
+- **Pipeline Changes runtime-bytes watch:** `PIPELINE_RERECORD_WATCH` (`1`/`0`; default on only
+  where Railway's `RAILWAY_ENVIRONMENT_NAME` is `production`). Every 2 minutes it re-records the
+  manifests of open PRs labelled `rerecord-runtime-bytes` as the App, so a dev box never runs it
+  unless asked (`docs/tools/pipeline-changes.md`).
 - **Pipeline CI:** `PIPELINE_CI_TOKEN` (secret, no default) — the bearer token the current-games
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the

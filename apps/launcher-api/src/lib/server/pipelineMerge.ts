@@ -555,7 +555,7 @@ interface GhCommit {
 	parents: { sha: string }[];
 }
 
-interface GhTreeEntry {
+export interface GhTreeEntry {
 	path: string;
 	mode: string;
 	type: string;
@@ -637,11 +637,11 @@ async function isRevertOf(app: GithubApp, merge: CompletedMerge, sha: string): P
 }
 
 /** Every file of a recursive tree by path (blobs and submodule commits; directories are implied). */
-function filesOf(entries: GhTreeEntry[]): Map<string, GhTreeEntry> {
+export function filesOf(entries: GhTreeEntry[]): Map<string, GhTreeEntry> {
 	return new Map(entries.filter((e) => e.type !== 'tree').map((e) => [e.path, e]));
 }
 
-const sameEntry = (a: GhTreeEntry | undefined, b: GhTreeEntry | undefined): boolean =>
+export const sameEntry = (a: GhTreeEntry | undefined, b: GhTreeEntry | undefined): boolean =>
 	a === undefined || b === undefined ? a === b : a.sha === b.sha && a.mode === b.mode;
 
 /** Whether a file put back at `path` would meet a folder: one at `path`, or a file where one of

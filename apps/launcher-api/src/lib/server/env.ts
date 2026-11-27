@@ -330,6 +330,13 @@ export const ENV = {
 	 *  games from (`docs/director/DECISIONS/0004-current-games-regression-harness.md`). Secret: no
 	 *  code default; trimmed, so a pasted trailing newline cannot 401 every run. Unset ⇒ the
 	 *  endpoint answers 503, never an open list. */
+	/** Pipeline Changes' runtime-bytes watch (`pipelineManifestMerge.ts`) commits onto real pull
+	 *  requests, so it runs only where asked: `1`/`0`, else on Railway's production environment. */
+	get PIPELINE_RERECORD_WATCH() {
+		const set = env.PIPELINE_RERECORD_WATCH;
+		if (set === '1' || set === '0') return set === '1';
+		return env.RAILWAY_ENVIRONMENT_NAME === 'production';
+	},
 	get PIPELINE_CI_TOKEN() {
 		return (env.PIPELINE_CI_TOKEN ?? '').trim();
 	},
