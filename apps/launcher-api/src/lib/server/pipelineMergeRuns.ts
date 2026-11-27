@@ -8,7 +8,9 @@ import {
 	MERGE_RUN_ID,
 	MERGE_RUN_REASONS,
 	MERGE_RUN_WORKFLOW_PATH,
+	MERGE_ACCEPT_LEASE_MS,
 	MERGE_CAPS,
+	UNSAFE_BRANCH_TEXT,
 	OUTCOME_REASONS,
 	capMergeReason,
 	dispatchBudget,
@@ -18,6 +20,9 @@ import {
 	mergeRunView,
 	refusalMessage,
 	startRefusal,
+	type FileDiff,
+	type JobExplanation,
+	type MergeRunExplanation,
 	type MergeRunFile,
 	type MergeRunRefusal,
 	type MergeRunStatus,
@@ -40,15 +45,19 @@ import { createKeyedMutex, mapWithConcurrency } from './concurrency';
 import { getDirectorPricing } from './costs/pricingConfig';
 import { ENV } from './env';
 import { GithubAppError, githubApp, type GithubApp } from './githubApp';
+import { isPlainBranchName, refReadPath, refWritePath } from './githubPaths';
 import { githubOidc, type GithubOidc } from './githubOidc';
 import { issueResultUpload, type ResultUpload } from './pipelineRunResultUpload';
 import { approverName, forgetChanges, isOnHold, readPull, type GhPull } from './pipelineChanges';
 import {
+	MERGE_ACCEPT_MIN_LEFT_MS,
 	cancelListedMergeRun,
 	dispatchMergeRun,
+	holdsMerge,
 	mergeWorkflowReady,
 } from './pipelineMergeRunsActions';
 import {
+	blobSha,
 	contentProblem,
 	mergeMessage,
 	planMerge,
@@ -59,21 +68,37 @@ import {
 import {
 	ResultProblem,
 	cleanExplanation,
+	explanationLines,
 	explanationSize,
 	explanationTexts,
 	filesProblem,
+	isPendingRuleFile,
 	isExplainedMerge,
 	parseMergeResult,
+	resultProblem,
+	resultSecretProblem,
 	textsProblem,
 	type ParsedMergeResult,
 } from './pipelineMergeRunsResult';
 import {
+	diffText,
+	displayDiff,
+	hiddenInLine,
+	linesOf,
+	secretInLine,
+} from './pipelineMergeRunsDiff';
+import {
 	bindMergeRun,
+	claimAccept,
+	dbNow,
 	getMergeRun,
 	getMergeRunByRequest,
 	insertMergeRun,
 	mergeRunsOfPr,
+	recordAcceptSha,
 	recordMergeRunSpend,
+	releaseAccept,
+	releaseLapsedAccept,
 	settleMergeRun,
 	type MergeMainRun,
 	type MergeRunEnd,
@@ -98,9 +123,11 @@ import {
 const repo = (): string => ENV.GITHUB_ENGINE_REPO;
 const REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const BASE_BRANCH = 'main';
-/** The files of a compare GitHub lists (3 pages of 100); more means `main` moved too far to judge. */
-const COMPARE_PAGES = 3;
-const COMPARE_PAGE = 100;
+/**
+ * The files a compare lists: page 1 only, up to this many. A list this long may be cut short, so
+ * it says nothing about the files it left out.
+ */
+const COMPARE_FILES_CAP = 300;
 
 export const newMergeRunId = (): string => randomBytes(5).toString('hex');
 
@@ -140,9 +167,7 @@ function requestIdOf(body: unknown): string {
 
 async function mainSha(app: GithubApp): Promise<string> {
 	try {
-		const ref = await app.json<{ object: { sha: string } }>(
-			`/repos/${repo()}/git/ref/heads/${BASE_BRANCH}`,
-		);
+		const ref = await app.json<{ object: { sha: string } }>(refReadPath(repo(), BASE_BRANCH));
 		return ref.object.sha;
 	} catch (err) {
 		throw error(502, err instanceof Error ? err.message : String(err));
@@ -185,6 +210,7 @@ export async function startMergeRun(
 		conflicted: pull.mergeable_state === 'dirty',
 		liveRun,
 		workflowLive,
+		plainBranch: isPlainBranchName(pull.head.ref),
 	});
 	const early = startRefusal(facts(live?.id ?? null));
 	if (early) refuse(early, number, live?.id ?? null);
@@ -320,7 +346,7 @@ export async function acceptMergeRunResult(
 	}
 	if (result.mergeRun !== run.id) throw error(400, "The result's mergeRun is not this run's.");
 	if (!isWorkingMergeRun(run.status)) throw error(409, 'This merge run has ended.');
-	const end = await decide(run, result, spendUsd);
+	const end = await decide(run, result, spendUsd, deps.app ?? githubApp);
 	const ended = await settleMergeRun(run.id, WORKING, end, { result: true });
 	if (!ended)
 		throw error(409, 'A result was already accepted for this merge run, or it has ended.');
@@ -352,6 +378,144 @@ async function recordSpend(id: string, usage: ReturnType<typeof parseUsage>): Pr
 	return usd;
 }
 
+/**
+ * The change's own tree (at the run's head SHA) and `main`'s (at its SHA), read here by the launcher
+ * and never taken from the job: the exemption of `filesProblem` needs `main`'s, and the diff needs
+ * the head's blobs. Null when either is too large for GitHub to list whole. A GitHub error is a 502,
+ * so the job sends the result again: a blip is not turned into a refusal with the wrong reason.
+ */
+async function sideTrees(
+	app: GithubApp,
+	run: MergeMainRun,
+): Promise<{ head: Files; main: Files } | null> {
+	try {
+		const [head, main] = await Promise.all([
+			readFiles(app, run.headSha),
+			readFiles(app, run.mainSha),
+		]);
+		return head && main ? { head: head.files, main: main.files } : null;
+	} catch (err) {
+		throw error(502, err instanceof Error ? err.message : String(err));
+	}
+}
+
+/** The text of a blob GitHub holds; 502 on a GitHub error, `null` for a binary one. */
+async function blobText(app: GithubApp, sha: string | undefined): Promise<string | null> {
+	if (sha === undefined) return null;
+	try {
+		return await readText(app, sha);
+	} catch (err) {
+		throw error(502, err instanceof Error ? err.message : String(err));
+	}
+}
+
+/**
+ * "What Accept changes on this branch" (ADR-0015 §5): for every file Accept takes from the run, the
+ * positional line diff of the change's own version (`headSha:path`, its blob fetched here) against
+ * the run's stored content, which is the exact text Accept pushes and the file route serves. A path
+ * both sides changed identically has no diff (Accept keeps `main`'s entry and takes nothing from the
+ * run). A file whose content IS `main`'s own version is shown as taking it whole. Every line the
+ * merge adds that neither side's version of the file holds is held to rules a person cannot check by
+ * eye: no lone CR, U+2028, U+2029, U+0085 or format character, and no secret. Past the caps in
+ * `MERGE_CAPS` (changed lines or characters, or more changes than the diff looks for) nothing is
+ * proposed: nothing Accept pushes is ever unseen.
+ */
+async function diffsOf(
+	app: GithubApp,
+	files: MergeRunFile[],
+	trees: { head: Files; main: Files },
+): Promise<{ diff: FileDiff[] } | { problem: string } | { tooBig: true }> {
+	type Found =
+		| { problem: string }
+		| { tooBig: true }
+		| { diff: FileDiff; chars: number; stored: number }
+		| null;
+	const found = await mapWithConcurrency(files, 4, async (f): Promise<Found> => {
+		const head = trees.head.get(f.path);
+		const main = trees.main.get(f.path);
+		if (head === undefined && main === undefined) return null;
+		if (
+			head !== undefined &&
+			main !== undefined &&
+			head.sha === main.sha &&
+			head.mode === main.mode
+		) {
+			return null;
+		}
+		const plain = (e: { type: string; mode: string } | undefined): boolean =>
+			e === undefined || (e.type === 'blob' && (e.mode === '100644' || e.mode === '100755'));
+		if (!plain(head) || !plain(main)) {
+			return { problem: 'a path both sides changed is a link or a submodule' };
+		}
+		const modes = { headMode: head?.mode ?? null, mode: f.content === null ? null : f.mode };
+		// Only a build rule's file left pending (its content verified as main's own) is shown whole: a
+		// file the model resolved to exactly main's text still shows what the change loses from it.
+		const takesMain =
+			isPendingRuleFile(f) &&
+			f.content !== null &&
+			main !== undefined &&
+			blobSha(f.content) === main.sha &&
+			f.mode === main.mode;
+		if (takesMain) {
+			return {
+				diff: { path: f.path, takes: 'main', ...modes, added: 0, removed: 0, hunks: [] },
+				chars: 0,
+				stored: 0,
+			};
+		}
+		const [before, other] = await Promise.all([blobText(app, head?.sha), blobText(app, main?.sha)]);
+		if ((head && before === null) || (main && other === null)) {
+			return { problem: 'a file both sides changed is binary' };
+		}
+		const text = diffText(head === undefined ? null : before, f.content);
+		if (text === null) return { tooBig: true as const };
+		const held = new Set([
+			...(before === null ? [] : linesOf(before)),
+			...(other === null ? [] : linesOf(other)),
+		]);
+		for (const line of text.hunks.flat()) {
+			if (line.k !== 'add' || held.has(line.text)) continue;
+			if (hiddenInLine(line.text)) {
+				return {
+					problem: `a line the run wrote holds a lone CR, a line separator or an invisible format character in ${f.path}`,
+				};
+			}
+			if (secretInLine(line.text))
+				return { problem: 'secret scan: a secret in a line neither side had' };
+		}
+		const chars = text.hunks
+			.flat()
+			.reduce((n, l) => n + (l.k === 'ctx' ? 0 : Array.from(l.text).length), 0);
+		const hunks = displayDiff(text.hunks);
+		return {
+			diff: {
+				path: f.path,
+				takes: 'run',
+				...modes,
+				added: text.added,
+				removed: text.removed,
+				hunks,
+			},
+			chars,
+			stored: hunks.flat().reduce((n, l) => n + l.text.length, 0),
+		};
+	});
+	for (const r of found) if (r && 'problem' in r) return { problem: r.problem };
+	if (found.some((r) => r && 'tooBig' in r)) return { tooBig: true };
+	const done = found.flatMap((r) => (r && 'diff' in r ? [r] : []));
+	const lines = done.reduce((n, r) => n + r.diff.added + r.diff.removed, 0);
+	const chars = done.reduce((n, r) => n + r.chars, 0);
+	const stored = done.reduce((n, r) => n + r.stored, 0);
+	if (
+		lines > MERGE_CAPS.diffLines ||
+		chars > MERGE_CAPS.diffChars ||
+		stored > MERGE_CAPS.diffStored
+	) {
+		return { tooBig: true };
+	}
+	return { diff: done.map((r) => r.diff) };
+}
+
 /** This calendar month's fix-run and merge-run spend, bar `own`: the run's own spend is not "before". */
 async function monthSpendBefore(own: number, nowMs = Date.now()): Promise<number> {
 	const since = monthStartUtc(nowMs);
@@ -372,6 +536,7 @@ async function decide(
 	run: MergeMainRun,
 	r: ParsedMergeResult,
 	spendUsd: number,
+	app: GithubApp,
 ): Promise<MergeRunEnd> {
 	const outcome = r.outcome;
 	if (r.failure !== null || outcome === null) {
@@ -381,6 +546,8 @@ async function decide(
 		};
 	}
 	const explanation = r.explanation && cleanExplanation(r.explanation);
+	// What is stored when nothing is proposed: the words, with no diff (the launcher makes one only for a proposal).
+	const kept = (e: JobExplanation | null): MergeRunExplanation | null => e && { ...e, diff: [] };
 	const reason = cleanLine(r.reason, MERGE_CAPS.reason);
 	const leak = textsProblem(
 		[r.reason, ...(r.explanation ? explanationTexts(r.explanation) : [])],
@@ -391,7 +558,7 @@ async function decide(
 		return {
 			status: outcome === 'no_proposal' ? 'no_proposal' : 'needs_person',
 			reason: capMergeReason(reason || OUTCOME_REASONS[outcome]),
-			explanation,
+			explanation: kept(explanation),
 		};
 	}
 	if (r.headSha !== run.headSha || r.mainSha !== run.mainSha) {
@@ -402,16 +569,55 @@ async function decide(
 		!r.files.length ||
 		explanationSize(explanation) > MERGE_CAPS.explanation
 	) {
-		return { status: 'no_proposal', reason: MERGE_RUN_REASONS.notExplained, explanation };
+		return {
+			status: 'no_proposal',
+			reason: MERGE_RUN_REASONS.notExplained,
+			explanation: kept(explanation),
+		};
 	}
+	const secret = r.explanation && resultSecretProblem(r.explanation, explanation);
+	if (secret) return refused(secret);
 	const hunkPaths = new Set(explanation.hunks.map((h) => h.path));
-	const problem = filesProblem(r.files, hunkPaths);
-	if (problem) return { ...refused(problem), explanation };
+	const sent = r.explanation ?? explanation;
+	const trees = await sideTrees(app, run);
+	if (trees === null) {
+		return {
+			...refused('the repository tree is too large for GitHub to list whole'),
+			explanation: kept(explanation),
+		};
+	}
+	const problem = filesProblem(r.files, hunkPaths, trees.main) ?? resultProblem(sent, r.files);
+	if (problem) return { ...refused(problem), explanation: kept(explanation) };
+	if (explanationLines(explanation) > MERGE_CAPS.linesTotal) {
+		return {
+			status: 'no_proposal',
+			reason: MERGE_RUN_REASONS.linesTooLong,
+			explanation: kept(explanation),
+		};
+	}
+	const shown = await diffsOf(app, r.files, trees);
+	if ('problem' in shown) return { ...refused(shown.problem), explanation: kept(explanation) };
+	if ('tooBig' in shown) {
+		return {
+			status: 'no_proposal',
+			reason: MERGE_RUN_REASONS.diffTooBig,
+			explanation: kept(explanation),
+		};
+	}
 	const byModel = r.files.some((f) => f.rule === null && hunkPaths.has(f.path));
 	if (byModel && (await monthSpendBefore(spendUsd)) >= (await getPipelineFixMonthlyCap())) {
-		return { status: 'needs_person', reason: MERGE_RUN_REASONS.budgetSpent, explanation };
+		return {
+			status: 'needs_person',
+			reason: MERGE_RUN_REASONS.budgetSpent,
+			explanation: kept(explanation),
+		};
 	}
-	return { status: 'proposed', files: r.files, explanation, baseSha: r.baseSha ?? undefined };
+	return {
+		status: 'proposed',
+		files: r.files,
+		explanation: { ...explanation, diff: shown.diff },
+		baseSha: r.baseSha ?? undefined,
+	};
 }
 
 // ── Accept ────────────────────────────────────────────────────────────────────
@@ -438,27 +644,31 @@ function conflict(code: string, message: string): never {
 	throw error(409, { message, code });
 }
 
+/** Settle a run this Accept holds the claim of: by the claim's id, so a late holder settles nothing. */
+const settleClaimed = (run: MergeMainRun, end: MergeRunEnd): Promise<MergeMainRun | null> =>
+	settleMergeRun(run.id, ['accepting'], end, { claim: run.acceptClaim ?? '' });
+
 async function stale(run: MergeMainRun, reason: string): Promise<never> {
-	await settleMergeRun(run.id, ['proposed'], { status: 'stale', reason });
+	await settleClaimed(run, { status: 'stale', reason });
 	return conflict('stale', reason);
 }
 
-/** `main`'s changes since `from`, by path, or `null` when `main` is no longer ahead of it or moved too far. */
+/**
+ * `main`'s changes since `from`, by path, or `null` ("unknown", which is stale) when `main` is no
+ * longer ahead of it or the compare may have listed only some of its files.
+ */
 async function mainChangedSince(app: GithubApp, from: string): Promise<Set<string> | null> {
+	const cmp = await app.json<GhCompare>(`/repos/${repo()}/compare/${from}...${BASE_BRANCH}`);
+	if (cmp.status !== 'ahead' && cmp.status !== 'identical') return null;
+	if (cmp.files === undefined && (cmp.ahead_by ?? 0) > 0) return null;
+	const files = cmp.files ?? [];
+	if (files.length >= COMPARE_FILES_CAP) return null;
 	const paths = new Set<string>();
-	for (let page = 1; page <= COMPARE_PAGES; page++) {
-		const cmp = await app.json<GhCompare>(
-			`/repos/${repo()}/compare/${from}...${BASE_BRANCH}?per_page=${COMPARE_PAGE}&page=${page}`,
-		);
-		if (cmp.status !== 'ahead' && cmp.status !== 'identical') return null;
-		const files = cmp.files ?? [];
-		for (const f of files) {
-			paths.add(f.filename);
-			if (f.previous_filename) paths.add(f.previous_filename);
-		}
-		if (files.length < COMPARE_PAGE) return paths;
+	for (const f of files) {
+		paths.add(f.filename);
+		if (f.previous_filename) paths.add(f.previous_filename);
 	}
-	return null;
+	return paths;
 }
 
 async function readFiles(
@@ -499,13 +709,8 @@ const workflowRefusal = (githubMessage: string): string =>
 		`GitHub refused the push over a workflow file: ${githubMessage}. Use GitHub's own Update branch on the pull request, or copy the merge brief to a session.`,
 	);
 
-/** Whether `head` is this run's own merge commit: the head the run was made on, then `main` at its SHA. */
-async function isOwnMerge(app: GithubApp, run: MergeMainRun, head: string): Promise<boolean> {
-	const c = await app.json<GhCommit>(`/repos/${repo()}/git/commits/${head}`);
-	return (
-		c.parents.length === 2 && c.parents[0].sha === run.headSha && c.parents[1].sha === run.mainSha
-	);
-}
+const RENAMED_BRANCH_TEXT =
+	'The pull request is no longer on the branch this run was made for; resolve again.';
 
 export interface AcceptResult {
 	run: MergeRunView;
@@ -517,13 +722,19 @@ export interface AcceptResult {
 
 /**
  * Accept a proposal (`POST /api/pipeline/changes/<n>/merge-runs/<id>/accept`, body `{ headSha }`, the
- * head the card showed). The change is re-read: a head that is not the run's — or `main` having
+ * head the card showed). First the CLAIM, in the database and before any GitHub write: `proposed →
+ * accepting` with a lease ({@link MERGE_ACCEPT_LEASE_MS}); a Discard acts only from `proposed`, and a
+ * second Accept finds the claim taken (409 `accepting`), on any replica. Under the claim the change
+ * is re-read: a branch that is not the run's, or whose head is not the run's — or `main` having
  * changed a conflicted file since the run's SHA (the compare API) — makes the proposal `stale`
- * (409 `stale`), and nothing is written. Otherwise the launcher builds the merge from the merge base,
- * the head and `main` at the run's SHA (`planMerge`): a path only one side changed takes that side,
- * and only the paths both sides changed and a rule's regenerated files take the run's content. The
- * commit's parents are `[head, main SHA]`; `PATCH git/refs` with `force: false` moves the branch.
- * GitHub refusing a push over a workflow file ends the run `needs_person` with the reason.
+ * (409 `stale`) and nothing is written; a name the pipeline will not push to, a change not open or on
+ * hold, give the claim back. Otherwise the launcher builds the merge from the merge base, the head and
+ * `main` at the run's SHA (`planMerge`): a path only one side changed takes that side, and only the
+ * paths both sides changed and a rule's regenerated files take the run's content. The commit's
+ * parents are `[head, main SHA]`; its SHA is stored BEFORE `PATCH git/refs` with `force: false`
+ * moves the branch, so a lost answer is recognised by an exact compare with the branch's tip (never
+ * by its parents or a token anyone can copy). GitHub refusing a push over a workflow file ends the
+ * run `needs_person` with the reason.
  */
 export async function acceptMergeRun(
 	input: { number: number; id: string; headSha: string; person: MergePerson },
@@ -537,49 +748,112 @@ export async function acceptMergeRun(
 		if (run.status === 'accepted' && run.mergeSha) {
 			return { run: viewOf(run), mergeSha: run.mergeSha, already: true };
 		}
-		if (run.status !== 'proposed' || !run.files || !run.explanation) {
+		if (
+			(run.status !== 'proposed' && run.status !== 'accepting') ||
+			!run.files ||
+			!run.explanation
+		) {
 			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
 		}
-		const pull = await readPull(number, app);
-		if (pull.state !== 'open') conflict('not_open', `#${number} is not open.`);
-		if (isOnHold(pull)) conflict('on_hold', `#${number} is on hold: resume it first.`);
-		if (input.headSha !== run.headSha) {
-			return stale(run, MERGE_RUN_REASONS.headMoved);
-		}
-		if (pull.head.sha !== run.headSha) {
-			if (await isOwnMerge(app, run, pull.head.sha)) {
-				const done = await settleMergeRun(run.id, ['proposed'], {
-					status: 'accepted',
-					mergeSha: pull.head.sha,
-					acceptedBy: person,
-				});
-				forgetChanges();
-				return { run: viewOf(done ?? run), mergeSha: pull.head.sha, already: true };
+		const claimed = await claimAccept(id, person, MERGE_ACCEPT_LEASE_MS);
+		if (!claimed) {
+			const now = await getMergeRun(id);
+			if (now?.status === 'accepted' && now.mergeSha) {
+				return { run: viewOf(now), mergeSha: now.mergeSha, already: true };
 			}
-			return stale(run, MERGE_RUN_REASONS.headMoved);
+			if (now?.status === 'accepting') conflict('accepting', `Merge run ${id} is being accepted.`);
+			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
 		}
-		const files = run.files;
-		const touched = new Set([
-			...files.map((f) => f.path),
-			...run.explanation.conflicted.map((c) => c.path),
-		]);
-		const moved = await mainChangedSince(app, run.mainSha);
-		if (moved === null || [...moved].some((p) => touched.has(p))) {
-			return stale(run, MERGE_RUN_REASONS.mainMoved);
+		// An earlier holder's commit may have landed: until this Accept has looked at the tip, the
+		// claim is kept, never given back, so the backstop settles it from the tip.
+		const pushed = { sent: claimed.acceptSha !== null, clearing: null as string | null };
+		try {
+			return await acceptClaimed(
+				app,
+				{ ...claimed, files: run.files, explanation: run.explanation },
+				input.headSha,
+				person,
+				pushed,
+			);
+		} catch (err) {
+			// Nothing was pushed: the proposal is given back (by this claim's id: a claim since taken
+			// over is not ours to give back). A push whose answer is unknown keeps the claim, and its
+			// lease lets the next Accept or the backstop find out from the branch's tip.
+			if (!pushed.sent && claimed.acceptClaim) {
+				await releaseAccept(id, claimed.acceptClaim, pushed.clearing);
+			}
+			throw err;
 		}
-		const end = await build(app, run, pull, files, person);
-		if ('end' in end) {
-			await settleMergeRun(run.id, ['proposed'], end.end);
-			conflict('needs_person', end.end.reason ?? 'The resolution was refused.');
-		}
-		const done = await settleMergeRun(run.id, ['proposed'], {
+	});
+}
+
+/** An Accept under the claim: the checks, then the build. */
+async function acceptClaimed(
+	app: GithubApp,
+	run: MergeMainRun & { files: MergeRunFile[]; explanation: MergeRunExplanation },
+	headSha: string,
+	person: MergePerson,
+	pushed: { sent: boolean; clearing: string | null },
+): Promise<AcceptResult> {
+	const pull = await readPull(run.prNumber, app);
+	if (pull.state !== 'open') conflict('not_open', `#${run.prNumber} is not open.`);
+	if (isOnHold(pull)) conflict('on_hold', `#${run.prNumber} is on hold: resume it first.`);
+	if (pull.head.ref !== run.branch) {
+		// A commit may have landed on the old name before the rename: the claim is kept (this Accept
+		// has not read the tip) and the backstop settles it, never `stale` over a merge that landed.
+		if (run.acceptSha) conflict('accepting', RENAMED_BRANCH_TEXT);
+		return stale(run, RENAMED_BRANCH_TEXT);
+	}
+	if (!isPlainBranchName(run.branch)) conflict('unsafe_branch', UNSAFE_BRANCH_TEXT);
+	if (run.acceptSha && (await holdsMerge(app, run.acceptSha, pull.head.sha))) {
+		// An earlier Accept got its commit onto the branch (its tip, or a person pushed on top of it):
+		// it was accepted by whoever built it.
+		const done = await settleClaimed(run, {
 			status: 'accepted',
-			mergeSha: end.sha,
-			acceptedBy: person,
+			mergeSha: run.acceptSha,
+			acceptedBy: { id: run.acceptedById ?? person.id, name: run.acceptedBy ?? person.name },
 		});
 		forgetChanges();
-		return { run: viewOf(done ?? run), mergeSha: end.sha, already: false };
+		return {
+			run: viewOf(done ?? (await getMergeRun(run.id)) ?? run),
+			mergeSha: run.acceptSha,
+			already: true,
+		};
+	}
+	// The tip has been looked at and does not hold an earlier holder's commit: that commit is not on
+	// the branch, so a release from here may clear it.
+	if (run.acceptSha) {
+		pushed.sent = false;
+		pushed.clearing = run.acceptSha;
+	}
+	if (headSha !== run.headSha || pull.head.sha !== run.headSha) {
+		return stale(run, MERGE_RUN_REASONS.headMoved);
+	}
+	const files = run.files;
+	const touched = new Set([
+		...files.map((f) => f.path),
+		...run.explanation.conflicted.map((c) => c.path),
+	]);
+	const moved = await mainChangedSince(app, run.mainSha);
+	if (moved === null || [...moved].some((p) => touched.has(p))) {
+		return stale(run, MERGE_RUN_REASONS.mainMoved);
+	}
+	const end = await build(app, run, pull, files, person, pushed);
+	if ('end' in end) {
+		await settleClaimed(run, end.end);
+		conflict('needs_person', end.end.reason ?? 'The resolution was refused.');
+	}
+	const done = await settleClaimed(run, {
+		status: 'accepted',
+		mergeSha: end.sha,
+		acceptedBy: person,
 	});
+	forgetChanges();
+	return {
+		run: viewOf(done ?? (await getMergeRun(run.id)) ?? run),
+		mergeSha: end.sha,
+		already: false,
+	};
 }
 
 /** The refusal that ends a run `needs_person`, or the merge commit now at the branch. */
@@ -589,6 +863,7 @@ async function build(
 	pull: GhPull,
 	files: MergeRunFile[],
 	person: MergePerson,
+	pushed: { sent: boolean; clearing: string | null },
 ): Promise<{ end: MergeRunEnd & { status: 'needs_person' } } | { sha: string }> {
 	const r = repo();
 	const needsPerson = (reason: string) => ({
@@ -600,10 +875,7 @@ async function build(
 	const baseSha = base.merge_base_commit?.sha;
 	if (!baseSha) return needsPerson('GitHub reports no merge base for this change.');
 	if (baseSha !== run.baseSha) {
-		await settleMergeRun(run.id, ['proposed'], {
-			status: 'stale',
-			reason: MERGE_RUN_REASONS.otherBase,
-		});
+		await settleClaimed(run, { status: 'stale', reason: MERGE_RUN_REASONS.otherBase });
 		return conflict('stale', MERGE_RUN_REASONS.otherBase);
 	}
 	const [baseTree, headTree, mainTree] = await Promise.all(
@@ -652,7 +924,18 @@ async function build(
 				parents: [run.headSha, run.mainSha],
 			}),
 		});
-		const moved = await app.fetch(`/repos/${r}/git/refs/heads/${pull.head.ref}`, {
+		const holds = await recordAcceptSha(
+			run.id,
+			run.acceptClaim ?? '',
+			commit.sha,
+			person,
+			MERGE_ACCEPT_LEASE_MS,
+			MERGE_ACCEPT_MIN_LEFT_MS,
+		);
+		if (!holds) conflict('accepting', 'This Accept no longer holds the claim: try again.');
+		pushed.sent = true;
+		pushed.clearing = commit.sha;
+		const moved = await app.fetch(refWritePath(r, run.branch), {
 			method: 'PATCH',
 			body: JSON.stringify({ sha: commit.sha, force: false }),
 		});
@@ -660,12 +943,11 @@ async function build(
 			const message = await messageOf(moved);
 			if (WORKFLOW_MENTION.test(message)) return needsPerson(workflowRefusal(message));
 			if (moved.status === 422) {
-				await settleMergeRun(run.id, ['proposed'], {
-					status: 'stale',
-					reason: MERGE_RUN_REASONS.headMoved,
-				});
+				await settleClaimed(run, { status: 'stale', reason: MERGE_RUN_REASONS.headMoved });
 				return conflict('stale', MERGE_RUN_REASONS.headMoved);
 			}
+			// GitHub refused outright (not a 5xx, not a lost answer): nothing moved, so give the claim back.
+			if (moved.status >= 400 && moved.status < 500) pushed.sent = false;
 			throw new GithubAppError(
 				`GitHub ${moved.status} moving the branch: ${message}`,
 				moved.status,
@@ -713,16 +995,43 @@ export async function discardMergeRun(
 	app: GithubApp = githubApp,
 ): Promise<MergeRunView> {
 	const { number, id, person } = input;
+	return accepting(String(number), () => discard(number, id, person, app));
+}
+
+async function discardProposal(id: string, person: MergePerson): Promise<MergeRunView> {
+	const done = await settleMergeRun(id, ['proposed'], {
+		status: 'discarded',
+		reason: `Discarded by ${person.name}.`,
+	});
+	if (!done) conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
+	return viewOf(done);
+}
+
+async function discard(
+	number: number,
+	id: string,
+	person: MergePerson,
+	app: GithubApp,
+): Promise<MergeRunView> {
 	const run = MERGE_RUN_ID.test(id) ? await getMergeRun(id) : null;
 	if (!run || run.prNumber !== number)
 		throw error(404, `There is no merge run ${id} on #${number}.`);
-	if (run.status === 'proposed') {
-		const done = await settleMergeRun(id, ['proposed'], {
-			status: 'discarded',
-			reason: `Discarded by ${person.name}.`,
-		});
-		if (!done) conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
-		return viewOf(done);
+	if (run.status === 'proposed') return discardProposal(id, person);
+	if (run.status === 'accepting') {
+		// Only a claim whose lease ran out and that built no commit may be discarded: anything else
+		// may have moved the branch, and the backstop settles it from the branch's tip.
+		if (!(await releaseLapsedAccept(id, MERGE_ACCEPT_LEASE_MS))) {
+			conflict(
+				'accepting',
+				run.acceptSha === null
+					? `Merge run ${id} is being accepted.`
+					: `An Accept on #${number} may have pushed: the pipeline checks the branch and settles it within a few minutes.`,
+			);
+		}
+		const given = await getMergeRun(id);
+		if (given?.status !== 'proposed')
+			conflict('not_proposed', `Merge run ${id} has no proposal waiting.`);
+		return discardProposal(id, person);
 	}
 	if (!isWorkingMergeRun(run.status)) conflict('ended', `Merge run ${id} has already ended.`);
 	if (run.ghRunId !== null) {
@@ -748,6 +1057,29 @@ export async function discardMergeRun(
 // ── What the page reads ───────────────────────────────────────────────────────
 
 /**
+ * A resolved file of a proposal waiting (`proposed`, or `accepting`: a lapsed claim is offered
+ * again), as the exact text Accept would push, read from the run's own record: the branch is not
+ * fetched. 404 for a run that is not this change's, one that is not waiting, a path the proposal does
+ * not list, or a deleted file.
+ */
+export async function resolvedFileOf(number: number, id: string, path: string): Promise<string> {
+	const run = MERGE_RUN_ID.test(id) ? await getMergeRun(id) : null;
+	if (!run || run.prNumber !== number)
+		throw error(404, `There is no merge run ${id} on #${number}.`);
+	if (run.status !== 'proposed' && run.status !== 'accepting') {
+		throw error(404, `Merge run ${id} has no proposal waiting.`);
+	}
+	const file = run.files?.find((f) => f.path === path);
+	if (!file) throw error(404, 'The proposal does not hold that file.');
+	// A path both sides changed identically is main's: Accept takes nothing from the run for it.
+	if (!run.explanation?.diff.some((d) => d.path === path)) {
+		throw error(404, 'The merge takes nothing from the run for that file.');
+	}
+	if (file.content === null) throw error(404, 'The resolution deletes that file.');
+	return file.content;
+}
+
+/**
  * A change's merge runs as the detail shows them (`GET /api/pipeline/changes/<n>/merge-runs`): whether
  * Resolve is offered at all, the newest run, the newest accepted one, and — for a proposal waiting —
  * how far `main` has moved since it and when the branch was last pushed.
@@ -761,7 +1093,7 @@ export async function mergeRunsOfChange(
 	const accepted = runs.find((r) => r.status === 'accepted') ?? null;
 	let behindNow: number | null = null;
 	let headCommittedAt: string | null = null;
-	if (newest?.status === 'proposed' && !app.missing()) {
+	if ((newest?.status === 'proposed' || newest?.status === 'accepting') && !app.missing()) {
 		try {
 			const cmp = await app.json<GhCompare>(
 				`/repos/${repo()}/compare/${newest.mainSha}...${BASE_BRANCH}?per_page=1`,
@@ -769,14 +1101,20 @@ export async function mergeRunsOfChange(
 			behindNow = typeof cmp.ahead_by === 'number' ? cmp.ahead_by : null;
 			const pull = await readPull(number, app);
 			const head = await app.json<GhCommit>(`/repos/${repo()}/commits/${pull.head.sha}`);
+			// GitHub gives no time for a push to a branch, so the head commit's own time stands in: a
+			// commit made earlier and pushed later is missed, which only withholds a warning.
 			headCommittedAt = head.commit?.committer?.date ?? null;
 		} catch (err) {
 			if (!(err instanceof GithubAppError) && !(err instanceof Error)) throw err;
 		}
 	}
+	// "Has the claim's lease lapsed" is the database's clock, never this replica's or the browser's.
+	const dbMs = newest?.status === 'accepting' ? (await dbNow()).getTime() : 0;
+	const lapsed = (r: MergeMainRun) =>
+		r.status === 'accepting' && dbMs - (r.acceptingAt?.getTime() ?? 0) > MERGE_ACCEPT_LEASE_MS;
 	return {
 		ready,
-		run: newest && viewOf(newest),
+		run: newest && mergeRunView(newest, repo(), lapsed(newest)),
 		accepted: accepted && viewOf(accepted),
 		behindNow,
 		headCommittedAt,

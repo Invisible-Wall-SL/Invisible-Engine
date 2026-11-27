@@ -133,14 +133,42 @@
 	const canHold = $derived(holdOffered(detail, canMerge));
 	const canResolve = $derived(resolveOffered(detail, mergeRuns, canMerge));
 
-	async function loadMerge(number: number): Promise<void> {
-		try {
-			const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
-			const body: unknown = await res.json().catch(() => null);
-			if (number === detail.number) mergeRuns = res.ok ? (body as MergeRunsAnswer) : null;
-		} catch {
-			if (number === detail.number) mergeRuns = null;
-		}
+	/**
+	 * The merge-runs request in flight. The effect and an action's re-read share one load, but a load
+	 * that started before the action settled (an older `epoch`) is never joined: it may predate it.
+	 */
+	let epoch = 0;
+	/** Loads are numbered in the order they start; an older one never overwrites a newer answer. */
+	let started = 0;
+	let applied = 0;
+	let loading: { number: number; epoch: number; done: Promise<void> } | null = null;
+
+	function loadMerge(number: number): Promise<void> {
+		if (loading?.number === number && loading.epoch === epoch) return loading.done;
+		const mine: { number: number; epoch: number; done: Promise<void> } = {
+			number,
+			epoch,
+			done: Promise.resolve(),
+		};
+		const order = ++started;
+		const keep = (answer: MergeRunsAnswer | null) => {
+			if (number !== detail.number || order < applied) return;
+			applied = order;
+			mergeRuns = answer;
+		};
+		mine.done = (async () => {
+			try {
+				const res = await fetch(`/api/pipeline/changes/${number}/merge-runs`);
+				const body: unknown = await res.json().catch(() => null);
+				keep(res.ok ? (body as MergeRunsAnswer) : null);
+			} catch {
+				keep(null);
+			} finally {
+				if (loading === mine) loading = null;
+			}
+		})();
+		loading = mine;
+		return mine.done;
 	}
 
 	$effect(() => {
@@ -149,7 +177,9 @@
 	});
 
 	async function rereadAll(): Promise<void> {
-		await Promise.all([reread(), loadMerge(detail.number)]);
+		epoch++;
+		await reread();
+		await loadMerge(detail.number);
 	}
 
 	async function resolveConflict(): Promise<void> {
