@@ -38,6 +38,7 @@ import {
 	renderQualitySnapshot,
 	type QualityFrame,
 	type QualityLevel,
+	type RenderQualityController,
 } from '../src/lib/renderQuality.ts';
 
 let failures = 0;
@@ -69,6 +70,17 @@ const show = (ladder: readonly QualityLevel[]) =>
 const PHONE = qualityLadder(3, { msaa: true, msaaSwitchable: true });
 
 /**
+ * Switches after which a controller with the second chance sat above the effects level, not
+ * stopped, with fewer than 2 switches left for a judged trip there (every sim below records them).
+ */
+const lapses: string[] = [];
+const noteLapse = (controller: RenderQualityController, last: number) => {
+	const snap = controller.snapshot();
+	if (snap.level.index < last && !snap.downStopped && (snap.budget?.left ?? 0) < 2)
+		lapses.push(snap.history.map((s) => `${s.from}->${s.to} ${s.reason}`).join(', '));
+};
+
+/**
  * A device under the controller. `slowAt(level)` is how many of every 120 measured frames run late
  * at that level, spread evenly, so any 120 frames in a row hold exactly that many.
  */
@@ -91,6 +103,7 @@ function device(ladder: readonly QualityLevel[] = PHONE, secondChance = true) {
 				current = ladder.indexOf(next);
 				if (current !== controller.snapshot().level.index)
 					throw new Error('returned level is not the current one');
+				if (secondChance) noteLapse(controller, ladder.length - 1);
 			}
 		},
 		play(frames: number, slowAt: (level: number) => number, slowMs = SLOW_MS) {
@@ -891,15 +904,21 @@ for (const [label, hotAgain, postFx] of [
 	sim.rounds(40, at(36, 36, 36, 36, 36, 36, 0));
 	sim.rounds(100, at(0));
 	const climbed = sim.controller.snapshot();
+	const hotFrom = sim.frames;
 	sim.rounds(100, hotAgain);
 	const snap = sim.controller.snapshot();
 	const trip = snap.history.slice(climbed.history.length);
+	// Measured frames before the trip: four slow windows, not two (idle frames are 40 a round).
+	const tripFrames = sim.switchedAt[climbed.history.length] - hotFrom;
+	const measuredBefore =
+		tripFrames - Math.floor(tripFrames / (SPIN_FRAMES + BETWEEN_SPINS)) * BETWEEN_SPINS;
 	check(
 		`on a budget too low for an ordinary step, a judged trip: ${label} the effects level`,
 		climbed.level.index < PHONE.length - 2 &&
 			(climbed.budget?.left ?? 0) < 4 &&
 			trip[0]?.reason === 'effects' &&
 			trip[0].to === PHONE.length - 1 &&
+			measuredBefore >= RULES.retrySlowWindows * RULES.windowFrames &&
 			snap.trials[climbed.trials.length]?.level === PHONE.length - 1 &&
 			snap.trials[climbed.trials.length].kept === !postFx &&
 			snap.level.postFx === postFx,
@@ -930,6 +949,7 @@ for (const [label, hotAgain, postFx] of [
 	let seed = 1;
 	const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
 	const sessions = FUZZ;
+	const lapsesBefore = lapses.length;
 	let reached = 0;
 	let cooled = 0;
 	const missed: string[] = [];
@@ -960,6 +980,12 @@ for (const [label, hotAgain, postFx] of [
 		`${reached}/${sessions} reached; ${missed.join(' | ')}`,
 	);
 	console.log(`       (${cooled}/${sessions} were above the effects level after the cool spell)`);
+	check(
+		`${sessions} seeded sessions: after every switch above the effects level, 2 switches are left`,
+		lapses.length === lapsesBefore,
+		`${lapses.length - lapsesBefore} lapses; ` +
+			lapses.slice(lapsesBefore, lapsesBefore + 2).join(' | '),
+	);
 }
 {
 	// The review's adv.ts: random ladders, frames sometimes quiet mid-round or hidden, any slow
@@ -971,6 +997,7 @@ for (const [label, hotAgain, postFx] of [
 	const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)];
 	let stuck = 0;
 	const missed: string[] = [];
+	const lapsesBefore = lapses.length;
 	for (let n = 0; n < FUZZ; n++) {
 		const ladder = qualityLadder(pick([1, 1.25, 1.5, 1.75, 2, 3]), {
 			msaa: random() < 0.8,
@@ -982,7 +1009,9 @@ for (const [label, hotAgain, postFx] of [
 		let measured = 0;
 		const feed = (ms: number, state: QualityFrame) => {
 			const next = controller.frame(ms, state);
-			if (next) level = ladder.indexOf(next);
+			if (!next) return;
+			level = ladder.indexOf(next);
+			noteLapse(controller, last);
 		};
 		const rounds = (count: number, slowAt: (l: number) => number, slowMs: number) => {
 			for (let r = 0; r < count; r++) {
@@ -1019,6 +1048,12 @@ for (const [label, hotAgain, postFx] of [
 		`${FUZZ} adversarial sessions: above the effects level a slow device always has a way down`,
 		stuck === 0,
 		`${stuck} stuck; ${missed.join(' | ')}`,
+	);
+	check(
+		`${FUZZ} adversarial sessions: after every switch above the effects level, 2 switches are left`,
+		lapses.length === lapsesBefore,
+		`${lapses.length - lapsesBefore} lapses; ` +
+			lapses.slice(lapsesBefore, lapsesBefore + 2).join(' | '),
 	);
 }
 
@@ -1182,6 +1217,12 @@ console.log('\nthe effects wiring');
 	undo();
 	Reflect.deleteProperty(globalThis, 'document');
 }
+
+check(
+	'in every session of this fixture, after every switch above the effects level, 2 are left',
+	lapses.length === 0,
+	`${lapses.length} lapses; ${lapses.slice(0, 2).join(' | ')}`,
+);
 
 if (failures) throw new Error(`renderQuality fixture: ${failures} check(s) FAILED`);
 console.log('\nrenderQuality fixture: ok');

@@ -62,21 +62,21 @@
  * goes down, even after a retry is kept: a later climb to it waits the doubled time again. Without
  * the second chance (`engine-3d`) that level is never tried again.
  *
- * THE SWITCH BUDGET: steps down and up spend one refilling budget: 12 switches to start with and
- * at most, and one back after each 150 measured windows with no switch (about 5 minutes of
- * play), so over a long session at most about 12 + play-minutes / 5 switches. Every step keeps
- * its verdict: a step that starts a trial is taken only while its revert fits, and when no judged
- * step fits the device waits for the budget to refill. With the second chance the effects level
- * stays reachable, an invariant rather than a rule per case: until the second chance is taken its
- * step to the effects level and that step's revert keep 2 switches no ordinary step or step up
- * may spend, and every ordinary step that could leave the device above the effects level keeps 2
- * more for a judged trip there (its step and its revert). With no room for an ordinary step, a
- * slow spell takes that trip: the unused second chance, or after it straight to the effects
- * level. The worst case is a wait: after an unusually busy session a step that does not fit
- * waits for refills, about 5 minutes of play each, while the trip to the effects level is what
- * the held switches are for. Without the second chance (`engine-3d`) the budget never refills:
- * 6 switches a session, as a lifetime cap. Every trial's verdict, with what started it and what
- * the level measured, is kept for the readout.
+ * THE SWITCH BUDGET: steps down and up spend one refilling budget: 12 switches to start with and at
+ * most, and one back after each 150 measured windows with no switch (about 5 minutes of play;
+ * windows read as a browser's 30 fps cap count too), so over a long session at most about 12 +
+ * play-minutes / 5 switches. Every step keeps its verdict: a step that starts a trial is taken only
+ * while its revert fits, and when no judged step fits the device waits for the budget to refill.
+ * With the second chance the effects level stays reachable, an invariant rather than a rule per
+ * case: until the second chance is taken its step to the effects level and that step's revert keep
+ * 2 switches no ordinary step or step up may spend, and every ordinary step that could leave the
+ * device above the effects level keeps 2 more for a judged trip there (its step and its revert).
+ * With no room for an ordinary step, a slow spell takes that trip: the unused second chance, or
+ * after it straight to the effects level. The worst case is a wait: after an unusually busy session
+ * a step that does not fit waits for refills, about 5 minutes of play each, while the trip to the
+ * effects level is what the held switches are for. Without the second chance (`engine-3d`) the
+ * budget never refills: 6 switches a session, as a lifetime cap. Every trial's verdict, with what
+ * started it and what the level measured, is kept for the readout.
  *
  * Configured by the game ({@link configureRenderQuality}); the tools never configure it, so `/fx`,
  * the editors and previews never adapt. A deterministic render and a `?render=` pin never install
@@ -350,15 +350,18 @@ export function createRenderQualityController(
 	 *  it is taken: ordinary steps down and up never spend them. */
 	const reserve = () => (retries && secondChance !== 'taken' ? 2 : 0);
 	/**
-	 * Room for an ordinary step down or up from `level` to `to`: the step, its revert, the second
-	 * chance's reserve and, with the second chance, two switches for a later judged trip to the
-	 * effects level (the step and its revert) wherever the step or its revert could leave the
-	 * device above it (a revert to the
-	 * effects level needs none, nor a failed step to it, which stops stepping down). All of it
-	 * counts against the budget left: when it does not fit, the device waits for a refill.
+	 * Room for an ordinary step down or up from `level` to `to`: the step, its revert and the
+	 * second chance's reserve and, with the second chance, two switches left for a later judged
+	 * trip to the effects level (its step and its revert) wherever the step or its revert leaves
+	 * the device above it. A step down to the effects level needs no trip (a failed one stops
+	 * stepping down); a step up from it needs the trip only if kept (its revert lands there), so
+	 * one switch more than the step and its revert. All of it counts against the budget left: when
+	 * it does not fit, the device waits for a refill.
 	 */
-	const stepRoom = (to: number) =>
-		room(2 + (retries && level !== last && to !== last ? 2 : 0) + reserve());
+	const stepRoom = (to: number) => {
+		const trip = !retries || to === last ? 0 : level === last ? 1 : 2;
+		return room(2 + trip + reserve());
+	};
 	/**
 	 * Where the second chance steps from `at`, `skip` levels down, never past the effects level:
 	 * that level at once when only that step and its revert still fit in the budget. Undefined when
@@ -429,7 +432,7 @@ export function createRenderQualityController(
 			// Anything but an ordinary step waits for twice the evidence. With no room for one, the
 			// unused second chance is what its reserve is for, and after it the effects level.
 			const early = retries && secondChance === 'unused' && !ordinary;
-			const careful = retries && (waiting || effectsNext || early);
+			const careful = retries && (waiting || effectsNext || !ordinary);
 			const needed = careful ? rules.retrySlowWindows : rules.slowWindows;
 			slowRun = [...slowRun, stats].slice(-needed);
 			if (slowRun.length < needed || downStopped || level >= last) return;
