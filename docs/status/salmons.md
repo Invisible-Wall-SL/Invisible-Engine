@@ -2684,6 +2684,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     effect mid-load: the warm-up ran twice, `cardDeckPick` was mounted ahead twice, and Svelte threw
     `each_key_duplicate`. The warm-up and the `loaded` flag now run untracked (`finishLoad`), as they
     always did after an `await`. Main ran it once; the branch twice before the fix, once after.
+  - **A second bug it exposed, fixed** (`pixi-svelte` `renderQuality.ts` `backBufferMsaaOf`):
+    once the ladder steps on an arcade game, its MSAA switch destroyed the back buffer's texture
+    while the present's shader still sampled it as `uTexture` (Pixi's `_presentBackBuffer` leaves
+    it bound until the next present), and Pixi warned "[BindGroup] a 'textureSource' was destroyed
+    while still bound". The switch now retires the texture and destroys it on a later tick, once the
+    present no longer samples it, and destroys the rest on release. Guards:
+    `renderQuality.fixture.ts` (a switch never destroys a bound texture) and
+    `pixi-back-buffer.fixture.mjs` claim 8 (the present binds it so).
   - **Gates:** `stockAssets.fixture.ts` 12 (new: a boardless game — Salmons, the arcade and card
     samples keep `foregroundAnimation`, `pressToContinueText`, `progressBar`, `sound`; a transition
     cue, a free-spin switch, a `gold` text, a placed `Win`, a named symbol rig, a bone effect, an

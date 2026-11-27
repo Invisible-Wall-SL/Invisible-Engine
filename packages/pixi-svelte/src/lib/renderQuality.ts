@@ -387,11 +387,23 @@ export function createRenderQualityController(
 	};
 }
 
-type BackBufferInternals = {
+export type BackBufferInternals = {
 	useBackBuffer?: boolean;
 	_antialias?: boolean;
 	_backBufferTexture?: Texture | null;
 	_getBackBufferTexture?: unknown;
+	/** The present's shader: it samples the back buffer's texture as `uTexture` from one present
+	 *  to the next (`_presentBackBuffer`). */
+	_bigTriangleShader?: { resources?: { uTexture?: unknown } };
+};
+
+/** The back buffer's MSAA switch ({@link backBufferMsaa}). */
+export type BackBufferMsaa = {
+	on: () => boolean;
+	set: (on: boolean) => void;
+	/** Destroy the textures a switch retired that the present no longer samples; every one with
+	 *  `all`. The ladder calls it at the start of each frame, after the frame before presented. */
+	flush: (all?: boolean) => void;
 };
 
 /**
@@ -402,24 +414,45 @@ type BackBufferInternals = {
  * and, through `RenderTargetSystem`, its framebuffers. Undefined without a back buffer or without those internals
  * (WebGPU, another Pixi); `scripts/pixi-back-buffer.fixture.mjs` pins the installed Pixi's side.
  */
-function backBufferMsaa(
-	renderer: Renderer,
-): { on: () => boolean; set: (on: boolean) => void } | undefined {
-	const backBuffer = (renderer as unknown as { backBuffer?: BackBufferInternals }).backBuffer;
+function backBufferMsaa(renderer: Renderer): BackBufferMsaa | undefined {
+	return backBufferMsaaOf((renderer as unknown as { backBuffer?: BackBufferInternals }).backBuffer);
+}
+
+/**
+ * {@link backBufferMsaa} over the back buffer's internals. The texture a switch retires is destroyed
+ * only once the present no longer samples it: until the next frame presents the new one, it is
+ * still the present shader's `uTexture`, and destroying a source still bound makes Pixi warn
+ * ("[BindGroup] a 'textureSource' was destroyed while still bound to a shader"). One the present
+ * never sampled goes at once, as it always did.
+ */
+export function backBufferMsaaOf(
+	backBuffer: BackBufferInternals | undefined,
+): BackBufferMsaa | undefined {
 	if (
 		!backBuffer?.useBackBuffer ||
 		typeof backBuffer._antialias !== 'boolean' ||
 		typeof backBuffer._getBackBufferTexture !== 'function'
 	)
 		return undefined;
+	const retired: Texture[] = [];
+	const sampled = (texture: Texture) =>
+		backBuffer._bigTriangleShader?.resources?.uTexture === texture.source;
+	const flush = (all = false) => {
+		for (let i = retired.length - 1; i >= 0; i--) {
+			if (all || !sampled(retired[i])) retired.splice(i, 1)[0].destroy(true);
+		}
+	};
 	return {
 		on: () => backBuffer._antialias === true,
 		set(on) {
 			const texture = backBuffer._backBufferTexture;
 			backBuffer._antialias = on;
 			backBuffer._backBufferTexture = null;
-			texture?.destroy(true);
+			if (!texture) return;
+			retired.push(texture);
+			flush();
 		},
+		flush,
 	};
 }
 
@@ -500,6 +533,7 @@ export function installRenderQuality(
 			effects = { postFx, particleCap };
 		};
 		const onTick = (ticker: Ticker) => {
+			msaaSwitch?.flush();
 			const next = controller.frame(ticker.elapsedMS, {
 				measuring: measuring(),
 				quiet: quiet(),
@@ -516,6 +550,7 @@ export function installRenderQuality(
 		snapshot = controller.snapshot;
 		release = () => {
 			app.ticker?.remove(onTick);
+			msaaSwitch?.flush(true);
 			document.removeEventListener('visibilitychange', onVisibility);
 			setEffects({ ...start, postFx: true, particleCap: 1 });
 		};
