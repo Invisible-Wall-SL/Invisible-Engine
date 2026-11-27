@@ -14,11 +14,18 @@
 import type { Application, Container } from 'pixi.js';
 import { SvelteMap } from 'svelte/reactivity';
 
+import { SALMONS_SCREEN_ART } from './referenceLayouts/salmonsScreens';
+
 /** Draws into `into` (a container of its own, in the place it is drawn); returns the teardown. */
 export type ArtMount = (into: Container, app: Application) => () => void;
 
 const fields = new SvelteMap<string, ArtMount>();
 const looks = new SvelteMap<string, ArtMount>();
+
+/** The id a room's art publishes its backdrop under: drawn behind every screen of a play field
+ *  whose generator has art, in place of the slot sample's background (`apps/lines`
+ *  `ArcadeBackdrop.svelte`). Salmons' is the only one. */
+export const BACKDROP_ART = SALMONS_SCREEN_ART.backdrop;
 
 /** The art a screen's top-level node `id` is drawn with, in place of the node. */
 export const fieldArtOf = (id: string): ArtMount | undefined => fields.get(id);

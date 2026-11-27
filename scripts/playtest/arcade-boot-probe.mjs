@@ -9,7 +9,7 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/arcade-boot-probe.mjs --runtime apps/lines/build --out <dir> \
-//     [--runs 2] [--frames 40] [--play 15] [--dpr 3] [--throttle <n>] [--round <s>] \
+//     [--runs 2] [--frames 40] [--play 15] [--dpr 3] [--size 390x844] [--throttle <n>] [--round <s>] \
 //     [--chrome <exe>]
 //
 // `--dpr 1 --round 20 --play 120` plays several rounds: the quality ladder
@@ -63,9 +63,11 @@ const { values: opt } = parseArgs({
 		throttle: { type: 'string' },
 		round: { type: 'string' },
 		dpr: { type: 'string', default: '3' },
+		size: { type: 'string', default: '390x844' },
 	},
 });
 const out = resolve(opt.out);
+const [WIDTH, HEIGHT] = opt.size.split('x').map(Number);
 mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -145,8 +147,8 @@ async function run(index) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, `profile-${index}`));
 	await page.page('Page.addScriptToEvaluateOnNewDocument', { source: CONSOLE });
 	await page.page('Emulation.setDeviceMetricsOverride', {
-		width: 390,
-		height: 844,
+		width: WIDTH,
+		height: HEIGHT,
 		deviceScaleFactor: Number(opt.dpr),
 		mobile: true,
 	});
@@ -179,7 +181,7 @@ async function run(index) {
 		if (i % 8 === 7)
 			await page.page('Input.dispatchTouchEvent', {
 				type: 'touchStart',
-				touchPoints: [{ x: 195, y: 600 }],
+				touchPoints: [{ x: WIDTH / 2, y: HEIGHT * 0.7 }],
 			});
 		if (i % 8 === 7)
 			await page.page('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });

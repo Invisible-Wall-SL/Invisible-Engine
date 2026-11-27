@@ -336,7 +336,7 @@
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import { Match3Input } from '../families/match3';
-	import { ArcadeStage } from '../families/arcade';
+	import { ArcadeBackdrop, ArcadeStage, drawsOwnBackdrop } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
 	import { gameMechanic } from '../game/mechanic';
 	import { playFieldPlaying } from '../game/playFieldPhase';
@@ -1245,6 +1245,9 @@
 	);
 
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
+	// A play field whose rooms have art (Salmons) draws its own backdrop where the slot sample's
+	// background stood, behind the same anchor (`ArcadeBackdrop.svelte`).
+	const ownBackdrop = mechanic.playField && drawsOwnBackdrop();
 
 	// Authored free-spin BOARD GLOW (the reel-house backdrop behind the reels). Mirrors the
 	// background/book-reveal gates: the `boardGlow` scene ships only the coded `BoardFrame` bind
@@ -2376,7 +2379,11 @@
 			 background scenes stay behind the coded one), so this is parity for every game. -->
 	{#if !suppressCodedBackground}
 		<Container zIndex={LAYER_BAND_BACKGROUND_CODED}>
-			<Background cover={backgroundCover} isFeatureGameType={isFreeGameType} />
+			{#if ownBackdrop}
+				<ArcadeBackdrop />
+			{:else}
+				<Background cover={backgroundCover} isFeatureGameType={isFreeGameType} />
+			{/if}
 		</Container>
 	{/if}
 
