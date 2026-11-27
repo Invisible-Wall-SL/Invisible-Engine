@@ -440,7 +440,6 @@ export function problems(files) {
 				'Check the inputs',
 				CHECKOUT,
 				'Keep a pristine copy of main',
-				PNPM,
 				NODE,
 				'Merge main into the change',
 				`uses:${UPLOAD}`,
@@ -485,6 +484,31 @@ export function problems(files) {
 			String(mRun.run ?? '').trim() === MERGE_RUN_STEP &&
 			Object.keys(mRun).join() === 'name,run' &&
 			files.merge.includes('const m = /^--(repo|head|main|out)$/.exec(argv[i]);'),
+	);
+	// §2 as amended 2026-11-27: job merge runs NO branch code. It is on main's ref, where a branch's
+	// install or build could poison the Actions cache main's own workflows restore. So: no package
+	// manager, no cache (setup-node's own npm cache switched off, as the workspace is the branch's),
+	// no step that runs anything but git and main's merge.mjs, and merge.mjs spawns git alone.
+	const mNode = using(mSteps, 'actions/setup-node@');
+	const spawned = [...files.merge.matchAll(/\bspawnSync\(\s*([^,\s]+),/g)].map((m) => m[1]);
+	rule(
+		'merge-no-branch-code',
+		!mSteps.some((s) =>
+			/\b(?:pnpm|npm|npx|yarn|corepack|bun)\b|actions\/cache/.test(
+				`${s?.uses ?? ''}\n${s?.run ?? ''}\n${JSON.stringify(s?.with ?? {})}\n${JSON.stringify(s?.env ?? {})}`,
+			),
+		) &&
+			mNode.length === 1 &&
+			canon(mNode[0].with) === canon({ 'node-version': '22', 'package-manager-cache': 'false' }) &&
+			same(
+				mSteps.filter((s) => s?.run !== undefined).map((s) => s.name),
+				['Check the inputs', 'Keep a pristine copy of main', 'Merge main into the change'],
+			) &&
+			(String(mRun.run ?? '').match(/\bnode\b/g) ?? []).length === 1 &&
+			spawned.length > 0 &&
+			spawned.every((c) => c === "'git'") &&
+			(files.merge.match(/from 'node:child_process'/g) ?? []).length === 1 &&
+			files.merge.includes("import { spawnSync } from 'node:child_process';"),
 	);
 	const pCopy = named(pSteps, 'Keep a pristine copy of main');
 	rule(
@@ -541,7 +565,10 @@ export function problems(files) {
 	rule(
 		'no-cache',
 		!allSteps.some(
-			(s) => s?.with?.cache !== undefined || /actions\/cache/.test(String(s?.uses ?? '')),
+			(s) =>
+				s?.with?.cache !== undefined ||
+				(s?.with?.['package-manager-cache'] ?? 'false') !== 'false' ||
+				/actions\/cache/.test(String(s?.uses ?? '')),
 		),
 	);
 	// Every command the workflow gives collect.mjs is one it has, and merge.mjs takes its flags.
@@ -642,6 +669,28 @@ export function problems(files) {
 				"const LABELS = { change: 'this change', base: 'base', main: 'main' };",
 			) &&
 			prompt.includes('labelled `this change`, `base` and `main`'),
+	);
+	// A pending file is main's and stays so: the prompt says so, never asks the run to build it, and
+	// gives each rule's follow-up in collect.mjs's own words (what the proposal and the launcher's
+	// card say after Accept); collect.mjs refuses a run that changed one.
+	rule(
+		'coordinator-pending',
+		prompt.includes('`pending`: informational only.') &&
+			prompt.includes("Each stays main's: editing one ends the run with no proposal") &&
+			prompt.includes('never run its `command`') &&
+			!/Run it once|pending` command|through its `command`/.test(prompt) &&
+			[
+				['**Re-record runtime bytes**', 'click **Re-record runtime bytes** on the change.'],
+				[
+					"`pnpm --filter launcher-api build:<name>` in the change's session",
+					"`pnpm --filter launcher-api build:${x.bundle}\\` in the change's session.",
+				],
+				[
+					"lowers the baseline in the change's session if `check:svelte` or lint fails",
+					"lower the baseline in the change's session if `check:svelte` or lint fails.",
+				],
+			].every(([said, written]) => prompt.includes(said) && files.collect.includes(written)) &&
+			files.collect.includes('\t\tif (!own.has(path)) {\n\t\t\tnoProposal(`The run changed'),
 	);
 	return out;
 }
@@ -1129,6 +1178,96 @@ const MUTANTS = [
 	['coordinator-conflicts', 'coordinator', '`markerSize` characters long', 'long'],
 	['coordinator-conflicts', 'merge', "change: 'this change',", "change: 'ours',"],
 	['coordinator-conflicts', 'collect', 'markerSize: x.markerSize,', 'markers: x.markerSize,'],
+	// Job merge runs no branch code: a package manager, an install, a cache, another command, or a
+	// merge.mjs that spawns more than git, each brings it back.
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'      # Node only: no pnpm, no install.',
+		'      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6\n\n      # Node only: no pnpm, no install.',
+	],
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'        run: node "$RUNNER_TEMP/main/scripts/merge-main/merge.mjs"',
+		'        run: pnpm install --frozen-lockfile && node "$RUNNER_TEMP/main/scripts/merge-main/merge.mjs"',
+	],
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'          mkdir "$RUNNER_TEMP/main"\n',
+		'          corepack enable\n          mkdir "$RUNNER_TEMP/main"\n',
+	],
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'      - name: Merge main into the change\n',
+		'      - name: Prime\n        run: npx --yes esbuild --version\n\n      - name: Merge main into the change\n',
+	],
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'      - uses: actions/upload-artifact@',
+		'      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4\n        with:\n          path: ~/.local/share/pnpm/store\n          key: pnpm\n\n      - uses: actions/upload-artifact@',
+	],
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'          package-manager-cache: false\n',
+		'          package-manager-cache: false\n          cache: pnpm\n',
+	],
+	['merge-no-branch-code', 'workflow', '          package-manager-cache: false\n', ''],
+	[
+		'merge-no-branch-code',
+		'workflow',
+		'--out "$RUNNER_TEMP/merge"',
+		'--out "$RUNNER_TEMP/merge" && node "$GITHUB_WORKSPACE/scripts/merge-main/merge.mjs"',
+	],
+	[
+		'merge-no-branch-code',
+		'merge',
+		"const r = spawnSync(\n\t\t'git',\n\t\t['-c', 'safe.directory=*', '--literal-pathspecs'",
+		"const r = spawnSync(\n\t\t'pnpm',\n\t\t['-c', 'safe.directory=*', '--literal-pathspecs'",
+	],
+	[
+		'merge-no-branch-code',
+		'merge',
+		"import { spawnSync } from 'node:child_process';",
+		"import { execSync, spawnSync } from 'node:child_process';",
+	],
+	[
+		'no-cache',
+		'workflow',
+		'          node-version: 22\n\n      # As bug-fix.yml',
+		'          node-version: 22\n          package-manager-cache: true\n\n      # As bug-fix.yml',
+	],
+	// A pending file is main's and stays so, with each rule's follow-up in collect.mjs's words.
+	[
+		'coordinator-pending',
+		'coordinator',
+		'`pending`: informational only.',
+		'`pending`: files to rebuild.',
+	],
+	['coordinator-pending', 'coordinator', 'never run its `command`', 'run its `command` once'],
+	['coordinator-pending', 'coordinator', '**Re-record runtime bytes**', 'Re-record'],
+	[
+		'coordinator-pending',
+		'coordinator',
+		'- Change any file but those in `files`:',
+		'- Change any file but those in `files`, and a `pending` file through its `command`:',
+	],
+	[
+		'coordinator-pending',
+		'collect',
+		'click **Re-record runtime bytes** on the change.',
+		're-record the runtime bytes.',
+	],
+	[
+		'coordinator-pending',
+		'collect',
+		'\t\tif (!own.has(path)) {\n\t\t\tnoProposal(`The run changed',
+		'\t\tif (!own.has(path) && !path.startsWith("scripts/")) {\n\t\t\tnoProposal(`The run changed',
+	],
 ];
 const caughtRules = new Set();
 for (const [ruleId, file, from, to] of MUTANTS) {

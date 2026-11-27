@@ -18,8 +18,16 @@ during the run.
   - A file whose `kind` is `modify/delete` has one hunk: one side deleted it and the other changed
     it. The checkout holds the side that kept it, with no markers. Keep it, as it is or edited, or
     delete it.
-  - `pending`: files one of the job's rules rebuilds, each holding main's version and naming its
-    `command`.
+  - `pending`: informational only. These are files a build rule left as main's, because no job
+    builds the change's code. Each stays main's: editing one ends the run with no proposal, and you
+    never run its `command`, which is what a person or CI runs on the change after Accept. What
+    follows Accept, which the job adds to `risks` itself:
+    - runtime bytes (`scripts/runtime-bytes/*.json`): CI's runtime-bytes check fails on the change
+      until a person clicks **Re-record runtime bytes** on it;
+    - a vendored bundle: a person rebuilds it with `pnpm --filter launcher-api build:<name>` in the
+      change's session;
+    - a ratchet baseline (`svelte-check-baseline.json`, `eslint-suppressions.json`): a person
+      lowers the baseline in the change's session if `check:svelte` or lint fails.
   - `byRule`: files the job's rules already resolved. They are not yours.
 - This checkout is the merged tree: main at `mainSha`, with what this change changed laid over it.
   `git diff` shows what the merge brings to main. Each side of a file is in git:
@@ -50,9 +58,6 @@ during the run.
    - Remove every marker line. A file left with one ends the run with no proposal.
    - Change a line outside a hunk only in the same file, and only when the resolution needs it (an
      import, a renamed call, a moved line). List every such file under `outside`.
-   - A `pending` file changes only through its `command`. Run it once, exactly as given, after every
-     conflict is resolved and its gates pass. If it fails, leave the file as it is (main's) and say
-     so in `risks`.
 4. **Stop when a person is needed.** Choosing a side would change what a game pays, charges or
    allows (its math, paytable, bet modes, money or feature rules); both sides changed behaviour in
    ways that cannot both hold; or the resolution needs a file outside `files`. Write the result as
@@ -61,10 +66,11 @@ during the run.
    by name, `pnpm lint` from the repository root when TypeScript or Svelte changed, and
    `pnpm check:svelte --only <package>` when a `.svelte` file changed. Never a whole
    `pnpm check:all`: it runs hundreds of checks this run does not need, some of which need the
-   network. Every gate here is offline: the network is closed to every command. Run
-   `pnpm check:runtime-bytes` only as a `pending` command. Record each command and whether it
-   passed. A gate that fails only because this change added a dependency is recorded as failed, and
-   named in `risks`.
+   network. Every gate here is offline: the network is closed to every command. Never run
+   `pnpm check:runtime-bytes`, a bundle's build or a ratchet's `--update`: they are the follow-ups
+   after Accept. Record each command and whether it passed. A gate that fails only because this
+   change added a dependency, or because a `pending` file is still main's, is recorded as failed
+   and named in `risks`.
 6. **Review.** Run the `code-reviewer` agent on the result: each resolved file against both sides,
    the lines changed outside the hunks, and the gates. When a hunk touches a parser, a reader of
    text people supply, or money (an amount, a price, a bet, a win, a balance, a cost), ask it to run
@@ -90,9 +96,9 @@ the rest are this run's own rules.
 
 - Commit, push, merge, rebase, open or mark a pull request, or create a branch. The launcher builds
   the merge commit once a person accepts; the resolution is the files you leave in this checkout.
-- Change any file but those in `files`, and a `pending` file through its `command`: not a file git
-  merged on its own, not one of `byRule`, no new file, no renamed file and no file's mode. Delete a
-  file only when its `kind` is `modify/delete`.
+- Change any file but those in `files`: not a file git merged on its own, not one of `pending` or
+  `byRule`, no new file, no renamed file and no file's mode. Delete a file only when its `kind` is
+  `modify/delete`.
 - Edit a protected path. The job refuses a conflict in one before the run, so none is in `files`;
   the rest of the tree is not yours either: `.github/`, `.claude/`, `CLAUDE.md`, `CODEOWNERS`,
   `scripts/bug-fix/`, `scripts/merge-main/`, `scripts/current-games/`, `docs/knowledge/`,

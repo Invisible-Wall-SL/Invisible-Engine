@@ -6,11 +6,13 @@
 # the model's budget. Nothing here commits, pushes or opens anything: the launcher builds the merge
 # itself from three trees when a person presses Accept (§5).
 #
-# TWO JOBS, because the merge runs the branch's own code:
-#   merge    holds nothing worth stealing: `contents: read`, no id-token, no secret, no environment.
-#            It merges main into the head at the two pinned SHAs with main's copy of
-#            scripts/merge-main/merge.mjs, which runs the §3 rules' builds (the branch's code), and
-#            uploads the record as the artifact `merge`. The record is trusted no more than the branch.
+# TWO JOBS, so the merge holds nothing and the key sits only beside main's code and the sandbox:
+#   merge    `contents: read`, no id-token, no secret, no environment, and NO BRANCH CODE (§2): git,
+#            node and main's copy of scripts/merge-main/merge.mjs, nothing installed, built or
+#            cached. It runs on main's ref, where a branch's build could poison the Actions cache
+#            main's own workflows restore, so a build rule's file stays main's, `pending`. It merges
+#            main into the head at the two pinned SHAs and uploads the record as the artifact
+#            `merge`, which collect.mjs redoes from main's git rather than trust.
 #   propose  the `bug-fix` environment and its key, `id-token: write`. Before the model only main's
 #            code runs: main's checkout, main's dependencies, then collect.mjs `stage`, which redoes
 #            the merge from main's git and refuses a record that differs. The model runs only when
@@ -125,14 +127,15 @@ jobs:
           mkdir "$RUNNER_TEMP/main"
           git archive "$MAIN_SHA" | tar -xf - -C "$RUNNER_TEMP/main"
 
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
-
-      # No install here: a rule that builds installs the merged tree itself.
+      # Node only: no pnpm, no install. setup-node caches by itself when the workspace's
+      # package.json (the branch's, here) names npm, so its cache is switched off.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
+          package-manager-cache: false
 
-      # Exits 0 for every outcome (a refusal is in the record), 1 only when the job broke.
+      # git and main's merge.mjs only. Exits 0 for every outcome (a refusal is in the record), 1
+      # only when the job broke.
       - name: Merge main into the change
         run: node "$RUNNER_TEMP/main/scripts/merge-main/merge.mjs" --repo "$GITHUB_WORKSPACE" --head "$HEAD_SHA" --main "$MAIN_SHA" --out "$RUNNER_TEMP/merge"
 
