@@ -2655,6 +2655,27 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     config in code sends 15 states a second; everyone else is drawn two states' time behind
     (`netcode.js` `interpolationDelayFor`: 133 ms; 100 ms at 20 and faster, so every other game
     draws as before).
+  - **Measured, before → after, on this container.** `room-load.mjs --devices 20 --seconds 40
+    --jump 0.02 --respawn` (Salmons, the generated river; main's checkout vs this branch): a device
+    receives 14.39 → 8.82 KB/s on average (−39 %; max 17.49 → 11.27), 20 → 15.1 states a second,
+    the server sends 0.281 → 0.172 MB/s, CPU 16 → 17 %, RSS 206 → 200 MB; the budget the script
+    holds (10 KB/s average, 16 max) was missed on main and is met. The same at 15 Hz with float32
+    (`--positions float`): 10.9 KB/s, so the rate is −24 % and packing a further −19 %.
+    `salmons-lab.mjs --runs 3` (T2's lab, the original map, a room of 21; main + the T6 runtime vs
+    this branch): in 20.9 → 16.1 msg/s, 1353 → 836 B/s (−38 %), 65.8 → 52.5 B a patch, 14.2 → 11.7 B
+    a patch per player sent; out unchanged (15.5 / 15.4 msg/s: one input a step, at the lab's ~5
+    fps 3 steps a frame); jsMs 21.3 → 20.5 and the handler time a patch below the probe's 0.1 ms
+    resolution in both. `check:room-wire`, one live room of 61 players: 709 B a patch to a device
+    sent float32, 484 B to one sent packed (−32 %).
+  - **Gates:** `check:room-wire` 10 (new: the scale, the packing, the fallback, Salmons' 15 Hz; a
+    live room with a device of each kind), `check:netcode` 33 (adds 15 Hz packed rows: the own player
+    still exact, no snap), `check:room-sim` 43, `check:room-bots` 56, `check:online-rules` 40,
+    `check:room-lobby` 42, `check:room-levels` 16 (its schema regex takes the multi-line state),
+    `check:svelte --only apps/lines` 145 (baseline 145). Playtests on this runtime:
+    `salmons-wire-play.mjs` 18/18 (new: both deploy orders, against main's server, with the T6
+    build as the old runtime), `online-play.mjs` 20/20 and `--netcode colyseus` 20/20,
+    `salmons-rejoin-play.mjs` 58/58, `salmons-play.mjs` 103/103. `check:runtime-bytes`: only
+    `arcade` (+126 B gzip) and `arcade3d` (+178 B) move, re-recorded; the rest byte-identical.
   - **Owner steps.** (1) The game server must be redeployed with this (Railway `game-server`
     rebuilds on a merge that touches `services/game-server`): a deploy restarts the process and
     closes every running room, as any game-server deploy does; devices see the room lost and load
