@@ -281,7 +281,9 @@ carry across every image the slot swaps to. 📐 Save as template turns them bac
 on 2026-11-20 at the owner's word, nothing having shipped on them): a rig that names another version opens as a rig with
 no template — no Controls section, but its keys are ordinary timelines, so it opens and plays. A
 rig's keys are its controls' values × their travel, so changing a control's travel means a new
-version (and the rigs on the old one lose their Controls); widening a range does not.
+version (and the rigs on the old one lose their Controls); widening a range does not. A
+template's **modules** (hands with fingers, simple or none — [rig-modules](rig-modules.md)) are
+choices over the same version: a rig records the ones off their default beside `{ id, version }`.
 
 ## 5. Where face motion comes from
 
