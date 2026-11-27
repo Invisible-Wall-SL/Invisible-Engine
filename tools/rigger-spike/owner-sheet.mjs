@@ -24,7 +24,7 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 
 /** The modules a mutant may be planted in. */
 const SHIPPED =
-	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigTemplateFit|rigTemplates|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
+	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigTemplateFit|rigTemplates|rigTemplateBody|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
 let bundles = 0;
 /**
  * The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first; `page`
