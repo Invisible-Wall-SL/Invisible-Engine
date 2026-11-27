@@ -15,6 +15,18 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · coordinator (15A spike answered)
+- Did: the owner clicked Update from main on the scratch PR #1940, whose branch started before
+  #1928's workflow change. GitHub accepted `update-branch` as the App (merge commit `bee763a`,
+  bringing in `.github/workflows/bug-fix.yml`). Recorded on #1940, which is closed, and in
+  ADR-0015 Context 4, `docs/status/bug-reports.md` and PLAN. The `on-hold` label was created for
+  the owner (item 12).
+- Files: ADR-0015, `PLAN.md`, `docs/status/bug-reports.md`.
+- Branch / PR: `claude/focused-hopper-nnfkz5`.
+- Tests: docs only.
+- Decisions: Update from main needs no fallback. 15C must prove its Git Data Accept path.
+- Next: 15B1 and 15C.
+
 ## 2026-11-26 · Phase 12 · director-backend + director-frontend (15A built)
 - Did: Update from main (`POST …/update`, `update-branch` as the App with `expected_head_sha`;
   409 `head_moved` / `conflict` / `workflow_refused`, GitHub's text kept, capped) and On hold /
