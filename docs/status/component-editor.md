@@ -119,6 +119,13 @@ Shipped capabilities on `main`:
     plays it), `check:salmons-art` 50, `check:salmons-levels` 28, `check:component-prop-editor`
     59.
   - The seed `bridgeProp`'s pin in `test-hold-and-win-template` was re-pinned.
+  - **Playtests** (arcade build, headless Chrome): `salmons-play.mjs --bridge-component` 7/7 and
+    the new `--bridge-art` 5/5. The latter runs a project copy whose deck is a cyan sprite and
+    whose near ramp is 3. It checks the room lifts the fisherman 2½ cells out, the cyan deck is on
+    screen, and the near slope draws 4 : 3 as wide as the far one.
+  - **Runtime bytes**, both fixes, `--out` builds of 9f5c197bc against a64c50b36: lines, match3
+    and card are identical. arcade is +652 B gzip and arcade3d +629 B (`propDraw.ts`'s sprites,
+    clips and containers; `propRamp` in `propPieces`).
 - 2026-11-27 — **Prop components: painted art in every band** (PR #1929; [arcade-prop-components](../design/arcade-prop-components.md)
   §7 "As built (painted art)").
   - The river now draws a prop piece's `sprite` and `flipbook` nodes in the water and behind bands,
