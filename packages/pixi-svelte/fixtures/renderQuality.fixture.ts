@@ -25,7 +25,10 @@
  * but the effects one always ends there, and never sits above it with no way down. And the
  * effects wiring of
  * `installRenderQuality` on a stand-in app: the effects are lowered and given back only on a
- * change (down to the last level, up from it, down again), and its teardown gives them back.
+ * change (down to the last level, up from it, down again), and its teardown gives them back. The
+ * back buffer's MSAA switch never destroys a texture the present still samples: the one it retires
+ * goes once the next present samples the new one, at once when the present never sampled it, and
+ * every one on release.
  */
 
 import {
@@ -33,6 +36,7 @@ import {
 	QUALITY_RULES as RULES,
 	configureRenderQuality,
 	createRenderQualityController,
+	backBufferMsaaOf,
 	installRenderQuality,
 	qualityLadder,
 	renderQualitySnapshot,
@@ -1110,6 +1114,72 @@ console.log('\nreadout');
 	);
 	release();
 	undo();
+}
+
+{
+	// The MSAA switch over a stand-in back buffer: a texture records whether the present still
+	// sampled it when it was destroyed (Pixi's "[BindGroup] … destroyed while still bound").
+	type Stand = { source: object; destroyed: boolean; boundAtDestroy?: boolean; destroy(): void };
+	const shader = { resources: { uTexture: undefined as unknown } };
+	const texture = (): Stand => {
+		const t: Stand = {
+			source: {},
+			destroyed: false,
+			destroy() {
+				t.destroyed = true;
+				t.boundAtDestroy = shader.resources.uTexture === t.source;
+			},
+		};
+		return t;
+	};
+	const present = (t: Stand) => {
+		backBuffer._backBufferTexture = t as never;
+		shader.resources.uTexture = t.source;
+	};
+	const backBuffer = {
+		useBackBuffer: true,
+		_antialias: true,
+		_backBufferTexture: null as unknown,
+		_getBackBufferTexture: () => undefined,
+		_bigTriangleShader: shader,
+	};
+	const msaa = backBufferMsaaOf(backBuffer as never)!;
+	const first = texture();
+	present(first);
+	msaa.set(false);
+	check(
+		'an MSAA switch drops the texture and turns the MSAA off for the next one',
+		backBuffer._backBufferTexture === null && !msaa.on(),
+	);
+	check('…but does not destroy the texture the present still samples', !first.destroyed);
+	msaa.flush();
+	check('…nor on a frame before the next present', !first.destroyed);
+	const second = texture();
+	present(second);
+	msaa.flush();
+	check(
+		'once the next present samples the new texture, the old one is destroyed, unbound',
+		first.destroyed && first.boundAtDestroy === false,
+	);
+	const unseen = texture();
+	backBuffer._backBufferTexture = unseen;
+	msaa.set(true);
+	check(
+		'a texture the present never sampled is destroyed at the switch, as before',
+		unseen.destroyed && unseen.boundAtDestroy === false,
+	);
+	msaa.set(false);
+	check('a switch with no texture retires nothing', !second.destroyed);
+	present(second);
+	backBuffer._backBufferTexture = second;
+	msaa.set(true);
+	msaa.flush(true);
+	check('a release destroys every texture still retired', second.destroyed);
+	check(
+		'no back buffer, or one without its internals, has no switch',
+		backBufferMsaaOf(undefined) === undefined &&
+			backBufferMsaaOf({ useBackBuffer: false } as never) === undefined,
+	);
 }
 
 console.log('\nthe effects wiring');

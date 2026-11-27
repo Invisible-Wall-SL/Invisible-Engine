@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import * as PIXI from 'pixi.js';
 	import { darkTintProgram } from 'engine-rig/pixi';
 
@@ -113,6 +113,32 @@
 		}
 	});
 
+	/**
+	 * Warm the GPU, then say the game is loaded. Run untracked: when nothing is left to load after
+	 * the preloads, no `await` comes before it, and every state its warm-ups read (the flow's shown
+	 * screens) would re-run the load effect mid-load, warming the GPU, and mounting the start-up
+	 * screens ahead, twice.
+	 */
+	const finishLoad = async () => {
+		const renderer = context.stateApp.pixiApplication?.renderer;
+		// Never in the way of the game starting: a warm-up that fails leaves the old lazy path.
+		if (renderer) {
+			try {
+				if (loadedRigs) compileProgram(renderer, darkTintProgram());
+				await warmGpu(renderer, loadedSources, {
+					keepResident: !lowMemoryDevice(),
+					onProgress: (done) => {
+						context.stateApp.loadingProgress = loadShare + done * WARMUP_PROGRESS_SHARE;
+					},
+				});
+			} catch (error) {
+				console.warn('[gpu-warmup]', error);
+			}
+		}
+		context.stateApp.loadingProgress = 100;
+		context.stateApp.loaded = true;
+	};
+
 	$effect(() => {
 		if (!context.stateApp.loaded && preLoaded) {
 			(async () => {
@@ -124,23 +150,7 @@
 							...postLoadedAssets,
 						};
 				}
-				const renderer = context.stateApp.pixiApplication?.renderer;
-				// Never in the way of the game starting: a warm-up that fails leaves the old lazy path.
-				if (renderer) {
-					try {
-						if (loadedRigs) compileProgram(renderer, darkTintProgram());
-						await warmGpu(renderer, loadedSources, {
-							keepResident: !lowMemoryDevice(),
-							onProgress: (done) => {
-								context.stateApp.loadingProgress = loadShare + done * WARMUP_PROGRESS_SHARE;
-							},
-						});
-					} catch (error) {
-						console.warn('[gpu-warmup]', error);
-					}
-				}
-				context.stateApp.loadingProgress = 100;
-				context.stateApp.loaded = true;
+				await untrack(finishLoad);
 			})();
 		}
 	});

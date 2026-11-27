@@ -9,7 +9,8 @@
 // added later that the table does not know would leave its bank unloaded, and howler declines an
 // unknown sprite key in silence. So every string literal in `apps/lines/src` and `packages/*/src`
 // that names a stock sound must sit in the table under a rule, and every row must still be found,
-// so the table cannot rot into a list of guesses.
+// so the table cannot rot into a list of guesses. Each `always` row also says whether a boardless
+// game (a play field, a card table) plays it: those games load only the rows that say yes.
 //
 // Scope: string literals only, comments stripped. A template's `${…}` reads as `*`, so a name built
 // from a prefix (`bgm_winlevel_${alias}`) matches every stock sound it could build.
@@ -103,8 +104,15 @@ for (const full of files) {
 }
 
 const listed = new Map();
-for (const { file, names, rule } of STOCK_SOUND_CONSUMERS) {
+for (const { file, names, rule, boardless } of STOCK_SOUND_CONSUMERS) {
 	if (!STOCK_SOUND_RULES.includes(rule)) problems.push(`${file}: unknown rule '${rule}'`);
+	// A boardless game (a play field, a card table) loads only the coded sounds marked for it: each
+	// coded row says whether it is one, so a new one is never left out of those games by default.
+	if (rule === 'always' && typeof boardless !== 'boolean')
+		problems.push(
+			`${file}: the 'always' row of ${names.join(', ')} must say whether a boardless game plays ` +
+				'it (`boardless: true | false`)',
+		);
 	if (!listed.has(file)) listed.set(file, new Set());
 	for (const name of names) {
 		if (!owner.has(name)) problems.push(`${file}: '${name}' (${rule}) is not a stock sound`);
