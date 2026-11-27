@@ -1682,4 +1682,72 @@ check(
 	},
 );
 
+// The spawn layer's depth order (2026-11-27, `depthOrder.ts`): a projected world's instances are
+// sorted only when a body's depth changes the order. Played against a layer whose zIndex is set
+// every frame, as before: moves (ties and crossings), spawns (sorted at once, as a mount sorts),
+// despawns and pieces with a fixed zIndex coming and going; the order drawn is the same every
+// frame, and the lazy layer sorts on far fewer of them.
+const { setDepth } = await import('../packages/engine-layout/src/lib/depthOrder.ts');
+check('the spawn layer sorts only when a depth changes the order, and draws the same order', () => {
+	let seed = 7;
+	const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const eager = new Container();
+	const lazy = new Container();
+	const bodies = [];
+	const pieces = [];
+	let next = 0;
+	const spawn = () => {
+		const id = next++;
+		const body = { id, depth: Math.floor(rand() * 40) * 4, a: new Container(), b: new Container() };
+		body.a.label = body.b.label = `b${id}`;
+		body.a.zIndex = body.depth;
+		setDepth(body.b, body.depth);
+		eager.addChild(body.a);
+		eager.sortChildren();
+		lazy.addChild(body.b);
+		lazy.sortChildren();
+		bodies.push(body);
+	};
+	const order = (parent) => parent.children.map((child) => child.label).join();
+	const sorts = { eager: 0, lazy: 0 };
+	const render = (parent, key) => {
+		parent.onRender?.(undefined);
+		if (parent.sortDirty) sorts[key]++;
+		if (parent.sortableChildren) parent.sortChildren();
+	};
+	for (let i = 0; i < 12; i++) spawn();
+	for (let frame = 0; frame < 3000; frame++) {
+		for (const body of bodies) {
+			if (rand() < 0.6) body.depth += Math.floor(rand() * 3) - 1;
+			body.a.zIndex = body.depth;
+			setDepth(body.b, body.depth);
+		}
+		if (rand() < 0.02) spawn();
+		if (rand() < 0.015 && bodies.length > 4) {
+			const [gone] = bodies.splice(Math.floor(rand() * bodies.length), 1);
+			gone.a.destroy();
+			gone.b.destroy();
+		}
+		if (rand() < 0.03) {
+			const z = Math.floor(rand() * 40) * 4;
+			const a = new Container();
+			const b = new Container();
+			a.label = b.label = `p${next++}`;
+			a.zIndex = b.zIndex = z;
+			eager.addChild(a);
+			lazy.addChild(b);
+			pieces.push([a, b]);
+		}
+		if (rand() < 0.03 && pieces.length) {
+			const [a, b] = pieces.splice(Math.floor(rand() * pieces.length), 1)[0];
+			a.removeFromParent();
+			b.removeFromParent();
+		}
+		render(eager, 'eager');
+		render(lazy, 'lazy');
+		assert.equal(order(lazy), order(eager), `frame ${frame}`);
+	}
+	assert.ok(sorts.lazy * 4 < sorts.eager, `sorted ${sorts.lazy} times, every frame ${sorts.eager}`);
+});
+
 console.log(`check:salmons-art: ${passed} passed`);
