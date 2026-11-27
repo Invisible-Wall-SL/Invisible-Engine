@@ -1562,6 +1562,16 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    head's middle with the features while its outline stays: the face no longer slides over a still
    head. Its turn is cut to what that skin has room for (about half the template's), and the lids and
    brows, at the face's corners, keep about 80% of the head's move under them.
+   **↻ Head turn** (the slider beside ⇄ Swap sides; hover it) makes the drawn head turn round with a
+   3D capture's turn and nod and with the **Head turn** and **Head up / down** controls: the head's
+   drawing bends in a dome about the face — the middle slides with the features, the round of the
+   head part-way on four `head_turn_*` bones, the chin and jaw line with the face, the skull's
+   outline stays — and what the head wears (glasses, an earring) turns with it at its depth, a prop
+   your Layers draw behind the head the other way. 1× is as round as the template's head, cut so a
+   40° turn never folds the drawing; past 1× it turns further and may fold on a big turn (2× past
+   about 20°); **off** is the face sliding alone. It is kept with the mapping: **🔄 Update rig** gives
+   a rig made before it the head turn too, and writes its depths into the rig's 3D data, so its 3D
+   clips bake the turn again.
 4. **Props.** **＋** on an unmapped region's thumbnail wears it on the part picked. In the **Props**
    list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
    that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just

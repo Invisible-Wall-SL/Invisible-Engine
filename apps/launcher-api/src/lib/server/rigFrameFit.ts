@@ -644,7 +644,10 @@ export function skinBends(
 
 /** Every bone a skin's joints and regions hand to, those their shares are split across too. */
 const skinBones = (list: readonly RigSkin[]): string[] =>
-	list.flatMap((j) => [j.bone, ...skinBones(j.then ?? [])]);
+	list.flatMap((j) => [
+		...('split' in j && j.split ? j.split : [j.bone]),
+		...skinBones(j.then ?? []),
+	]);
 
 /** The bone whose offset is a part's length (an arm segment's next joint). */
 const LENGTH_OF: Record<string, string> = Object.fromEntries(

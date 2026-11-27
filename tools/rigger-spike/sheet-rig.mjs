@@ -2108,8 +2108,14 @@ const GUARDS = {
 		const order = skel.drawOrder.map((s) => s.data.name);
 		for (const p of rig.mapping.props) {
 			const bone = skel.findBone(p.name);
+			// One worn on the head's drawing hangs from the head itself, at its depth (the head turn).
+			const from = rig.sr.fit.props.find((x) => x.name === p.name).bone;
+			const hangs = rig.sr.fit.turn && p.host === 'head' ? 'head' : p.bone;
 			good =
-				ok(`props: ${p.name} hangs from ${p.bone}`, bone?.parent?.data.name === p.bone) && good;
+				ok(
+					`props: ${p.name} hangs from ${hangs}`,
+					bone?.parent?.data.name === hangs && from === hangs,
+				) && good;
 			const host = rig.mapping.parts[p.host];
 			const hostSlot = slotOf(M, p.host);
 			const on = carried(drawing(skel, hostSlot, p.host), uvOf(host.region, p.at));
@@ -2360,10 +2366,12 @@ const GUARDS = {
 		let good = true;
 		const worst = { slip: 0, outline: 0, fold: Infinity, roll: 0, turn: Infinity };
 		const depth = M.HALF_BODY.rig3d.depths.face;
+		// ↻ Head turn off: the face over a head that does not turn (on: `sheet-head-turn.mjs`).
+		const still = (sh) => ({ ...sh, mapping: { ...sh.mapping, turn: 0 } });
 		for (const [what, sheet] of [
-			['drawn apart', ownerSheet(M, { face: false })],
-			['drawn apart, trimmed', trimmedHead(ownerSheet(M, { face: false }))],
-			['a face found on the head', ownerSheet(M, { face: true })],
+			['drawn apart', still(ownerSheet(M, { face: false }))],
+			['drawn apart, trimmed', still(trimmedHead(ownerSheet(M, { face: false })))],
+			['a face found on the head', still(ownerSheet(M, { face: true }))],
 		]) {
 			const rig = created(M, M.HALF_BODY, sheet.mapping, sheet.regions);
 			const apart = !sheet.mapping.parts.head.face;
@@ -2513,6 +2521,7 @@ const GUARDS = {
 			const r = regions.find((x) => x.name === head.region);
 			const pts = [
 				['the head', 'head', 'head', [0.5, 0.15]],
+				["the head's outline", 'head', 'head', [0.5, 0]],
 				["the head's face", 'head', 'head', [head.joints.face[0] / r.w, head.joints.face[1] / r.h]],
 				['the nose', 'nose', 'nose', [0.5, 0.5]],
 				['the brow', 'brow_l', 'brow_l_up', [0.5, 0.5]],
@@ -2899,7 +2908,7 @@ const MUTANTS = [
 	[
 		'skin',
 		"the head not skinned to the face's bones",
-		[FIT, 'mains, neckWidth, drawn?.spots, true);', 'mains, neckWidth, undefined, true);'],
+		[FIT, 'turned?.spots ?? drawn?.spots,\n\t\ttrue,', 'undefined,\n\t\ttrue,'],
 	],
 	[
 		'skin',
@@ -2909,7 +2918,11 @@ const MUTANTS = [
 	[
 		'proportions',
 		'parts drawn apart skinned into the parts beside them, as a cut frame is',
-		[FIT, 'mains, neckWidth, drawn?.spots, true);', 'mains, neckWidth, drawn?.spots, false);'],
+		[
+			FIT,
+			'turned?.spots ?? drawn?.spots,\n\t\ttrue,',
+			'turned?.spots ?? drawn?.spots,\n\t\tfalse,',
+		],
 	],
 	[
 		'headturn',
@@ -3052,7 +3065,7 @@ const MUTANTS = [
 	[
 		'arrange',
 		'no frame clip made of the arrangement',
-		[FIT, '...(frame ? { frame } : {}),\n\t\t...(drawn', '...(drawn'],
+		[FIT, '...(frame ? { frame } : {}),\n\t\t...(features', '...(features'],
 	],
 	[
 		'arrange',
@@ -3126,8 +3139,8 @@ const MUTANTS = [
 		"a prop's bone placed at rest",
 		[
 			FIT,
-			'fitTemplate(t, { bones, features: drawn.features }).bones, frame)',
-			'fitTemplate(t, { bones, features: drawn.features }).bones)',
+			'fitTemplate(t, { bones, features }).bones, frame)',
+			'fitTemplate(t, { bones, features }).bones)',
 		],
 	],
 	[

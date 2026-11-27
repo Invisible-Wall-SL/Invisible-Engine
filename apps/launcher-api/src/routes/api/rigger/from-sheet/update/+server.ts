@@ -25,8 +25,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
  * Body `{ dir, stem, projectKey, sheet, kept, skeleton, keep? }`: the edited mapping, the mapping the
  * rig holds as the page has it (`sheet.json`, or an update not saved yet), the open rig, and the
  * hand-edited parts whose mesh the author keeps. The sheet stays the rig's own (the bundle draws from
- * it). Answers the merged rig, the mapping to keep (`sheet`) and what changed (`report`). Gated by
- * `rigger`.
+ * it). Answers the merged rig, the mapping to keep (`sheet`), the depths its head turn gives (`depths`,
+ * for the rig's 3D data) and what changed (`report`). Gated by `rigger`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -78,6 +78,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		ok: true,
 		skeleton: made.value.doc,
 		sheet: { ...mapping, template: { id: template.id, version: template.version } },
+		depths: made.value.depths,
 		report: made.value.report,
 	});
 };

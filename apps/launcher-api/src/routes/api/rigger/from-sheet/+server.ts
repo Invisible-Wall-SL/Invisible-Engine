@@ -7,7 +7,10 @@ import { riggerBundlePrefix } from '$lib/server/riggerBundle';
 import { irigTarget, scopeMismatch } from '$lib/server/riggerIrigWrite';
 import { requestSheet } from '$lib/server/riggerNewRig';
 import { bundlePrefixOf, liveArtKey } from '$lib/server/rigFrameSourceStore';
-import { parseSheetMapping } from '$lib/server/rigSheetFit';
+import { loadRegionSet } from '$lib/server/editorRegions';
+import { parseSheetMapping, sheetRig } from '$lib/server/rigSheetFit';
+import { RIG_TEMPLATE_SIDECAR } from '$lib/server/rigTemplates';
+import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -35,8 +38,9 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 /**
  * The mapping 🔄 Update rig left the rig with (§13.1b), stored once the rig is: PUT `{ dir, stem,
  * projectKey, sheet, baseEtag }`, conditional on the `sheet.json` the page read (a 409 when another
- * tab updated it since). Only beside an existing rig, and of the sheet it draws from. Answers
- * `{ ok, etag }`.
+ * tab updated it since). Only beside an existing rig, and of the sheet it draws from. The rig's fit
+ * (`template.json`) follows the mapping, so its Controls drive what the update made (a prop, the head
+ * turn). Answers `{ ok, etag }`.
  */
 export const PUT: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
@@ -60,6 +64,15 @@ export const PUT: RequestHandler = async ({ request, locals, cookies }) => {
 			'application/json',
 			precondition(baseEtag),
 		);
+		const template = await rigTemplateForNewRig(mapping.template.id);
+		const { regions } = template ? await loadRegionSet(mapping.manifestKey) : { regions: [] };
+		const made = template && regions.length ? sheetRig(template, regions, mapping) : null;
+		if (template && made?.ok)
+			await putObjectText(
+				`${bundlePrefixOf(target)}/${RIG_TEMPLATE_SIDECAR}`,
+				JSON.stringify({ id: template.id, version: template.version, fit: made.value.fit }),
+				'application/json',
+			);
 		return json({ ok: true, etag });
 	} catch (e) {
 		const conflict = conflictResponse(

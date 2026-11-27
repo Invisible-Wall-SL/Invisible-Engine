@@ -14,7 +14,7 @@
  *   would refuse from the list) unless the author changed the mapping's Layers list since and it
  *   moves a slot; then the slots it lists take its order, held to the depth controls as a create's.
  */
-import type { SheetMapping } from '../rigSheetMap';
+import type { SheetMapping, SheetProp } from '../rigSheetMap';
 import { inDrawOrder } from '../rigSlotOrder';
 import {
 	frameRigUpdate,
@@ -25,7 +25,7 @@ import {
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
 import { layersJudged, sheetLayerOrder, sheetRig, slotsAgainstDepth } from './rigSheetFit';
-import { fitTemplate, frameWorld } from './rigTemplateFit';
+import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
 type Json = Record<string, unknown>;
@@ -51,12 +51,32 @@ export type FrameClipChange = 'unchanged' | 'replaced' | 'added' | 'removed' | '
 
 export interface SheetUpdateResult {
 	doc: Json;
+	/**
+	 * The depths the mapping's head turn gives its bones and what the head wears (z in the parent's
+	 * frame, rig units): a rig with 3D data takes them into its `rig3d.json`.
+	 */
+	depths: Record<string, number>;
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean }[];
 		frame: FrameClipChange;
 		/** The slots the Layers list moved, when the author changed it: else the rig's order stays. */
 		layered: string[];
 	};
+}
+
+/**
+ * The depths a sheet's fit gives the head (z in the parent's frame): the face's, which the head turn
+ * sets, its ring's and those it sets (`RigFit.turn`); none for a template with no 3D setup.
+ */
+export function headTurnDepths(t: RigTemplate, fit: RigFit): Record<string, number> {
+	const depths = fitTemplate(t, fit).rig3d?.depths;
+	if (!depths) return {};
+	const named = [
+		'face',
+		...(fit.turn?.bones ?? []).map((b) => b.name),
+		...Object.keys(fit.turn?.depths ?? {}),
+	];
+	return Object.fromEntries(named.map((b) => [b, depths[b] ?? 0]));
 }
 
 /** Each key of a clip's bone timelines as numbers, a default left out of the file read as written. */
@@ -114,18 +134,35 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	if (!now.ok) return now;
 	const { skeleton: fresh, fit } = now.value;
 	const freshBind = frameWorld(fitTemplate(o.template, fit).bones, fit.frame);
-	// As made: the kept mapping built today; a kept mapping that no longer builds takes the rig's own
-	// attachments as made, so nothing reads as edited by hand.
-	const was = build(o.template, o.regions, o.was);
+	// As made: the kept mapping built today (a rig made before the head turn, none of its bones, built
+	// without one); a kept mapping that no longer builds takes the rig's own attachments as made, so
+	// nothing reads as edited by hand.
+	const turnedBefore = ((o.current.bones ?? []) as { name?: unknown }[]).some((b) =>
+		(HEAD_TURN_BONES as readonly unknown[]).includes(b.name),
+	);
+	const keptAs = turnedBefore || o.was.turn !== undefined ? o.was : { ...o.was, turn: 0 };
+	const was = build(o.template, o.regions, keptAs);
 	const asMade = was.ok ? was.value.skeleton : o.current;
 	const names = was.ok
 		? madeAttachments(asMade).map((m) => m.name)
 		: [...Object.keys(o.was.parts), ...o.was.props.map((p) => p.name)];
+	// Each prop's bone as its build hangs it (one worn on the head hangs from the head when it turns).
+	const boneOf = (built: RigFit | undefined, p: SheetProp) =>
+		built?.props?.find((x) => x.name === p.name)?.bone ?? p.bone;
 	const made = {
 		parts: madeParts(asMade, names),
-		props: o.was.props.map((p) => ({ name: p.name, take: true, motion: 'rides', bone: p.bone })),
+		props: o.was.props.map((p) => ({
+			name: p.name,
+			take: true,
+			motion: 'rides',
+			bone: boneOf(was.ok ? was.value.fit : undefined, p),
+		})),
 	};
-	const props = o.mapping.props.map((p) => ({ name: p.name, motion: 'rides', bone: p.bone }));
+	const props = o.mapping.props.map((p) => ({
+		name: p.name,
+		motion: 'rides',
+		bone: boneOf(fit, p),
+	}));
 	// A hand-edited mesh may stay while its part draws the region it drew.
 	const sameRegion = (part: string) =>
 		[o.was.parts[part]?.region, o.was.props.find((p) => p.name === part)?.region].some(
@@ -190,6 +227,7 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		ok: true,
 		value: {
 			doc,
+			depths: headTurnDepths(o.template, fit),
 			report: {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
