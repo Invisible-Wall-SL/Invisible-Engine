@@ -162,6 +162,7 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `apps/launcher-api/vite.config.js`, `apps/launcher-api/svelte.config.js`,
     `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
     `apps/launcher-api/scripts/check-bug-reports.ts`,
+    `apps/launcher-api/scripts/check-merge-main-join.ts`,
     `apps/launcher-api/scripts/check-merge-main-runs.ts`,
     `apps/launcher-api/scripts/check-pipeline-changes.ts`,
     `apps/launcher-api/scripts/check-pipeline-games.ts`,

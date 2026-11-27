@@ -1622,6 +1622,21 @@ async function endToEnd() {
 }
 await endToEnd();
 
+// A raw NUL in a tracked text file is a "binary" to §10, so any merge touching it ends needs_person.
+{
+	const TEXT = /\.(?:html?|m?[jt]s|[cm]?js|svelte|css|json|md|ya?ml|sql|txt|svg|py|toml|glsl|sh)$/i;
+	const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'buffer' });
+	const withNul = listed.stdout
+		.toString('utf8')
+		.split('\0')
+		.filter((f) => f && TEXT.test(f) && existsSync(join(ROOT, f)))
+		.filter((f) => readFileSync(join(ROOT, f)).includes(0));
+	check(
+		listed.status === 0 && !withNul.length,
+		`no tracked text file holds a raw NUL (write \\u0000): ${withNul.join(', ')}`,
+	);
+}
+
 rmSync(TMP, { recursive: true, force: true });
 if (failures.length) {
 	console.error(

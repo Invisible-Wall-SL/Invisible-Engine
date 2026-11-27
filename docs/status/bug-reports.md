@@ -345,6 +345,18 @@ server module, routes, page components, triage, screenshots, the pull-request li
     (`bugFixRunsChange.ts`, `scripts/bug-fix/settings.json` and `coordinator.md`).
   - Fixtures: `check:merge-main-runs` (new, 189 checks), `check:pipeline-changes` (the conflict
     sentence), `check:bug-fix-runs`, `check:bug-fix-workflow`.
+  - **Joined to the job (15B1), same day.** `check:merge-main-join` runs the job's own code on
+    real scratch repos (docs append, a stubbed runtime-bytes build, a model resolution with a
+    pending build, identical and both-deleted paths, a harness refusal, a spent budget, a binary),
+    feeds the exact JSON `encodeBody` sends to `parseMergeResult`, then Accept's `planMerge` over
+    the same repos, and compares the tree with git's own merge plus the resolution. It found two
+    drifts, both fixed launcher side: a path both sides changed identically (`choice` `main`) or
+    deleted may be a protected path or a lockfile, and a pending rule file (`choice` `main`) is a
+    rule file. The parser now takes only the job's three forms (proposal, refusal, failure; every
+    key present, `null` where a form has none), the result route reads up to 8 MB unpacked
+    (`readResultBody` takes a cap), and `usage` is priced from `pricing.json` and a cost the job
+    names is ignored. Raw NULs in `rigger/view.html`, `sheet-tool/ui.html` and
+    `optimize-build-assets.mjs` are now `\u0000`, and `check:merge-main` fails on a new one.
 - 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline."
   - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with

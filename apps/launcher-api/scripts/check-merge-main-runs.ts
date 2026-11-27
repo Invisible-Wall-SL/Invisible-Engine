@@ -1339,19 +1339,138 @@ expectBad(
 	},
 	"The result's met has a pull request that is not a number.",
 );
+// ── The three forms the job sends (ADR-0015 §10; every key, null where a form has none) ─────────
+const SHA_A = 'a'.repeat(40);
+const without = (b: Json, key: string): Json =>
+	Object.fromEntries(Object.entries(b).filter(([k]) => k !== key));
+const refusalForm: Json = {
+	mergeRun: '0123456789',
+	headSha: SHA_A,
+	mainSha: 'b'.repeat(40),
+	baseSha: 'c'.repeat(40),
+	outcome: 'harness_conflict',
+	reason: 'A conflict in .github/workflows/lint.yml.',
+	files: [],
+	explanation: null,
+	usage: [],
+};
+const failureForm: Json = {
+	mergeRun: '0123456789',
+	headSha: SHA_A,
+	mainSha: 'b'.repeat(40),
+	baseSha: null,
+	failure: 'it broke',
+	reason: null,
+	files: [],
+	explanation: null,
+	usage: [],
+};
+const formView = (b: Json): unknown[] => {
+	const r = parse(b) as Json;
+	return [r.outcome, r.failure, r.reason, r.baseSha, (r.files as unknown[]).length, r.explanation];
+};
 check(
-	'parser: a failure stands in for an outcome and needs no shas',
-	[
-		(parse({ mergeRun: '0123456789', failure: 'it broke', usage: [] }) as Json).failure,
-		(parse({ mergeRun: '0123456789', failure: 'it broke', usage: [] }) as Json).headSha,
-	],
-	['it broke', null],
+	'parser: a refusal as the job sends it (reason, files [], explanation null, no failure key)',
+	formView(refusalForm),
+	['harness_conflict', null, 'A conflict in .github/workflows/lint.yml.', 'c'.repeat(40), 0, null],
 );
+check(
+	'parser: a refusal with a null baseSha (no single merge base, or the job broke first)',
+	formView({ ...refusalForm, baseSha: null }).slice(3, 4),
+	[null],
+);
+check(
+	'parser: a refusal may carry failure null',
+	formView({ ...refusalForm, failure: null }).slice(0, 2),
+	['harness_conflict', null],
+);
+check(
+	'parser: a failure as the job sends it (failure, reason null, files [], explanation null, baseSha null)',
+	formView(failureForm),
+	[null, 'it broke', '', null, 0, null],
+);
+check(
+	'parser: a failure may carry outcome null',
+	formView({ ...failureForm, outcome: null }).slice(0, 2),
+	[null, 'it broke'],
+);
+check(
+	'parser: a proposal has reason null and a baseSha',
+	[(parse(good) as Json).reason, (parse(good) as Json).baseSha === good.baseSha],
+	['', true],
+);
+for (const [label, b, said] of [
+	[
+		'a proposal with a reason',
+		{ ...good, reason: 'because' },
+		"The result's reason is not null in a proposal.",
+	],
+	[
+		'a proposal with no baseSha',
+		{ ...good, baseSha: null },
+		"The result's baseSha is not a 40-character SHA.",
+	],
+	[
+		'a refusal that carries files',
+		{ ...refusalForm, files: good.files as unknown[] },
+		"The result's files is not empty without a proposal.",
+	],
+	[
+		'a refusal that carries an explanation',
+		{ ...refusalForm, explanation: explanation() },
+		"The result's explanation is not null without a proposal.",
+	],
+	[
+		'a refusal whose reason is null',
+		{ ...refusalForm, reason: null },
+		"The result's reason is not text.",
+	],
+	[
+		'a failure with a reason',
+		{ ...failureForm, reason: 'no' },
+		"The result's reason is not null in a failure.",
+	],
+	[
+		'a failure with an explanation',
+		{ ...failureForm, explanation: explanation() },
+		"The result's explanation is not null without a proposal.",
+	],
+	[
+		'a failure with no sentence',
+		{ ...failureForm, failure: '  ' },
+		"The result's failure is empty.",
+	],
+	[
+		'an outcome and a failure together',
+		{ ...refusalForm, failure: 'x' },
+		"The result's has both an outcome and a failure.",
+	],
+	[
+		'a failure with no head',
+		{ ...failureForm, headSha: null },
+		"The result's headSha is not a 40-character SHA.",
+	],
+	[
+		'a baseSha that is not a sha',
+		{ ...refusalForm, baseSha: 'abc' },
+		"The result's baseSha is not a 40-character SHA.",
+	],
+	['a missing key (files)', without(refusalForm, 'files'), "The result's files is missing."],
+	[
+		'a missing key (explanation)',
+		without(failureForm, 'explanation'),
+		"The result's explanation is missing.",
+	],
+	['a missing key (reason)', without(failureForm, 'reason'), "The result's reason is missing."],
+	['a missing key (baseSha)', without(refusalForm, 'baseSha'), "The result's baseSha is missing."],
+] as const) {
+	expectBad(label, b as Json, said);
+}
 check(
 	'parser: the 4x slack — a text far past its cap is refused unread, one a little over is kept (and cut later)',
 	[
-		typeof parse({ ...good, reason: 'r'.repeat(12_000) }),
-		typeof parse({ ...good, reason: 'r'.repeat(12_001) }),
+		typeof parse({ ...refusalForm, reason: 'r'.repeat(12_000) }),
+		typeof parse({ ...refusalForm, reason: 'r'.repeat(12_001) }),
 	],
 	['object', 'string'],
 );
@@ -1405,6 +1524,90 @@ check(
 // the rules on the files
 const prob = (f: Partial<MergeRunFile>[], hunks: string[] = []) =>
 	parsed.filesProblem(files(...f), new Set(hunks));
+// "both sides changed" is base≠head AND base≠main: that includes a path both changed identically
+// (choice main) and one both deleted (content null). Listed so, a protected path or a lockfile is
+// not the run's change (main's own entry on main's tree), while any other choice there still is.
+check(
+	'files: a path both sides changed identically or deleted (choice main) may be a protected path or a lockfile; any other choice may not',
+	[
+		prob([{ path: 'pnpm-lock.yaml', rule: null, choice: 'main', content: 'lock: 2\n' }]),
+		prob([{ path: 'scripts/bug-fix/shared.mjs', rule: null, choice: 'main', content: null }]),
+		prob([{ path: 'pnpm-lock.yaml', rule: null, choice: 'change', content: 'lock: 2\n' }]),
+		prob([{ path: 'scripts/bug-fix/shared.mjs', rule: null, choice: 'both', content: 'x\n' }]),
+	],
+	[
+		null,
+		null,
+		'it changes a lockfile: dependencies are for a person to decide',
+		'it touches a protected path (scripts/bug-fix)',
+	],
+);
+check(
+	'files: a rule file whose build was left pending holds main’s (choice main, rule runtime-bytes)',
+	[
+		prob([
+			{
+				path: 'scripts/runtime-bytes/lines.json',
+				rule: 'runtime-bytes',
+				choice: 'main',
+				content: '{}\n',
+			},
+		]),
+		prob([{ path: 'src/a.ts', rule: 'runtime-bytes', choice: 'main', content: '{}\n' }]),
+	],
+	[null, 'a regenerated file is not one a rule regenerates'],
+);
+{
+	const e = (sha: string) => ({ mode: '100644', type: 'blob', sha });
+	const trees = (b: Record<string, string>, h: Record<string, string>, m: Record<string, string>) =>
+		[b, h, m].map((t) => new Map(Object.entries(t).map(([p, sha]) => [p, e(sha)])));
+	const [b, h, m] = trees(
+		{ 'same.ts': '1', 'gone.ts': '1', 'mine.ts': '1', 'a.ts': '1' },
+		{ 'same.ts': '2', 'mine.ts': '2', 'a.ts': '2' },
+		{ 'same.ts': '2', 'mine.ts': '1', 'a.ts': '3' },
+	);
+	const plan = (list: Partial<MergeRunFile>[]) => {
+		const r = built.planMerge(b, h, m, files(...list));
+		return 'problem' in r ? r.problem : r.plan.writes.map((w: { path: string }) => w.path);
+	};
+	check(
+		'accept: a path both sides changed identically or deleted needs no resolution and writes nothing; a path only the head changed takes the head; one both changed to different things needs the run',
+		[
+			plan([{ path: 'a.ts', rule: null, choice: 'combined', content: 'merged\n' }]),
+			plan([]),
+			plan([
+				{ path: 'a.ts', rule: null, choice: 'combined', content: 'merged\n' },
+				{ path: 'same.ts', rule: null, choice: 'main', content: 'x\n' },
+				{ path: 'gone.ts', rule: null, choice: 'main', content: null },
+			]),
+		],
+		[['mine.ts', 'a.ts'], 'a path both sides changed has no resolution', ['mine.ts', 'a.ts']],
+	);
+}
+// a checks[].command may be a sentence (a docs-only proposal): it is text, never run
+check(
+	'checks: a command that is a sentence is kept as text, backticks softened, never anything to run',
+	parsed.cleanExplanation(
+		parsed.parseMergeResult(
+			body({ head: 'a'.repeat(40), main: 'b'.repeat(40) }, '0123456789', {
+				explanation: explanation(['docs/a.md'], {
+					checks: [{ command: 'Read the `docs/a.md` diff; no command applies', ok: true }],
+				}),
+			}),
+		).explanation!,
+	).checks,
+	[{ command: "Read the 'docs/a.md' diff; no command applies", ok: true }],
+);
+check(
+	'checks: the page shows it as a line of text',
+	view
+		.proposalSections({
+			...explanation(['docs/a.md']),
+			checks: [{ command: 'Read the diff; no command applies', ok: true }],
+		})
+		.find((x: { key: string }) => x.key === 'checks')?.lines,
+	['passed: Read the diff; no command applies'],
+);
 check(
 	'files: a protected path is refused, except under the docs-append rule',
 	[
@@ -1567,7 +1770,13 @@ const failFast = async (
 	const a = await post(r.id, r.gh, body(w, r.id, extra));
 	return { a, run: runOf(r.id), id: r.id };
 };
-const f1 = await failFast({ outcome: undefined, failure: 'the job broke' });
+const NO_RESULT = { files: [], explanation: null };
+const f1 = await failFast({
+	outcome: undefined,
+	failure: 'the job broke',
+	reason: null,
+	...NO_RESULT,
+});
 check(
 	'result: a failure ends it failed, saying so in the launcher’s sentence',
 	[f1.a.body.status, f1.run.reason],
@@ -1580,14 +1789,18 @@ for (const [outcome, status] of [
 	['too_large', 'needs_person'],
 	['no_proposal', 'no_proposal'],
 ] as const) {
-	const f = await failFast({ outcome, reason: `Because of ${outcome} in src/a.ts` });
+	const f = await failFast({
+		outcome,
+		reason: `Because of ${outcome} in src/a.ts`,
+		...NO_RESULT,
+	});
 	check(
 		`result: outcome ${outcome} → ${status}, the job's sentence kept, no files`,
 		[f.run.status, f.run.reason, f.run.files],
 		[status, `Because of ${outcome} in src/a.ts`, null],
 	);
 }
-const noReason = await failFast({ outcome: 'harness_conflict', reason: null });
+const noReason = await failFast({ outcome: 'harness_conflict', reason: '', ...NO_RESULT });
 check(
 	'result: an outcome with no sentence gets the launcher’s own',
 	noReason.run.reason,
@@ -1595,9 +1808,20 @@ check(
 );
 const noExplanation = await failFast({ explanation: null });
 check(
-	'result: a proposal with no explanation → no_proposal "did not explain"',
-	[noExplanation.run.status, noExplanation.run.reason],
-	['no_proposal', 'The run did not explain its resolution.'],
+	'result: a proposal with no explanation is not a form the job sends → 400, the run still working',
+	[noExplanation.a.status, noExplanation.run.status],
+	[400, 'dispatched'],
+);
+const noUsage = await (async () => {
+	const w = world(SRC_BASE, { 'src/a.ts': '1\n' }, { 'src/a.ts': '2\n' });
+	const r = await started(w, ADMIN, ++nextGh);
+	const { usage: _usage, ...rest } = body(w, r.id);
+	return { a: await post(r.id, r.gh, rest), run: runOf(r.id) };
+})();
+check(
+	'result: usage is always sent: a body without it → 400, the run still working',
+	[noUsage.a.status, noUsage.run.status],
+	[400, 'dispatched'],
 );
 const emptyRisks = await failFast({ explanation: { ...explanation(), risks: '' } });
 check('result: empty risks → no_proposal', emptyRisks.run.status, 'no_proposal');
@@ -1655,6 +1879,66 @@ const tooManyModels = await failFast({
 	usage: Array.from({ length: 11 }, (_, i) => ({ ...usage[0], model: `m${i}` })),
 });
 check('result: usage naming more than 10 models → 400', tooManyModels.a.status, 400);
+
+const runsBefore = runs.length;
+// §10 `usage`: the job sends the fix-run shape (tokens per model, no cost), and the launcher prices it
+const jobUsage = {
+	model: 'claude-opus-5-5',
+	inputTokens: 120,
+	outputTokens: 30,
+	cacheReadTokens: 5,
+	cacheWriteTokens: 7,
+};
+const priced = await (async () => {
+	const w = world(SRC_BASE, { 'src/a.ts': '1\n' }, { 'src/a.ts': '2\n' });
+	const r = await started(w, ADMIN, ++nextGh);
+	const rows = ledger.length;
+	const a = await post(r.id, r.gh, body(w, r.id, { usage: [{ ...jobUsage, costUsd: 99 }] }));
+	return { a, usd: ledger.slice(rows).map((l) => l.usd.toFixed(6)) };
+})();
+check(
+	"usage: the job's tokens are priced from pricing.json and a cost it names is not read (120 in, 30 out, 5 cache-read, 7 cache-write at $4 / $20)",
+	priced.usd,
+	['0.001117'],
+);
+check(
+	'result: the answer is { mergeRun, status, spendUsd } and nothing else (collect logs status and spendUsd)',
+	[
+		priced.a.status,
+		Object.keys(priced.a.body).sort(),
+		priced.a.body.spendUsd,
+		priced.a.body.status,
+	],
+	[200, ['mergeRun', 'spendUsd', 'status'], 0.001117, 'proposed'],
+);
+
+// body size: the job gzips above 400 KB and sends at most 8 MB unpacked
+const sizeRun = async (raw: Buffer, gzip: boolean) => {
+	const w = world(SRC_BASE, { 'src/a.ts': '1\n' }, { 'src/a.ts': '2\n' });
+	const r = await started(w, ADMIN, ++nextGh);
+	const a = await call(resultRoute.POST, {
+		params: { id: r.id },
+		raw: gzip ? gzipSync(raw) : raw,
+		headers: {
+			...bearer(token({ run_id: String(r.gh) })),
+			...(gzip ? { 'content-encoding': 'gzip' } : {}),
+		},
+	});
+	return a.status;
+};
+const padded = (bytes: number): Buffer => Buffer.from(JSON.stringify({ pad: 'x'.repeat(bytes) }));
+check(
+	'result body: 3 MB plain and 7 MB gzipped are read (then refused as a body, 400, not as a size)',
+	[await sizeRun(padded(3 * 1024 * 1024), false), await sizeRun(padded(7 * 1024 * 1024), true)],
+	[400, 400],
+);
+check(
+	'result body: over 8 MB plain, or unpacking past 8 MB gzipped → 413',
+	[await sizeRun(padded(9 * 1024 * 1024), false), await sizeRun(padded(9 * 1024 * 1024), true)],
+	[413, 413],
+);
+// the runs left working would crowd the backstop's per-sweep reads below
+runs.splice(runsBefore);
 
 // the budget
 ledger.push({

@@ -308,7 +308,7 @@ export async function acceptMergeRunResult(
 	deps: MergeJobDeps = {},
 ): Promise<MergeResultAnswer> {
 	const run = await jobRun(request, id, deps);
-	const body = await readResultBody(request);
+	const body = await readResultBody(request, MERGE_CAPS.body);
 	const spendUsd = await recordSpend(run.id, parseUsage(body.usage));
 	let result: ParsedMergeResult;
 	try {

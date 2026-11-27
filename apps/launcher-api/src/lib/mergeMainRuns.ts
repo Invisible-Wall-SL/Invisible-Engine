@@ -122,6 +122,8 @@ export const MERGE_CAPS = {
 	path: 300,
 	hunks: 200,
 	files: 200,
+	/** What a result body may unpack to (the job gzips above 400 KB and sends at most this much). */
+	body: 8 * 1024 * 1024,
 } as const;
 
 // ── Start ─────────────────────────────────────────────────────────────────────

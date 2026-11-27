@@ -77,6 +77,17 @@ const TOP_KEYS = [
 	'explanation',
 	'usage',
 ];
+/** Every key but `outcome` and `failure`, which a form leaves out. */
+const REQUIRED_KEYS = [
+	'mergeRun',
+	'headSha',
+	'mainSha',
+	'baseSha',
+	'reason',
+	'files',
+	'explanation',
+	'usage',
+];
 const FILE_KEYS = ['path', 'choice', 'rule', 'content', 'mode'];
 const EXPLANATION_KEYS = ['conflicted', 'hunks', 'outside', 'checks', 'risks'];
 const HUNK_KEYS = ['path', 'index', 'main', 'change', 'takes', 'why', 'nowDoes', 'otherwise'];
@@ -193,42 +204,69 @@ function parseExplanation(v: unknown): MergeRunExplanation {
 	return { conflicted, hunks, outside, checks, risks: text(e.risks, 'risks') };
 }
 
-/** The result as the job posted it, or a {@link ResultProblem}: the contract's shape and nothing else. */
+/**
+ * The result as the job posted it, or a {@link ResultProblem}: the contract's shape and nothing else.
+ * The job sends exactly three forms, each with every key but the one its form leaves out
+ * (`outcome` in a failure, `failure` in the others, either may be `null`):
+ *  - a proposal: `outcome` `proposed`, `reason` null, `files`, an `explanation` and a `baseSha`;
+ *  - a refusal: any other `outcome`, a `reason` sentence, `files` `[]`, `explanation` null;
+ *  - a failure (the job itself broke): a `failure` sentence, `reason` null, `files` `[]`,
+ *    `explanation` null.
+ * `headSha` and `mainSha` are always the run's; `baseSha` is null only with no single merge base or
+ * when the job broke first. Anything else is refused, however harmless it looks.
+ */
 export function parseMergeResult(body: Record<string, unknown>): ParsedMergeResult {
 	only(body, TOP_KEYS, 'body');
+	for (const key of REQUIRED_KEYS) if (!(key in body)) bad(`${key} is missing`);
 	if (typeof body.mergeRun !== 'string' || !MERGE_RUN_ID.test(body.mergeRun)) {
 		bad('mergeRun is not a merge run id');
 	}
-	const failure =
-		body.failure === undefined || body.failure === null
-			? null
-			: text(body.failure, 'failure', MERGE_CAPS.text).trim() || null;
+	const given = <T>(v: unknown): v is T => v !== undefined && v !== null;
+	const failure = given(body.failure)
+		? text(body.failure, 'failure', MERGE_CAPS.text).trim() || bad('failure is empty')
+		: null;
 	let outcome: MergeRunOutcome | null = null;
-	if (body.outcome !== undefined && body.outcome !== null) {
+	if (given(body.outcome)) {
 		if (!isMergeRunOutcome(body.outcome)) bad('outcome is not one the launcher knows');
 		outcome = body.outcome as MergeRunOutcome;
 	}
+	if (outcome && failure) bad('has both an outcome and a failure');
 	if (!outcome && !failure) bad('outcome is missing');
-	const sha = (key: 'headSha' | 'mainSha' | 'baseSha'): string | null => {
+	const sha = (key: 'headSha' | 'mainSha' | 'baseSha', nullable: boolean): string | null => {
 		const v = body[key];
-		if (v === undefined || v === null) return outcome ? bad(`${key} is missing`) : null;
+		if (v === null && nullable) return null;
 		return typeof v === 'string' && SHA_40.test(v) ? v : bad(`${key} is not a 40-character SHA`);
 	};
-	const reason =
-		body.reason === undefined || body.reason === null ? '' : text(body.reason, 'reason');
+	const headSha = sha('headSha', false);
+	const mainSha = sha('mainSha', false);
+	const baseSha = sha('baseSha', outcome !== 'proposed');
+	let reason = '';
+	let files: MergeRunFile[] = [];
+	let explanation: MergeRunExplanation | null = null;
+	if (outcome === 'proposed') {
+		if (body.reason !== null) bad('reason is not null in a proposal');
+		files = parseFiles(body.files);
+		explanation = parseExplanation(body.explanation);
+	} else {
+		if (!Array.isArray(body.files) || body.files.length)
+			bad('files is not empty without a proposal');
+		if (body.explanation !== null) bad('explanation is not null without a proposal');
+		if (failure) {
+			if (body.reason !== null) bad('reason is not null in a failure');
+		} else {
+			reason = text(body.reason, 'reason');
+		}
+	}
 	return {
 		mergeRun: body.mergeRun as string,
-		headSha: sha('headSha'),
-		mainSha: sha('mainSha'),
-		baseSha: sha('baseSha'),
+		headSha,
+		mainSha,
+		baseSha,
 		outcome,
 		failure,
 		reason,
-		files: body.files === undefined || body.files === null ? [] : parseFiles(body.files),
-		explanation:
-			body.explanation === undefined || body.explanation === null
-				? null
-				: parseExplanation(body.explanation),
+		files,
+		explanation,
 		usage: body.usage,
 	};
 }
@@ -318,9 +356,12 @@ const RULE_PATHS: Record<Exclude<MergeRule, 'docs-append'>, RegExp> = {
 };
 const DOCS_PATH = /^docs\/.+\.md$/;
 
-/** Whether `file` is a regenerated file of a rule that regenerates (§3), by rule and path. */
+/**
+ * Whether `file` is a file of a rule that regenerates (§3), by rule and path: `regenerated`, or
+ * `main` when the build was left pending (the file still holds `main`'s and a risk says so).
+ */
 export const isRegenerated = (file: Pick<MergeRunFile, 'path' | 'choice' | 'rule'>): boolean =>
-	file.choice === 'regenerated' &&
+	(file.choice === 'regenerated' || file.choice === 'main') &&
 	file.rule !== null &&
 	file.rule !== 'docs-append' &&
 	RULE_PATHS[file.rule].test(file.path);
@@ -348,9 +389,17 @@ export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<strin
 		} else if (f.rule !== null || f.choice === 'regenerated') {
 			if (!isRegenerated(f)) return 'a regenerated file is not one a rule regenerates';
 		}
+		// `main`'s own entry written onto `main`'s tree changes nothing, and Accept refuses a `main`
+		// that is not (`planMerge`): it is how a path both sides changed identically, or both deleted,
+		// is listed, so a protected path or a lockfile there is not the run's change.
+		const keepsMain = f.choice === 'main' && f.rule === null;
 		const guarded = protectedEntry(f.path);
-		if (guarded && f.rule !== 'docs-append') return `it touches a protected path (${guarded})`;
-		if (isLockfile(f.path)) return 'it changes a lockfile: dependencies are for a person to decide';
+		if (guarded && f.rule !== 'docs-append' && !keepsMain) {
+			return `it touches a protected path (${guarded})`;
+		}
+		if (isLockfile(f.path) && !keepsMain) {
+			return 'it changes a lockfile: dependencies are for a person to decide';
+		}
 		if (f.rule === null && hunkPaths.has(f.path)) model++;
 		if (secretIn(f.path)) return 'secret scan: a secret in a path';
 		if (f.content === null) continue;

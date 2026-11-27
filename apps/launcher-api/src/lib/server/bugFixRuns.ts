@@ -756,16 +756,20 @@ export async function acceptFixRunResult(
 	};
 }
 
-export async function readResultBody(request: Request): Promise<Record<string, unknown>> {
+export async function readResultBody(
+	request: Request,
+	maxBytes: number = MAX_RESULT_BYTES,
+): Promise<Record<string, unknown>> {
+	const mb = `${maxBytes / (1024 * 1024)} MB`;
 	const raw = Buffer.from(await request.arrayBuffer());
-	if (raw.length > MAX_RESULT_BYTES) throw error(413, 'A result is at most 2 MB.');
+	if (raw.length > maxBytes) throw error(413, `A result is at most ${mb}.`);
 	const encoding = (request.headers.get('content-encoding') ?? '').trim().toLowerCase();
 	let bytes: Buffer;
 	if (encoding === 'gzip') {
 		try {
-			bytes = gunzipSync(raw, { maxOutputLength: MAX_RESULT_BYTES });
+			bytes = gunzipSync(raw, { maxOutputLength: maxBytes });
 		} catch (err) {
-			if (err instanceof RangeError) throw error(413, 'A result unpacks to at most 2 MB.');
+			if (err instanceof RangeError) throw error(413, `A result unpacks to at most ${mb}.`);
 			throw error(400, 'The result is not gzip.');
 		}
 	} else if (encoding === '' || encoding === 'identity') {

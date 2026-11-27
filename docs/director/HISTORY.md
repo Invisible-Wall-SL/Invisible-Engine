@@ -15,6 +15,32 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · director-backend + regression-guardian (15B1 and 15C joined)
+- Did: the cross-check ADR-0015 §10 asks of the last card to land.
+  - `check:merge-main-join` (new, `apps/launcher-api/scripts/check-merge-main-join.ts`): the job's
+    own code on real scratch repos, its exact JSON through `parseMergeResult`, `filesProblem` and
+    Accept's `planMerge`, and the resulting tree against git's own merge plus the resolution. Seven
+    cases, 49 checks.
+  - Two drifts found and fixed launcher side: a protected path or lockfile both sides changed
+    identically (`choice` `main`) was refused; a pending rule file (`choice` `main`) was not
+    seen as a rule file.
+  - The parser takes only the job's three forms and refuses the rest; `readResultBody` takes a cap
+    (merge runs: 8 MB, fix runs: 2 MB as before); `usage` priced from `pricing.json`, a named cost
+    ignored; the answer is `{ mergeRun, status, spendUsd }`; a `checks[].command` sentence is text.
+  - Raw NUL characters in `static/rigger/view.html` (hand-written, not built), `sheet-tool/ui.html`
+    and `optimize-build-assets.mjs` replaced by `\u0000`; `check:merge-main` fails on a new one.
+- Files: `apps/launcher-api/src/lib/server/{pipelineMergeRunsResult,bugFixRuns,pipelineMergeRuns,bugFixRunsChange}.ts`,
+  `src/lib/mergeMainRuns.ts`, `scripts/check-merge-main-{join,runs}.ts`, `package.json`,
+  `scripts/merge-main/merge-main.fixture.mjs`, `scripts/bug-fix/coordinator.md`, the three NUL files,
+  `docs/status/bug-reports.md`.
+- Branch / PR: `merge-main-join`, from `f8daa89ea`; not pushed.
+- Tests: `check:merge-main` 114, `check:merge-main-runs` 242, `check:merge-main-join` 49,
+  `check:pipeline-changes`, `check:bug-fix-runs`, `check:bug-fix-workflow`, vendored bundles,
+  migration order, svelte-check 44 (baseline 44), undefined names.
+- Decisions: a `main` choice on a path both sides changed is no change to `main`'s tree and Accept
+  checks its content, so the parser does not hold it to the protected-path and lockfile rules.
+- Next: 15B2 (the workflow), then 15D.
+
 ## 2026-11-27 · Phase 12 · infra-railway + regression-guardian (15B1 built)
 - Did: `scripts/merge-main/`, runnable on a local checkout.
   - `merge.mjs` (job `merge`) merges `main` into the change at the pinned SHAs path by path, as
