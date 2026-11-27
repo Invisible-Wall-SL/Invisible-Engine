@@ -22426,7 +22426,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   // value range — frozen while dragging so the scale doesn't chase the cursor
   let minV = Infinity, maxV = -Infinity;
   for (const c of curves) for (const k of c.keys){ const v = k[c.field] ?? 0; if (v < minV) minV = v; if (v > maxV) maxV = v; }
-  if (graphDrag && graphMap){ minV = graphMap.minV; maxV = graphMap.maxV; }
+  if ((graphDrag || graphBox) && graphMap){ minV = graphMap.minV; maxV = graphMap.maxV; }
   else { if (!isFinite(minV)){ minV = 0; maxV = 1; } if (maxV - minV < 1e-6){ minV -= 1; maxV += 1; } const p = (maxV - minV) * 0.14; minV -= p; maxV += p; }
   const top = 8, areaH = bodyH - 16;
   const valueToY = (v) => top + (maxV - v) / (maxV - minV) * areaH;

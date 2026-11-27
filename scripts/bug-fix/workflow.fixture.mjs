@@ -29,7 +29,6 @@ import {
 	renameSync,
 	readFileSync,
 	rmSync,
-	statSync,
 	symlinkSync,
 	writeFileSync,
 } from 'node:fs';
@@ -318,7 +317,7 @@ const REFUSALS = {
 	'a file holds a NUL byte (${f.path})': 'no NUL',
 	'a file holds Unicode tag or bidi control characters (${f.path})':
 		'Unicode tag or bidi control characters',
-	'it adds more than 400 KB': '400 KB in all',
+	'it changes more than 400 KB of lines': '400 KB of lines in all',
 	'the scope is not one commit subjects take': 'a scope from scripts/commit-scope.mjs SCOPES',
 	'it has no title': '"title": "one line',
 	'its title would name another bug': 'never write a bug reference',
@@ -1148,30 +1147,6 @@ export function problems(files) {
 
 const now = problems(FILES);
 check(now.size === 0, `the files break: ${[...now].join(', ')}`);
-
-// The prompt names which of the Rigger's bundles are each over the cap on their own; the rest fit.
-const cap = launcherRules(FILES.change).maxKb * 1024;
-const overSaid =
-	/((?:\.js|[^.])*) are each over the \d+ KB cap on their own/.exec(
-		FILES.coordinator.replace(/\s+/g, ' '),
-	)?.[1] ?? '';
-const riggerBundles = bundlesIn(FILES.vendored).filter(([, , at]) =>
-	at.startsWith('static/rigger/'),
-);
-check(
-	riggerBundles.length > 0 && overSaid.length > 0,
-	'the prompt names no Rigger bundle over the cap',
-);
-for (const [, , at] of riggerBundles) {
-	const over = statSync(join(ROOT, 'apps/launcher-api', at)).size > cap;
-	const said = overSaid.includes('`' + at.split('/').pop() + '`');
-	check(
-		over === said,
-		over
-			? `${at} is over the cap: the prompt does not say so`
-			: `${at} fits the cap now: the prompt says it is over it`,
-	);
-}
 
 // ── A mutant per rule ─────────────────────────────────────────────────────────
 
@@ -2465,7 +2440,11 @@ check(
 		JSON.parse(gunzipSync(big.bytes)).x.length === 500 * 1024,
 	'encodeBody gzips past 400 KB',
 );
-check(C.encodeBody({ x: 'y'.repeat(3 * 1024 * 1024) }) === null, 'encodeBody refuses past 2 MB');
+check(
+	C.encodeBody({ x: 'y'.repeat(3 * 1024 * 1024) }) !== null &&
+		C.encodeBody({ x: 'y'.repeat(9 * 1024 * 1024) }) === null,
+	'encodeBody takes up to 8 MB (a 1.6 MB file beside the rest) and refuses past it',
+);
 check(
 	C.logLine('abcdef0123', { status: 'pr_opened', spendUsd: 1.234, reason: 'SECRET' }) ===
 		'fix run abcdef0123: pr_opened, $1.23',
@@ -2728,13 +2707,36 @@ check(
 	]) === 'The change copies a screenshot of the bug.',
 	'copiesBug refuses a change that carries a screenshot in base64',
 );
+const bigText = (tag, n, edit) =>
+	Array.from(
+		{ length: n },
+		(_, i) => (i === edit ? 'edited' : `${tag} ${i} `).padEnd(79, '.') + '\n',
+	).join('');
+const sizeCases = [
+	[[{ path: 'v', content: bigText('v', 20_500, 7) }], () => bigText('v', 20_500), false],
+	[
+		['a', 'b', 'c'].map((path) => ({ path, content: bigText(`${path}n`, 1_000) })),
+		(path) => bigText(path, 1_000),
+		true,
+	],
+	[[{ path: 'n', content: bigText('n', 6_500) }], () => null, true],
+	[[{ path: 'd', content: null }], () => bigText('d', 6_500), true],
+];
 check(
 	/40 files/.test(
 		C.sizeProblem(Array.from({ length: 41 }, (_, i) => ({ path: `f${i}`, content: 'x' }))) ?? '',
 	) &&
-		/400 KB/.test(C.sizeProblem([{ path: 'big', content: 'x'.repeat(401 * 1024) }]) ?? '') &&
+		/400 KB of lines/.test(
+			C.sizeProblem([{ path: 'big', content: 'x'.repeat(401 * 1024) }]) ?? '',
+		) &&
 		C.sizeProblem([{ path: 'ok', content: 'x' }]) === null,
 	'sizeProblem says the launcher’s limits first',
+);
+check(
+	sizeCases.every(
+		([files, baseOf, refused]) => (C.sizeProblem(files, baseOf) !== null) === refused,
+	),
+	'sizeProblem counts by lines: a one-line change to a 1.6 MB file passes; 400 KB of changed lines, a new 500 KB file and a deleted 500 KB file are refused',
 );
 const urlRefused = (raw, hosts) => {
 	try {
@@ -3104,6 +3106,39 @@ const COLLECT_MUTANTS = [
 				rmSync(join(ws, 'src', 'staged.ts'));
 			}
 		},
+	],
+	[
+		'a changed file counts by its lines, not whole',
+		'bytes += lineBytes(addedLines(was, f.content));',
+		'bytes += lineBytes(f.content.split("\\n"));',
+		async (M) =>
+			sizeCases.some(
+				([files, baseOf, refused]) => (M.sizeProblem(files, baseOf) !== null) !== refused,
+			),
+	],
+	[
+		'removed lines count',
+		'if (was !== null) bytes += lineBytes(addedLines(f.content, was));',
+		'',
+		async (M) =>
+			sizeCases.some(
+				([files, baseOf, refused]) => (M.sizeProblem(files, baseOf) !== null) !== refused,
+			),
+	],
+	[
+		'a deleted file counts its lines',
+		"if (f.content === null) bytes += lineBytes(was === null ? [] : was.split('\\n'));",
+		'if (f.content === null) bytes += 0;',
+		async (M) =>
+			sizeCases.some(
+				([files, baseOf, refused]) => (M.sizeProblem(files, baseOf) !== null) !== refused,
+			),
+	],
+	[
+		'the result body takes whole files up to 8 MB',
+		'const MAX_RESULT_BYTES = 8 * 1024 * 1024;',
+		'const MAX_RESULT_BYTES = 2 * 1024 * 1024;',
+		async (M) => M.encodeBody({ x: 'y'.repeat(3 * 1024 * 1024) }) === null,
 	],
 	[
 		'the key scan',

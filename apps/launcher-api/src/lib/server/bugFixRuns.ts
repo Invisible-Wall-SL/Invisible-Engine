@@ -676,8 +676,10 @@ export async function fixRunScreenshot(
 
 // ── The result: reading it ────────────────────────────────────────────────────
 
-/** Past adapter-node's 512 KB body limit a change is sent gzipped; this is what it may unpack to. */
-const MAX_RESULT_BYTES = 2 * 1024 * 1024;
+/** Past adapter-node's 512 KB body limit a change is sent gzipped; this is what it may unpack to. A change is
+ *  counted by its lines, so whole files up to 2 MB each ride in the body; scripts/bug-fix/collect.mjs
+ *  holds the same figure. */
+const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 const MAX_MODELS = 10;
 /** `director_spend` counts tokens in a 32-bit integer. */
 const MAX_TOKENS = 2_000_000_000;

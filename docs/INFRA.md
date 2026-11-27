@@ -769,7 +769,9 @@ code default, so the dashboard need not set it):
 - **Profiler lab run (`.github/workflows/profiler-lab.yml`):** nightly (03:17 UTC) and on demand,
   plays each live online game headless (`scripts/playtest/lab-run.mjs`) and posts its reading. No
   secret of its own: the current-games harness's `PIPELINE_GAMES_URL` (the launcher is its origin)
-  and `PIPELINE_CI_TOKEN`.
+  and `PIPELINE_CI_TOKEN`. Dispatched with `salmons` ticked it instead builds the runtime and plays
+  Salmons' room against a local game server (`scripts/playtest/salmons-lab.mjs`); that job needs no
+  secret and posts nothing.
 - **Game server config:** `GAME_SERVER_CONFIG_SECRET` (secret, no default) — the bearer the
   Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
   only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing

@@ -367,6 +367,21 @@ server module, routes, page components, triage, screenshots, the pull-request li
     (`readResultBody` takes a cap), and `usage` is priced from `pricing.json` and a cost the job
     names is ignored. Raw NULs in `rigger/view.html`, `sheet-tool/ui.html` and
     `optimize-build-assets.mjs` are now `\u0000`, and `check:merge-main` fails on a new one.
+
+- 2026-11-27 — **A fix run's size counts by lines (owner's choice; amends ADR-0013 §5).** BUG-23's
+  fix run changed one line of `static/rigger/view.html` (1.64 MB) and was refused: "400 KB, a
+  changed file counts whole". Now the 400 KB is the bytes of the lines a change adds plus removes
+  against the base; a new or deleted file counts whole (a deleted 500 KB file is refused as removed
+  lines). Refusal: "it changes more than 400 KB of lines". The size check moved into `baseProblem`
+  (the base read is shared with the secret scan, and now includes deleted files); the whole-file
+  checks stand. The job's `sizeProblem(files, baseOf)` counts the same way from the pristine copy.
+  Lines are compared as a multiset, so a pure reordering counts nothing. The result body still
+  carries whole files, so its cap rose from 2 MB to 8 MB unpacked on both sides (`MAX_RESULT_BYTES`
+  in `bugFixRuns.ts` and `collect.mjs`; the per-file read limit stays 2 MB). The wire limit is
+  adapter-node's `BODY_SIZE_LIMIT` (512 KB default) on the gzipped body: a 1.6 MB HTML compresses
+  well under it, but a change of much less compressible text could still hit it. The prompt's
+  "over the cap" note on the vendored bundles and its fixture pin went; the rule not to commit a
+  bundle stays.
 - 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline."
   - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with
