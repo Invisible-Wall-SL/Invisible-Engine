@@ -1977,7 +1977,9 @@ finger's capture direction written out; a bone the template lacks refused), `upd
 every template bone: 39 bones out with their keys, every drawing posed as before to 0, every key on a
 kept bone and every weighted vertex's bone by name kept, the author's bones kept with the cheek one
 hangs from, a second update a no-op, a brow mapped anew bringing its bone) and `page` (🦴 Bones as the
-launcher says, a toggle keeping a bone); 13 mutants, about 30 s. `sheet-rig.mjs` and
+launcher says, a toggle keeping a bone); 13 mutants, about 30 s. `sheet-rig-browser.mjs` (the
+section on the shipped page counting what the preview makes and leaves out, a toggle per bone left
+out; one ticked goes out as `keep` with the next preview, which makes it; 2 page mutants). `sheet-rig.mjs` and
 `sheet-region-slots.mjs` read the template's whole role order and a rig made before with every bone
 (`leftOut` stripped as `slots` is); `sheet-mouth.mjs` guards the optional bone on ＋ New rig's
 template-only path, where `templateMade` still decides it.
