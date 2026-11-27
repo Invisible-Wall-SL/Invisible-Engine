@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FrameSourceDoc } from '../rigFrameSource';
+import { drawOrderOf, offsetsOf } from '../rigSlotOrder';
 import {
 	HEAD_TURN_BONES,
 	fitTemplate,
@@ -406,6 +407,11 @@ export interface FrameUpdateInput {
 	keep?: ReadonlySet<string>;
 	/** The template's links (`RigTemplateBone.link`): a rig made before one gets it. */
 	links?: readonly string[];
+	/**
+	 * Slots of the build the rig lacks that it gets, drawn where the build draws them, as a new prop's
+	 * is (a sheet's region newly mapped: one slot per region, frame-to-rig §13.1h).
+	 */
+	newSlots?: ReadonlySet<string>;
 }
 
 export interface FrameUpdateReport {
@@ -431,7 +437,11 @@ export interface FrameUpdateReport {
 	slotless: string[];
 }
 
-type MergeInput = Pick<FrameUpdateInput, 'current' | 'fresh' | 'made' | 'props'>;
+type MergeInput = Pick<FrameUpdateInput, 'current' | 'fresh' | 'made' | 'props' | 'newSlots'>;
+
+/** Whether the merge puts slot `name` of the build in: a prop's, or one of `newSlots`. */
+const slotComes = (input: MergeInput, isProp: (name: string) => boolean) => (name: string) =>
+	isProp(name) || !!input.newSlots?.has(name);
 
 /**
  * Put the build's link `name` into the rig between its parent and the one bone the build hangs
@@ -539,7 +549,7 @@ export function mergedSlots(input: MergeInput): string[] {
 	);
 	const slots = ((input.current as Doc).slots ?? []).filter((s) => !drop.has(s.name));
 	const names = slots.map((s) => s.name);
-	for (const { at, slot } of newSlotPlaces(slots, fresh.slots ?? [], isProp))
+	for (const { at, slot } of newSlotPlaces(slots, fresh.slots ?? [], slotComes(input, isProp)))
 		names.splice(at, 0, slot.name);
 	return names;
 }
@@ -624,7 +634,7 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 
 	doc.slots ??= [];
 	const freshSlots = fresh.slots ?? [];
-	for (const { at, slot } of newSlotPlaces(doc.slots, freshSlots, isProp))
+	for (const { at, slot } of newSlotPlaces(doc.slots, freshSlots, slotComes(input, isProp)))
 		doc.slots.splice(at, 0, { ...slot, bone: has(slot.bone) ? slot.bone : nearest(slot.bone) });
 
 	// Every attachment the cut makes, bound to the rig's bones by name.
@@ -687,36 +697,11 @@ export function keepDrawOrders(doc: {
 				if (now.includes(n)) return;
 				now.splice(i === 0 ? 0 : now.indexOf(after[i - 1]) + 1, 0, n);
 			});
-			const at = new Map(now.map((n, i) => [n, i]));
-			const offsets = after.flatMap((n, i) =>
-				at.get(n) === i ? [] : [{ slot: n, offset: at.get(n)! - i }],
-			);
+			const offsets = offsetsOf(after, now);
 			if (offsets.length) key.offsets = offsets;
 			else delete key.offsets;
 		}
 	};
-}
-
-/** A draw-order key's whole order, by slot name, read as engine-rig reads its offsets. */
-function drawOrderOf(slots: readonly string[], offsets: unknown): string[] {
-	if (!Array.isArray(offsets)) return [...slots];
-	const index = new Map(slots.map((s, i) => [s, i]));
-	const order = new Array<number>(slots.length).fill(-1);
-	const unchanged: number[] = [];
-	let original = 0;
-	for (const o of offsets) {
-		const at = isRecord(o) ? index.get(String(o.slot)) : undefined;
-		if (at === undefined || at < original || typeof o.offset !== 'number') continue;
-		while (original < at) unchanged.push(original++);
-		const to = original + o.offset;
-		if (to >= 0 && to < slots.length && order[to] === -1) order[to] = original;
-		else unchanged.push(original);
-		original++;
-	}
-	while (original < slots.length) unchanged.push(original++);
-	let u = unchanged.length;
-	for (let i = slots.length - 1; i >= 0; i--) if (order[i] === -1) order[i] = unchanged[--u];
-	return order.map((i) => slots[i]);
 }
 
 /** The build's bone `b` hung from the rig's `parent` at the same place in the build's setup. */

@@ -17,7 +17,16 @@
 //    set's controls for what came (`modulesOnSidecars`);
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/rig-modules-change.mjs [--only <guard>] [--no-mutants]
-import { RIG, SIZED, drawn, ownerMapping, ownerRig, player, runGate } from './owner-sheet.mjs';
+import {
+	RIG,
+	SIZED,
+	drawn,
+	ownerMapping,
+	ownerRig,
+	player,
+	runGate,
+	slotOf,
+} from './owner-sheet.mjs';
 
 const FINGER = /^(thumb|index|middle|ring|pinky)_/;
 const NONE = { hands: 'none' };
@@ -296,7 +305,9 @@ const GUARDS = {
 		});
 		if (!back.ok) return ok('sheet: the update back is made', false, back.problem);
 		const [d1, d2] = [out.value.doc, back.value.doc];
-		const hands = (d) => d.slots.filter((s) => /^hand_[lr]$/.test(s.name)).length;
+		// The hands' slots by the rig's names for them, their regions' (one slot per region).
+		const handSlots = ['hand_l', 'hand_r'].map((r) => slotOf(handed, r));
+		const hands = (d) => d.slots.filter((s) => handSlots.includes(s.name)).length;
 		let plays = true;
 		try {
 			player(d2)(null);
@@ -322,7 +333,7 @@ const GUARDS = {
 				'sheet: Hands → With fingers with the hands mapped puts them back, drawn',
 				d2.bones.filter((b) => FINGER.test(b.name)).length === 30 &&
 					hands(d2) === 2 &&
-					!!drawn(player(d2)(null), 'hand_l') &&
+					!!drawn(player(d2)(null), handSlots[0]) &&
 					plays,
 			)
 		);
@@ -447,7 +458,7 @@ const MUTANTS = [
 		[
 			[
 				'rigSheetUpdate.ts',
-				'\t\tJSON.stringify(o.was.template.modules ?? {}) !==\n\t\tJSON.stringify(o.mapping.template.modules ?? {})',
+				'\t\tJSON.stringify(was.template.modules ?? {}) !== JSON.stringify(mapping.template.modules ?? {})',
 				'\t\tfalse',
 			],
 		],

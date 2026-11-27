@@ -251,6 +251,11 @@ export interface RigTemplateChannel {
 		talk: string[];
 		lipsync?: Record<string, string>;
 		pose?: Record<string, Record<string, number>>;
+		/**
+		 * The rig draws no mouth shape, so it has no such slot (a sheet's rig, frame-to-rig §13.1h):
+		 * a shape opens the jaw and poses the corners and lips of a jointed or drawn mouth alone.
+		 */
+		drawn?: true;
 	};
 	/** Its place on the Rigger's face board (rig-controls §6.1); authoring only, no clip reads it. */
 	ui?: RigTemplateUi;
@@ -1914,7 +1919,9 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			if (c.swaps[0]?.at !== c.min) return `channel "${c.id}" must swap from its min`;
 		}
 		if (c.shapes) {
-			if (!slots.has(c.shapes.slot)) return `channel "${c.id}" picks a missing slot`;
+			const own = (p: string) => isShape(c, p, parts);
+			if (!c.shapes.drawn && !slots.has(c.shapes.slot))
+				return `channel "${c.id}" picks a missing slot`;
 			const lipsync = c.shapes.lipsync ?? {};
 			for (const p of [
 				c.shapes.rest,
@@ -1922,8 +1929,7 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				...c.shapes.talk,
 				...Object.values(lipsync),
 			])
-				if (parts.get(p) !== c.shapes.slot)
-					return `channel "${c.id}" names "${p}", not a part of "${c.shapes.slot}"`;
+				if (!own(p)) return `channel "${c.id}" names "${p}", not a part of "${c.shapes.slot}"`;
 			if (c.shapes.lipsync)
 				for (const k of LIPSYNC_SHAPES)
 					if (!lipsync[k]) return `channel "${c.id}" lip-sync has no part for shape "${k}"`;
@@ -1931,8 +1937,7 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				if (!(LIPSYNC_SHAPES as readonly string[]).includes(k))
 					return `channel "${c.id}" lip-sync names an unknown shape "${k}"`;
 			for (const p of Object.keys(c.shapes.pose ?? {}))
-				if (parts.get(p) !== c.shapes.slot)
-					return `channel "${c.id}" poses "${p}", not a part of "${c.shapes.slot}"`;
+				if (!own(p)) return `channel "${c.id}" poses "${p}", not a part of "${c.shapes.slot}"`;
 		}
 		if (c.hides) {
 			if (!c.swaps) return `channel "${c.id}" hides slots but swaps none`;
@@ -2039,7 +2044,7 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			if (!(time >= 0 && time <= k.length + 1e-9))
 				return `clip "${k.name}" keys "${id}" at ${time}, outside 0…${k.length}`;
 			const fits = c.shapes
-				? typeof v === 'string' && parts.get(v) === c.shapes.slot
+				? typeof v === 'string' && isShape(c, v, parts)
 				: typeof v === 'number' && v >= c.min && v <= c.max;
 			if (!fits)
 				return `clip "${k.name}" keys "${id}" to ${JSON.stringify(v)}, not one of its values`;
@@ -2330,7 +2335,7 @@ function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | 
 		if (e.kind === 'shape') {
 			if (!c.shapes) return `motion "${e.channel}" picks shapes, but the channel has none`;
 			for (const p of Object.keys(e.shapes))
-				if (parts.get(p) !== c.shapes.slot)
+				if (!isShape(c, p, parts))
 					return `motion "${e.channel}" names "${p}", not a part of "${c.shapes.slot}"`;
 		} else if (c.shapes) return `motion "${e.channel}" sets a number on a shapes channel`;
 		if (e.kind === 'pose' && !['yaw', 'pitch', 'near'].includes(e.axis))
@@ -2947,6 +2952,15 @@ export interface TemplateRig {
 	fit: RigFit | null;
 }
 
+/**
+ * Whether `p` is one of shapes channel `c`'s mouth shapes: a part of its slot, or on a drawn mouth
+ * (no mouth slot made, frame-to-rig §13.1h) one its shapes name.
+ */
+function isShape(c: RigTemplateChannel, p: string, parts: ReadonlyMap<string, string>): boolean {
+	const sh = c.shapes!;
+	return sh.drawn ? p === sh.rest || Object.hasOwn(sh.open, p) : parts.get(p) === sh.slot;
+}
+
 /** Why `fit` cannot make a rig of template `t`, or null: what it names, then the fitted template. */
 export function templateFitProblem(t: RigTemplate, fit: RigFit): string | null {
 	const named = rigFitProblem(t, fit);
@@ -3082,6 +3096,8 @@ export function templateMade(t: RigTemplate, drawnIn: ReadonlySet<string>): RigT
  * With `art` (a sheet mapped to the template, `rigSheetFit.ts`) only the parts it names attach,
  * each to its own region (the attachment keeps the part's name and draws the region by `path`),
  * placed where the art says: a region turned and scaled on its bone, a bending part's mesh there.
+ * With the fit's `slots` (one slot per region, frame-to-rig §13.1h) each slot drawn in takes the
+ * region's name, and the template's other slots are not made.
  */
 export function templateRig(
 	t: RigTemplate,
@@ -3108,14 +3124,22 @@ export function templateRig(
 	// A skinned part is bound in the frame's pose (its setup's turns are the template's, not the art's).
 	const bind = frameWorld(ft.bones, fit?.frame);
 	const covered = new Set(ft.parts.filter((p) => regionOf(p)).flatMap((p) => p.bend?.covers ?? []));
+	/** A part the template needs to work (one a one-piece bend covers is not). */
+	const needed = (p: RigTemplatePart) => p.required && !covered.has(p.name);
 	const attachments: Record<string, Record<string, Record<string, unknown>>> = {};
 	const missing: string[] = [];
 	const missingRequired: string[] = [];
+	// A part in a slot one slot per region leaves out (frame-to-rig §13.1h) is missing too.
+	for (const p of t.parts)
+		if (!fitted.parts.some((q) => q.name === p.name)) {
+			missing.push(p.name);
+			if (needed(p)) missingRequired.push(p.name);
+		}
 	for (const p of ft.parts) {
 		const r = regionOf(p);
 		if (!r) {
 			missing.push(p.name);
-			if (p.required && !covered.has(p.name)) missingRequired.push(p.name);
+			if (needed(p)) missingRequired.push(p.name);
 			continue;
 		}
 		const w = r.origW ?? r.w;

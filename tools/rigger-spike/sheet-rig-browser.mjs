@@ -1220,6 +1220,18 @@ try {
 		evaluate('[...document.querySelectorAll("#s2rLayers .s2rLayer")].map((r) => r.dataset.slot)');
 	const tplSlots = S.HALF_BODY.slots.map((s) => s.name);
 	const slotOfPart = (p) => S.HALF_BODY.parts.find((x) => x.name === p)?.slot ?? p;
+	// One slot per region (§13.1h): the rig names each slot after its region. Its slots, back to front,
+	// by the template's names (the slot of the part each draws), and the slot drawing a part.
+	const rigRoles = async () =>
+		(
+			await evaluate(
+				'rawDoc.slots.map((s) => Object.keys(rawDoc.skins[0].attachments[s.name] || {})[0] || s.name)',
+			)
+		).map(slotOfPart);
+	const rigSlot = (part) =>
+		evaluate(
+			`Object.keys(rawDoc.skins[0].attachments).find((s) => rawDoc.skins[0].attachments[s][${q(part)}])`,
+		);
 	const launcherList = S.sheetLayerList(
 		tplSlots,
 		slotOfPart,
@@ -1320,9 +1332,14 @@ try {
 	await evaluate(`s2rSetLayers(${q(armBehindHead)}); s2rRender(); true`);
 	await waitFor('!!document.querySelector("#s2rLayers .s2rLayerWarn")', 15000);
 	const warned = await evaluate('document.querySelector("#s2rLayers .s2rLayerWarn").textContent');
+	const named = S.sheetSlotNames(
+		S.HALF_BODY,
+		await evaluate('JSON.parse(JSON.stringify(s2rMapping()))'),
+	);
+	const armWord = `the Layers draw "${named.upper_arm_l}" behind "${named.head}"`;
 	ok(
-		'the arm put behind the head: the launcher’s word under the list, naming the depth control',
-		/the Layers draw "upper_arm_l" behind "head"/.test(warned) && /depth/i.test(warned),
+		'the arm put behind the head: the launcher’s word under the list, naming the depth control, the rig’s slots by their regions’ names',
+		warned.includes(armWord) && /depth/i.test(warned),
 		warned,
 	);
 	await evaluate(`s2rSetLayers(${q(behindTorso)}); s2rRender(); true`);
@@ -1365,9 +1382,7 @@ try {
 			) < 0.002,
 		q({ sent: sent?.arrange, page: arranged.arrange, propTurned }),
 	);
-	const rigLayers = await evaluate(
-		`rawDoc.slots.map((s) => s.name).filter((n) => ${q(behindTorso)}.includes(n)).reverse()`,
-	);
+	const rigLayers = (await rigRoles()).filter((n) => behindTorso.includes(n)).reverse();
 	ok(
 		'🦴 Create rig sends the Layers, and the rig draws its slots in that order',
 		q(sent?.layers) === q(behindTorso) && q(rigLayers) === q(behindTorso),
@@ -1382,10 +1397,12 @@ try {
 	);
 	const rig = await evaluate(`(() => {
 		const sk = rawDoc.skins[0].attachments;
+		const of = (p) => Object.keys(sk).find((s) => sk[s][p]);
+		const att = (p) => of(p) && sk[of(p)][p];
 		return {
-			parts: ${q(Object.keys(want))}.filter((p) => { const a = sk[p] && sk[p][p]; return a && a.type === "mesh"; }),
-			paths: Object.fromEntries(${q(Object.keys(want))}.map((p) => [p, sk[p] && sk[p][p] && sk[p][p].path])),
-			drawn: ${q(Object.keys(want))}.filter((p) => { const s = skeleton.findSlot(p); return !!(s && s.getAttachment()); }),
+			parts: ${q(Object.keys(want))}.filter((p) => { const a = att(p); return a && a.type === "mesh"; }),
+			paths: Object.fromEntries(${q(Object.keys(want))}.map((p) => [p, att(p) && att(p).path])),
+			drawn: ${q(Object.keys(want))}.filter((p) => { const s = of(p) && skeleton.findSlot(of(p)); return !!(s && s.getAttachment()); }),
 			props: ${q((sent?.props ?? []).map((p) => p.name))}.filter((n) => !!skeleton.findBone(n)),
 		};
 	})()`);
@@ -1525,7 +1542,9 @@ try {
 		mobile: false,
 	});
 	try {
-		slotSpot = await evaluate(layerSpot('#slotList .trow[data-slot]', CHAIN, 'neck'));
+		slotSpot = await evaluate(
+			layerSpot('#slotList .trow[data-slot]', CHAIN, await rigSlot('neck')),
+		);
 		const edge = await evaluate('SLOT_DRAG_EDGE');
 		ok(
 			'Setup’s slots: the chain’s ⋮⋮ and its drop are clear of the edges a drag scrolls the list at',
@@ -1537,13 +1556,14 @@ try {
 		await send('Emulation.clearDeviceMetricsOverride');
 	}
 	const setupOrder = await evaluate('rawDoc.slots.map((s) => s.name)');
+	const setupRoles = await rigRoles();
 	ok(
 		'Setup’s slots: the chain, a prop of the sheet, is a slot its ⋮⋮ drags over the torso, just behind the neck',
-		setupOrder.indexOf('torso') + 1 === setupOrder.indexOf(CHAIN) &&
-			setupOrder.indexOf(CHAIN) + 1 === setupOrder.indexOf('neck'),
+		setupRoles.indexOf('torso') + 1 === setupRoles.indexOf(CHAIN) &&
+			setupRoles.indexOf(CHAIN) + 1 === setupRoles.indexOf('neck'),
 		q({ order: setupOrder.slice(0, 8), slotSpot }),
 	);
-	const rigList = setupOrder.filter((n) => behindTorso.includes(n)).reverse();
+	const rigList = setupRoles.filter((n) => behindTorso.includes(n)).reverse();
 
 	// 🗺 Edit mapping → 🔄 Update rig: the neck re-mapped, merged into the open rig (the launcher's
 	// merge), one undo step with its mapping, the rig saved and then its mapping, on the ETag it read.
@@ -1573,8 +1593,7 @@ try {
 	// A rig whose Setup drew the arm behind the head (which the Arm depth control would refuse from the
 	// list), opened so: the preview, sent the open rig, draws that order unjudged, so no warning. A
 	// change there that moves a slot (the chain behind the torso) is judged, as 🔄 Update rig judges
-	// it, and warns; with a finger Setup drew behind the head instead (the two front rows then
-	// swapped, far from the head), the word is for Setup's slots.
+	// it, and warns.
 	const armBack = [...editRows];
 	armBack.splice(armBack.indexOf('upper_arm_l'), 1);
 	armBack.splice(armBack.indexOf('head') + 1, 0, 'upper_arm_l');
@@ -1585,14 +1604,14 @@ try {
 	await evaluate(
 		'window.settled = async () => { for (let i = 0; i < 5; i++) { const g = s2r.pgen; await s2rPreview(); if (s2r.pgen === g + 1) return true; } throw new Error("the preview kept being overtaken"); }; true',
 	);
-	const frontSwapped = [editRows[1], editRows[0], ...editRows.slice(2)];
-	const armRig = async (list, setupBehindHead = 'upper_arm_l', forearmProp = false) => {
+	const [armSlot, headSlot] = [await rigSlot('upper_arm_l'), await rigSlot('head')];
+	const armRig = async (list, forearmProp = false) => {
 		await evaluate(`(() => {
 			window.__armWas = { layers: s2r.layers, slots: rawDoc.slots, props: [...s2r.props], sel: s2r.sel };
 			if (${forearmProp}) s2rAddProp("bg_glow", "lower_arm_l");
-			const slots = [...rawDoc.slots], at = slots.findIndex((s) => s.name === ${q(setupBehindHead)});
+			const slots = [...rawDoc.slots], at = slots.findIndex((s) => s.name === ${q(armSlot)});
 			const [arm] = slots.splice(at, 1);
-			slots.splice(slots.findIndex((s) => s.name === "head"), 0, arm);
+			slots.splice(slots.findIndex((s) => s.name === ${q(headSlot)}), 0, arm);
 			rawDoc.slots = slots;
 			s2r.layers = ${q(list)};
 			return settled();
@@ -1610,8 +1629,7 @@ try {
 	};
 	const openedArm = await armRig(armBack);
 	const changedArm = await armRig(armMoved);
-	const fingerArm = await armRig(frontSwapped, 'pinky_1_l');
-	const propArm = await armRig(armBack, 'upper_arm_l', true);
+	const propArm = await armRig(armBack, true);
 	ok(
 		'🗺 Edit mapping on a rig Setup drew with the arm behind the head: the preview, sent the open rig, draws that order unjudged (no warning); a change that moves a slot is judged (and warns)',
 		q(openedArm.sent) === q(armBack) &&
@@ -1620,7 +1638,7 @@ try {
 			openedArm.art?.indexOf('upper_arm_l') < openedArm.art?.indexOf('head') &&
 			q(changedArm.sent) === q(armMoved) &&
 			changedArm.rig &&
-			/the Layers draw "upper_arm_l" behind "head"/.test(changedArm.warn),
+			changedArm.warn.includes(armWord),
 		q({ openedArm, changedArm }),
 	);
 	ok(
@@ -1630,14 +1648,9 @@ try {
 			propArm.art?.some((n) => /bg_glow/.test(n)),
 		q(propArm),
 	);
-	ok(
-		"… a finger Setup drew behind the head, the list changed: the word is for Setup's slots",
-		/^⚠ Setup's slots draw "pinky_1_l" behind "head"/.test(fingerArm.warn),
-		q(fingerArm),
-	);
 	await evaluate('settled()');
 	await evaluate(
-		`document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); selectSlot("torso"); document.querySelector('#s2rLayers .s2rLayer[data-slot="${CHAIN}"] .s2rName').click(); document.activeElement && document.activeElement.blur(); true`,
+		`document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); selectSlot(${q(await rigSlot('torso'))}); document.querySelector('#s2rLayers .s2rLayer[data-slot="${CHAIN}"] .s2rName').click(); document.activeElement && document.activeElement.blur(); true`,
 	);
 	await key(']', 'BracketRight', 221, MOD.ctrl);
 	const keyedInDialog = {
@@ -1650,7 +1663,7 @@ try {
 	ok(
 		'Ctrl+] in the dialog moves the picked layer, never the open rig’s slots behind it',
 		keyedInDialog.rows.indexOf(CHAIN) === rigList.indexOf(CHAIN) - 1 &&
-			keyedInDialog.sel === 'torso' &&
+			keyedInDialog.sel === (await rigSlot('torso')) &&
 			q(keyedInDialog.rig) === q(setupOrder) &&
 			q(keyedBack) === q(rigList),
 		q({
@@ -1666,16 +1679,19 @@ try {
 		'/updated from its mapping/.test(document.getElementById("alertMsg").textContent)',
 		20000,
 	);
+	const neckIn = `rawDoc.skins[0].attachments[Object.keys(rawDoc.skins[0].attachments).find((s) => rawDoc.skins[0].attachments[s].neck)].neck`;
 	const upd = await evaluate(`({
-		path: rawDoc.skins[0].attachments.neck.neck.path,
+		path: ${neckIn}.path,
+		slot: Object.keys(rawDoc.skins[0].attachments).find((s) => rawDoc.skins[0].attachments[s].neck),
 		kept: sheetSrc.doc.parts.neck.region,
 		steps: rigHist.past.length,
 		open: document.getElementById("s2rModal").classList.contains("open"),
 	})`);
 	const put = seen.sheetPuts.at(-1);
 	ok(
-		'🔄 Update rig merges the re-mapped neck into the open rig as one undo step, sending the mapping the rig keeps',
+		'🔄 Update rig merges the re-mapped neck into the open rig as one undo step, its slot renamed after its new region, sending the mapping the rig keeps',
 		upd.path === 'bg_glow' &&
+			upd.slot === 'bg_glow' &&
 			upd.kept === 'bg_glow' &&
 			upd.steps === steps + 1 &&
 			!upd.open &&
@@ -1683,7 +1699,7 @@ try {
 			seen.updates[0].kept?.parts?.neck?.region === 'Neck01',
 		q({ upd, updates: seen.updates.length }),
 	);
-	const updatedOrder = await evaluate('rawDoc.slots.map((s) => s.name)');
+	const updatedOrder = await rigRoles();
 	ok(
 		'🔄 Update rig keeps the order Setup gave (the template’s again here, so the list goes out as none, over the kept mapping’s chain behind the torso)',
 		q(updatedOrder.filter((n) => behindTorso.includes(n)).reverse()) === q(rigList) &&
@@ -1702,7 +1718,7 @@ try {
 	);
 	await evaluate('closeAlert(); rigUndo(); true');
 	const undone = await evaluate(
-		'({ path: rawDoc.skins[0].attachments.neck.neck.path, kept: sheetSrc.doc && sheetSrc.doc.parts.neck.region })',
+		`({ path: ${neckIn}.path, kept: sheetSrc.doc && sheetSrc.doc.parts.neck.region })`,
 	);
 	ok(
 		'one ↶ undo takes the rig and its mapping back',

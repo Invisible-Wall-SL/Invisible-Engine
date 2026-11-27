@@ -1425,7 +1425,8 @@ attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/
 
 - **The sheet stays as it is.** Nothing is cut, packed or renamed: each attachment keeps its
   template part's name (so every control, swap and clip still finds it) and draws the artist's region
-  by `path`, which the 4.2 format and engine-rig read. ＋ New rig's create path is the same one
+  by `path`, which the 4.2 format and engine-rig read; the slot it is in takes the region's name
+  (one slot per region, §13.1h). ＋ New rig's create path is the same one
   (`/api/rigger/new` with `sheet` instead of `fit`): claim, `.atlas` from the manifest, `template.json`
   with the fit, `controls.json`, reindex. Rule 8: nothing new ships.
 - **Each part is placed by its joints, bound at rest.** A part's joints are where its bones start and
@@ -1686,8 +1687,8 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
   behind the head (which the list could not ask for) still updates. The order applied is held to the
   depth controls (`slotsAgainstDepth`) as `layersJudged` says: when the list moves a slot the open
   rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
-  worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
-  slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
+  worn elsewhere is not judged. Every slot a depth control steps is one the list draws (§13.1h), so
+  the refusal is worded for the Layers. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
   survives an update that does not touch the list; its preview sends the open rig (`rig`: its
   slots, its skins' attachment names, the mapping it keeps) and is judged by the update's own rule
   (`sheetLayersApplied`) on the slots the update's merge leaves (`mergedSlots`); without a rig it
@@ -1763,6 +1764,55 @@ viewer), the glasses (on `head_image`) not at all, and a face found on the head 
   head's skin from `headTurn` (not wired: a frame-made head is the cut's whole face, found, and turns
   as the found case does). Ears drawn on the head move as the head card narrows; drawn apart they
   stay on `head` (no bone of their own yet).
+
+### 13.1h One slot per region (2026-11-27)
+
+The owner, on the Slots panel of their Nelly rig: "the slots are still created based on the old
+template, and it would make more sense we had a slot for each region, so they could be driven by the
+correct bone". Their 39 slots were the template's (`hand_r`, `eyelid_r` → `eye_r`, `ear_r` with no
+region behind it) beside props named with the Photoshop file (`prop_nelly_asset_breakdown_1_0003_chain`,
+made before #1951 read past it).
+
+- **The rule.** Each template slot a region is drawn in is made under that region's own name, past
+  the Photoshop file and index, in snake case (`rigSheetMap.ts` `sheetSlotNames`, the custom part's
+  `customName`): `…_0002s_0002s_0001_UpperEyelidL` → `upper_eyelid_l` on `lid_upper_l`,
+  `…_0001s_0002_HandRPissoff` → `hand_r_pissoff` on `hand_r`. A slot's region is its main drawing's
+  (the part named as the slot), else its first mapped part's in the template's order; a name taken by
+  a prop or an earlier slot gets `_2`. A prop keeps `propName` (`prop_chain`, its own bone). Two
+  regions on one bone each have their slot (an eye white and its lid on `eye_l`); the drawings one
+  control swaps between (a hand's poses, the mouth's shapes, a lid drawn half and closed) stay one
+  slot, because a swap is one slot's attachment key. A template slot no region is drawn in is not
+  made. Attachments keep their part names, so a swap, a hide and a capture's shape keys still name
+  their parts.
+- **The role map is the fit's** (`RigFit.slots`, template slot → the rig's name, kept in
+  `template.json`). Everything else in the fit names the roles (`order`, a prop's neighbour), so the
+  mapping, the Layers list (`SheetMapping.layers`) and the dialog stay in the template's names.
+  `fitTemplate` applies it last (`rigRegionSlots.ts` `withRegionSlots`): the slots, their parts, the
+  controls' swaps and hides, the depth controls, a saved template's clips (their draw-order keys read
+  and written again), path constraints, the 3D layers and views take the rig's names and lose the
+  slots not made; a control left reaching nothing goes with its keys and motion entries. So the page's
+  Controls, Blink and Look (bones), lip-sync, 🎥 Motion, the head turn and the neck, the 2.5D bake and
+  the modules drive the rig's slots by its names without knowing the rule.
+- **A jointed mouth with no mouth shape drawn** has no `mouth` slot, but its shapes still open the
+  jaw and pose its corners and lips: the shapes channel stays, marked `drawn` (validated by shape
+  name, not by part of a slot), and the page keys no image for it (`faceKeyShape`). The 3D import's
+  body depth (`thick`, rig-2p5d §4.5) finds the torso, pelvis, neck and head by the part their slot
+  draws, not by the slot's name.
+- **🔄 Update rig moves a rig made before** (`rigSheetUpdate.ts`): the mappings' props named with
+  the Photoshop file are renamed past it (`rawPropName` → `propName`); each template slot is found
+  under the name the rig was made with or, made before, the template's, and renamed (`rigRename.ts`
+  `renameInRig`: slot, bone, attachment, every key and constraint naming it, all at once so two names
+  may trade) to the edited mapping's name, or the kept one's for a part unmapped (so the merge takes it
+  off); a renamed prop's bone goes with it. A region mapped anew gets its slot where a new rig draws
+  it (`frameRigUpdate` `newSlots`). After the merge, a template slot no region is drawn in that draws
+  nothing goes with its keys (`keepDrawOrders`). The report's `renamed` lists it all; the page renames
+  the rig's `controls.json` (`renameControls`) and `rig3d.json` (`rename3d`, which now renames a
+  draw-order 🔒 lock too) before the rebuild drops what names a slot gone. The rig's own order stays
+  (renames keep places), so the author's Layers order does.
+- **The dialog** shows each Layers row by the rig's name for it (`sheetSlotNames`, bundled), and 🗺
+  Edit mapping reads the rig's slot order back into roles. A depth control's refusal names the rig's
+  slots, from 🦴 Create rig and 🔄 Update rig alike; the "Setup's slots" wording is gone (every slot a
+  control steps is in the list).
 
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
@@ -1854,6 +1904,17 @@ part-way, the outline still, the near side squashed and the far stretched, each 
 the glasses ≥ the eyes, the nose and lips >, the earring <, a prop behind the head the other way),
 `nod` (the middle and the chin with the face, the skull's top still), `fold` (1× at 40° and 25°, 2× at
 20°: no triangle flips or keeps under 5%), `controls`, `strength` and `update`; 11 mutants.
+
+One slot per region (§13.1h), on the owner's region names: `sheet-region-slots.mjs` `slots` (25
+regions, 25 slots, each named past its Photoshop prefix, on its part's bone, no template slot without a
+region; an eye white and a lid on one bone two slots, the lid's half and closed drawings one that Blink
+swaps; the Controls and 3D layers name the rig's slots only, the mouth's shapes `drawn`), `drive`
+(Blink, Look, lip-sync on the jointed mouth keying no missing slot, Head turn, a 3D capture's turn,
+each on the region-named slots) and `update` (an old rig: 17 slots renamed with their colour,
+attachment and draw-order keys, the chain prop and its bone past their Photoshop name, 46 empty template
+slots out, the author's Layers order and slot kept, a second update a no-op, an ear mapped anew given its
+slot); 12 mutants, about 25 s. The sheet gates read slots through the role map (`slotOf`, or the slot
+drawing a part), and `capture-draw-order.mjs` `import` guards the body depth found by part (1 mutant).
 
 ### 13.4 Owed
 

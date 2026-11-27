@@ -1675,16 +1675,15 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    as its clip **frame**, as a rig made from a video frame does; a part left where it was rides its
    bones into that pose.
 6. **Layers** (the side panel, under Props). Which drawing is in front of which: every mapped part
-   and prop, front at the top, in the slot it is drawn in (a hand pose shares its hand's row). It
-   starts as the template's order with each prop over its part (or behind it where your Photoshop
-   layers say so): a prop on the head — glasses, an earring — over every face part (each eye white
-   under its pupil, under its lids, all under the glasses) and under the front hair, a hat over the
-   hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
+   and prop, front at the top, by the name of the slot it is drawn in (a hand pose shares its hand's
+   row). It starts as the template's order with each prop over its part (or behind it where your
+   Photoshop layers say so): a prop on the head — glasses, an earring — over every face part (each
+   eye white under its pupil, under its lids, all under the glasses) and under the front hair, a
+   hat over the hair. Drag a row's **⋮⋮** (a mouse, a pen or a finger), or click a row and press
    **Ctrl+]** / **Ctrl+[** to move it one place to the front / back (**Shift** goes all the way);
-   ◧ Arranged draws the new order at once. Only the rows listed move: every slot the sheet does not
-   draw keeps its place. An arm drawn behind the head or the torso is refused, with why under the
-   list: the template's arm-depth control moves the arm from in front of them to behind them, so
-   it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
+   ◧ Arranged draws the new order at once. An arm drawn behind the head or the torso is refused,
+   with why under the list: the template's arm-depth control moves the arm from in front of them to
+   behind them, so it must start in front. The order is kept with the rig's mapping. A clip's draw-order keys still
    draw what they drew, so a new order shows at setup and in the clips that key no draw order.
 7. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
@@ -1697,7 +1696,14 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    mouth shape on its own bones (the brow's ends, the mouth's corners and lips). A prop sits just
    over its part, or just behind it when your Photoshop layers put it there (Export Layers names
    such as `…_0004_HoodBack` keep the layer order; only layers of one group are compared), and a
-   part's props keep that order among themselves. The rig draws the
+   part's props keep that order among themselves. **One slot per region**: each slot is named after
+   its region, past the Photoshop file and index (`…_0002s_0002s_0001_UpperEyelidL` →
+   `upper_eyelid_l`, `…_0001s_0002_HandRPissoff` → `hand_r_pissoff`; a prop's `prop_chain`), and
+   rides the bone its part rides, so the Slots panel lists your sheet, not the template. Drawings one
+   control swaps between (a hand's poses, the mouth's shapes, a lid drawn half and closed) share one
+   slot, named after its main drawing; the template's slots no region is drawn in (an ear, a cheek,
+   the shoulders) are not made. Every control, lip-sync, 🎥 Motion and the 3D data find each part by
+   the template's name through the rig's own. The rig draws the
    sheet's own regions (nothing is copied or renamed) and opens when made; the report gives the
    scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
    does not map. When a rig cannot be made, the popup says why.
@@ -1740,6 +1746,12 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   what it drew, so the new order shows at setup and in the clips that key no draw order.
   Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
   refused, with why under the list, until you fix that order too (in the list, or in Setup).
+- **One slot per region.** A rig made before gets its slots named after its regions, each keeping
+  its keys (attachment, colour, draw order), a prop named with the Photoshop file's name
+  (`prop_nelly_asset_breakdown_1_0003_chain`) renamed past it (`prop_chain`) with its bone, its keys,
+  its 3D depth and its controls; the template's empty slots go, with the keys on them; your Layers
+  order and your own slots stay. The report lists each rename. A part you map anew gets a slot of
+  its own; one you re-map to another region takes that region's name, keys and all.
 - **The neck.** A rig made before the neck had two bones gets `neck_upper` (between `neck` and the
   head, on its own line), its drawing skinned along both and into the torso and the head at its
   seams. Every clip poses as it did; Head nod shares a nod along the neck from then on, and a capture

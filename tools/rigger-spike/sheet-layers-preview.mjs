@@ -171,8 +171,14 @@ const GUARDS = {
 				(p) => slotOf(M, p),
 				m,
 			);
-		const drawn = new Set(list(base));
 		const setup = (doc) => doc.slots.map((s) => s.name);
+		// The list names the template's slots, the rig its regions' (one slot per region, §13.1h).
+		const named = (m) => M.sheetRig(t, REGIONS, m).value.fit.slots;
+		const roleOf = (m) => {
+			const back = new Map(Object.entries(named(m)).map(([r, n]) => [n, r]));
+			return (n) => back.get(n) ?? n;
+		};
+		const rn = (n, m = base) => named(m)[n] ?? n;
 		const toBehind = (doc, slot, behind) => {
 			const d = clone(doc);
 			const [s] = d.slots.splice(
@@ -186,10 +192,13 @@ const GUARDS = {
 			);
 			return d;
 		};
-		const opened = (doc) =>
-			setup(doc)
-				.filter((n) => drawn.has(n))
+		const opened = (doc, m = base) => {
+			const listed = new Set(list(m));
+			return setup(doc)
+				.map(roleOf(m))
+				.filter((n) => listed.has(n))
 				.reverse();
+		};
 		const moved = (l, slot, after) => {
 			const out = l.filter((n) => n !== slot);
 			out.splice(out.indexOf(after) + 1, 0, slot);
@@ -217,7 +226,13 @@ const GUARDS = {
 			});
 			return out;
 		};
-		const armBack = toBehind(made, 'upper_arm_l', 'head');
+		const armBack = toBehind(made, rn('upper_arm_l'), rn('head'));
+		// The left hand's little finger drawn as a part of its own (one slot per region: a finger
+		// no region draws has no slot).
+		const pinky = clone(base);
+		const glow = REGIONS.find((r) => r.name === 'bg_glow');
+		pinky.parts.pinky_1_l = { region: 'bg_glow', joints: { pivot: [glow.w / 2, glow.h / 2] } };
+		const pinkyBack = toBehind(create(M, pinky), rn('pinky_1_l', pinky), rn('head', pinky));
 		const armList = opened(armBack);
 		const onArm = band(base);
 		const placed = { ...onArm, layers: list({ ...onArm, layers: armList }) };
@@ -263,15 +278,16 @@ const GUARDS = {
 			],
 			[
 				'finger',
-				'a finger Setup drew behind the head, the list changed',
-				toBehind(made, 'pinky_1_l', 'head'),
-				{ ...base, layers: moved(opened(made), 'prop_chain', 'torso') },
+				'a finger Setup drew behind the head, the list opened from it and changed',
+				pinkyBack,
+				{ ...pinky, layers: moved(opened(pinkyBack, pinky), 'prop_chain', 'torso') },
 				false,
+				pinky,
 			],
 			[
 				'bandOff',
 				'a forearm prop Setup drew behind the head, taken off, the list changed',
-				() => toBehind(create(M, onArm), 'prop_band', 'head'),
+				() => toBehind(create(M, onArm), 'prop_band', rn('head')),
 				{ ...base, layers: moved(opened(made), 'prop_chain', 'torso') },
 				true,
 				onArm,
@@ -391,7 +407,7 @@ const MUTANTS = [
 	[
 		'preview',
 		"the preview judged on the open rig's slots, not the ones the update's merge leaves",
-		[UPD, '\t\tmergedSlots(merge.value.input),', '\t\to.rig.slots,'],
+		[UPD, '\t\tmergedSlots(input).filter((n) => !empty.has(n)),', '\t\to.rig.slots,'],
 		['bandBehind'],
 	],
 	[

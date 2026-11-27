@@ -52,7 +52,9 @@ export interface Template3d {
 /**
  * Half the depth of a body's slots, as shares of its shoulder width (a torso 24 cm deep on 36 cm
  * shoulders): what moves in the draw order against them is read against their back face, so an arm
- * at the body's side never drops behind it (rig-2p5d §4.5).
+ * at the body's side never drops behind it (rig-2p5d §4.5). By the template's part: its slot is the
+ * one drawing that part (a sheet's rig names it after its region, frame-to-rig §13.1h), else the slot
+ * of that name.
  */
 export const BODY_DEPTH: Readonly<Record<string, number>> = {
 	torso: 0.33,
@@ -94,7 +96,13 @@ export function withCaptureDepth(irig: Json, doc: Rig3dDoc): Rig3dDoc {
 	if (!width) return doc;
 	const out = structuredClone(doc);
 	const slots = new Set(list(irig.slots).map((s) => s.name as string));
-	const thick = Object.entries(BODY_DEPTH).filter(([s]) => slots.has(s) && !out.thick?.[s]);
+	const drawing = [...attachmentsOf(irig)];
+	const slotOf = (part: string) =>
+		drawing.find(([, names]) => names.has(part))?.[0] ?? (slots.has(part) ? part : null);
+	const thick = Object.entries(BODY_DEPTH).flatMap(([part, k]): [string, number][] => {
+		const s = slotOf(part);
+		return s !== null && !out.thick?.[s] ? [[s, k]] : [];
+	});
 	if (thick.length)
 		out.thick = {
 			...out.thick,
