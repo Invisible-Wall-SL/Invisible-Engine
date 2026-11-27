@@ -2430,18 +2430,164 @@ check(
 		['proposed', 0, 404],
 	);
 	ledger.length = 0;
-	// a file that IS main's own version replaces the branch's whole
-	const takesMain = await failFast(
-		{ files: files({ path: 'src/a.ts', rule: null, choice: 'main', content: '2\n' }) },
-		world(SRC_BASE, { 'src/a.ts': '1\n' }, { 'src/a.ts': '2\n' }),
+	// only a build rule's file left pending (content verified as main's) is shown whole; a model file
+	// that ends up as exactly main's text still shows what the change loses from it
+	type Shown = {
+		takes: string;
+		hunks: { k: string; text: string }[][];
+		headMode: string | null;
+		mode: string | null;
+	};
+	const diffOf = (run: { explanation: unknown }): Shown[] =>
+		(run.explanation as { diff: Shown[] }).diff;
+	const ruleWorld = () =>
+		world(
+			SRC_BASE,
+			{ 'scripts/runtime-bytes/lines.json': '{"a":2}\n' },
+			{ 'scripts/runtime-bytes/lines.json': '{"a":3}\n' },
+		);
+	const ruleFile = await failFast(
+		{
+			files: files({
+				path: 'scripts/runtime-bytes/lines.json',
+				rule: 'runtime-bytes',
+				choice: 'main',
+				content: '{"a":3}\n',
+			}),
+		},
+		ruleWorld(),
 	);
 	check(
-		'diff: content that is main’s own version is shown as taking it whole, not line by line',
-		(takesMain.run.explanation as { diff: { takes: string; hunks: unknown[] }[] }).diff.map((d) => [
-			d.takes,
-			d.hunks.length,
-		]),
-		[['main', 0]],
+		'diff: a build rule’s file left pending (main’s own, verified) still shows as taking main’s version whole',
+		[ruleFile.run.status, diffOf(ruleFile.run).map((d) => [d.takes, d.hunks.length])],
+		['proposed', [['main', 0]]],
+	);
+	ledger.length = 0;
+	const asMain = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'main', content: 'a\nc\n' }) },
+		world(SRC_BASE, { 'src/a.ts': 'a\nb\nown work\n' }, { 'src/a.ts': 'a\nc\n' }),
+	);
+	check(
+		'diff: a model file resolved to exactly main’s text shows its -/+ lines, the change’s own work included (never just a label)',
+		[
+			diffOf(asMain.run)[0].takes,
+			diffOf(asMain.run)[0]
+				.hunks.flat()
+				.filter((l) => l.k !== 'ctx')
+				.map((l) => `${l.k}:${l.text}`),
+		],
+		['run', ['del:b', 'del:own work', 'add:c']],
+	);
+	ledger.length = 0;
+	const gone2 = world(SRC_BASE, { 'src/a.ts': 'x\ny\n' }, { 'src/a.ts': 'x\nz\n' });
+	git.trees.get(git.commits.get(gone2.main)!.tree)!.delete('src/a.ts');
+	const deleted = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'main', content: null }) },
+		gone2,
+	);
+	check(
+		'diff: a model deletion where main lacks the file shows every line as removed',
+		[
+			diffOf(deleted.run)[0].takes,
+			diffOf(deleted.run)[0]
+				.hunks.flat()
+				.map((l) => `${l.k}:${l.text}`),
+		],
+		['run', ['del:x', 'del:y', 'del:']],
+	);
+	ledger.length = 0;
+	// modes: pushed, so on the card
+	const modeOnly = await failFast(
+		{
+			files: files({
+				path: 'src/a.ts',
+				rule: null,
+				choice: 'both',
+				content: 'same\n',
+				mode: '100755',
+			}),
+		},
+		world(SRC_BASE, { 'src/a.ts': 'same\n' }, { 'src/a.ts': 'other\n' }),
+	);
+	check(
+		'diff: a mode-only change (same content, chmod +x) is on the card: 100644 → 100755, no line changes',
+		[
+			diffOf(modeOnly.run)[0].headMode,
+			diffOf(modeOnly.run)[0].mode,
+			diffOf(modeOnly.run)[0].hunks.length,
+		],
+		['100644', '100755', 0],
+	);
+	ledger.length = 0;
+	const modeAndText = await failFast(
+		{
+			files: files({
+				path: 'src/a.ts',
+				rule: null,
+				choice: 'both',
+				content: 'same\nmore\n',
+				mode: '100755',
+			}),
+		},
+		world(SRC_BASE, { 'src/a.ts': 'same\n' }, { 'src/a.ts': 'other\n' }),
+	);
+	check(
+		'diff: a mode change with content changes shows both',
+		[
+			diffOf(modeAndText.run)[0].headMode,
+			diffOf(modeAndText.run)[0].mode,
+			diffOf(modeAndText.run)[0]
+				.hunks.flat()
+				.filter((l) => l.k === 'add')
+				.map((l) => l.text),
+		],
+		['100644', '100755', ['more']],
+	);
+	const cardSource = text('../src/routes/(app)/pipeline/MergeRunCards.svelte');
+	check(
+		'card: "No change" is said only when the modes are equal, the mode change is shown, and the section has its tooltip about main’s own changes',
+		[
+			cardSource.includes('diff.headMode !== diff.mode'),
+			/diff\.headMode === diff\.mode[\s\S]{0,120}No change/.test(cardSource),
+			/<InfoTip>[\s\S]*Main's\s+own changes since the merge base also land on the branch[\s\S]*only the\s+files the run resolved/.test(
+				cardSource,
+			),
+		],
+		[true, true, true],
+	);
+	ledger.length = 0;
+	// a link or a submodule both sides changed is refused at the result, as Accept would
+	const link = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: 'x\n' }) },
+		world(
+			SRC_BASE,
+			{ 'src/a.ts': { content: 'target', mode: '120000' } },
+			{ 'src/a.ts': 'main text\n' },
+		),
+	);
+	check(
+		'result: a symlink both sides changed is refused at the result with Accept’s own reason, never diffed',
+		[link.run.status, link.run.reason],
+		[
+			'needs_person',
+			'The change was refused (a path both sides changed is a link or a submodule).',
+		],
+	);
+	ledger.length = 0;
+	// the size a poll carries: context counts too
+	const filler = Array.from(
+		{ length: 150 },
+		(_, i) => `${`f${i}`.padEnd(290, 'z')}\n`.repeat(7) + `v${i}\n`,
+	).join('');
+	const edited = filler.replace(/^v(\d+)$/gm, 'w$1');
+	const wideCtx = await failFast(
+		{ files: files({ path: 'src/a.ts', rule: null, choice: 'both', content: edited }) },
+		world(SRC_BASE, { 'src/a.ts': filler }, { 'src/a.ts': 'main\n' }),
+	);
+	check(
+		'diff: 150 hunks of 6 context lines (about 280,000 stored characters, only 300 changed lines) are over the size a poll carries → no_proposal',
+		[wideCtx.run.status, wideCtx.run.reason],
+		['no_proposal', 'The merge changes more than the card can show: resolve it by hand.'],
 	);
 	ledger.length = 0;
 	// the cap: more changes than the card can show → no_proposal, so nothing pushed is unseen

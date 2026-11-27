@@ -3,6 +3,7 @@
 	import { mergeRunFilePath, type MergeRunsAnswer } from '$lib/mergeMainRuns';
 	import type { ChangeDetail } from '$lib/server/pipelineChanges';
 	import IconButton from '$lib/ui/IconButton.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		acceptBody,
@@ -188,13 +189,25 @@
 					{/if}
 				</p>
 				{#if diff}
-					<span class="col-title">What Accept changes on this branch</span>
+					<span class="col-title"
+						>What Accept changes on this branch
+						<InfoTip>
+							The line diff of the change's own version of this file against what Accept pushes.
+							Main's own changes since the merge base also land on the branch; this section shows
+							only the files the run resolved.
+						</InfoTip></span
+					>
+					{#if diff.headMode !== null && diff.mode !== null && diff.headMode !== diff.mode}
+						<p class="plain mono">mode {diff.headMode} → {diff.mode}</p>
+					{/if}
 					{#if diff.takes === 'main'}
 						<p class="plain">
 							Takes main's own version of this file whole, in place of the branch's.
 						</p>
 					{:else if !diff.hunks.length}
-						<p class="plain">No change: the branch's version is what is kept.</p>
+						{#if diff.headMode === null || diff.mode === null || diff.headMode === diff.mode}
+							<p class="plain">No change: the branch's version is what is kept.</p>
+						{/if}
 					{:else}
 						<div class="diff" role="group" aria-label={`Changes to ${f.path}`}>
 							{#each diff.hunks as hunk, i (i)}

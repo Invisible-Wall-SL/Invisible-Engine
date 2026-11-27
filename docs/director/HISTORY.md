@@ -41,7 +41,9 @@ with a new one. Use this format:
     leaked on a copy, a duplicate and a reorder). A line the merge adds that neither side holds is
     refused for a lone CR, U+2028/9, U+0085, a format character or a secret; control and format
     characters are shown as `⟨CR⟩` / `⟨U+200D⟩`; over 2,000 changed lines is `no_proposal`; `Open
-    resolved file` serves the exact text before Accept; code on the card keeps its `[skip ci]`.
+    resolved file` serves the exact text before Accept; code on the card keeps its `[skip ci]`; a
+    model file that ends as main's text still shows its `-` lines (only a pending rule file is "main's
+    whole"), a mode change is shown, a symlink is refused at the result, the stored diffs are capped.
   - Also: the compare's 300-file cap and a missing file list are "unknown"; the protected-path and
     lockfile exemption holds only for main's own entry; Accept posts the head the page showed; a
     GitHub error reading main's tree is a 502 and the job posts its result up to three times; the

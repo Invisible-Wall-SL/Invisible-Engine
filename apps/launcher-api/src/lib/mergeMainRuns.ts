@@ -172,6 +172,9 @@ export interface FileDiff {
 	 * change is main's whole file, not shown line by line.
 	 */
 	takes: 'run' | 'main';
+	/** The file's mode on the branch (null: the branch has no such file) and the mode Accept writes (null: it deletes it). */
+	headMode: string | null;
+	mode: string | null;
 	added: number;
 	removed: number;
 	hunks: DiffLine[][];
@@ -192,6 +195,8 @@ export const MERGE_CAPS = {
 	/** The lines the merge changes on the branch, over the whole proposal: past it nothing is proposed. */
 	diffLines: 2_000,
 	diffChars: 80_000,
+	/** Everything the stored diffs hold, context and visible markers included: the size a poll carries. */
+	diffStored: 200_000,
 	reason: 300,
 	path: 300,
 	hunks: 200,

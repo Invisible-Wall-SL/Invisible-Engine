@@ -365,9 +365,15 @@ that the run's hunks were cut against another base.)
   diff (`pipelineMergeRunsDiff.ts`), three lines of context, real numbers on both sides. A copy, a
   duplicate or a reorder is a `-`/`+` pair at its real position, and nothing depends on where a hunk
   was placed. A deleted file is all removed, a file the branch no longer has all added. A path both
-  sides changed identically (Accept keeps main's entry) has no diff and no file to open; content that
-  is main's own version of the file is shown as taking it whole. Past 2,000 changed lines or 80,000
-  characters (or more changes than the diff looks for) the result is `no_proposal` ("The merge
+  sides changed identically (Accept keeps main's entry) has no diff and no file to open; only a build
+  rule's file left pending (`isPendingRuleFile`, its content verified as main's own) is shown as
+  taking main's version whole, and a model file that ends as exactly main's text, or a deletion, shows
+  every `-` line. Each file's diff carries the branch's mode and the mode Accept writes, and a
+  difference (`mode 100644 → 100755`) is shown with or without line changes; "No change" is said
+  only when the modes are equal. A link or a submodule is refused at the result with Accept's own
+  reason. Past 2,000 changed lines or 80,000 characters of them, 200,000 characters stored in all
+  (context and visible markers count, so a poll stays small), or more changes than the diff looks
+  for, the result is `no_proposal` ("The merge
   changes more than the card can show: resolve it by hand"), so nothing Accept pushes is unseen. The
   head blob is immutable under `headSha`, so the branch-tip check at Accept (a moved head is `stale`)
   is the check that the diff is still the one for the file Accept replaces. For every line the merge

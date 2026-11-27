@@ -298,7 +298,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
     control and format characters are shown as `⟨CR⟩` / `⟨U+200D⟩`. "Open resolved file"
     (`GET …/merge-runs/<id>/file?path=…`, plain text, `pipelineMerge`) serves the exact bytes, only
     for a path Accept takes from the run. The raw text is capped before characters are made visible,
-    and code on the card is never stripped of `[skip ci]`.
+    and code on the card is never stripped of `[skip ci]`. Only a pending build rule's file is shown
+    "taking main's version whole"; modes are on the card (`mode 100644 → 100755`); the stored diffs
+    are capped at 200,000 characters in all, context included.
   - **Accept takes a database claim** (`proposed → accepting`, a claim id, a 5-minute lease on the
     database's clock, migration 0053) before any GitHub write; every update, settle and release
     carries the id, and the push needs the claim with 90 s of lease left (one slow GitHub call is ~60 s); a claim that holds an earlier holder's commit is kept by any failure that has not read the tip. Discard acts only from

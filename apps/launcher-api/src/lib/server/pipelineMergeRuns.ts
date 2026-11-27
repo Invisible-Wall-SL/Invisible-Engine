@@ -71,6 +71,7 @@ import {
 	explanationSize,
 	explanationTexts,
 	filesProblem,
+	isPendingRuleFile,
 	isExplainedMerge,
 	parseMergeResult,
 	resultProblem,
@@ -409,7 +410,11 @@ async function diffsOf(
 	files: MergeRunFile[],
 	trees: { head: Files; main: Files },
 ): Promise<{ diff: FileDiff[] } | { problem: string } | { tooBig: true }> {
-	type Found = { problem: string } | { tooBig: true } | { diff: FileDiff; chars: number } | null;
+	type Found =
+		| { problem: string }
+		| { tooBig: true }
+		| { diff: FileDiff; chars: number; stored: number }
+		| null;
 	const found = await mapWithConcurrency(files, 4, async (f): Promise<Found> => {
 		const head = trees.head.get(f.path);
 		const main = trees.main.get(f.path);
@@ -422,15 +427,26 @@ async function diffsOf(
 		) {
 			return null;
 		}
-		if ((head && head.type !== 'blob') || (main && main.type !== 'blob')) {
+		const plain = (e: { type: string; mode: string } | undefined): boolean =>
+			e === undefined || (e.type === 'blob' && (e.mode === '100644' || e.mode === '100755'));
+		if (!plain(head) || !plain(main)) {
 			return { problem: 'a path both sides changed is a link or a submodule' };
 		}
+		const modes = { headMode: head?.mode ?? null, mode: f.content === null ? null : f.mode };
+		// Only a build rule's file left pending (its content verified as main's own) is shown whole: a
+		// file the model resolved to exactly main's text still shows what the change loses from it.
 		const takesMain =
-			f.content === null
-				? main === undefined
-				: main !== undefined && blobSha(f.content) === main.sha && f.mode === main.mode;
+			isPendingRuleFile(f) &&
+			f.content !== null &&
+			main !== undefined &&
+			blobSha(f.content) === main.sha &&
+			f.mode === main.mode;
 		if (takesMain) {
-			return { diff: { path: f.path, takes: 'main', added: 0, removed: 0, hunks: [] }, chars: 0 };
+			return {
+				diff: { path: f.path, takes: 'main', ...modes, added: 0, removed: 0, hunks: [] },
+				chars: 0,
+				stored: 0,
+			};
 		}
 		const [before, other] = await Promise.all([blobText(app, head?.sha), blobText(app, main?.sha)]);
 		if ((head && before === null) || (main && other === null)) {
@@ -455,15 +471,18 @@ async function diffsOf(
 		const chars = text.hunks
 			.flat()
 			.reduce((n, l) => n + (l.k === 'ctx' ? 0 : Array.from(l.text).length), 0);
+		const hunks = displayDiff(text.hunks);
 		return {
 			diff: {
 				path: f.path,
 				takes: 'run',
+				...modes,
 				added: text.added,
 				removed: text.removed,
-				hunks: displayDiff(text.hunks),
+				hunks,
 			},
 			chars,
+			stored: hunks.flat().reduce((n, l) => n + l.text.length, 0),
 		};
 	});
 	for (const r of found) if (r && 'problem' in r) return { problem: r.problem };
@@ -471,7 +490,14 @@ async function diffsOf(
 	const done = found.flatMap((r) => (r && 'diff' in r ? [r] : []));
 	const lines = done.reduce((n, r) => n + r.diff.added + r.diff.removed, 0);
 	const chars = done.reduce((n, r) => n + r.chars, 0);
-	if (lines > MERGE_CAPS.diffLines || chars > MERGE_CAPS.diffChars) return { tooBig: true };
+	const stored = done.reduce((n, r) => n + r.stored, 0);
+	if (
+		lines > MERGE_CAPS.diffLines ||
+		chars > MERGE_CAPS.diffChars ||
+		stored > MERGE_CAPS.diffStored
+	) {
+		return { tooBig: true };
+	}
 	return { diff: done.map((r) => r.diff) };
 }
 
