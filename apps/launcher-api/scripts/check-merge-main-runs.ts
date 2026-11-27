@@ -2150,6 +2150,118 @@ await staleMain(
 	);
 }
 
+// #1958's edge cases: a file and a folder in one place, and a file added in a folder the other side emptied
+{
+	const refuseClash = async (label: string, w: World, prep: () => void = () => {}) => {
+		prep();
+		const p = await proposed(w, both);
+		gh.calls.length = 0;
+		const a = await accept(ADMIN, w.n, p.id, w.head);
+		check(
+			`accept: ${label} → needs_person, nothing written`,
+			[a.status, runOf(p.id).status, writesOf()],
+			[409, 'needs_person', []],
+		);
+	};
+	const treeOf = (sha: string) => git.trees.get(git.commits.get(sha)!.tree)!;
+	const withDir = { ...ACCEPT_BASE, 'dir/x.txt': 'x\n' };
+	const wDel = world(
+		withDir,
+		{ 'src/a.ts': 'const a = 3;\n', 'dir/new.txt': 'n\n' },
+		{ 'src/a.ts': 'const a = 2;\n' },
+	);
+	await refuseClash('a file the head added in a folder main emptied', wDel, () =>
+		treeOf(wDel.main).delete('dir/x.txt'),
+	);
+	const wMain = world(
+		withDir,
+		{ 'src/a.ts': 'const a = 3;\n' },
+		{ 'src/a.ts': 'const a = 2;\n', 'dir/new.txt': 'n\n' },
+	);
+	await refuseClash('a file main added in a folder the head emptied', wMain, () =>
+		treeOf(wMain.head).delete('dir/x.txt'),
+	);
+	const wFile = world(
+		ACCEPT_BASE,
+		{ 'src/a.ts': 'const a = 3;\n', clash: 'file\n' },
+		{ 'src/a.ts': 'const a = 2;\n', 'clash/b.txt': 'b\n' },
+	);
+	await refuseClash('a file on the head where main has a folder', wFile);
+	const wFolder = world(
+		ACCEPT_BASE,
+		{ 'src/a.ts': 'const a = 3;\n', 'clash/b.txt': 'b\n' },
+		{ 'src/a.ts': 'const a = 2;\n', clash: 'file\n' },
+	);
+	await refuseClash('a folder on the head where main has a file', wFolder);
+	const wOk = world(
+		withDir,
+		{ 'src/a.ts': 'const a = 3;\n', 'dir/new.txt': 'n\n' },
+		{ 'src/a.ts': 'const a = 2;\n', 'dir/y.txt': 'y\n' },
+	);
+	const pOk = await proposed(wOk, both);
+	check(
+		'accept: a file added in a folder main only added to is no conflict',
+		(await accept(ADMIN, wOk.n, pOk.id, wOk.head)).status,
+		200,
+	);
+}
+
+// a GitHub failure that may pass is waited out, never the end of the run
+{
+	const w = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p = await proposed(w, both);
+	git.refs.set(
+		'main',
+		putCommit(putTree({ ...ACCEPT_BASE, 'src/a.ts': 'const a = 2;\n', 'src/b.ts': 'z\n' }), [
+			w.main,
+		]),
+	);
+	gh.fail.set(`GET /compare/${w.main}...main`, [{ status: 502, message: 'bad gateway' }]);
+	const a = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'accept: a 5xx reading main’s changes → 502, the proposal still waiting',
+		[a.status, runOf(p.id).status],
+		[502, 'proposed'],
+	);
+	const again = await accept(ADMIN, w.n, p.id, w.head);
+	check(
+		'accept: and the retry goes through',
+		[again.status, runOf(p.id).status],
+		[200, 'accepted'],
+	);
+	const w2 = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
+	const p2 = await proposed(w2, both);
+	gh.fail.set(`GET /git/trees/${git.commits.get(w2.head)!.tree}`, [
+		{ status: 503, message: 'down' },
+	]);
+	const a2 = await accept(ADMIN, w2.n, p2.id, w2.head);
+	check(
+		'accept: a 5xx reading a tree → 502, still proposed',
+		[a2.status, runOf(p2.id).status],
+		[502, 'proposed'],
+	);
+	gh.fail.clear();
+	gh.dispatch = () => answer(429, { message: 'secondary rate limit' });
+	const w3 = world(SRC_BASE, { 'src/a.ts': 'x\n' }, { 'src/a.ts': 'y\n' });
+	check(
+		'dispatch: a 429 is a limit to wait out — the run stays dispatched',
+		((await resolve(ADMIN, w3.n)).body.run as Json).status,
+		'dispatched',
+	);
+	gh.dispatch = () => answer(200, { workflow_run_id: 9001 });
+	const bk = await mk(9701, 'in_progress');
+	gh.fail.set('GET /actions/runs/9701', [{ status: 502, message: 'bad gateway' }]);
+	await actions.backstopMergeRuns(app, clock + 5 * MIN);
+	check(
+		'backstop: a 5xx reading the Actions run leaves the run as it was for the next pass',
+		runOf(bk.id).status,
+		'dispatched',
+	);
+	gh.fail.clear();
+	await actions.backstopMergeRuns(app, clock + 5 * MIN);
+	check('backstop: the next pass reads it', runOf(bk.id).status, 'running');
+}
+
 // state refusals
 const w13 = world(ACCEPT_BASE, { 'src/a.ts': 'const a = 3;\n' }, { 'src/a.ts': 'const a = 2;\n' });
 check(

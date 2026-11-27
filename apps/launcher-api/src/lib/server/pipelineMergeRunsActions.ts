@@ -119,7 +119,7 @@ export async function dispatchMergeRun(
 		return { kind: 'unknown' };
 	}
 	if (res.status === 404) return { kind: 'refused', reason: MERGE_RUN_REASONS.noWorkflow };
-	if (res.status >= 400 && res.status < 500) {
+	if (res.status >= 400 && res.status < 500 && res.status !== 429) {
 		return {
 			kind: 'refused',
 			reason: actionsRefusal(res.status, await messageOf(res), 'dispatching the run'),

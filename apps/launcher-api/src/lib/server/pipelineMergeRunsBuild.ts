@@ -70,6 +70,26 @@ function meetsFolder(path: string, files: Files): boolean {
 	return false;
 }
 
+/** Every folder that holds a file of `files`. */
+function foldersOf(files: Files): Set<string> {
+	const folders = new Set<string>();
+	for (const path of files.keys()) {
+		const parts = path.split('/').slice(0, -1);
+		parts.forEach((_, i) => folders.add(parts.slice(0, i + 1).join('/')));
+	}
+	return folders;
+}
+
+/** Whether `path` sits in a folder the base had and `after` no longer has: a file added where the
+ *  other side emptied, removed or moved its folder (git's file-location conflict). */
+function inEmptiedFolder(path: string, before: Set<string>, after: Set<string>): boolean {
+	const parts = path.split('/').slice(0, -1);
+	return parts.some((_, i) => {
+		const folder = parts.slice(0, i + 1).join('/');
+		return before.has(folder) && !after.has(folder);
+	});
+}
+
 /**
  * The writes an accepted run makes on top of `main`'s tree, or the first rule the run breaks. Every
  * path both sides changed (to different entries) must be in the run's files, and every run file
@@ -88,6 +108,20 @@ export function planMerge(
 	const used = new Set<string>();
 	const identical = new Set<string>();
 	const final: Files = new Map(main);
+	const baseFolders = foldersOf(base);
+	const headFolders = foldersOf(head);
+	const mainFolders = foldersOf(main);
+	for (const path of new Set([...head.keys(), ...main.keys()])) {
+		if (base.has(path)) continue;
+		const byHead = head.has(path) && !main.has(path);
+		const byMain = main.has(path) && !head.has(path);
+		if (
+			(byHead && inEmptiedFolder(path, baseFolders, mainFolders)) ||
+			(byMain && inEmptiedFolder(path, baseFolders, headFolders))
+		) {
+			return { problem: 'a file was added in a folder the other side emptied or removed' };
+		}
+	}
 	for (const path of new Set([...base.keys(), ...head.keys(), ...main.keys()])) {
 		const h = !same(base.get(path), head.get(path));
 		const m = !same(base.get(path), main.get(path));
