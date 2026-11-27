@@ -583,6 +583,7 @@ export function mountSalmonsRiver(
 	const turn = new Container();
 	turn.scale.set(1, 0.5);
 	turn.isRenderGroup = true;
+	turn.label = 'salmons-river:ground';
 	const flatPlane = () => {
 		const plane = new Container();
 		plane.rotation = projector.ground.rotation;
