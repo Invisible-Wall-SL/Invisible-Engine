@@ -140,7 +140,7 @@ const MUTANTS = [
 			[
 				'rigFrameFit.ts',
 				"torso: ['spine', 'clavicle_l', 'clavicle_r'],",
-				"torso: ['spine', 'clavicle_l', 'clavicle_r'],\n\thead: ['neck'],",
+				"torso: ['spine', 'clavicle_l', 'clavicle_r'],\n\thead: ['neck_upper'],",
 			],
 		],
 	],
