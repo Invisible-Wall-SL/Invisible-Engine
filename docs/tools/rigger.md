@@ -1715,6 +1715,11 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   what it drew, so the new order shows at setup and in the clips that key no draw order.
   Once Setup's order goes against an arm-depth control, any Layers change that moves a slot is
   refused, with why under the list, until you fix that order too (in the list, or in Setup).
+- **The neck.** A rig made before the neck had two bones gets `neck_upper` (between `neck` and the
+  head, on its own line), its drawing skinned along both and into the torso and the head at its
+  seams. Every clip poses as it did; Head nod shares a nod along the neck from then on, and a capture
+  imported again bends the neck toward the face instead of sliding it (🎞 Frame to rig's 🔄 Update rig
+  does the same).
 - **Asked first.** A mesh you edited by hand that still draws the same region may be kept. A prop
   taken off goes with the keys on its bone, and you are shown those keys before anything changes.
 - **Undo and save.** It is one ↶ undo. The rig is saved, then its mapping, and a mapping someone
@@ -1789,12 +1794,14 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   - **📍 Follow positions / Angles only** (3D only; hover it) — **Follow positions**, the default,
     puts the rig **on** the performer in the reference: the whole character moves with them (across,
     up and down), each arm reaches the wrist the tracker found (Full body: each leg the ankle too),
-    and the head goes onto their face (its eyes and mouth), on top of every bone turning as theirs
-    does. It is keyed as plain translate keys on the root and the neck and the arms' turns, so the
-    keys edit as any others. A rig built unlike the performer bends to get there: a shorter arm
-    reaching the same wrist bends less than theirs, so its forearm points elsewhere than theirs; a wrist
-    further than the arm reaches turns the arm as tracked there, and the head moves at most a third of
-    the shoulders' width (both said under the import). **Angles only** turns each bone as the
+    and the neck bends the head toward their face (its eyes and mouth, sideways), on top of every bone
+    turning as theirs does. The neck's two bones (`neck`, `neck_upper`) share the bend and its base
+    stays on the body: nothing slides. It is keyed as plain translate keys on the root and the turns of
+    the neck and the arms, so the keys edit as any others. A rig built unlike the performer bends to
+    get there: a shorter arm reaching the same wrist bends less than theirs, so its forearm points
+    elsewhere than theirs; a wrist further than the arm reaches turns the arm as tracked there; a face
+    further to the side than a neck bends (35°) holds the neck there, and a head standing higher or
+    lower on its shoulders than theirs stays so (said under the import). **Angles only** turns each bone as the
     performer's from where the rig stands: the bends are theirs, but the body, head and hands drift off
     the reference as the performer moves. The import places the picture where the **Reference** is lined
     up (or lines it up first), so line it up or nudge it before importing if you want it elsewhere.

@@ -4486,8 +4486,9 @@ function faceKeyAttachment(anim, slot, part, t){
   upsertKey((cs.attachment = cs.attachment || []), t, part ? { name: part } : {});
 }
 
-// The channel's value at t, read back from the keys it writes (its first drive, else its swap; a
-// channel that sets others, from the first of them; a depth control, from the draw order).
+// The channel's value at t, read back from the keys it writes (its drives of its first drive's
+// property, else its swap; a channel that sets others, from the first of them; a depth control,
+// from the draw order).
 function faceChannelValue(anim, ch, t, setupOf, channels, setup){
   if (ch.sets && ch.sets.length){
     const s = ch.sets[0], target = (channels || []).find((c) => c.id === s.channel);
@@ -4495,13 +4496,21 @@ function faceChannelValue(anim, ch, t, setupOf, channels, setup){
   }
   if (ch.order) return setup ? faceOrderValue(ch, faceOrderOfKey(faceOrderKeyAt(anim, t), setup)) : ch.rest;
   if (ch.drives && ch.drives.length){
-    const d = ch.drives[0];
-    const tl = anim && anim.bones && anim.bones[d.bone] && anim.bones[d.bone][FACE_TIMELINE[d.prop]];
-    if (!tl || !tl.length) return faceClamp(ch, 0);
-    const field = FACE_FIELD[d.prop], scale = FACE_TIMELINE[d.prop] === "scale";
-    const k = sampleChannel(tl, t, [field]);
-    const raw = k[field] ?? (scale ? 1 : 0);
-    return faceClamp(ch, (scale ? raw - 1 : raw) / d.per);
+    // The value whose drives fit the keys best (least squares, an unkeyed bone at its setup): a turn
+    // shared along the neck reads the same whether both bones were keyed or, before the second
+    // existed, the first alone with the whole turn.
+    const prop = ch.drives[0].prop, name = FACE_TIMELINE[prop], field = FACE_FIELD[prop];
+    const scale = name === "scale";
+    let num = 0, den = 0;
+    for (const d of ch.drives){
+      if (d.prop !== prop) continue;
+      den += d.per * d.per;
+      const tl = anim && anim.bones && anim.bones[d.bone] && anim.bones[d.bone][name];
+      if (!tl || !tl.length) continue;
+      const raw = sampleChannel(tl, t, [field])[field] ?? (scale ? 1 : 0);
+      num += d.per * (scale ? raw - 1 : raw);
+    }
+    return faceClamp(ch, den ? num / den : 0);
   }
   if (ch.mixes && ch.mixes.length){
     const m = ch.mixes[0], tl = anim && anim.ik && anim.ik[m.ik];
@@ -6001,7 +6010,7 @@ function faceMotionPanel(motion, channels){
   if (in3d && motion.bones3d.positions){
     const fol = document.createElement("select");
     fol.className = "faceMotionFollow";
-    fol.title = "Follow positions: the body moves with the performer, the arms reach the wrists the tracker found and the head goes onto the face, on top of each bone turning as the performer's does, so the rig sits on the reference. A body proportioned unlike the performer's bends its limbs differently to get there (a shorter arm reaching the same wrist bends less). Angles only: each bone turns as the performer's from where the rig stands, so it drifts off the reference.";
+    fol.title = "Follow positions: the body moves with the performer, the arms reach the wrists the tracker found and the neck bends the head toward the face (its base stays on the body), on top of each bone turning as the performer's does, so the rig sits on the reference. A body proportioned unlike the performer's bends its limbs differently to get there (a shorter arm reaching the same wrist bends less). Angles only: each bone turns as the performer's from where the rig stands, so it drifts off the reference.";
     for (const [v, w] of [["1", "📍 Follow positions"], ["0", "Angles only"]]){ const o = document.createElement("option"); o.value = v; o.textContent = w; fol.appendChild(o); }
     fol.value = faceMotionFollow ? "1" : "0";
     fol.onchange = () => { faceMotionFollow = fol.value === "1"; };
@@ -6307,12 +6316,12 @@ function faceFollowSummary(f){
   const side = (b) => (b.endsWith("_l") ? "Left " : "Right ");
   const legs = Object.keys(f.limbs).some((b) => b.startsWith("thigh"));
   const reach = Object.keys(f.limbs).length ? ", the limbs reach the tracked wrists" + (legs ? " and ankles" : "") : "";
-  const head = f.head ? ", the head goes onto the face (moved " + f.head.median + " units typically, " + f.head.max + " at most)" : "";
+  const head = f.neck ? ", the neck bends the head toward the face (" + f.neck.median + "° typically, " + f.neck.max + "° at most; its base stays on the body)" : "";
   const placed = f.placed < f.frames ? " (placed on " + pct(f.placed) + " of frames, held between)" : "";
   const lines = ["📍 Followed positions: the body moves with the performer" + placed + reach + head + ". A body proportioned unlike the performer's bends its limbs differently to get there; Angles only keeps their bends."];
   for (const [b, s] of Object.entries(f.limbs)) if (s.outOfReach / Math.max(1, f.frames) >= 0.02)
     lines.push(side(b) + limb(b) + ": on " + pct(s.outOfReach) + " of frames the tracked end was further than it reaches; it turned as tracked there.");
-  if (f.head && f.head.clamped / Math.max(1, f.frames) >= 0.02) lines.push("The head was held at its " + f.head.limit + "-unit shift on " + pct(f.head.clamped) + " of frames.");
+  if (f.neck && f.neck.clamped / Math.max(1, f.frames) >= 0.02) lines.push("The neck was held at its " + f.neck.limit + "° bend on " + pct(f.neck.clamped) + " of frames: the face was further to the side than a neck bends.");
   return lines;
 }
 
@@ -12243,12 +12252,21 @@ async function f2rLoadArt(a){
   return atlas;
 }
 
+// What an update said of the template's links it put in (the neck's upper half): the Controls then
+// share a nod along both, so the template is read again for the rig as it now is.
+function linkedNote(rep){
+  if (!rep.linked || !rep.linked.length) return "";
+  loadRigTemplate();
+  return "The neck bends now: " + rep.linked.map((l) => l.bone + " (above " + l.below + ")").join(", ") + " put in, its drawing skinned across both. Its clips pose as they did; Head nod shares a nod along the neck from now on, and a capture imported again bends the neck toward the face instead of sliding it.\n\n";
+}
+
 function reportFrameUpdate(stem, rep){
   const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
   const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
   showAlert(
     "“" + stem + "” is updated from its cut" + (dirty ? " but NOT saved yet: 💾 Save keeps it, its new art with it." : " and saved.") + " ↶ undoes it.\n\n" +
     "Rebuilt from the cut: " + rep.replaced.join(", ") + ".\n\n" +
+    linkedNote(rep) +
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
     (removed.length ? "Removed (the cut no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
@@ -12593,6 +12611,7 @@ function reportSheetUpdate(stem, rep){
     "Rebuilt from the mapping: " + rep.replaced.join(", ") + ".\n\n" + frame +
     (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
     (rep.turned && rep.turned.length ? "↻ The head turns round now, its drawing weighted to " + rep.turned.join(", ") + (rig3d.doc ? " (their depths and the face's are in its 3D data, so its 3D clips bake the turn again)" : "") + ".\n\n" : "") +
+    linkedNote(rep) +
     (removed.length ? "Removed (the mapping no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
     (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
     (rep.layered && rep.layered.length ? "Drawn in the order of your Layers list: " + rep.layered.join(", ") + " moved.\n\n" : "") +
@@ -13998,10 +14017,10 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     const r = document.createElement("label"); r.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;color:var(--dim);font-size:11px;";
     const l = document.createElement("span"); l.textContent = "shows"; l.style.cssText = "width:54px;";
     const sel = document.createElement("select"); sel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
-    const o0 = document.createElement("option"); o0.value = " none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
+    const o0 = document.createElement("option"); o0.value = "\u0000none"; o0.textContent = "(nothing)"; sel.appendChild(o0);
     defs.forEach((d) => { const o = document.createElement("option"); o.value = d.name; o.textContent = d.name; sel.appendChild(o); });
-    sel.value = curAtt == null ? " none" : curAtt;
-    sel.onchange = () => keySlotAttachment(sd.name, sel.value === " none" ? null : sel.value);
+    sel.value = curAtt == null ? "\u0000none" : curAtt;
+    sel.onchange = () => keySlotAttachment(sd.name, sel.value === "\u0000none" ? null : sel.value);
     r.appendChild(l); r.appendChild(sel); det.appendChild(r);
   }
   // colour (rgb tint): retint only, keeping the current opacity — keys at the playhead
@@ -22426,7 +22445,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   // value range — frozen while dragging so the scale doesn't chase the cursor
   let minV = Infinity, maxV = -Infinity;
   for (const c of curves) for (const k of c.keys){ const v = k[c.field] ?? 0; if (v < minV) minV = v; if (v > maxV) maxV = v; }
-  if (graphDrag && graphMap){ minV = graphMap.minV; maxV = graphMap.maxV; }
+  if ((graphDrag || graphBox) && graphMap){ minV = graphMap.minV; maxV = graphMap.maxV; }
   else { if (!isFinite(minV)){ minV = 0; maxV = 1; } if (maxV - minV < 1e-6){ minV -= 1; maxV += 1; } const p = (maxV - minV) * 0.14; minV -= p; maxV += p; }
   const top = 8, areaH = bodyH - 16;
   const valueToY = (v) => top + (maxV - v) / (maxV - minV) * areaH;

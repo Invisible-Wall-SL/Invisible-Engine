@@ -1,5 +1,16 @@
 import { parseFixRunBranch } from '$lib/bugFixRuns';
 import { bugPath, bugRef } from '$lib/bugReports';
+import {
+	afterAcceptText,
+	isLiveMergeRun,
+	type MergeChoice,
+	type MergeRunExplanation,
+	type MergeRunFileView,
+	type MergeRunHunk,
+	type MergeRunView,
+	type MergeRunsAnswer,
+	type MergeTakes,
+} from '$lib/mergeMainRuns';
 import type { AgentLastChange } from '$lib/server/pipelineAgents';
 import type {
 	AgentEvalCheck,
@@ -30,7 +41,7 @@ export type Tone = 'green' | 'red' | 'blue' | 'amber' | 'muted' | 'text';
 export type PillTone = Exclude<Tone, 'text'>;
 
 export const NO_CHECKS_TEXT = 'No checks have reported on this head yet.';
-export const BLOCKED_CONFLICT_TEXT = 'Merge conflict with main: bring main in and resolve it.';
+export const BLOCKED_CONFLICT_TEXT = 'Merge conflict with main.';
 export const APPROVE_HINT = 'Approve each changed screen below, or push a fix.';
 export const MERGE_NEEDS_CAPABILITY_TEXT = 'Merging needs the “Merge pipeline changes” permission.';
 export const MERGE_DRAFT_TEXT = 'This change is a draft: mark it ready for review first.';
@@ -620,6 +631,265 @@ export function holdBar(
 		? `${detail.behindBy} ${plural(detail.behindBy, 'commit')} behind main`
 		: 'Behind main';
 	return { action: canMerge ? 'hold' : null, text: `${behind} for ${age} days` };
+}
+
+// ── Resolve conflict (ADR-0015 §5) ────────────────────────────────────────────
+
+export const PUSHED_RECENTLY_MS = HOUR;
+export const PUSHED_RECENTLY_TEXT =
+	'This branch was pushed in the last hour. A session may still be working on it, and must pull before its next push.';
+export const MERGE_BRANCH_MOVED_TEXT = 'The branch moved; resolve again.';
+
+/**
+ * Resolve conflict is offered to a `pipelineMerge` holder on an open change that GitHub says
+ * conflicts with `main`, that is not on hold and has no merge run going or waiting — and only while
+ * GitHub has an active `merge-main.yml` (`merge.ready`), so a button that can only fail is not shown.
+ */
+export function resolveOffered(
+	detail: Pick<ChangeDetail, 'state' | 'merged' | 'mergeableState'> & { onHold?: boolean },
+	merge: Pick<MergeRunsAnswer, 'ready' | 'run'> | null,
+	canMerge: boolean,
+): boolean {
+	if (!canMerge || !merge?.ready) return false;
+	if (detail.state !== 'open' || detail.merged || detail.onHold) return false;
+	if (detail.mergeableState !== 'dirty') return false;
+	return !(merge.run && isLiveMergeRun(merge.run.status));
+}
+
+export interface MergeRunLine {
+	tone: 'blue' | 'amber' | 'red';
+	text: string;
+	/** A run that ended asking for a person: the card offers Copy merge brief. */
+	brief: boolean;
+}
+
+/**
+ * The newest merge run's line while it works, or when it ended without a proposal to show. Null for
+ * a proposal (its card), an accepted or discarded run, and a cancelled one.
+ */
+export function mergeRunLine(
+	run: MergeRunView | null,
+	now: number = Date.now(),
+): MergeRunLine | null {
+	if (!run) return null;
+	const since = `started ${timeAgo(run.createdAt, now)} by ${run.startedBy}`;
+	switch (run.status) {
+		case 'dispatched':
+			return {
+				tone: 'blue',
+				brief: false,
+				text: `Resolving the conflict: waiting for the job (${since}).`,
+			};
+		case 'running':
+			return {
+				tone: 'blue',
+				brief: false,
+				text: `Resolving the conflict: the job is working (${since}).`,
+			};
+		case 'stale':
+			return { tone: 'amber', brief: false, text: run.reason ?? MERGE_BRANCH_MOVED_TEXT };
+		case 'needs_person':
+			return { tone: 'amber', brief: true, text: run.reason ?? 'This conflict needs a person.' };
+		case 'no_proposal':
+		case 'failed':
+			return { tone: 'red', brief: false, text: run.reason ?? 'The run ended without a proposal.' };
+		default:
+			return null;
+	}
+}
+
+const CHOICE_TEXT: Record<MergeChoice, string> = {
+	main: "took main's",
+	change: "kept this change's",
+	both: 'kept both',
+	combined: 'combined both',
+};
+const TAKES_TEXT: Record<MergeTakes, string> = {
+	main: "main's",
+	change: "this change's",
+	both: 'both',
+	combined: 'a combination',
+};
+
+export const choiceWord = (choice: MergeChoice): string => CHOICE_TEXT[choice];
+export const takesWord = (takes: MergeTakes): string => TAKES_TEXT[takes];
+
+/** One hunk as the card's three columns. `result` is null for a combination: only `nowDoes` says it. */
+export function hunkColumns(h: Pick<MergeRunHunk, 'main' | 'change' | 'takes'>): {
+	main: string;
+	change: string;
+	result: string | null;
+} {
+	const result =
+		h.takes === 'main'
+			? h.main
+			: h.takes === 'change'
+				? h.change
+				: h.takes === 'both'
+					? `${h.change}\n${h.main}`
+					: null;
+	return { main: h.main, change: h.change, result };
+}
+
+export interface ProposalSection {
+	key: string;
+	title: string;
+	/** Plain text lines; the page never renders them as HTML. */
+	lines: string[];
+}
+
+/** What follows Accept, one line per file a build rule left as main's (§3); no job builds it. */
+export function afterAcceptLines(files: Pick<MergeRunFileView, 'path' | 'rule'>[]): string[] {
+	return files.flatMap((f) => {
+		const text = afterAcceptText(f);
+		return text ? [`${f.path}: ${text}`] : [];
+	});
+}
+
+/** ADR-0015 §4's sections of an explanation, those that have content. */
+export function proposalSections(
+	e: MergeRunExplanation,
+	files: Pick<MergeRunFileView, 'path' | 'rule'>[] = [],
+): ProposalSection[] {
+	const sections: ProposalSection[] = [
+		{
+			key: 'conflicted',
+			title: 'What conflicted',
+			lines: e.conflicted.map((c) => {
+				const met = c.met.map((m) => (m.pr === null ? m.title : `#${m.pr} ${m.title}`));
+				return met.length ? `${c.path}: met ${met.join('; ')}` : c.path;
+			}),
+		},
+		{
+			key: 'takes',
+			title: 'What the resolution takes',
+			lines: e.hunks.map((h) => `${h.path} (hunk ${h.index + 1}): ${takesWord(h.takes)}. ${h.why}`),
+		},
+		{
+			key: 'now-does',
+			title: 'What the merged code now does',
+			lines: e.hunks
+				.filter((h) => h.nowDoes)
+				.map((h) => `${h.path} (hunk ${h.index + 1}): ${h.nowDoes}`),
+		},
+		{
+			key: 'otherwise',
+			title: 'What else was possible',
+			lines: e.hunks
+				.filter((h) => h.otherwise)
+				.map((h) => `${h.path} (hunk ${h.index + 1}): ${h.otherwise}`),
+		},
+		{
+			key: 'outside',
+			title: 'Also changed outside the conflict',
+			lines: e.outside.map((o) => `${o.path}: ${o.what}`),
+		},
+		{
+			key: 'checks',
+			title: 'Checks run',
+			lines: e.checks.map((c) => `${c.ok ? 'passed' : 'failed'}: ${c.command}`),
+		},
+		{ key: 'after-accept', title: 'What follows Accept', lines: afterAcceptLines(files) },
+		{ key: 'risks', title: 'Risks', lines: e.risks ? [e.risks] : [] },
+	];
+	return sections.filter((s) => s.lines.length > 0);
+}
+
+export interface ProposalBar {
+	/** "Resolved against main at 1a2b3c4, 3 commits behind now." */
+	headline: string;
+	cost: string | null;
+	/** The branch was pushed in the last hour: a session may be working on it. */
+	pushedRecently: boolean;
+	/** Why Accept is not offered, or null when it is. */
+	blocked: string | null;
+	/** Accept and Discard are the `pipelineMerge` holder's. */
+	canAct: boolean;
+}
+
+/**
+ * What the proposal card shows around the explanation: the commit it was resolved against and how
+ * far `main` has moved, the cost, a warning for a branch pushed in the last hour, and whether Accept
+ * is offered (the change's head must still be the run's: otherwise the proposal is stale).
+ */
+export function proposalBar(
+	run: Pick<MergeRunView, 'status' | 'mainSha' | 'headSha' | 'spendUsd'>,
+	detail: Pick<ChangeDetail, 'headSha' | 'state' | 'onHold'>,
+	facts: Pick<MergeRunsAnswer, 'behindNow' | 'headCommittedAt'>,
+	canMerge: boolean,
+	now: number = Date.now(),
+): ProposalBar | null {
+	if (run.status !== 'proposed') return null;
+	const behind =
+		facts.behindNow === null
+			? ''
+			: facts.behindNow === 0
+				? ', main has not moved since'
+				: `, ${facts.behindNow} ${plural(facts.behindNow, 'commit')} behind now`;
+	const committed = facts.headCommittedAt ? Date.parse(facts.headCommittedAt) : NaN;
+	return {
+		headline: `Resolved against main at ${shortSha(run.mainSha)}${behind}.`,
+		cost: run.spendUsd === null ? null : `Cost ${money(run.spendUsd)}`,
+		pushedRecently: now - committed >= 0 && now - committed < PUSHED_RECENTLY_MS,
+		blocked:
+			detail.state !== 'open'
+				? 'This change is not open.'
+				: detail.onHold
+					? ON_HOLD_OFFERS_TEXT
+					: detail.headSha !== run.headSha
+						? MERGE_BRANCH_MOVED_TEXT
+						: null,
+		canAct: canMerge,
+	};
+}
+
+export interface MergedInCard {
+	title: string;
+	rows: { path: string; text: string }[];
+}
+
+/** The "Main merged in" card of an accepted run: who and when, against which `main`, each choice. */
+export function mergedInCard(
+	run: MergeRunView | null,
+	now: number = Date.now(),
+): MergedInCard | null {
+	if (!run || run.status !== 'accepted') return null;
+	return {
+		title: `Main merged in · ${run.acceptedBy ?? 'a person'} · ${timeAgo(run.finishedAt ?? run.updatedAt, now)} · main at ${shortSha(run.mainSha)}`,
+		rows: run.files.map((f) => ({
+			path: f.path,
+			text: `${choiceWord(f.choice)}${f.choice === 'combined' ? '; now differs from both sides' : ''}${f.deleted ? '; deleted' : ''}${afterAcceptText(f) ? `. ${afterAcceptText(f)}` : ''}`,
+		})),
+	};
+}
+
+/** What a session needs to do the merge by hand: Copy merge brief. Public data only. */
+export function mergeBrief(
+	detail: Pick<ChangeDetail, 'number' | 'branch' | 'url' | 'headSha'>,
+	run: MergeRunView,
+): string {
+	const lines = [
+		`Merge main into ${detail.branch} (${detail.url}).`,
+		`Head ${detail.headSha}; main at ${run.mainSha}.`,
+		`Why a person is needed: ${run.reason ?? 'the run did not say.'}`,
+	];
+	const hunks = run.explanation?.hunks ?? [];
+	if (run.files.length) {
+		lines.push(
+			'Files the run resolved:',
+			...run.files.map((f) => `- ${f.path}: ${choiceWord(f.choice)}`),
+		);
+	}
+	if (hunks.length) {
+		lines.push(
+			'Choices it proposed:',
+			...hunks.map((h) => `- ${h.path} (hunk ${h.index + 1}): ${takesWord(h.takes)}. ${h.why}`),
+		);
+	}
+	lines.push(
+		'Merge origin/main into the branch yourself, apply these choices, run the checks of the packages you touch, and push. Do not rebase or force-push.',
+	);
+	return lines.join('\n');
 }
 
 /** The bar after a merge: "Merged into main as <sha> by <who> · just now". */

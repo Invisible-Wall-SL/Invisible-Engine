@@ -150,6 +150,11 @@
 		emitting?: boolean;
 		/** Draw the faint atlas page behind the particles (default true). */
 		showReference?: boolean;
+		/** A see-through backdrop, so the stage layers over a host's own drawing (default false). */
+		transparent?: boolean;
+		/** The world's scale when the view is centred (default 1) — an effect drawn scaled, as the
+		 *  game scales the container it mounts one in. {@link ownerPos} is in the scaled world's units. */
+		worldScale?: number;
 		/**
 		 * Re-fire the one-shot layers (a finite emitter lifetime) together, on a loop: once every one
 		 * has stopped and its last particle died, they all fire again after {@link BURST_GAP_MS}, and a
@@ -210,6 +215,8 @@
 		ownerRotation,
 		emitting = true,
 		showReference = true,
+		transparent = false,
+		worldScale = 1,
 		loopBursts = false,
 		params,
 		paramValues,
@@ -477,7 +484,14 @@
 		let disposed = false;
 		const created = new Application();
 		(async () => {
-			await created.init({ background: '#0b0e13', antialias: true, resizeTo: host ?? undefined });
+			await created.init({
+				// A see-through clear must be black: a coloured clear at alpha 0 is not a valid
+				// premultiplied colour, and the browser composites it as a haze.
+				background: transparent ? '#000000' : '#0b0e13',
+				backgroundAlpha: transparent ? 0 : 1,
+				antialias: true,
+				resizeTo: host ?? undefined,
+			});
 			if (disposed) {
 				created.destroy(true);
 				return;
@@ -678,7 +692,7 @@
 
 	function centerWorld(): void {
 		if (!app || !world) return;
-		view = { x: app.screen.width / 2, y: app.screen.height / 2, scale: 1 };
+		view = { x: app.screen.width / 2, y: app.screen.height / 2, scale: worldScale };
 		applyView();
 	}
 

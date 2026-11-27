@@ -769,7 +769,9 @@ code default, so the dashboard need not set it):
 - **Profiler lab run (`.github/workflows/profiler-lab.yml`):** nightly (03:17 UTC) and on demand,
   plays each live online game headless (`scripts/playtest/lab-run.mjs`) and posts its reading. No
   secret of its own: the current-games harness's `PIPELINE_GAMES_URL` (the launcher is its origin)
-  and `PIPELINE_CI_TOKEN`.
+  and `PIPELINE_CI_TOKEN`. Dispatched with `salmons` ticked it instead builds the runtime and plays
+  Salmons' room against a local game server (`scripts/playtest/salmons-lab.mjs`); that job needs no
+  secret and posts nothing.
 - **Game server config:** `GAME_SERVER_CONFIG_SECRET` (secret, no default) — the bearer the
   Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
   only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing
@@ -869,6 +871,15 @@ code default, so the dashboard need not set it):
   - **Caps:** the per-run budget is Admin › Settings `PIPELINE_FIX_BUDGET_USD` for a build run and
     `PIPELINE_DIAGNOSE_BUDGET_USD` (default $5) for a diagnose run (ADR-0014), passed to
     `--max-budget-usd`; 150 turns; step 4 times out at 60 minutes, the job at 75.
+  - **Resolve conflict runs (ADR-0015, card 15C)** share the `bug-fix` environment and
+    `ANTHROPIC_BUG_FIX_API_KEY`. Admin › Settings `PIPELINE_MERGE_MAIN_BUDGET_USD` (default $6) caps
+    one run; its spend is recorded in `director_spend` as `run_id` `merge:<id>`, agent `merge-main`,
+    and counts toward `PIPELINE_FIX_MONTHLY_USD`. `merge-main.yml` posts its result to
+    `POST /api/pipeline/merge-runs/<id>/result` with a GitHub OIDC token for the audience
+    `invisible-launcher-merge-main` (its `job_workflow_ref` is `merge-main.yml` on `main`,
+    environment `bug-fix`, dispatched by the App's bot, first attempt). The launcher shows no
+    Resolve button until GitHub has an active `merge-main.yml` on `main` (card 15B2). A run that
+    dies is settled by the fix runs' once-a-minute link sync: there is no new loop.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and

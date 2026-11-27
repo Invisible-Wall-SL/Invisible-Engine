@@ -5,8 +5,9 @@
 	 * buttons. `label` is both the tooltip and the accessible name. `reset`: back to a default.
 	 * `history`: a doc's saved versions (`DocHistoryModal`). `undelete`: deleted docs, back from
 	 * their saved versions (`DeletedDocsModal`). `play` / `pause`: a preview's clock. `reverse`: turn
-	 * about. `reroll`: a new random pick (a generated level's seed). `up` / `down`: move an entry
-	 * of a list one place. `plus`: add (a block a section is empty without: Make a prop).
+	 * about. `reroll`: a new random pick (a generated level's seed). `replay`: play a preview again
+	 * from its start. `up` / `down`: move an entry of a list one place. `plus`: add (a block a
+	 * section is empty without: Make a prop).
 	 */
 	interface Props {
 		icon:
@@ -19,6 +20,7 @@
 			| 'pause'
 			| 'reverse'
 			| 'reroll'
+			| 'replay'
 			| 'up'
 			| 'down'
 			| 'plus';
@@ -67,6 +69,10 @@
 		>
 	{:else if icon === 'plus'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>
+	{:else if icon === 'replay'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"
+			><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5V5h2.5M7 6l3 2-3 2z" /></svg
+		>
 	{:else if icon === 'up'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10l4-4 4 4" /></svg>
 	{:else if icon === 'down'}

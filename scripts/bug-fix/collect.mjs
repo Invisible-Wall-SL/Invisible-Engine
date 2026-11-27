@@ -56,14 +56,16 @@ const MAX_SCREENSHOTS = 20;
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 /** adapter-node refuses a body past 512 KB: a larger result goes gzipped. */
 const GZIP_OVER = 400 * 1024;
-/** What the launcher unpacks at most. */
-const MAX_RESULT_BYTES = 2 * 1024 * 1024;
+/** What the launcher unpacks at most: it takes whole files, one of them up to 2 MB, and a size
+ *  counted by lines lets a 1.6 MB file in beside the rest. */
+const MAX_RESULT_BYTES = 8 * 1024 * 1024;
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_RESULT_JSON = 256 * 1024;
 const HTTP_TIMEOUT_MS = 30_000;
 
-class JobError extends Error {}
+export class JobError extends Error {}
 
-const fail = (message) => {
+export const fail = (message) => {
 	throw new JobError(message);
 };
 
@@ -82,7 +84,7 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
  * POST is tried once: the launcher opens the pull request inside it, so a second POST of a result
  * still being opened would only be refused.
  */
-async function request(url, init, doing, { tries = 3, timeoutMs = HTTP_TIMEOUT_MS } = {}) {
+export async function request(url, init, doing, { tries = 3, timeoutMs = HTTP_TIMEOUT_MS } = {}) {
 	for (let attempt = 0; ; attempt++) {
 		let res;
 		try {
@@ -123,9 +125,9 @@ export function trustedUrl(raw, hosts) {
  * A GitHub OIDC token for the launcher. The request URL and token are the job's own, which
  * `id-token: write` gives every step — but step 4 starts the CLI without them.
  */
-export async function oidcToken() {
+export async function oidcToken(audience = AUDIENCE) {
 	const url = trustedUrl(env('ACTIONS_ID_TOKEN_REQUEST_URL'), ['.actions.githubusercontent.com']);
-	url.searchParams.set('audience', AUDIENCE);
+	url.searchParams.set('audience', audience);
 	const res = await request(
 		url,
 		{ headers: { authorization: `bearer ${env('ACTIONS_ID_TOKEN_REQUEST_TOKEN')}` } },
@@ -537,7 +539,7 @@ const modeOf = (st) => ((st.mode & 0o111) !== 0 ? '100755' : '100644');
  * (`O_NONBLOCK`, then `fstat`), the same file `lstat` saw (nothing swapped in between), with no
  * second hard link, and at most `limit` bytes. Anything else is refused, never followed.
  */
-function readPlain(workspaceReal, path, limit) {
+export function readPlain(workspaceReal, path, limit) {
 	const dir = realpathSync(dirname(path));
 	if (dir !== workspaceReal && !dir.startsWith(workspaceReal + sep)) {
 		fail('The change reaches outside the workspace through a linked folder.');
@@ -576,10 +578,11 @@ function readPlain(workspaceReal, path, limit) {
 
 /** A path as this job may print it: the log is public and reads `::` commands, so only a plain
  *  printable-ASCII path is shown. */
-const shown = (path) => (/^[!-~]{1,300}$/.test(path) ? path : 'a path outside printable ASCII');
+export const shown = (path) =>
+	/^[!-~]{1,300}$/.test(path) ? path : 'a path outside printable ASCII';
 
 /** A changed file's text, which must be UTF-8 with no NUL: a NUL means a binary file. */
-function textOf(bytes, path) {
+export function textOf(bytes, path) {
 	let text;
 	try {
 		text = decoder.decode(bytes);
@@ -620,9 +623,9 @@ export function collectChange(main, workspace) {
 			continue;
 		}
 		const was = readFileSync(join(main, path));
-		const after = readPlain(real, now, Math.max(was.length, MAX_RESULT_BYTES));
+		const after = readPlain(real, now, Math.max(was.length, MAX_FILE_BYTES));
 		if (after.mode === mode && after.bytes.equals(was)) continue;
-		if (after.bytes.length > MAX_RESULT_BYTES) fail('A changed file is larger than 2 MB.');
+		if (after.bytes.length > MAX_FILE_BYTES) fail('A changed file is larger than 2 MB.');
 		files.push({
 			path,
 			...(after.mode !== mode ? { mode: after.mode } : {}),
@@ -650,7 +653,7 @@ export function collectChange(main, workspace) {
 		if (known.has(path) || path === '.git' || path.startsWith('.git/')) continue;
 		// git lists a folder holding a repository of its own as `dir/`: its files would drop out.
 		if (path.endsWith('/')) fail('The change holds a nested git repository.');
-		const after = readPlain(real, join(workspace, path), MAX_RESULT_BYTES);
+		const after = readPlain(real, join(workspace, path), MAX_FILE_BYTES);
 		files.push({
 			path,
 			...(after.mode === '100755' ? { mode: '100755' } : {}),
@@ -846,10 +849,35 @@ export function readResultJson(path) {
 const MAX_FILES = 40;
 const MAX_CHANGE_BYTES = 400 * 1024;
 
-export function sizeProblem(files) {
+/** The lines of `after` that `before` does not have, counted (the launcher's `addedLines`). */
+function addedLines(before, after) {
+	const left = new Map();
+	for (const line of before?.split('\n') ?? []) left.set(line, (left.get(line) ?? 0) + 1);
+	return after.split('\n').filter((line) => {
+		const n = left.get(line) ?? 0;
+		if (n) left.set(line, n - 1);
+		return !n;
+	});
+}
+
+const lineBytes = (lines) => lines.reduce((n, line) => n + Buffer.byteLength(line) + 1, 0);
+
+/**
+ * The launcher's size rule: the bytes of the lines the change adds and removes against the pristine
+ * copy (`baseOf(path)`: its text, or null for a new file), a new or deleted file counting whole.
+ */
+export function sizeProblem(files, baseOf = () => null) {
 	if (files.length > MAX_FILES) return `The change has more than ${MAX_FILES} files.`;
-	const bytes = files.reduce((n, f) => n + (f.content ? Buffer.byteLength(f.content) : 0), 0);
-	return bytes > MAX_CHANGE_BYTES ? 'The change adds more than 400 KB.' : null;
+	let bytes = 0;
+	for (const f of files) {
+		const was = baseOf(f.path);
+		if (f.content === null) bytes += lineBytes(was === null ? [] : was.split('\n'));
+		else {
+			bytes += lineBytes(addedLines(was, f.content));
+			if (was !== null) bytes += lineBytes(addedLines(f.content, was));
+		}
+	}
+	return bytes > MAX_CHANGE_BYTES ? 'The change changes more than 400 KB of lines.' : null;
 }
 
 /**
@@ -954,7 +982,7 @@ export function logLine(id, answer, origin = null) {
 }
 
 /** Print `line` where no workflow command can be read into it. */
-function printFenced(line) {
+export function printFenced(line) {
 	const token = randomBytes(12).toString('hex');
 	console.log(`::stop-commands::${token}`);
 	console.log(line);
@@ -983,7 +1011,13 @@ async function result() {
 		const files = changes ? collectChange(p.main, p.workspace) : [];
 		const shots = (run.screenshots ?? []).map((s) => readFileSync(join(p.bug, basename(s))));
 		const refused =
-			sizeProblem(files) ?? copiesBug(files, readFileSync(join(p.bug, 'brief.md'), 'utf8'), shots);
+			sizeProblem(files, (path) => {
+				try {
+					return readFileSync(join(p.main, path), 'utf8');
+				} catch {
+					return null;
+				}
+			}) ?? copiesBug(files, readFileSync(join(p.bug, 'brief.md'), 'utf8'), shots);
 		body = resultBody({ ...given, result: parsed, files, failure: refused });
 	} catch (err) {
 		if (!(err instanceof JobError)) throw err;
@@ -992,7 +1026,7 @@ async function result() {
 	const failed = (why) => resultBody({ ...given, result: null, files: [], failure: why });
 	const post = async (b) => {
 		const sent =
-			encodeBody(b) ?? encodeBody(failed('The change is too large to send (over 2 MB).'));
+			encodeBody(b) ?? encodeBody(failed('The change is too large to send (over 8 MB).'));
 		const token = await oidcToken();
 		return request(
 			launcher(`${id}/result`),

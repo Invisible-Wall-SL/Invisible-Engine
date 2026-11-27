@@ -91,7 +91,8 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
     `enableAnticipationMode` (`anticipationArmed.ts`); otherwise the section reads **Not used**.
   - `winLine` — the LINE (`enabled`, `useConfigColor`, `fullPayline`, `allAtOnce` + delay, and the
     styled payline: `coreColor`, `blend`, `taper`, `tip`, `trailFx`, `drawSound`, `endSound` — one
-    home for shape, prune and path maths in `engine-layout/winLineStyle.ts`) and the
+    home for shape, prune, path maths and the strokes themselves (`paintWinLine`, which the game
+    and the card's live preview both draw with) in `engine-layout/winLineStyle.ts`) and the
     AMOUNT TEXT (`text.enabled` defaulting to the line's, `placement: 'boardCenter'`, `countUp`,
     `fadeIn`, and `cueBigWin` — the amount counts up to the first big-win threshold and hands over
     to the overlay).
@@ -183,11 +184,13 @@ or the effect is pruned as an orphan.
     with the head needs a per-spawn scale on the emitter, which `@barvynkoa/particle-emitter` has no
     hook for (`ownerRotation` exists, an owner scale does not).
 13. **Styled payline is not yet seen in a running game** — core, additive glow, tail fade, tip
-    (each end mode), trail and the two sounds, one at a time and all at once. The win line has no
-    preview in `/symbols`. Open call: whether `drawSound` / `endSound` should move to Invisible
-    Sound's bindings with the other sound choices. The trail's banknote and ember effects start
-    from the `/fx` presets **Banknotes** and **Embers** (see `docs/status/fx.md`); each project
-    still has to make and save the two effects, with banknote art for the first.
+    (each end mode), trail and the two sounds, one at a time and all at once. `/symbols` now has a
+    live preview in the Payline style card (strokes, head and draw time shared with the game; its
+    gaps vs. the game are listed in the 2026-11-27 entry), but a real round is still owed. Open
+    call: whether `drawSound` / `endSound` should move to Invisible Sound's bindings with the other
+    sound choices. The trail's banknote and ember effects start from the `/fx` presets **Banknotes**
+    and **Embers** (see `docs/status/fx.md`); each project still has to make and save the two
+    effects, with banknote art for the first.
 
 ## Blocked (owner / external)
 
@@ -196,6 +199,38 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-27 — **Payline style preview.** The Payline style card opens on a live preview: a
+  board of the project's grid (Game Config reels and rows; 5 × 3 without one) with a win on one of
+  its paylines — the most zig-zagging by default, a **Payline** picker and a **Pays N of a kind**
+  picker beside it; a project with no paylines gets a triangle zig-zag. It replays 300 ms after any
+  line setting changes, and on its ↻ `IconButton` (new `replay` icon). Sound is off by default
+  (**Sound** checkbox); it plays the project's own uploads through Invisible Sound's file route for
+  a user who holds that tool, and says when a sound is an engine sound heard in game only.
+  - **The game's own drawing, shared rather than copied:** the strokes moved out of
+    `WinLine.svelte` into `engine-layout` `paintWinLine` (+ `winLineDrawMs`, `winLineHeadAt`,
+    `winLineGlowAdditive`, `WIN_LINE_HALOS`), which the game calls with its Pixi `Graphics` and the
+    preview with a Canvas 2D adapter. `winLineStyle.fixture.ts` §6 proves `paintWinLine` makes the
+    very calls the old component code made (2,000 random lines × shapes × styles × passes, the old
+    code kept verbatim as the oracle), so games draw identically; the runtime manifests are
+    re-recorded for the moved code (`lines` bundle −59 B gzip). The launcher already depends on
+    `engine-layout` (open item 10's "no `engine-game`/`constants-shared`" still holds).
+  - **Timeline = the game's:** linear draw over `winLineDrawMs`; the trail emits from the head
+    until the line lands (a see-through `FxStage` driven through `ownerPos`, layers freed and
+    re-keyed as `FlightView` frees them, so particles stay where born); the tip then stays, fades
+    over `WIN_LINE_TIP_FADE_MS`, or goes while the burst emits for `SymbolLayer`'s one-shot time;
+    a line that is not animated is drawn whole with no trail, as in the game.
+  - **`FxStage`** gained `transparent` (a black clear at alpha 0 — a coloured one composites as a
+    haze) and `worldScale` (an effect tip drawn at its `scale`).
+  - **Gaps vs. the game (preview only):** cells sit on a plain 120-unit grid (no column gaps,
+    perspective or live symbol Y); particles composite over the board rather than blending into it
+    (an additive particle reads as normal); an effect tip with **Turn with the line** turns new
+    particles only (the game turns the whole effect); a flipbook tip shows its first frame; the
+    canvas does not double-blend where one stroke crosses itself, which Pixi does; only the traced
+    path shape is shown (not the ways / cluster bars); one line at a time.
+  - **Gates:** `pnpm --filter launcher-api check:payline-preview` (board, sample choice, defaults
+    read off `bakedWinLineConfig`'s source, replay key, timeline and sounds, burst time, wiring);
+    `check:win-line-style` now checks the renderer paints through `paintWinLine`. Seen in Chromium
+    through a throwaway harness of the component (the page itself needs auth, Postgres and R2).
 - 2026-11-26 — **"Show all win lines at once" no longer carries the lines into a bonus.** Owner
   bug: with the switch on, the trigger spin's paying lines and amounts stayed over the whole bonus
   game. In that mode `WinLine.svelte` ignores a per-win `winLineHide`, and the only `all` clears were
