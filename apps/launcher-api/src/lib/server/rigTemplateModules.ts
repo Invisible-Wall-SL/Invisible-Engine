@@ -5,7 +5,7 @@
  * keys, motion, the 3D setup — in one generic pass, so a module never lists its consequences by hand.
  */
 import type { RigTemplateControls } from './rigTemplateControls';
-import type { RigTemplate, RigTemplateChannel } from './rigTemplates';
+import type { RigTemplate, RigTemplateBone, RigTemplateChannel } from './rigTemplates';
 
 /** One way a module can be: what it takes away from the template's definition. */
 export interface RigTemplateModuleOption {
@@ -259,7 +259,7 @@ export function withoutBones(
 		clips,
 		...(constraints ? { constraints } : {}),
 	};
-	if (t.motion) out.motion = motionWithout(t.motion, gone, stripped, alive);
+	if (t.motion) out.motion = motionWithout(t.motion, gone, stripped, alive, t.bones);
 	if (t.rig3d) {
 		const r = t.rig3d;
 		out.rig3d = {
@@ -294,20 +294,37 @@ export function withoutBones(
 	return out;
 }
 
-/** The motion map with what names a bone gone (or stripped) or a control gone taken off. */
+/**
+ * The motion map with what names a bone gone (or stripped) or a control gone taken off. A bone that
+ * stays but whose direction its first placed child gave (`boneRestDirection`) gets that direction
+ * written out (`rest`) when the child goes (of `bones`, the template's before), so a capture still
+ * turns it as before: a forearm whose wrist a sheet leaves out.
+ */
 export function motionWithout(
 	m: NonNullable<RigTemplate['motion']>,
 	gone: ReadonlySet<string>,
 	stripped: ReadonlySet<string>,
 	alive: ReadonlySet<string>,
+	bones: readonly RigTemplateBone[] = [],
 ): NonNullable<RigTemplate['motion']> {
-	const live = <E extends { channel?: string }>(es: E[]) =>
-		es.filter((e) => e.channel === undefined || alive.has(e.channel));
+	const live = <E extends { channel?: string; bone?: string }>(es: E[]) =>
+		es.filter(
+			(e) =>
+				(e.channel === undefined || alive.has(e.channel)) &&
+				!(e.bone !== undefined && gone.has(e.bone)),
+		);
+	const rested = <E extends { bone?: string; rest?: [number, number] }>(e: E): E => {
+		if (e.rest || e.bone === undefined) return e;
+		const child = bones.find((b) => b.parent === e.bone && (b.x !== 0 || b.y !== 0));
+		return child && gone.has(child.name) ? { ...e, rest: [child.x, child.y] } : e;
+	};
 	const out = { ...m };
 	for (const k of ['face', 'body', 'hand'] as const) {
 		const sec = m[k];
 		if (!sec) continue;
-		const entries = live(sec.entries as { channel?: string }[]);
+		const entries = live(sec.entries as { channel?: string; bone?: string; kind?: string }[]).map(
+			(e) => (e.kind === 'bone' ? rested(e) : e),
+		);
 		if (entries.length) (out as Record<string, unknown>)[k] = { ...sec, entries };
 		else delete out[k];
 	}
@@ -315,27 +332,24 @@ export function motionWithout(
 	if (b3) {
 		const off = (b: string) => gone.has(b) || stripped.has(b);
 		const p = b3.positions;
+		const neck = p?.neck && {
+			...p.neck,
+			bones: p.neck.bones.filter((b) => !gone.has(b)),
+			marks: p.neck.marks.filter((x) => !gone.has(x.bone)),
+		};
 		out.bones3d = {
 			...b3,
-			entries: b3.entries.filter((e) => !off(e.bone)),
-			...(b3.fingers ? { fingers: b3.fingers.filter((f) => !gone.has(f.bone)) } : {}),
+			entries: b3.entries.filter((e) => !off(e.bone)).map((e) => (e.pose ? rested(e) : e)),
+			...(b3.fingers ? { fingers: b3.fingers.filter((f) => !gone.has(f.bone)).map(rested) } : {}),
 			...(p
 				? {
 						positions: {
-							...p,
+							...(({ neck: _neck, ...rest }) => rest)(p),
 							root: { ...p.root, anchors: p.root.anchors.filter((a) => !gone.has(a.bone)) },
 							limbs: p.limbs.filter(
 								(l) => ![l.upper, l.lower, l.end, l.pole].some((b) => gone.has(b)),
 							),
-							...(p.neck
-								? {
-										neck: {
-											...p.neck,
-											bones: p.neck.bones.filter((b) => !gone.has(b)),
-											marks: p.neck.marks.filter((x) => !gone.has(x.bone)),
-										},
-									}
-								: {}),
+							...(neck?.bones.length && neck.marks.length ? { neck } : {}),
 						},
 					}
 				: {}),

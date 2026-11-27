@@ -317,12 +317,13 @@ const GUARDS = {
 		log(
 			`no hands: ${d1.bones.length} bones, ${hands(d1)} hand slots (out ${out.value.report.modules?.bones.length} bones, ${out.value.report.modules?.slots.length} slots); back: ${d2.bones.length} bones, ${hands(d2)} hand slots`,
 		);
+		// A sheet's hand drawn as one picture has no finger bones either way (frame-to-rig §13.1i).
 		return (
 			ok(
 				'sheet: Hands → None takes the hands out of the rig, said in the report',
 				!d1.bones.some((b) => FINGER.test(b.name)) &&
 					hands(d1) === 0 &&
-					!!out.value.report.modules?.bones.length,
+					handSlots.every((s) => out.value.report.modules?.slots.includes(s)),
 				JSON.stringify(out.value.report.modules?.slots),
 			) &&
 			ok(
@@ -330,8 +331,8 @@ const GUARDS = {
 				!!out.value.controls && !Object.keys(out.value.controls.bones).some((b) => FINGER.test(b)),
 			) &&
 			ok(
-				'sheet: Hands → With fingers with the hands mapped puts them back, drawn',
-				d2.bones.filter((b) => FINGER.test(b.name)).length === 30 &&
+				'sheet: Hands → With fingers with the hands mapped puts them back, drawn, without the fingers no region is drawn on',
+				!d2.bones.some((b) => FINGER.test(b.name)) &&
 					hands(d2) === 2 &&
 					!!drawn(player(d2)(null), handSlots[0]) &&
 					plays,

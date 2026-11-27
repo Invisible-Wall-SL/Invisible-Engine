@@ -10,6 +10,7 @@ import type {
 } from './rigTemplates';
 import { inDrawOrder, layersTogether } from '../rigSlotOrder';
 import { withRegionSlots } from './rigRegionSlots';
+import { withoutBones } from './rigTemplateModules';
 
 /**
  * A rig template fitted to one character (docs/design/frame-to-rig.md §4.6, §4.7): the template's
@@ -61,6 +62,12 @@ export interface RigFit {
 	 * neighbours) names the roles.
 	 */
 	slots?: Record<string, string>;
+	/**
+	 * The template's bones the rig does not make (frame-to-rig §13.1i, `sheetBones`): no region is
+	 * drawn on them or under them and nothing kept needs them. The fitted template is made without
+	 * them and without everything naming them (`withoutBones`: controls, keys, motion, 3D, picker).
+	 */
+	leftOut?: string[];
 }
 
 /**
@@ -282,6 +289,8 @@ const PROP_SIZE: [number, number] = [64, 64];
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 /** The slots a fit's `order` (a sheet mapping's layers) may list: every template slot and prop. */
 export const MAX_LAYERS = 256;
+/** The most template bones a fit leaves out. */
+const MAX_LEFT_OUT = 1024;
 /** How far a fitted bone may turn off its template direction (float noise, not a turn). */
 const TURN_EPS = 2e-4;
 /** The longest a fitted bone may be (px): past it the world sums overflow to Infinity. */
@@ -355,6 +364,7 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 		'features',
 		'turn',
 		'slots',
+		'leftOut',
 	]);
 	if (extra !== undefined) return no(`a fit has no field "${extra}"`);
 	if (!isRecord(raw.bones)) return no('a fit needs `bones`: { name: { x, y } }');
@@ -488,6 +498,16 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 		)
 			return no(`\`slots\` is { slot: its name in the rig }, up to ${MAX_LAYERS}, each name once`);
 		fit.slots = Object.fromEntries(names) as Record<string, string>;
+	}
+	if (raw.leftOut !== undefined) {
+		if (
+			!Array.isArray(raw.leftOut) ||
+			raw.leftOut.length > MAX_LEFT_OUT ||
+			!raw.leftOut.every((n) => typeof n === 'string' && n.length > 0 && n.length <= 200) ||
+			new Set(raw.leftOut).size !== raw.leftOut.length
+		)
+			return no(`\`leftOut\` is a list of up to ${MAX_LEFT_OUT} bone names, each once`);
+		fit.leftOut = [...(raw.leftOut as string[])];
 	}
 	if (raw.bends !== undefined) {
 		if (!isRecord(raw.bends))
@@ -750,7 +770,47 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 	for (const part of Object.keys(fit.bends ?? {}))
 		if (!t.parts.some((p) => p.name === part))
 			return `it bends a part "${part}" the template does not have`;
-	return null;
+	return fit.leftOut?.length ? leftOutProblem(t, fit) : null;
+}
+
+/** The bones a bend weights its mesh to: along it, and every joint and region it is skinned across. */
+export function bendBones(b: Pick<RigFitBend, 'bones' | 'skin'>): string[] {
+	const out = b.bones.map((x) => x.bone);
+	const walk = (skin: readonly RigSkin[] | undefined) => {
+		for (const j of skin ?? []) {
+			out.push(j.bone);
+			if (isSpot(j) && j.split) out.push(...j.split);
+			walk(j.then);
+		}
+	};
+	walk(b.skin);
+	return out;
+}
+
+/**
+ * Why the bones `fit` leaves out (`RigFit.leftOut`, with every bone under them) cannot go, or null:
+ * a slot it draws, a prop it hangs, a bend of a part it draws, its frame or its head turn needs one.
+ */
+function leftOutProblem(t: RigTemplate, fit: RigFit): string | null {
+	const gone = new Set(fit.leftOut);
+	const stray = fit.leftOut!.find((n) => !t.bones.some((b) => b.name === n));
+	if (stray !== undefined) return `it leaves out a bone "${stray}" the template does not have`;
+	for (const b of t.bones) if (b.parent && gone.has(b.parent)) gone.add(b.name);
+	const slotBone = new Map(t.slots.map((s) => [s.name, s.bone]));
+	const drawn = new Set(Object.keys(fit.slots ?? {}));
+	const needs: [string, string | undefined][] = [
+		...[...drawn].map((s): [string, string | undefined] => [`the slot "${s}"`, slotBone.get(s)]),
+		...(fit.props ?? []).map((p): [string, string] => [`the prop "${p.name}"`, p.bone]),
+		...Object.keys(fit.frame ?? {}).map((b): [string, string] => ['the frame', b]),
+		...Object.entries(fit.bends ?? {})
+			.filter(([part]) => drawn.has(t.parts.find((p) => p.name === part)?.slot ?? ''))
+			.flatMap(([part, b]) => bendBones(b).map((x): [string, string] => [`the mesh "${part}"`, x])),
+		...(fit.turn
+			? [['the head turn', t.bones.find((b) => b.name === 'face')?.parent] as [string, string]]
+			: []),
+	];
+	const need = needs.find(([, bone]) => bone !== undefined && gone.has(bone));
+	return need ? `it leaves out "${need[1]}", which ${need[0]} needs` : null;
 }
 
 const SCALED_TIMELINES = { translate: ['x', 'y'], translatex: ['value'], translatey: ['value'] };
@@ -999,7 +1059,7 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 		...(depths ? { depths } : {}),
 		...(layers ? { layers } : {}),
 	};
-	const out: RigTemplate = {
+	const whole: RigTemplate = {
 		...t,
 		bones,
 		slots,
@@ -1008,6 +1068,7 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 		clips,
 		...(rig3d ? { rig3d } : {}),
 	};
+	const out = fit.leftOut?.length ? withoutBones(whole, fit.leftOut) : whole;
 	return fit.slots
 		? withRegionSlots(
 				out,

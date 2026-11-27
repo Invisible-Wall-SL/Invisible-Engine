@@ -654,6 +654,7 @@ const bodyParts = (M) => Object.keys(TRUTH.parts).map((part) => ({ part, slot: s
  */
 function roleOrder(rig) {
 	const { slots: names = {}, ...fit } = rig.sr.fit;
+	delete fit.leftOut;
 	const order = rig.M.fitTemplate(rig.M.HALF_BODY, fit).slots.map((s) => s.name);
 	const props = new Set(rig.mapping.props.map((p) => p.name));
 	const drawn = order.filter((n) => n in names || props.has(n)).map((n) => names[n] ?? n);

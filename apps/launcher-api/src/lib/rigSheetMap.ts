@@ -138,6 +138,11 @@ export interface SheetMapping {
 	 * head, 0 off (the face slides alone over a still head). None: 1.
 	 */
 	turn?: number;
+	/**
+	 * Template bones the rig keeps with no region drawn on them yet (frame-to-rig §13.1i): every
+	 * other bone nothing needs is left out of the skeleton (`sheetBones`). None: only what is needed.
+	 */
+	keep?: string[];
 }
 
 export const SHEET_SIDECAR = 'sheet.json';
