@@ -282,17 +282,26 @@ server module, routes, page components, triage, screenshots, the pull-request li
     SHAs path by path, with no rename detection, as the launcher's three-tree Accept builds it (§5).
     It applies §3's rules: `docs-append`, `runtime-bytes`, `vendored-bundle` and `ratchet`. It
     applies §4's job refusals, then writes the `merge` record (its shape is in the header).
-    - The build rules run only on a tree with no conflict left outside Markdown. With code still
-      conflicted they are `pending`: the file holds main's, and the record names the command.
-    - A build that fails on a resolved tree is `needs_person`.
+    - **No branch code runs in the job** (owner, 2026-11-27: it runs in `main`'s context, and a
+      branch's install or build could poison the Actions cache that `main`'s other workflows
+      restore). `runtime-bytes`, `vendored-bundle` and the ratchets take `main`'s file, mechanical,
+      `choice` `main`, `pending` with the command to run later. `merge.mjs` never runs `pnpm`, an
+      install, a build or a ratchet; `check:merge-main` stubs the spawner and the PATH and proves it.
+      `regenerated` is no longer a `choice`.
+    - The proposal and the "Main merged in" card say what follows Accept: runtime bytes, CI's check
+      fails, click **Re-record runtime bytes** (#1936); a vendored bundle, rebuild with
+      `pnpm --filter launcher-api build:<name>` in the change's session; a ratchet, lower the
+      baseline in the change's session if `check:svelte` or lint fails.
     - `docs-append` hands the file to the model when both sides added the same block (two or more
       lines of 40+ characters), since keeping both would write it twice.
     - The protected paths, lockfile names and vendored bundles are read from
       `bugFixRunsChange.ts` and `check-vendored-bundles.mjs`, never copied.
   - **`collect.mjs` (job `propose`).**
-    - `stage` redoes the merge from main's git and refuses a record that differs. Only the builds'
-      output is taken from the record, held to the rule's exact commands. It then lays out the
-      merged tree and writes `conflicts.json`.
+    - `stage` redoes the merge from main's git and refuses a record that differs, all of it. It
+      then lays out the merged tree and writes `conflicts.json`.
+    - `prepare` renders the CLI's conf (settings from `scripts/bug-fix/settings.json` with the
+      conflicts folder read-only, `coordinator.md` as the prompt, the agents, the tsx shim) as
+      `bug-fix.yml`'s own prepare does. It fails clearly while 15B2's `coordinator.md` is missing.
     - `result` holds the run to §4: only its files change; an edit outside a hunk is listed; no
       marker is left; UTF-8 with no NUL; the caps. For a mechanical-only run it fills `explanation`
       from the rules. It builds §10's body and POSTs it with OIDC (audience
@@ -339,14 +348,15 @@ server module, routes, page components, triage, screenshots, the pull-request li
     now shared by both jobs.
   - Accept builds the merge from three trees (`pipelineMergeRunsBuild.ts`, as `revertCommit`
     does): a path neither side changed is untouchable, one only one side changed takes that side,
-    only both-changed and a §3 rule's regenerated paths take the run's content; stale when the
-    head moved or `main` changed a conflicted file. The backstop rides `bugReports.ts`' sync.
+    only both-changed paths take the run's content (a build rule's file with `main`'s entry,
+    pending); stale when the head moved or `main` changed a conflicted file. The run's dollar cap
+    is never dispatched above $100 (`dispatchBudget`), as the job refuses more. The backstop rides `bugReports.ts`' sync.
   - Fix runs may not change `scripts/merge-main/`, the new vocabulary or the new fixture
     (`bugFixRunsChange.ts`, `scripts/bug-fix/settings.json` and `coordinator.md`).
   - Fixtures: `check:merge-main-runs` (new, 189 checks), `check:pipeline-changes` (the conflict
     sentence), `check:bug-fix-runs`, `check:bug-fix-workflow`.
   - **Joined to the job (15B1), same day.** `check:merge-main-join` runs the job's own code on
-    real scratch repos (docs append, a stubbed runtime-bytes build, a model resolution with a
+    real scratch repos (docs append, a pending runtime-bytes file, a model resolution with a
     pending build, identical and both-deleted paths, a harness refusal, a spent budget, a binary),
     feeds the exact JSON `encodeBody` sends to `parseMergeResult`, then Accept's `planMerge` over
     the same repos, and compares the tree with git's own merge plus the resolution. It found two

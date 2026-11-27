@@ -119,9 +119,9 @@ its record of each merge made from here (who merged, the approvals that counted,
      people with Merge pipeline changes. It is **hidden until `merge-main.yml` is on `main`** (card
      15B2): until GitHub has that workflow active the page shows no button and the server refuses a
      start (`workflow_not_live`). It asks first, then a run merges `main` into the change in
-     GitHub Actions, clears the mechanical conflicts by rule (re-recorded runtime bytes, rebuilt
-     vendored bundles, docs lines both sides added, a lowered ratchet) and, for the rest, has
-     Claude Code propose a resolution. **Nothing is pushed until a person accepts.** While it works
+     GitHub Actions, clears the mechanical conflicts by rule (docs lines both sides added; runtime
+     bytes, vendored bundles and ratchets take `main`'s file and are left pending, since the run
+     never builds the branch's code) and, for the rest, has Claude Code propose a resolution. **Nothing is pushed until a person accepts.** While it works
      a blue line says so; a run that ends asking for a person (`harness_conflict`,
      `protected_conflict`, `too_large`, a lockfile, a spent monthly budget, a refused push) shows an
      amber line with the reason and **Copy merge brief**, which gives a session the branch, the
@@ -131,14 +131,17 @@ its record of each merge made from here (who merged, the approvals that counted,
      approving" on a fix-run change. It says "Resolved against main at `<sha>`, N commits behind
      now" and the cost; the §4 sections as plain text (what conflicted, what the resolution takes
      and why, what the merged code now does, what else was possible, also changed outside the
-     conflict, checks run, risks); and each hunk as main | this change | result. A warning shows
+     conflict, checks run, what follows Accept, risks); and each hunk as main | this change | result. A warning shows
      when the branch was pushed in the last hour. **Accept** pushes a merge commit (parents: the
      branch's head and `main` at the run's SHA, a fast-forward, never a force-push); **Discard**
      (the bin) drops it, and stops a run still working. Accept is refused as stale when the branch
      moved or `main` changed a conflicted file since: resolve again. If GitHub refuses the push
      over a workflow file the run ends needing a person, with GitHub's own **Update branch** or
      Copy merge brief as the way out. After Accept a **Main merged in** card lists each file's
-     choice. CI runs again on the new head and approvals start over; the fix decision of a fix-run
+     choice and, for a runtime-bytes file, a vendored bundle or a baseline left as `main`'s, what
+     follows: CI's runtime-bytes check fails, so click **Re-record runtime bytes**; rebuild the
+     bundle with `pnpm --filter launcher-api build:<name>`; lower the baseline if `check:svelte` or
+     lint fails. CI runs again on the new head and approvals start over; the fix decision of a fix-run
      change is not touched.
    - **On hold and Resume** — **Put on hold** (people with Merge pipeline changes) takes an
      optional note of up to 500 characters, adds the `on-hold` label to the pull request and posts

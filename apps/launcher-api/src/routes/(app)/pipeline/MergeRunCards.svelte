@@ -44,7 +44,7 @@
 	const run = $derived(merge?.run ?? null);
 	const line = $derived(mergeRunLine(run, now));
 	const proposal = $derived(run && merge ? proposalBar(run, detail, merge, canMerge, now) : null);
-	const sections = $derived(run?.explanation ? proposalSections(run.explanation) : []);
+	const sections = $derived(run?.explanation ? proposalSections(run.explanation, run.files) : []);
 	const hunks = $derived(run?.explanation?.hunks ?? []);
 	const mergedIn = $derived(mergedInCard(merge?.accepted ?? null, now));
 

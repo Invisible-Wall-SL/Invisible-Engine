@@ -23,7 +23,7 @@
  *    rule/path/choice agreement;
  *  - the backstop: a run that never started, timed out, was cancelled, or ended without a result;
  *  - Accept: a path neither side changed is untouchable, one only one side changed takes that side,
- *    only both-changed and regenerated paths take the run's content; parents, message, a fast-forward
+ *    only both-changed paths take the run's content; parents, message, a fast-forward
  *    ref update with force false; stale on a moved head or a conflicted file main changed; a push
  *    over a workflow file refused by GitHub ends needs_person; a fix-run branch's decision untouched;
  *  - Discard, the page's decisions and its source (text, never HTML), the migration, the setting.
@@ -1108,8 +1108,10 @@ check(
 		shared.dispatchBudget(6, 150, 400),
 		shared.dispatchBudget(6, 10, 0),
 		shared.dispatchBudget(6, 150, 144.005),
+		shared.dispatchBudget(500, 1000, 0),
+		shared.dispatchBudget(100, 1000, 0),
 	],
-	['6.00', '2.50', '0', '0', '6.00', '5.99'],
+	['6.00', '2.50', '0', '0', '6.00', '5.99', '100.00', '100.00'],
 );
 const budgetSent = async (spent: number, monthly = 150, cap = 6) => {
 	settings.monthly = monthly;
@@ -1141,15 +1143,16 @@ const budgetSent = async (spent: number, monthly = 150, cap = 6) => {
 	).inputs.budget_usd;
 };
 check(
-	'budget_usd: dispatched as a decimal string — a full month the run cap, a part-spent one what is left (both agents’ spend), a spent one "0", a small ceiling its remainder',
+	'budget_usd: dispatched as a decimal string — a full month the run cap, a part-spent one what is left (both agents’ spend), a spent one "0", a small ceiling its remainder, a $500 setting still 100.00 (the job refuses more)',
 	[
 		await budgetSent(0),
 		await budgetSent(147.5),
 		await budgetSent(150),
 		await budgetSent(0, 4.25),
 		await budgetSent(1, 100, 0.5),
+		await budgetSent(0, 1000, 500),
 	],
-	['6.00', '2.50', '0', '4.25', '0.50'],
+	['6.00', '2.50', '0', '4.25', '0.50', '100.00'],
 );
 settings.monthly = 150;
 settings.budget = 6;
@@ -1555,7 +1558,7 @@ check(
 		]),
 		prob([{ path: 'src/a.ts', rule: 'runtime-bytes', choice: 'main', content: '{}\n' }]),
 	],
-	[null, 'a regenerated file is not one a rule regenerates'],
+	[null, "a build rule's file is not main's, left pending"],
 );
 {
 	const e = (sha: string) => ({ mode: '100644', type: 'blob', sha });
@@ -1650,7 +1653,7 @@ check(
 	],
 );
 check(
-	'files: lockfiles, odd paths, duplicates, NUL, hidden text, and an unregenerated "regenerated" file',
+	'files: lockfiles, odd paths, duplicates, NUL, hidden text, and a build rule file that is not main, pending',
 	[
 		prob([{ path: 'pnpm-lock.yaml', rule: null, choice: 'combined' }]),
 		prob([{ path: '../x', rule: null, choice: 'combined' }]),
@@ -1660,8 +1663,8 @@ check(
 		]),
 		prob([{ path: 'a.ts', rule: null, choice: 'main', content: 'a\u0000b' }]),
 		prob([{ path: 'a.ts', rule: null, choice: 'main', content: 'a‮b' }]),
-		prob([{ path: 'src/a.ts', rule: 'runtime-bytes', choice: 'regenerated' }]),
-		prob([{ path: 'src/a.ts', rule: null, choice: 'regenerated' }]),
+		prob([{ path: 'src/a.ts', rule: 'runtime-bytes', choice: 'main' }]),
+		prob([{ path: 'scripts/runtime-bytes/lines.json', rule: 'runtime-bytes', choice: 'combined' }]),
 	],
 	[
 		'it changes a lockfile: dependencies are for a person to decide',
@@ -1669,24 +1672,22 @@ check(
 		'it lists one path twice',
 		'a file holds a NUL byte',
 		'a file holds Unicode tag or bidi control characters',
-		'a regenerated file is not one a rule regenerates',
-		'a regenerated file is not one a rule regenerates',
+		"a build rule's file is not main's, left pending",
+		"a build rule's file is not main's, left pending",
 	],
 );
 check(
-	'files: a rule’s regenerated files are accepted where the rule keeps them',
+	'files: a rule’s files are accepted pending (main’s) where the rule keeps them',
 	[
-		prob([
-			{ path: 'scripts/runtime-bytes/lines.json', rule: 'runtime-bytes', choice: 'regenerated' },
-		]),
+		prob([{ path: 'scripts/runtime-bytes/lines.json', rule: 'runtime-bytes', choice: 'main' }]),
 		prob([
 			{
 				path: 'apps/launcher-api/static/rigger/vendor/rigger-fx.js',
 				rule: 'vendored-bundle',
-				choice: 'regenerated',
+				choice: 'main',
 			},
 		]),
-		prob([{ path: 'svelte-check-baseline.json', rule: 'ratchet', choice: 'regenerated' }]),
+		prob([{ path: 'svelte-check-baseline.json', rule: 'ratchet', choice: 'main' }]),
 	],
 	[null, null, null],
 );
@@ -2140,11 +2141,13 @@ const w8 = world(
 		'src/new-head.ts': 'new\n',
 		'docs/status/a.md': 'one\nmine\ntwo\n',
 		'src/exec.sh': { content: '#!/bin/sh\necho head\n', mode: '100755' },
+		'scripts/runtime-bytes/lines.json': '{"a":3}\n',
 	},
 	{
 		'src/a.ts': 'const a = 2;\n',
 		'src/main-only.ts': 'm1\n',
 		'docs/status/a.md': 'one\nmain\ntwo\n',
+		'scripts/runtime-bytes/lines.json': '{"a":2}\n',
 	},
 );
 const P8 = await proposed(
@@ -2155,7 +2158,7 @@ const P8 = await proposed(
 		...files({
 			path: 'scripts/runtime-bytes/lines.json',
 			rule: 'runtime-bytes',
-			choice: 'regenerated',
+			choice: 'main',
 			content: '{"a":2}\n',
 		}),
 	],
@@ -2209,7 +2212,7 @@ check(
 	],
 );
 check(
-	'accept: a path both sides changed takes the run’s content; a regenerated file too',
+	'accept: a path both sides changed takes the run’s content; a pending rule file takes main’s',
 	[content('src/a.ts'), content('docs/status/a.md'), content('scripts/runtime-bytes/lines.json')],
 	['const a = 5;\n', 'one\nmine\nmain\ntwo\n', '{"a":2}\n'],
 );
@@ -2234,7 +2237,9 @@ check(
 		message.includes(`main at ${w8.main.slice(0, 7)}`) || message.includes(w8.main.slice(0, 7)),
 		message.includes('- src/a.ts: combined both'),
 		message.includes('- docs/status/a.md: kept both (docs lines kept from both)'),
-		message.includes('- scripts/runtime-bytes/lines.json: regenerated (runtime bytes re-recorded)'),
+		message.includes(
+			"- scripts/runtime-bytes/lines.json: took main's (runtime bytes still to re-record)",
+		),
 		message.endsWith(`Accepted by Gualtiero in Pipeline Changes (merge run ${P8.id})`),
 	],
 	[`Merge main into ${w8.pull.head.ref}`, true, true, true, true, true],
@@ -2267,7 +2272,7 @@ const both = files({ path: 'src/a.ts', rule: null, choice: 'combined', content: 
 await refuse9(
 	[...both, ...files({ path: 'untouched.txt', rule: null, choice: 'combined', content: 'evil\n' })],
 	'a path neither side changed',
-	'it writes a path that neither side both changed nor a rule regenerates',
+	'it writes a path that neither side both changed',
 );
 await refuse9(
 	[
@@ -2275,7 +2280,7 @@ await refuse9(
 		...files({ path: 'src/head-only.ts', rule: null, choice: 'combined', content: 'evil\n' }),
 	],
 	'a path only the head changed',
-	'it writes a path that neither side both changed nor a rule regenerates',
+	'it writes a path that neither side both changed',
 );
 await refuse9(
 	[
@@ -2283,13 +2288,13 @@ await refuse9(
 		...files({ path: 'src/main-only.ts', rule: null, choice: 'combined', content: 'evil\n' }),
 	],
 	'a path only main changed',
-	'it writes a path that neither side both changed nor a rule regenerates',
+	'it writes a path that neither side both changed',
 );
 await refuse9(
 	files({
 		path: 'scripts/runtime-bytes/lines.json',
 		rule: 'runtime-bytes',
-		choice: 'regenerated',
+		choice: 'main',
 		content: '{}\n',
 	}),
 	'a both-changed path with no resolution',
@@ -2985,6 +2990,29 @@ const sections = view.proposalSections({
 	checks: [{ command: 'x', ok: false }],
 	risks: 'r',
 });
+const withFollowUps = view.proposalSections(
+	{ conflicted: [], hunks: [], outside: [], checks: [], risks: '' },
+	[
+		{ path: 'scripts/runtime-bytes/lines.json', rule: 'runtime-bytes' },
+		{ path: 'apps/launcher-api/static/rigger/vendor/rigger-fx.js', rule: 'vendored-bundle' },
+		{ path: 'svelte-check-baseline.json', rule: 'ratchet' },
+		{ path: 'docs/a.md', rule: 'docs-append' },
+	],
+);
+check(
+	'page: the proposal says what follows Accept for each pending build rule, in plain words',
+	withFollowUps.map((x: { key: string; lines: string[] }) => [x.key, x.lines]),
+	[
+		[
+			'after-accept',
+			[
+				"scripts/runtime-bytes/lines.json: After Accept, CI's runtime-bytes check fails; click Re-record runtime bytes on the change.",
+				"apps/launcher-api/static/rigger/vendor/rigger-fx.js: After Accept, rebuild with pnpm --filter launcher-api build:rigger-fx in the change's session.",
+				"svelte-check-baseline.json: After Accept, lower the baseline in the change's session if check:svelte or lint fails.",
+			],
+		],
+	],
+);
 check(
 	'page: the §4 sections, plain text, empty ones left out',
 	sections.map((s: { key: string; lines: string[] }) => [s.key, s.lines]),
@@ -3004,6 +3032,7 @@ const merged = view.mergedInCard(
 		files: [
 			{ path: 'a.ts', choice: 'combined', deleted: false },
 			{ path: 'b.md', choice: 'both', deleted: true },
+			{ path: 'scripts/runtime-bytes/lines.json', choice: 'main', rule: 'runtime-bytes' },
 		],
 	} as never,
 	clock,
@@ -3016,6 +3045,10 @@ check(
 		[
 			{ path: 'a.ts', text: 'combined both; now differs from both sides' },
 			{ path: 'b.md', text: 'kept both; deleted' },
+			{
+				path: 'scripts/runtime-bytes/lines.json',
+				text: "took main's. After Accept, CI's runtime-bytes check fails; click Re-record runtime bytes on the change.",
+			},
 		],
 	],
 );

@@ -4,6 +4,8 @@
 //
 //   node collect.mjs stage    before the model: check job merge's record against main's git, lay
 //                             the merged tree into the workspace, list the conflicts for the model
+//   node collect.mjs prepare  render the CLI's settings, agents and prompt into
+//                             $RUNNER_TEMP/claude/conf, as bug-fix.yml's own prepare does
 //   node collect.mjs result   after it: collect the resolution, hold it to §4, build §10's result
 //                             and POST it with an OIDC token
 //
@@ -16,8 +18,9 @@
 // CLI's), `key/anthropic`. The workspace starts as a clean checkout of main at MAIN_SHA.
 //
 // NOTHING IN THE RECORD IS TAKEN ON TRUST. Both steps redo the merge from main's git with
-// merge.mjs's `analyse` and refuse a record that differs; only what the builds made (job merge ran
-// the branch's code for it) comes from the record, held to its commands, and CI proves it again.
+// merge.mjs's `analyse` and refuse a record that differs, all of it: no job runs branch code (the
+// owner's decision of 2026-11-27), so a build rule's file is main's and `pending`, the command
+// that follows Accept named in the proposal.
 //
 // THE MODEL'S RESULT, `$RUNNER_TEMP/out/result.json`:
 //   { "outcome": "proposed" | "needs_person", "reason": "<when needs_person>",
@@ -50,27 +53,26 @@ import { gzipSync } from 'node:zlib';
 
 import {
 	JobError,
+	agentsJson,
 	fail,
 	failureOf,
 	oidcToken,
 	printFenced,
 	readPlain,
 	readStream,
+	render,
 	request,
+	sandboxTsx,
 	shown,
 	textOf,
 	trustedUrl,
 } from '../bug-fix/collect.mjs';
 import {
-	INSTALL,
 	MAX_FILE_BYTES,
 	MAX_TOTAL_BYTES,
 	analyse,
 	blobs,
-	buildSteps,
 	git,
-	grows,
-	jsonObject,
 	markerLines,
 	names,
 	sameEntry,
@@ -213,10 +215,8 @@ const fieldsOf = (x) =>
 const json = (v) => JSON.stringify(v);
 
 /**
- * The merge as main's git makes it, with only the builds' output taken from the record, which must
- * agree with it everywhere else: a path awaiting its build takes the record's content when the
- * record ran exactly that rule's commands and they passed (a ratchet no higher than main's); the
- * record's `needs_person` stands when one failed.
+ * The merge as main's git makes it: the record must agree with it everywhere. A build rule's file
+ * is main's with its command `pending`; nothing is built.
  */
 export function trustedPlan(p, input) {
 	const record = readRecord(p.record, input);
@@ -228,54 +228,19 @@ export function trustedPlan(p, input) {
 	if (json(record.paths.map((x) => x?.path)) !== json(plan.paths.map((x) => x.path))) {
 		differs('the paths both sides changed');
 	}
-	const awaiting = plan.outcome ? [] : plan.paths.filter((x) => x.awaiting);
-	const builds = [INSTALL, ...buildSteps(awaiting).flatMap((s) => s.commands)].map((c) =>
-		c.join(' '),
-	);
-	const ran = record.checks.slice(plan.checks.length);
-	if (json(record.checks.slice(0, plan.checks.length)) !== json(plan.checks)) differs('the checks');
-	const buildFailed = awaiting.length > 0 && record.outcome === 'needs_person';
-	if (buildFailed) {
-		if (ran.some((c) => !builds.includes(c?.command) || typeof c.ok !== 'boolean')) {
-			differs('the builds');
-		}
-		return Object.assign(plan, {
-			outcome: record.outcome,
-			reason: record.reason,
-			checks: record.checks,
-		});
-	}
+	if (json(record.checks) !== json(plan.checks)) differs('the checks');
 	if (record.outcome !== plan.outcome || record.reason !== plan.reason) differs('the outcome');
-	if (awaiting.length && json(ran) !== json(builds.map((command) => ({ command, ok: true })))) {
-		differs('the builds');
-	}
 	plan.paths.forEach((ours, i) => {
 		const theirs = record.paths[i];
-		if (!awaiting.includes(ours)) {
-			const choice = ours.status === 'conflict' ? null : ours.choice;
-			if (
-				fieldsOf(ours) !== fieldsOf(theirs) ||
-				ours.content !== theirs.content ||
-				choice !== theirs.choice
-			) {
-				differs(shown(ours.path));
-			}
-			return;
+		const choice = ours.status === 'conflict' ? null : ours.choice;
+		if (
+			fieldsOf(ours) !== fieldsOf(theirs) ||
+			ours.content !== theirs.content ||
+			choice !== theirs.choice
+		) {
+			differs(shown(ours.path));
 		}
-		const built =
-			fieldsOf({ ...ours, status: 'mechanical' }) === fieldsOf(theirs) &&
-			theirs.choice === (theirs.content === ours.texts.main ? 'main' : 'regenerated') &&
-			typeof theirs.content === 'string' &&
-			!(ours.rule === 'ratchet' && grows(jsonObject(ours.texts.main), jsonObject(theirs.content)));
-		if (!built) differs(shown(ours.path));
-		Object.assign(ours, {
-			awaiting: false,
-			status: 'mechanical',
-			choice: theirs.choice,
-			content: theirs.content,
-		});
 	});
-	plan.checks = record.checks;
 	return plan;
 }
 
@@ -341,6 +306,56 @@ export function stage(p, input) {
 	mkdirSync(p.conflicts, { recursive: true });
 	writeFileSync(join(p.conflicts, 'conflicts.json'), JSON.stringify(conflictsFor(plan, input, p)));
 	return { plan, model: plan.model.length > 0 && input.budget > 0 };
+}
+
+// ── Prepare: the CLI's settings, agents and prompt ────────────────────────────
+
+/**
+ * The values the templates are rendered with. bug-fix's settings template (what prove-cli.mjs
+ * proves) reads the conflicts folder where a fix run has its bug's: readable, never writable.
+ */
+export function prepareValues(p) {
+	return {
+		WORKSPACE: p.workspace,
+		MAIN: p.main,
+		KEY: p.key,
+		OUT: p.out,
+		CLAUDE: p.claude,
+		BUG: p.conflicts,
+		CONFLICTS: posix.join(p.conflicts, 'conflicts.json'),
+		RESULT: posix.join(p.out, 'result.json'),
+	};
+}
+
+/**
+ * What bug-fix.yml's own `prepare` renders, into the same places, from the pristine copy: the
+ * settings, this folder's coordinator.md as the prompt, the build agents and the tsx shim.
+ */
+function prepareStep() {
+	const input = inputs();
+	const p = paths(env('RUNNER_TEMP'), env('GITHUB_WORKSPACE'));
+	const values = prepareValues(p);
+	const bugFix = join(p.main, 'scripts', 'bug-fix');
+	const promptFile = join(p.main, 'scripts', 'merge-main', 'coordinator.md');
+	if (!existsSync(promptFile))
+		fail("The model's prompt (scripts/merge-main/coordinator.md) is missing.");
+	const conf = posix.join(p.claude, 'conf');
+	mkdirSync(conf, { recursive: true });
+	mkdirSync(p.out, { recursive: true });
+	const settings = render(readFileSync(join(bugFix, 'settings.json'), 'utf8'), values);
+	JSON.parse(settings);
+	writeFileSync(join(conf, 'settings.json'), settings);
+	writeFileSync(join(conf, 'prompt.md'), render(readFileSync(promptFile, 'utf8'), values));
+	const agents = agentsJson(join(p.main, '.claude', 'agents'));
+	writeFileSync(join(conf, 'agents.json'), JSON.stringify(agents));
+	const shimDir = posix.join(env('RUNNER_TEMP'), 'tsx-shim');
+	mkdirSync(shimDir, { recursive: true });
+	const shim = join(shimDir, 'tsx.mjs');
+	writeFileSync(shim, readFileSync(join(bugFix, 'tsx-shim.mjs')));
+	const swapped = sandboxTsx(p.workspace, shim);
+	printFenced(
+		`merge run ${input.mergeRun}: prepared ${Object.keys(agents).length} agents, ${swapped} tsx shims`,
+	);
 }
 
 // ── Result: what the run changed ──────────────────────────────────────────────
@@ -446,19 +461,17 @@ export function outsideEdited(segments, text) {
 }
 
 /**
- * What the run left in its files, held to §4: only the files left for it (and the pending ones)
- * changed; each UTF-8 text with no NUL, under 2 MB, no marker left; deleted only where one side
- * deleted it; a pending ratchet no higher than main's. Answers each final text and mode, and the
- * files changed outside their conflicts.
+ * What the run left in its files, held to §4: only the files left for it changed (a pending file
+ * stays main's); each UTF-8 text with no NUL, under 2 MB, no marker left; deleted only where one
+ * side deleted it. Answers each final text and mode, and the files changed outside their conflicts.
  */
 function resolution(p, plan) {
 	const own = new Set(plan.model);
-	const pending = new Set(plan.paths.filter((x) => x.pending).map((x) => x.path));
 	const real = realpathSync(p.workspace);
 	const finals = new Map();
 	const modes = new Map();
 	for (const [path, how] of workspaceChanges(p, plan)) {
-		if (!own.has(path) && !pending.has(path)) {
+		if (!own.has(path)) {
 			noProposal(`The run changed ${names([path])}, which is not one of the files left for it.`);
 		}
 		if (how === 'other')
@@ -475,21 +488,17 @@ function resolution(p, plan) {
 		modes.set(path, now.mode);
 	}
 	const outside = [];
-	for (const x of plan.paths.filter((y) => own.has(y.path) || pending.has(y.path))) {
+	for (const x of plan.paths.filter((y) => own.has(y.path))) {
 		const final = finals.has(x.path) ? finals.get(x.path) : x.content;
 		if (final === null) {
 			if (x.kind !== 'modify/delete')
 				noProposal(`The run deleted ${names([x.path])}, which both sides kept.`);
 			continue;
 		}
-		if (own.has(x.path)) {
-			if (markerLines(final, x.markerSize).length)
-				noProposal(`The run left a conflict marker in ${names([x.path])}.`);
-			if (x.kind === 'content' && outsideEdited(x.segments, final)) outside.push(x.path);
-			finals.set(x.path, final);
-		} else if (x.rule === 'ratchet' && grows(jsonObject(x.texts.main), jsonObject(final))) {
-			noProposal(`The run raised ${names([x.path])} above main's: a person decides.`);
-		}
+		if (markerLines(final, x.markerSize).length)
+			noProposal(`The run left a conflict marker in ${names([x.path])}.`);
+		if (x.kind === 'content' && outsideEdited(x.segments, final)) outside.push(x.path);
+		finals.set(x.path, final);
 	}
 	return { finals, modes, outside };
 }
@@ -519,33 +528,32 @@ export function measure(value) {
 const DOCS_WHY =
 	"Both sides only added lines here, so no line is lost: this change's go above main's, as it lands later and these files are newest first.";
 
-/** How the proposal words a build rule's file: each side's, the rebuilt one, its proof. */
+/**
+ * How the proposal words a build rule's file: each side's, and what follows Accept in plain words.
+ * Nothing is built here (no job runs branch code), so the file is main's until a person or CI acts.
+ */
 const RULE_WORDS = {
 	'runtime-bytes': (x) => ({
 		main: `The ${x.runtime} runtime's bytes as main recorded them.`,
 		change: `The ${x.runtime} runtime's bytes as this change recorded them.`,
-		nowDoes: `Records the ${x.runtime} runtime's bytes as the merged tree builds them.`,
-		proof: "CI's runtime-bytes check proves it on the pushed head",
-		notRun: "so CI's runtime-bytes check fails until it is",
+		after:
+			"After Accept, CI's runtime-bytes check fails; click **Re-record runtime bytes** on the change.",
 	}),
 	'vendored-bundle': (x) => ({
 		main: `The ${x.bundle} bundle as main built it.`,
 		change: `The ${x.bundle} bundle as this change built it.`,
-		nowDoes: `Holds the ${x.bundle} bundle as the merged tree builds it.`,
-		proof: 'check:vendored-bundles proves it on the pushed head',
-		notRun: 'so check:vendored-bundles fails until it is',
+		after: `After Accept, rebuild with \`pnpm --filter launcher-api build:${x.bundle}\` in the change's session.`,
 	}),
 	ratchet: () => ({
 		main: 'The baseline as main recorded it.',
 		change: 'The baseline as this change recorded it.',
-		nowDoes: "Holds the merged tree's own counts, none above main's.",
-		proof: 'the ratchet passed on the merged tree before its update lowered it',
-		notRun: "so the baseline is main's, not checked against the merged tree",
+		after:
+			"After Accept, lower the baseline in the change's session if `check:svelte` or lint fails.",
 	}),
 };
 
 /** What a rule did to one file, as the proposal's hunks for it. */
-function ruleHunks(x, final) {
+function ruleHunks(x) {
 	if (x.rule === 'docs-append') {
 		return x.hunks.map((h) => ({
 			path: x.path,
@@ -559,23 +567,18 @@ function ruleHunks(x, final) {
 		}));
 	}
 	const words = RULE_WORDS[x.rule](x);
-	const rebuilt = final !== x.texts.main;
 	const how = x.pending
-		? rebuilt
-			? `main's, then \`${x.pending}\` by the run on the merged tree; ${words.proof}.`
-			: `main's for now: \`${x.pending}\` was not run, ${words.notRun}.`
-		: rebuilt
-			? `main's, then rebuilt on the merged tree by the rule's own command; ${words.proof}.`
-			: `main's, which the merged tree already matches; ${words.proof}.`;
+		? `main's for now. ${words.after}`
+		: "main's: no count differs between the sides.";
 	return [
 		{
 			path: x.path,
 			index: 0,
 			main: words.main,
 			change: words.change,
-			takes: rebuilt ? 'combined' : 'main',
-			why: `Never merged by hand: ${how}`,
-			nowDoes: rebuilt ? words.nowDoes : null,
+			takes: 'main',
+			why: `Never merged by hand, and never built by the job: ${how}`,
+			nowDoes: null,
 			otherwise: null,
 		},
 	];
@@ -644,19 +647,19 @@ function readModelResult(file) {
 
 /**
  * §4's explanation, whole: what conflicted (from main's git), every hunk (the model's and the
- * rules'), what changed outside, the checks and the risks — a pending build left undone is a risk.
+ * rules'), what changed outside, the checks and the risks — what follows Accept for each pending
+ * build is a risk.
  * Fitted into 16,000 characters by naming fewer of main's commits per file; null when even none
  * does not fit.
  */
-function explanationOf(plan, finals, own) {
+function explanationOf(plan, own) {
 	const ruled = plan.paths.filter((x) => x.rule && (x.status === 'mechanical' || x.pending));
-	const finalOf = (x) => (finals.has(x.path) ? finals.get(x.path) : x.content);
-	const hunks = [...(own?.hunks ?? []), ...ruled.flatMap((x) => ruleHunks(x, finalOf(x)))].sort(
-		(a, b) => (a.path === b.path ? a.index - b.index : a.path < b.path ? -1 : 1),
+	const hunks = [...(own?.hunks ?? []), ...ruled.flatMap((x) => ruleHunks(x))].sort((a, b) =>
+		a.path === b.path ? a.index - b.index : a.path < b.path ? -1 : 1,
 	);
 	const undone = ruled
-		.filter((x) => x.pending && finalOf(x) === x.texts.main)
-		.map((x) => `${x.path} is main's: \`${x.pending}\` was not run on the merged tree.`);
+		.filter((x) => x.pending)
+		.map((x) => `${x.path} is main's. ${RULE_WORDS[x.rule](x).after}`);
 	const twice = ruled
 		.filter((x) => x.rule === 'docs-append')
 		.flatMap((x) =>
@@ -735,9 +738,7 @@ function proposalBody(input, plan, { finals, modes }, own, usage) {
 		const choice = x.rule
 			? content === x.texts.main
 				? 'main'
-				: x.rule === 'docs-append'
-					? 'both'
-					: 'regenerated'
+				: 'both'
 			: plan.model.includes(x.path)
 				? choiceOf(x, content, mode, ownHunks)
 				: x.choice;
@@ -749,7 +750,7 @@ function proposalBody(input, plan, { finals, modes }, own, usage) {
 	if (sizes.some((n) => n > MAX_FILE_BYTES) || sizes.reduce((a, b) => a + b, 0) > MAX_TOTAL_BYTES) {
 		return refuse('The merged files are over 2 MB a file or 4 MB in all.');
 	}
-	const explanation = explanationOf(plan, finals, own);
+	const explanation = explanationOf(plan, own);
 	if (!explanation) return refuse('The explanation would be longer than 16,000 characters.');
 	return {
 		...opening(input, plan.baseSha),
@@ -901,12 +902,12 @@ function stageStep() {
 	);
 }
 
-const COMMANDS = { stage: stageStep, result: resultStep };
+const COMMANDS = { stage: stageStep, prepare: prepareStep, result: resultStep };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	const command = COMMANDS[process.argv[2]];
 	if (!command) {
-		console.error('usage: node collect.mjs stage | result');
+		console.error('usage: node collect.mjs stage | prepare | result');
 		process.exit(2);
 	}
 	try {

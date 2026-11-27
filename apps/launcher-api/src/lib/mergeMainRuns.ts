@@ -73,7 +73,7 @@ export type MergeRunOutcome = (typeof MERGE_RUN_OUTCOMES)[number];
 export const isMergeRunOutcome = (v: unknown): v is MergeRunOutcome =>
 	typeof v === 'string' && (MERGE_RUN_OUTCOMES as readonly string[]).includes(v);
 
-export const MERGE_CHOICES = ['main', 'change', 'both', 'combined', 'regenerated'] as const;
+export const MERGE_CHOICES = ['main', 'change', 'both', 'combined'] as const;
 export type MergeChoice = (typeof MERGE_CHOICES)[number];
 export const MERGE_RULES = ['runtime-bytes', 'vendored-bundle', 'docs-append', 'ratchet'] as const;
 export type MergeRule = (typeof MERGE_RULES)[number];
@@ -203,12 +203,16 @@ export const capMergeReason = (text: string): string => {
 		: text;
 };
 
+/** The most a merge run is dispatched with: the job refuses a `budget_usd` above it. */
+export const MAX_DISPATCH_USD = 100;
+
 /**
- * The `budget_usd` a run is dispatched with (ADR-0015 §10): the smaller of the run's cap and what is
- * left of the month's ceiling, to two places, as a decimal string; "0" once the month is spent.
+ * The `budget_usd` a run is dispatched with (ADR-0015 §10): the smaller of the run's cap, what is
+ * left of the month's ceiling and $100, to two places, as a decimal string; "0" once the month is
+ * spent.
  */
 export function dispatchBudget(capUsd: number, monthlyUsd: number, spentUsd: number): string {
-	const cents = Math.floor(Math.min(capUsd, monthlyUsd - spentUsd) * 100 + 1e-9);
+	const cents = Math.floor(Math.min(capUsd, monthlyUsd - spentUsd, MAX_DISPATCH_USD) * 100 + 1e-9);
 	return cents > 0 ? (cents / 100).toFixed(2) : '0';
 }
 
@@ -243,6 +247,24 @@ export interface MergeRunRecord {
 	createdAt: Date;
 	updatedAt: Date;
 	finishedAt: Date | null;
+}
+
+/**
+ * What follows Accept for a file a build rule left as `main`'s, pending (ADR-0015 §3): the job never
+ * builds branch code, so a person or CI does. Null for a file with no such follow-up.
+ */
+export function afterAcceptText(file: Pick<MergeRunFile, 'path' | 'rule'>): string | null {
+	if (file.rule === 'runtime-bytes') {
+		return "After Accept, CI's runtime-bytes check fails; click Re-record runtime bytes on the change.";
+	}
+	if (file.rule === 'vendored-bundle') {
+		const name = file.path.split('/').at(-1)?.replace(/\.js$/, '') ?? '';
+		return `After Accept, rebuild with pnpm --filter launcher-api build:${name} in the change's session.`;
+	}
+	if (file.rule === 'ratchet') {
+		return "After Accept, lower the baseline in the change's session if check:svelte or lint fails.";
+	}
+	return null;
 }
 
 export interface MergeRunFileView {

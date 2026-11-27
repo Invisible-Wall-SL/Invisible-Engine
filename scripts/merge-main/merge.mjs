@@ -1,13 +1,14 @@
 // Job `merge` of a Resolve conflict run (ADR-0015 §2–§4, card 15B1): merge main into a change at
 // two pinned commits, clear what rules can clear, refuse what the job must, and write the `merge`
 // record job `propose` reads. It runs from main's copy of scripts/merge-main/ and holds no secrets.
-// The only branch code it runs is the builds of §3's rules, on the merged tree, once the merge has
-// been decided.
+// It runs NO branch code: no install, no build, no ratchet (§2, the owner's decision of 2026-11-27).
+// A branch's build could poison the Actions cache that main's own workflows restore.
 //
 //   node scripts/merge-main/merge.mjs --repo <checkout> --head <sha> --main <sha> --out <dir>
 //
-// <checkout> is a clean checkout of the change at --head whose git also holds --main and the
-// history back to their merge base. Its working tree ends as the merged tree. <dir> must not exist.
+// <checkout> is a checkout of the change whose git also holds --head, --main and the history back
+// to their merge base; only its git is read, its working tree is never touched. <dir> must not
+// exist.
 //
 // PATH BY PATH. A path only one side changed takes that side's entry; only a path both sides
 // changed is merged, with `git merge-file --diff3`, on the merge base's version (empty when both
@@ -18,16 +19,13 @@
 //   docs-append      a `docs/**/*.md` whose every conflict both sides only added lines to: both
 //                    kept, this change's above main's — unless both added the same block (two
 //                    or more long lines), which keeping both would write twice
-//   runtime-bytes    `scripts/runtime-bytes/<id>.json`: main's, then
-//                    `pnpm check:runtime-bytes --update --only <ids>`
-//   vendored-bundle  a bundle `check-vendored-bundles.mjs` lists: main's, then
-//                    `pnpm --filter launcher-api build:<name>`
-//   ratchet          `svelte-check-baseline.json`, `eslint-suppressions.json`: main's, the ratchet
-//                    on the merged tree, lowered by its own update when it passes
-// The three that build need a tree with no conflict left outside Markdown (no build or gate reads
-// Markdown). With one left they are `pending`: the file holds main's and the record names the
-// command, for the run to use once it has resolved the rest. A build that fails on a tree with
-// nothing left to resolve is the merge's own problem: `needs_person`.
+//   runtime-bytes    `scripts/runtime-bytes/<id>.json`: main's, pending
+//   vendored-bundle  a bundle `check-vendored-bundles.mjs` lists: main's, pending
+//   ratchet          `svelte-check-baseline.json`, `eslint-suppressions.json`: main's, pending
+// The three that need a build are `pending`: the file holds main's, mechanical, `choice: 'main'`,
+// and the record names the command a person or CI runs on the change afterwards
+// (`pnpm check:runtime-bytes --update --only <id>`, `pnpm --filter launcher-api build:<name>`, the
+// ratchet's update). Nothing here runs it.
 //
 // THE REFUSALS (§4), the most binding first: `harness_conflict` (a conflict under
 // .github/workflows/ or scripts/current-games/), `needs_person` (a lockfile conflict, a migration
@@ -45,26 +43,26 @@
 //       conflicted: bool,                        git could not merge it on its own
 //       kind: 'identical' | 'content' | 'modify/delete',
 //       rule: null | 'docs-append' | 'runtime-bytes' | 'vendored-bundle' | 'ratchet',
-//       pending: null | '<commands>',            a rule's build (`a && b`), left until the conflicts
-//                                                are resolved
-//       choice: null | 'main' | 'change' | 'both' | 'regenerated',   null while it is a conflict
+//       pending: null | '<commands>',            a rule's build (`a && b`), never run here: the
+//                                                person or CI runs it after Accept
+//       choice: null | 'main' | 'change' | 'both',   null while it is a conflict
 //       mode: '100644' | '100755', file: 'files/<n>' | null (deleted),
 //       sides: { base, change, main: '<blob id>' | null },
 //       markerSize, hunks: [{ index, appendOnly, lines, change, main }],   change/main: summaries
 //       lines,                                   conflicting lines, markers aside
 //       met: [{ pr, title }] }],                 main's newest commits on it, when conflicted
 //     model: ['<path>'],                         the files left for the model (status conflict,
-//                                                rule null); a pending file is the run's too
-//     checks: [{ command, ok }] }
+//                                                rule null)
+//     checks: [{ command, ok }] }                the text-only checks (docs-append); no command runs
 // A path's file is what the merged tree holds there: git's clean merge, a rule's result, main's
 // (pending), or the file with its markers (labelled `this change` | `base` | `main`, `markerSize`
-// long). Nothing in it is trusted more than the branch: collect.mjs redoes all of it but the
-// builds from main's git, and the launcher takes only what §5 allows.
+// long). Nothing in it is trusted more than the branch: collect.mjs redoes all of it from main's
+// git, and the launcher takes only what §5 allows.
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { JobError, fail, printFenced, shown } from '../bug-fix/collect.mjs';
@@ -81,14 +79,12 @@ const HARNESS = ['.github/workflows/', 'scripts/current-games/'];
 export const RUNTIME_BYTES = /^scripts\/runtime-bytes\/([A-Za-z0-9_-]+)\.json$/;
 const MIGRATION = /(?:^|\/)drizzle\/(\d{4})_[^/]+\.sql$/;
 const DOCS = /^docs\/.+\.md$/;
-const MARKDOWN = /\.md$/i;
 /** A line both sides added in one hunk, from this length, is the same text added twice; shorter
  *  ones (a blank, a bullet's tail) repeat on purpose. Two such lines are a block both added. */
 const DISTINCT_LINE = 40;
 const PRINTABLE_PATH = /^[\x20-\x7e]{1,300}$/;
 const REGULAR = ['100644', '100755'];
-export const INSTALL = ['pnpm', 'install', '--frozen-lockfile'];
-/** The ratchets' baselines (at the root) and the commands each runs: the check, then its update. */
+/** The ratchets' baselines (at the root) and the commands that lower each, for a person or CI. */
 export const RATCHETS = {
 	'svelte-check-baseline.json': (packages) =>
 		packages.length
@@ -377,15 +373,6 @@ export function jsonObject(text) {
 	}
 }
 
-/** Whether any count in `after` is above its count in `before`, or new. */
-export function grows(before, after) {
-	if (typeof after === 'number') return typeof before !== 'number' || after > before;
-	if (!after || typeof after !== 'object') return false;
-	return Object.entries(after).some(([k, v]) =>
-		grows(before && typeof before === 'object' ? before[k] : undefined, v),
-	);
-}
-
 /** "a, b and c", or "a, b … and 3 more": the files a reason names. */
 export function names(paths, max = 8) {
 	const listed = paths
@@ -422,35 +409,18 @@ function metOf(gitDir, base, main, path) {
 const commandText = (args) => args.join(' ');
 
 /**
- * The build rules' work, in the order it runs: each vendored bundle, the runtime manifests in one
- * run, each ratchet. `{ plans, commands }`, a ratchet with nothing to check having no command.
+ * The commands that bring a build rule's file up to the merged tree: named in the record and the
+ * proposal, run by a person or CI after Accept, never by this job. A ratchet with nothing to check
+ * has none.
  */
-export function buildSteps(plans) {
-	const of = (rule) => plans.filter((p) => p.rule === rule);
-	const runtime = of('runtime-bytes');
-	return [
-		...of('vendored-bundle').map((p) => ({
-			plans: [p],
-			commands: [['pnpm', '--filter', 'launcher-api', `build:${p.bundle}`]],
-		})),
-		...(runtime.length
-			? [
-					{
-						plans: runtime,
-						commands: [
-							[
-								'pnpm',
-								'check:runtime-bytes',
-								'--update',
-								'--only',
-								runtime.map((p) => p.runtime).join(','),
-							],
-						],
-					},
-				]
-			: []),
-		...of('ratchet').map((p) => ({ plans: [p], commands: RATCHETS[p.path](p.packages) })),
-	];
+export function followUp(plan) {
+	if (plan.rule === 'runtime-bytes') {
+		return [['pnpm', 'check:runtime-bytes', '--update', '--only', plan.runtime]];
+	}
+	if (plan.rule === 'vendored-bundle') {
+		return [['pnpm', '--filter', 'launcher-api', `build:${plan.bundle}`]];
+	}
+	return RATCHETS[plan.path](plan.packages);
 }
 
 /** Refusals gathered as the merge is read: kind → sentence → paths. */
@@ -489,7 +459,6 @@ function planOf(path, entries) {
 		kind: 'content',
 		rule: null,
 		pending: null,
-		awaiting: false,
 		choice: null,
 		mode: (entries.main ?? entries.change ?? entries.base).mode,
 		content: null,
@@ -615,8 +584,11 @@ function buildRule(plan, rules) {
 		const packages = keys.filter((k) => new Set(sides.map((s) => canon(s[k]))).size > 1);
 		Object.assign(plan, { rule: 'ratchet', packages });
 	} else return false;
+	const commands = followUp(plan).map(commandText).join(' && ');
 	return Object.assign(plan, {
-		awaiting: true,
+		status: 'mechanical',
+		choice: 'main',
+		pending: commands || null,
 		content: plan.texts.main,
 		mode: plan.entries.main.mode,
 	});
@@ -626,7 +598,7 @@ function buildRule(plan, rules) {
  * The merge of `main` into `head` in `gitDir`, decided: every path both sides changed with its
  * status, rule and content, the files left for the model, and the outcome the refusals give.
  * Plumbing only — it writes nothing and runs nothing of the branch — so collect.mjs redoes it
- * from main's git. A build rule that can run is left `awaiting`, its content main's; `merged` is
+ * from main's git. A build rule takes main's file and is marked `pending`; `merged` is
  * the whole merged tree (path → tree entry, or the plan of a path both sides changed).
  */
 export function analyse({ gitDir, head, main, rules = loadRules() }) {
@@ -749,112 +721,7 @@ export function analyse({ gitDir, head, main, rules = loadRules() }) {
 	}
 	Object.assign(out, refused.decide());
 
-	const awaiting = out.paths.filter((p) => p.awaiting);
-	if (!out.outcome && awaiting.length && forModel.some((p) => !MARKDOWN.test(p.path))) {
-		for (const { plans, commands } of buildSteps(awaiting)) {
-			for (const plan of plans) {
-				plan.awaiting = false;
-				if (!commands.length) {
-					Object.assign(plan, { status: 'mechanical', choice: 'main' });
-					continue;
-				}
-				plan.pending = commands.map(commandText).join(' && ');
-			}
-		}
-	}
 	return out;
-}
-
-// ── The builds, on the merged tree ────────────────────────────────────────────
-
-/** Write the merged tree into `repo`'s working tree, which holds `head`. */
-function writeMergedTree(repo, gitDir, analysis) {
-	const head = listing(gitDir, analysis.headSha);
-	const writes = [];
-	for (const [path, e] of analysis.merged) {
-		if (e.content !== undefined) writes.push({ path, mode: e.mode, text: e.content });
-		else if (!sameEntry(head.get(path) ?? null, e)) writes.push({ path, mode: e.mode, oid: e.oid });
-	}
-	const bytes = blobs(
-		gitDir,
-		writes.filter((w) => w.oid).map((w) => w.oid),
-	);
-	for (const path of head.keys())
-		if (!analysis.merged.has(path)) rmSync(join(repo, path), { force: true });
-	for (const w of writes) {
-		const file = join(repo, w.path);
-		mkdirSync(dirname(file), { recursive: true });
-		rmSync(file, { force: true });
-		writeFileSync(file, w.text ?? bytes.get(w.oid));
-		chmodSync(file, w.mode === '100755' ? 0o755 : 0o644);
-	}
-}
-
-/** A file a build wrote, as text; null when it is gone or binary. */
-function readText(file) {
-	try {
-		return textOrNull(readFileSync(file));
-	} catch {
-		return null;
-	}
-}
-
-/** One command in the checkout, its output in the log (the branch's own build output, as CI's). */
-function spawnRun(args, { cwd }) {
-	return (
-		spawnSync(args[0], args.slice(1), { cwd, stdio: ['ignore', 'inherit', 'inherit'] }).status === 0
-	);
-}
-
-/**
- * The build rules, on the merged tree in `repo`: dependencies once, then each step; the rebuilt
- * file is read back. A command that fails, or a ratchet its update would raise above main's, ends
- * the merge `needs_person`, naming the file.
- */
-function runBuilds(repo, analysis, run) {
-	const awaiting = analysis.paths.filter((p) => p.awaiting);
-	if (!awaiting.length || analysis.outcome) return;
-	const failed = [];
-	const step = (args) => {
-		const ok = run(args, { cwd: repo });
-		analysis.checks.push({ command: commandText(args), ok });
-		return ok;
-	};
-	const installed = step(INSTALL);
-	for (const { plans, commands } of buildSteps(awaiting)) {
-		const bad = installed ? commands.find((args) => !step(args)) : INSTALL;
-		for (const plan of plans) {
-			const text = bad ? null : readText(join(repo, plan.path));
-			const what = bad
-				? `\`${commandText(bad)}\` failed`
-				: text === null || Buffer.byteLength(text) > MAX_FILE_BYTES
-					? 'its rebuilt file is not text under 2 MB'
-					: plan.rule === 'ratchet' && grows(jsonObject(plan.texts.main), jsonObject(text))
-						? `\`${commandText(commands.at(-1))}\` raised it above main's`
-						: null;
-			if (what) {
-				failed.push({ plan, what });
-				continue;
-			}
-			Object.assign(plan, {
-				awaiting: false,
-				status: 'mechanical',
-				content: text,
-				choice: text === plan.texts.main ? 'main' : 'regenerated',
-			});
-		}
-	}
-	if (!failed.length) return;
-	analysis.outcome = 'needs_person';
-	analysis.reason = failed
-		.map(({ plan, what }) => {
-			const decides =
-				plan.rule === 'ratchet'
-					? 'the merge adds errors, and a person decides'
-					: 'the merged tree needs a person';
-			return `${names([plan.path])}: its rule could not finish on the merged tree (${what}); ${decides}.`;
-		})
-		.join(' ');
 }
 
 // ── The record ────────────────────────────────────────────────────────────────
@@ -898,25 +765,11 @@ function writeRecord(dir, analysis) {
 }
 
 /**
- * Job `merge`, whole: decide the merge, run the builds its rules need on the merged tree, write the
- * record to `out`. `run(args, { cwd })` runs one command and answers whether it passed.
+ * Job `merge`, whole: decide the merge and write the record to `out`. Plumbing and text only: no
+ * command of the branch runs.
  */
-export function mergeMain({ repo, head, main, out, run = spawnRun, rules = loadRules() }) {
-	const gitDir = gitDirOf(repo);
-	const analysis = analyse({ gitDir, head, main, rules });
-	if (!analysis.outcome && analysis.paths.some((p) => p.awaiting)) {
-		const status = spawnSync(
-			'git',
-			['-c', 'safe.directory=*', '-C', repo, 'status', '--porcelain', '--untracked-files=no'],
-			{ env: gitEnv(), encoding: 'utf8' },
-		);
-		const at = git(gitDir, ['rev-parse', 'HEAD']).toString('utf8').trim();
-		if (at !== head || status.status !== 0 || status.stdout) {
-			fail('The checkout is not a clean checkout of the head commit.');
-		}
-		writeMergedTree(repo, gitDir, analysis);
-		runBuilds(repo, analysis, run);
-	}
+export function mergeMain({ repo, head, main, out, rules = loadRules() }) {
+	const analysis = analyse({ gitDir: gitDirOf(repo), head, main, rules });
 	mkdirSync(out);
 	return writeRecord(out, analysis);
 }

@@ -9,10 +9,10 @@
  * its rules on the result (`filesProblem`, `cleanExplanation`, `isExplainedMerge`) read that exact
  * JSON; and Accept's three-tree plan (`planMerge`, `contentProblem`) is run over the same repos.
  * The tree Accept would write must equal what git's own merge gives with the run's resolution
- * applied to the paths git could not merge and the paths a rule regenerated. Any drift between the
+ * applied to the paths git could not merge; a build rule's file is main's, pending. Any drift between the
  * two halves fails here.
  *
- * Cases: docs append only (no model); a runtime-bytes rebuild with the build stubbed; a mixed run
+ * Cases: docs append only (no model); a runtime-bytes file left main's and pending (no job builds); a mixed run
  * with a model resolution by hand, a pending runtime-bytes and ratchet left unbuilt, paths both
  * sides changed identically and paths both sides deleted; a harness refusal; a spent budget with a
  * real conflict; a binary.
@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { buildResult, encodeBody, paths, stage } from '../../../scripts/merge-main/collect.mjs';
-import { INSTALL, mergeMain } from '../../../scripts/merge-main/merge.mjs';
+import { mergeMain } from '../../../scripts/merge-main/merge.mjs';
 import { MERGE_CAPS } from '../src/lib/mergeMainRuns.ts';
 import {
 	cleanExplanation,
@@ -129,16 +129,6 @@ function scratch(
 	};
 }
 
-/** A runner that answers from `script` (command text → (cwd) => pass?) and records each call. */
-function fakeRun(script: Record<string, (cwd: string) => unknown> = {}) {
-	const run = (args: string[], { cwd }: { cwd: string }): boolean => {
-		const text = args.join(' ');
-		const step = script[text];
-		return step ? step(cwd) !== false : text === INSTALL.join(' ');
-	};
-	return run;
-}
-
 // ── The job's code, then the launcher's ───────────────────────────────────────
 
 const STREAM_OK =
@@ -154,7 +144,6 @@ interface Job {
 function runJob(
 	repo: Repo,
 	opts: {
-		run?: ReturnType<typeof fakeRun>;
 		budget?: number;
 		model?: { files: Side; result: unknown } | null;
 	} = {},
@@ -163,7 +152,7 @@ function runJob(
 	git(TMP, 'clone', '-q', repo.dir, jm);
 	git(jm, 'checkout', '-q', '--detach', repo.head);
 	const out = join(fresh('artifact'), 'merge');
-	mergeMain({ repo: jm, head: repo.head, main: repo.main, out, run: opts.run ?? fakeRun() });
+	mergeMain({ repo: jm, head: repo.head, main: repo.main, out });
 	const rt = fresh('runner-temp');
 	const ws = join(rt, 'ws');
 	git(TMP, 'clone', '-q', repo.dir, ws);
@@ -348,25 +337,21 @@ const CODE2 = (x: number, y: number): string =>
 	launcherSide('docs append', repo, job);
 }
 
-// 2. A runtime-bytes rebuild, the build stubbed as the job's own fixture stubs it.
+// 2. A runtime-bytes file: main's and pending, nothing built (no job runs branch code).
 {
 	const repo = scratch('runtime-bytes', {
 		base: { 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 1) },
 		change: [['engine', { 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 2) }]],
 		main: [['engine', { 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 3) }]],
 	});
-	const command = 'pnpm check:runtime-bytes --update --only lines';
-	const run = fakeRun({
-		[command]: (cwd) =>
-			writeFileSync(join(cwd, 'scripts/runtime-bytes/lines.json'), MANIFEST('lines', 23)),
-	});
-	const job = runJob(repo, { run });
-	const files = job.body.files as { path: string; choice: string; content: string }[];
+	const job = runJob(repo);
+	const files = job.body.files as { path: string; choice: string; rule: string; content: string }[];
 	check(
-		'runtime-bytes: regenerated with the build stubbed',
+		"runtime-bytes: main's, pending, with its rule",
 		job.body.outcome === 'proposed' &&
-			files[0]?.choice === 'regenerated' &&
-			files[0].content === MANIFEST('lines', 23),
+			files[0]?.choice === 'main' &&
+			files[0].rule === 'runtime-bytes' &&
+			files[0].content === MANIFEST('lines', 3),
 	);
 	launcherSide('runtime-bytes', repo, job);
 }

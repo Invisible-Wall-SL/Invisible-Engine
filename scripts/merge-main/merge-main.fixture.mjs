@@ -42,7 +42,6 @@ import {
 	stage,
 } from './collect.mjs';
 import {
-	INSTALL,
 	RATCHETS,
 	RUNTIME_BYTES,
 	loadRules,
@@ -137,24 +136,13 @@ function scratch(name, { base, change = [], main = [] }) {
 		main: sh(dir, 'rev-parse', 'main'),
 	};
 }
-/** A runner that answers from `script` (command text → (cwd) => pass?) and records each call. */
-function fakeRun(script = {}) {
-	const calls = [];
-	const run = (args, { cwd }) => {
-		const text = args.join(' ');
-		calls.push(text);
-		const step = script[text];
-		return step ? step(cwd) !== false : text === INSTALL.join(' ');
-	};
-	return { run, calls };
-}
 /** Job merge on a clone checked out at the head: the record and its folder. */
-function jobMerge(repo, run = fakeRun().run) {
+function jobMerge(repo) {
 	const jm = fresh('job-merge');
 	sh(TMP, 'clone', '-q', repo.dir, jm);
 	sh(jm, 'checkout', '-q', '--detach', repo.head);
 	const out = join(fresh('artifact'), 'merge');
-	const record = mergeMain({ repo: jm, head: repo.head, main: repo.main, out, run });
+	const record = mergeMain({ repo: jm, head: repo.head, main: repo.main, out });
 	return { record, out, jm };
 }
 /** Job propose's folders: the workspace (main), the pristine copy, the artifact in place. */
@@ -465,36 +453,21 @@ const MANIFEST = (id, n) => `{\n\t"runtime": "${id}",\n\t"files": {\n\t\t"a.js":
 			],
 		],
 	});
-	const command = 'pnpm check:runtime-bytes --update --only card,lines';
-	const fake = fakeRun({
-		[command]: (cwd) => {
-			for (const id of ['card', 'lines'])
-				writeFileSync(join(cwd, `scripts/runtime-bytes/${id}.json`), MANIFEST(id, 23));
-		},
-	});
-	const { record, out } = jobMerge(repo, fake.run);
+	const { record, out } = jobMerge(repo);
 	const lines = pathOf(record, 'scripts/runtime-bytes/lines.json');
-	check(
-		json(fake.calls) === json([INSTALL.join(' '), command]),
-		`runtime-bytes: install, then one --update --only for every conflicted id (${json(fake.calls)})`,
-	);
+	const card = pathOf(record, 'scripts/runtime-bytes/card.json');
 	check(
 		lines.status === 'mechanical' &&
 			lines.rule === 'runtime-bytes' &&
-			lines.choice === 'regenerated' &&
-			fileOf(out, record, 'scripts/runtime-bytes/lines.json') === MANIFEST('lines', 23),
-		"runtime-bytes: main's, then re-recorded on the merged tree",
+			lines.choice === 'main' &&
+			lines.pending === 'pnpm check:runtime-bytes --update --only lines' &&
+			card.pending === 'pnpm check:runtime-bytes --update --only card' &&
+			fileOf(out, record, 'scripts/runtime-bytes/lines.json') === MANIFEST('lines', 3),
+		"runtime-bytes: main's, mechanical, pending with its own command; nothing re-recorded",
 	);
 	check(
-		record.checks.map((c) => c.command).includes(command) && record.checks.every((c) => c.ok),
-		"runtime-bytes: the commands are the record's checks",
-	);
-	const failing = jobMerge(repo, fakeRun({ [command]: () => false }).run).record;
-	check(
-		failing.outcome === 'needs_person' &&
-			failing.reason.includes('the merged tree needs a person') &&
-			failing.reason.includes('lines.json'),
-		'a build that fails on a resolved tree: needs_person, naming the file',
+		!record.outcome && !record.checks.length,
+		'runtime-bytes: no command ran, so none is among the checks',
 	);
 }
 {
@@ -504,15 +477,14 @@ const MANIFEST = (id, n) => `{\n\t"runtime": "${id}",\n\t"files": {\n\t\t"a.js":
 		change: [['launcher', { [bundle]: 'var a=2;\n' }]],
 		main: [['launcher', { [bundle]: 'var a=3;\n' }]],
 	});
-	const command = 'pnpm --filter launcher-api build:rigger-fx';
-	const fake = fakeRun({ [command]: (cwd) => writeFileSync(join(cwd, bundle), 'var a=23;\n') });
-	const { record, out } = jobMerge(repo, fake.run);
+	const { record, out } = jobMerge(repo);
+	const x = pathOf(record, bundle);
 	check(
-		json(fake.calls) === json([INSTALL.join(' '), command]) &&
-			pathOf(record, bundle).rule === 'vendored-bundle' &&
-			pathOf(record, bundle).choice === 'regenerated' &&
-			fileOf(out, record, bundle) === 'var a=23;\n',
-		"vendored-bundle: main's, then pnpm --filter launcher-api build:<name>",
+		x.rule === 'vendored-bundle' &&
+			x.choice === 'main' &&
+			x.pending === 'pnpm --filter launcher-api build:rigger-fx' &&
+			fileOf(out, record, bundle) === 'var a=3;\n',
+		"vendored-bundle: main's, pending pnpm --filter launcher-api build:<name>",
 	);
 }
 const BASELINE = (a, b) =>
@@ -524,36 +496,15 @@ const BASELINE = (a, b) =>
 		main: [['fix', { 'svelte-check-baseline.json': BASELINE(3, 1) }]],
 	});
 	const checkCmd = 'pnpm check:svelte --only apps/a,apps/b';
-	const update = `${checkCmd} --update`;
-	const fake = fakeRun({
-		[checkCmd]: () => true,
-		[update]: (cwd) => writeFileSync(join(cwd, 'svelte-check-baseline.json'), BASELINE(1, 1)),
-	});
-	const { record, out } = jobMerge(repo, fake.run);
+	const { record, out } = jobMerge(repo);
 	const x = pathOf(record, 'svelte-check-baseline.json');
 	check(
-		json(fake.calls) === json([INSTALL.join(' '), checkCmd, update]) &&
-			x.rule === 'ratchet' &&
-			x.choice === 'regenerated' &&
-			fileOf(out, record, 'svelte-check-baseline.json') === BASELINE(1, 1),
-		`ratchet (svelte-check): main's, checked on the packages that differ, lowered by its update (${json(fake.calls)})`,
-	);
-	const fails = jobMerge(repo, fakeRun({ [checkCmd]: () => false }).run).record;
-	check(
-		fails.outcome === 'needs_person' &&
-			fails.reason.includes('the merge adds errors, and a person decides'),
-		"ratchet: a failing check is a person's decision",
-	);
-	const raised = jobMerge(
-		repo,
-		fakeRun({
-			[checkCmd]: () => true,
-			[update]: (cwd) => writeFileSync(join(cwd, 'svelte-check-baseline.json'), BASELINE(4, 1)),
-		}).run,
-	).record;
-	check(
-		raised.outcome === 'needs_person' && raised.reason.includes("raised it above main's"),
-		"ratchet: an update that would raise main's baseline is a person's decision",
+		x.rule === 'ratchet' &&
+			x.choice === 'main' &&
+			x.pending === `${checkCmd} && ${checkCmd} --update` &&
+			fileOf(out, record, 'svelte-check-baseline.json') === BASELINE(3, 1) &&
+			!record.checks.length,
+		"ratchet (svelte-check): main's, pending the check and update on the packages that differ",
 	);
 }
 {
@@ -564,19 +515,11 @@ const BASELINE = (a, b) =>
 		change: [['fix', { 'eslint-suppressions.json': SUP(1, 2) }]],
 		main: [['fix', { 'eslint-suppressions.json': SUP(2, 1) }]],
 	});
-	const prune = 'pnpm lint --prune-suppressions';
-	const fake = fakeRun({
-		[prune]: (cwd) => writeFileSync(join(cwd, 'eslint-suppressions.json'), SUP(1, 1)),
-	});
-	const { record, out } = jobMerge(repo, fake.run);
+	const { record, out } = jobMerge(repo);
 	check(
-		json(fake.calls) === json([INSTALL.join(' '), prune]) &&
-			fileOf(out, record, 'eslint-suppressions.json') === SUP(1, 1),
-		"ratchet (eslint): main's, pnpm lint --prune-suppressions lowers it",
-	);
-	check(
-		jobMerge(repo, fakeRun({ [prune]: () => false }).run).record.outcome === 'needs_person',
-		"ratchet (eslint): new violations are a person's decision",
+		pathOf(record, 'eslint-suppressions.json').pending === 'pnpm lint --prune-suppressions' &&
+			fileOf(out, record, 'eslint-suppressions.json') === SUP(2, 1),
+		"ratchet (eslint): main's, pending pnpm lint --prune-suppressions",
 	);
 	const broken = scratch('ratchet-not-json', {
 		base: { 'eslint-suppressions.json': SUP(2, 2) },
@@ -601,38 +544,15 @@ const BASELINE = (a, b) =>
 			['engine', { 'src/a.ts': CODE(3), 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 3) }],
 		],
 	});
-	const fake = fakeRun();
-	const { record, out } = jobMerge(repo, fake.run);
+	const { record, out } = jobMerge(repo);
 	const m = pathOf(record, 'scripts/runtime-bytes/lines.json');
 	check(
-		!fake.calls.length &&
-			m.status === 'conflict' &&
+		m.status === 'mechanical' &&
+			m.choice === 'main' &&
 			m.pending === 'pnpm check:runtime-bytes --update --only lines' &&
 			fileOf(out, record, m.path) === MANIFEST('lines', 3) &&
 			json(record.model) === json(['src/a.ts']),
-		"with code left to resolve, a build rule is pending: main's, its command named, nothing built",
-	);
-	const md = scratch('pending-markdown', {
-		base: { 'docs/a.md': 'one\n', 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 1) },
-		change: [
-			[
-				'x',
-				{ 'docs/a.md': 'one, change\n', 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 2) },
-			],
-		],
-		main: [
-			[
-				'x',
-				{ 'docs/a.md': 'one, main\n', 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 3) },
-			],
-		],
-	});
-	const builds = fakeRun({ 'pnpm check:runtime-bytes --update --only lines': () => true });
-	const mdRecord = jobMerge(md, builds.run).record;
-	check(
-		builds.calls.length === 2 &&
-			pathOf(mdRecord, 'scripts/runtime-bytes/lines.json').status === 'mechanical',
-		'a conflict left only in Markdown does not hold the builds back',
+		"a build rule beside code left for the model is main's and pending, as when nothing is left",
 	);
 }
 {
@@ -688,18 +608,16 @@ const conflictOn = (path, extra = {}) =>
 		main: [['m', { [path]: 'one, main\n', ...extra.main }]],
 	});
 for (const path of ['.github/workflows/lint.yml', 'scripts/current-games/run.mjs']) {
-	const fake = fakeRun();
 	const { record } = jobMerge(
 		conflictOn(path, {
 			base: { 'svelte-check-baseline.json': BASELINE(1, 1) },
 			change: { 'svelte-check-baseline.json': BASELINE(0, 1) },
 			main: { 'svelte-check-baseline.json': BASELINE(1, 0) },
 		}),
-		fake.run,
 	);
 	check(
-		record.outcome === 'harness_conflict' && record.reason.includes(path) && !fake.calls.length,
-		`harness_conflict: ${path}, and nothing built`,
+		record.outcome === 'harness_conflict' && record.reason.includes(path),
+		`harness_conflict: ${path}`,
 	);
 }
 {
@@ -886,7 +804,7 @@ const OUTCOMES = [
 	'too_large',
 	'no_proposal',
 ];
-const CHOICES = ['main', 'change', 'both', 'combined', 'regenerated'];
+const CHOICES = ['main', 'change', 'both', 'combined'];
 const RULES = ['runtime-bytes', 'vendored-bundle', 'docs-append', 'ratchet'];
 const keysAre = (o, keys) =>
 	o && typeof o === 'object' && json(Object.keys(o).sort()) === json([...keys].sort());
@@ -1142,9 +1060,12 @@ function model(
 		"result: the model's hunks and the rules' together",
 	);
 	check(
-		e.risks.includes('pnpm check:runtime-bytes --update --only lines') &&
-			e.risks.includes('was not run'),
-		'result: a pending build left undone is a risk',
+		e.risks.includes("scripts/runtime-bytes/lines.json is main's") &&
+			e.risks.includes('click **Re-record runtime bytes** on the change') &&
+			e.risks.includes(
+				"lower the baseline in the change's session if `check:svelte` or lint fails",
+			),
+		'result: what follows Accept for each pending build is a risk, in plain words',
 	);
 	check(
 		json(body.usage) ===
@@ -1160,19 +1081,17 @@ function model(
 		"result: usage as a fix run's",
 	);
 }
-{
-	const job = staged();
-	const body = model(job, {
-		files: { 'src/a.ts': RESOLVED, 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 99) },
-	});
-	const m = body.files.find((f) => f.path === 'scripts/runtime-bytes/lines.json');
-	check(
-		body.outcome === 'proposed' &&
-			m.choice === 'regenerated' &&
-			body.explanation.hunks.some((h) => h.path === m.path && h.takes === 'combined' && h.nowDoes),
-		'result: a pending file the run rebuilt is regenerated',
-	);
-}
+check(
+	(() => {
+		const body = model(staged(), {
+			files: { 'src/a.ts': RESOLVED, 'scripts/runtime-bytes/lines.json': MANIFEST('lines', 99) },
+		});
+		return (
+			body.outcome === 'no_proposal' && body.reason.includes('which is not one of the files left')
+		);
+	})(),
+	"guard: the run may not rebuild a pending file: it stays main's, a person or CI follows up",
+);
 const refusedWith = (body, words) =>
 	body.outcome === 'no_proposal' && body.reason.includes(words) && !shapeProblems(body).length;
 check(
@@ -1318,18 +1237,6 @@ check(
 	);
 }
 {
-	const ratchet = staged();
-	check(
-		refusedWith(
-			model(ratchet, {
-				files: { 'src/a.ts': RESOLVED, 'svelte-check-baseline.json': BASELINE(9, 9) },
-			}),
-			"above main's",
-		),
-		"guard: a pending ratchet raised above main's",
-	);
-}
-{
 	const long = 'x'.repeat(TEXT_CAP + 500);
 	const body = model(staged(), { result: { ...goodResult(), risks: `\u202Erisky\u0007 ${long}` } });
 	check(
@@ -1421,14 +1328,7 @@ check(
 			],
 		],
 	});
-	const command = 'pnpm check:runtime-bytes --update --only lines';
-	const { out } = jobMerge(
-		repo,
-		fakeRun({
-			[command]: (cwd) =>
-				writeFileSync(join(cwd, 'scripts/runtime-bytes/lines.json'), MANIFEST('lines', 23)),
-		}).run,
-	);
+	const { out } = jobMerge(repo);
 	const zero = propose(repo, out);
 	zero.input.budget = 0;
 	stage(zero.p, zero.input);
@@ -1450,24 +1350,25 @@ check(
 			json(e.checks.map((c) => c.command)) ===
 				json([
 					"docs-append docs/status/x.md: each hunk keeps both sides' lines, no conflict marker left",
-					INSTALL.join(' '),
-					command,
 				]) &&
-			e.risks === 'none found',
-		'mechanical-only: collect fills the explanation from the rules, the checks are the regeneration commands',
+			e.risks.includes('Re-record runtime bytes') &&
+			e.hunks.some((h) => h.path === 'scripts/runtime-bytes/lines.json' && h.takes === 'main'),
+		'mechanical-only: collect fills the explanation from the rules, and says what follows Accept',
 	);
+	const pending = body.files.find((f) => f.path === 'scripts/runtime-bytes/lines.json');
 	check(
-		body.files.find((f) => f.path === 'scripts/runtime-bytes/lines.json').content ===
-			MANIFEST('lines', 23),
-		"mechanical-only: the regenerated content is the build's",
+		pending.content === MANIFEST('lines', 3) &&
+			pending.choice === 'main' &&
+			pending.rule === 'runtime-bytes',
+		"mechanical-only: a build rule's file is main's, choice main, with its rule (pending)",
 	);
 	const forged = propose(repo, out);
 	const record = JSON.parse(read(forged.p.record, 'record.json'));
-	record.checks[2].command = 'echo trust me';
+	record.paths.find((x) => x.rule === 'runtime-bytes').pending = 'echo trust me';
 	writeFileSync(join(forged.p.record, 'record.json'), json(record));
 	check(
-		buildResult(forged.p, forged.input).failure?.includes('the builds'),
-		"a record whose builds are not the rule's commands: a failure",
+		buildResult(forged.p, forged.input).failure?.includes('does not match the merge'),
+		"a record whose pending command is not the rule's: a failure",
 	);
 }
 {
@@ -1621,6 +1522,122 @@ async function endToEnd() {
 	);
 }
 await endToEnd();
+
+// `collect.mjs prepare`: the CLI's settings, agents and prompt, rendered with no placeholder left.
+{
+	const rt = fresh('prepare-runner');
+	const main = join(rt, 'main');
+	const ws = join(rt, 'ws');
+	mkdirSync(join(main, 'scripts/merge-main'), { recursive: true });
+	mkdirSync(ws, { recursive: true });
+	cpSync(join(ROOT, 'scripts/bug-fix'), join(main, 'scripts/bug-fix'), { recursive: true });
+	cpSync(join(ROOT, '.claude/agents'), join(main, '.claude/agents'), { recursive: true });
+	const envFor = {
+		PATH: process.env.PATH ?? '',
+		MERGE_RUN: '0123456789',
+		HEAD_SHA: 'a'.repeat(40),
+		MAIN_SHA: 'b'.repeat(40),
+		RUNNER_TEMP: rt,
+		GITHUB_WORKSPACE: ws,
+		BUDGET_USD: '6',
+	};
+	const prepare = () =>
+		spawnSync(process.execPath, [join(import.meta.dirname, 'collect.mjs'), 'prepare'], {
+			env: envFor,
+			encoding: 'utf8',
+		});
+	const missing = prepare();
+	check(
+		missing.status === 1 && missing.stdout.includes('scripts/merge-main/coordinator.md'),
+		`prepare: without coordinator.md it fails and says so (${missing.stdout})`,
+	);
+	writeFileSync(
+		join(main, 'scripts/merge-main/coordinator.md'),
+		'Read {{CONFLICTS}} in {{WORKSPACE}}; write {{RESULT}} under {{OUT}}.\n',
+	);
+	const ok = prepare();
+	const conf = join(rt, 'claude/conf');
+	check(ok.status === 0, `prepare: exits 0 once coordinator.md exists (${ok.stdout}${ok.stderr})`);
+	const rendered = ['settings.json', 'prompt.md', 'agents.json'].map((f) => read(conf, f));
+	check(
+		rendered.every((t) => !/\{\{[A-Z_]+\}\}/.test(t)),
+		'prepare: no {{...}} placeholder is left in the settings, prompt or agents',
+	);
+	const settings = JSON.parse(read(conf, 'settings.json'));
+	check(
+		settings.permissions.deny.includes(`Edit(/${join(rt, 'conflicts')}/**)`) &&
+			settings.permissions.allow.includes(`Read(/${join(rt, 'conflicts')}/**)`) &&
+			!settings.permissions.allow.some((a) => a.startsWith('Edit(') && a.includes('conflicts')),
+		'prepare: the conflicts folder is readable and never writable',
+	);
+	check(
+		read(conf, 'prompt.md') ===
+			`Read ${join(rt, 'conflicts/conflicts.json')} in ${ws}; write ${join(rt, 'out/result.json')} under ${join(rt, 'out')}.\n` &&
+			Object.keys(JSON.parse(read(conf, 'agents.json'))).length > 0 &&
+			existsSync(join(rt, 'tsx-shim/tsx.mjs')),
+		"prepare: the prompt is coordinator.md rendered, the agents are main's, the tsx shim is in place",
+	);
+}
+
+// Job merge runs no branch code (ADR-0015 §2): stub every spawner it could use and see none called.
+{
+	const bin = fresh('fake-bin');
+	const log = join(bin, 'calls.log');
+	for (const name of ['pnpm', 'node', 'npm', 'npx', 'corepack']) {
+		const file = join(bin, name);
+		writeFileSync(file, `#!/bin/sh\necho "${name} $*" >> "${log}"\n`);
+		chmodSync(file, 0o755);
+	}
+	const SUPP = (n) => `{\n  "a.ts": { "r": { "count": ${n} } }\n}\n`;
+	const bundle = 'apps/launcher-api/static/rigger/vendor/rigger-fx.js';
+	const set = (a, b, c, d) => ({
+		'scripts/runtime-bytes/lines.json': MANIFEST('lines', a),
+		'svelte-check-baseline.json': BASELINE(b, a),
+		'eslint-suppressions.json': SUPP(c),
+		[bundle]: `var a=${d};\n`,
+	});
+	const repo = scratch('no-build', {
+		base: set(1, 3, 2, 1),
+		change: [['x', set(2, 1, 1, 2)]],
+		main: [['x', set(3, 3, 3, 3)]],
+	});
+	const jm = fresh('no-build-merge');
+	sh(TMP, 'clone', '-q', repo.dir, jm);
+	sh(jm, 'checkout', '-q', '--detach', repo.head);
+	let stubbed = 0;
+	const path = process.env.PATH;
+	process.env.PATH = `${bin}:${path}`;
+	let record;
+	try {
+		record = mergeMain({
+			repo: jm,
+			head: repo.head,
+			main: repo.main,
+			out: join(fresh('no-build-out'), 'merge'),
+			run: () => stubbed++,
+		});
+	} finally {
+		process.env.PATH = path;
+	}
+	check(
+		!stubbed && !existsSync(log),
+		`merge.mjs spawns no pnpm, node, install or build: the stubbed spawner and the PATH shims saw nothing (${existsSync(log) ? read(bin, 'calls.log') : ''})`,
+	);
+	check(
+		record.paths.length === 4 &&
+			record.paths.every((x) => x.rule && x.choice === 'main' && x.status === 'mechanical') &&
+			record.paths.every((x) => x.pending?.startsWith('pnpm ')) &&
+			!existsSync(join(jm, 'node_modules')) &&
+			sh(jm, 'status', '--porcelain') === '',
+		"every build rule is main's and pending, and the checkout is untouched",
+	);
+	check(
+		!/pnpm install|INSTALL|runBuilds|spawnRun/.test(
+			readFileSync(join(import.meta.dirname, 'merge.mjs'), 'utf8').replace(/\/\/.*$/gm, ''),
+		),
+		'merge.mjs holds no install or build code path',
+	);
+}
 
 // A raw NUL in a tracked text file is a "binary" to §10, so any merge touching it ends needs_person.
 {

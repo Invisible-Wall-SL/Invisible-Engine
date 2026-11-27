@@ -11,7 +11,6 @@ import {
 	switchedOff,
 	withoutDirectives,
 } from './bugFixRunsChange';
-import { isRegenerated } from './pipelineMergeRunsResult';
 
 /**
  * What an accepted resolution writes (ADR-0015 §5), decided from three trees as `revertCommit` does
@@ -164,8 +163,8 @@ export function planMerge(
 	}
 	for (const file of files) {
 		if (identical.has(file.path)) continue;
-		if (!used.has(file.path) && !isRegenerated(file)) {
-			return { problem: 'it writes a path that neither side both changed nor a rule regenerates' };
+		if (!used.has(file.path)) {
+			return { problem: 'it writes a path that neither side both changed' };
 		}
 		if (!isPlainFile(main.get(file.path)) || !isPlainFile(head.get(file.path))) {
 			return { problem: 'it writes over a link or a submodule' };
@@ -238,13 +237,12 @@ const CHOICE_WORDS: Record<MergeChoice, string> = {
 	change: "kept this change's",
 	both: 'kept both',
 	combined: 'combined both',
-	regenerated: 'regenerated',
 };
 const RULE_WORDS: Record<MergeRule, string> = {
-	'runtime-bytes': 'runtime bytes re-recorded',
-	'vendored-bundle': 'bundle rebuilt',
+	'runtime-bytes': 'runtime bytes still to re-record',
+	'vendored-bundle': 'bundle still to rebuild',
 	'docs-append': 'docs lines kept from both',
-	ratchet: 'ratchet lowered',
+	ratchet: 'baseline still to lower',
 };
 const LISTED = 50;
 

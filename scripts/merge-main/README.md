@@ -8,10 +8,10 @@ calls it and stays thin. Built-ins only; every entry point runs from the pristin
 | File                     | What                                                                                                                     |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `merge.mjs`              | Job `merge`: the merge path by path, the §3 rules, the §4 refusals the job checks, the `merge` record                    |
-| `collect.mjs`            | Job `propose`: `stage` before the model, `result` after it (§10's body, POSTed with OIDC)                                |
+| `collect.mjs`            | Job `propose`: `stage` before the model, `prepare` (the CLI's conf), `result` after it (§10's body, POSTed with OIDC)    |
 | `merge-main.fixture.mjs` | `pnpm check:merge-main`: every rule and refusal on scratch repos, collect's guards, the §10 shape, both steps end to end |
 
-`coordinator.md` (the model's prompt) is 15B2's.
+`coordinator.md` (the model's prompt) is 15B2's; `prepare` fails clearly until it exists.
 
 ## The dispatch inputs (§10)
 
@@ -20,15 +20,22 @@ two places, `0` when the month's budget is spent). Pass them to every step below
 `HEAD_SHA`, `MAIN_SHA` and `BUDGET_USD`; `pr` is the run's name only. `BUDGET_USD` also goes to the
 CLI's `--max-budget-usd`.
 
-## Job `merge` (`contents: read`, no `id-token`, no secrets, Linux)
+## Job `merge` (`contents: read`, no `id-token`, no secrets, Linux, no branch code)
+
+It never installs, builds or runs a ratchet: a branch's build could poison the Actions cache that
+`main`'s own workflows restore (owner's decision, 2026-11-27). The three build rules (runtime-bytes,
+vendored-bundle, ratchet) take `main`'s file and mark it `pending`, naming the command; the proposal
+says what follows Accept: runtime-bytes, "CI's runtime-bytes check fails; click **Re-record runtime
+bytes** on the change"; a vendored bundle, "rebuild with `pnpm --filter launcher-api build:<name>` in
+the change's session"; a ratchet, "lower the baseline in the change's session if `check:svelte` or
+lint fails". docs-append is text only and stays.
 
 1. Check out the change at `head_sha` with `fetch-depth: 0` and `persist-credentials: false`, and
    fetch `main_sha`, so the merge base is in reach. Check out `main` at `main_sha` into
-   `$RUNNER_TEMP/main`. Set up node and pnpm, but do not install: the rules install the merged tree
-   themselves, and only when one of them builds.
+   `$RUNNER_TEMP/main`. Set up node, but do not install anything: `merge.mjs` runs git and nothing
+   else.
 2. `node "$RUNNER_TEMP/main/scripts/merge-main/merge.mjs" --repo "$GITHUB_WORKSPACE" --head "$HEAD_SHA" --main "$MAIN_SHA" --out "$RUNNER_TEMP/merge"`.
-   It exits 0 for every outcome (a refusal is in the record) and 1 only when the job broke. The
-   runtime manifests it records are Linux's, as CI's are.
+   It exits 0 for every outcome (a refusal is in the record) and 1 only when the job broke.
 3. Upload `$RUNNER_TEMP/merge` as the artifact `merge`.
 
 ## Job `propose` (the `bug-fix` environment, `id-token: write`)
@@ -45,9 +52,12 @@ CLI's `--max-budget-usd`.
    model step runs: `false` when nothing is left for the model, when the merge is refused, or when
    `BUDGET_USD` is `0`.
 4. Install dependencies with install scripts off, after `stage`, so it is the merged lockfile.
+   `node "$RUNNER_TEMP/main/scripts/merge-main/collect.mjs" prepare` renders the CLI's conf into
+   `$RUNNER_TEMP/claude/conf` (`settings.json` from `scripts/bug-fix/settings.json` with `BUG` set to
+   the conflicts folder, readable and never writable; `prompt.md` from `coordinator.md`;
+   `agents.json`) and swaps in the tsx shim. It fails when `coordinator.md` is missing.
 5. Lock `$RUNNER_TEMP/main`, `$RUNNER_TEMP/merge` and `$RUNNER_TEMP/conflicts` as `bug-fix.yml`
-   locks its own folders. The record is where the builds' output comes from, so the model must not be
-   able to write it.
+   locks its own folders. The model must not be able to write the record.
 6. The model step, only `if: steps.stage.outputs.model == 'true'`, with the sandbox steps copied
    from `bug-fix.yml`. Its output goes to `$RUNNER_TEMP/claude/stream.jsonl`, and it may write only
    the workspace and `$RUNNER_TEMP/out/`.
@@ -62,8 +72,8 @@ CLI's `--max-budget-usd`.
 hunks: [{ index, lines }], met: [{ pr, title }] }], pending: [{ path, rule, command }],
 byRule: [{ path, rule }], result }`. `files` is what it resolves. Markers are labelled
 `this change`, `base` and `main`, `markerSize` long. `kind` is `content`, or `modify/delete` (one
-hunk: keep the file or delete it). A `pending` file holds main's: the run may run its `command` once
-the conflicts are resolved, and may change only that file. `byRule` is done: not the model's.
+hunk: keep the file or delete it). A `pending` file holds main's and is not the model's: the `command` is what a
+person or CI runs after Accept, and the run must not change the file. `byRule` is done too.
 
 `$RUNNER_TEMP/out/result.json`: the shape in `collect.mjs`'s header. Every hunk of every file
 needs an entry, and every file edited outside its hunks needs an `outside` line, with `checks` and

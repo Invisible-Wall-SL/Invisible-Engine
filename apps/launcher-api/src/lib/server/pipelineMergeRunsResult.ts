@@ -348,7 +348,7 @@ export function isExplainedMerge(e: MergeRunExplanation | null): e is MergeRunEx
 
 // ── What a file may be, without GitHub ────────────────────────────────────────
 
-/** The regenerated files of §3's rules, by where each lives. */
+/** The files of §3's build rules, by where each lives. */
 const RULE_PATHS: Record<Exclude<MergeRule, 'docs-append'>, RegExp> = {
 	'runtime-bytes': /^scripts\/runtime-bytes\/[^/]+\.json$/,
 	'vendored-bundle': /^apps\/launcher-api\/static\/(?:rigger|rig-viewer)\/vendor\/[^/]+\.js$/,
@@ -357,11 +357,11 @@ const RULE_PATHS: Record<Exclude<MergeRule, 'docs-append'>, RegExp> = {
 const DOCS_PATH = /^docs\/.+\.md$/;
 
 /**
- * Whether `file` is a file of a rule that regenerates (§3), by rule and path: `regenerated`, or
- * `main` when the build was left pending (the file still holds `main`'s and a risk says so).
+ * Whether `file` is a build rule's file left pending (§3, §10): the rule's own path, `main`'s
+ * entry. The job never builds branch code, so a person or CI follows up after Accept.
  */
-export const isRegenerated = (file: Pick<MergeRunFile, 'path' | 'choice' | 'rule'>): boolean =>
-	(file.choice === 'regenerated' || file.choice === 'main') &&
+export const isPendingRuleFile = (file: Pick<MergeRunFile, 'path' | 'choice' | 'rule'>): boolean =>
+	file.choice === 'main' &&
 	file.rule !== null &&
 	file.rule !== 'docs-append' &&
 	RULE_PATHS[file.rule].test(file.path);
@@ -386,8 +386,8 @@ export function filesProblem(files: MergeRunFile[], hunkPaths: ReadonlySet<strin
 			if (f.choice !== 'both' || !DOCS_PATH.test(f.path)) {
 				return 'a docs-append file is not a markdown file under docs/ taken as both';
 			}
-		} else if (f.rule !== null || f.choice === 'regenerated') {
-			if (!isRegenerated(f)) return 'a regenerated file is not one a rule regenerates';
+		} else if (f.rule !== null) {
+			if (!isPendingRuleFile(f)) return "a build rule's file is not main's, left pending";
 		}
 		// `main`'s own entry written onto `main`'s tree changes nothing, and Accept refuses a `main`
 		// that is not (`planMerge`): it is how a path both sides changed identically, or both deleted,

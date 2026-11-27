@@ -1,9 +1,11 @@
 import { parseFixRunBranch } from '$lib/bugFixRuns';
 import { bugPath, bugRef } from '$lib/bugReports';
 import {
+	afterAcceptText,
 	isLiveMergeRun,
 	type MergeChoice,
 	type MergeRunExplanation,
+	type MergeRunFileView,
 	type MergeRunHunk,
 	type MergeRunView,
 	type MergeRunsAnswer,
@@ -701,7 +703,6 @@ const CHOICE_TEXT: Record<MergeChoice, string> = {
 	change: "kept this change's",
 	both: 'kept both',
 	combined: 'combined both',
-	regenerated: 'regenerated',
 };
 const TAKES_TEXT: Record<MergeTakes, string> = {
 	main: "main's",
@@ -737,8 +738,19 @@ export interface ProposalSection {
 	lines: string[];
 }
 
+/** What follows Accept, one line per file a build rule left as main's (§3); no job builds it. */
+export function afterAcceptLines(files: Pick<MergeRunFileView, 'path' | 'rule'>[]): string[] {
+	return files.flatMap((f) => {
+		const text = afterAcceptText(f);
+		return text ? [`${f.path}: ${text}`] : [];
+	});
+}
+
 /** ADR-0015 §4's sections of an explanation, those that have content. */
-export function proposalSections(e: MergeRunExplanation): ProposalSection[] {
+export function proposalSections(
+	e: MergeRunExplanation,
+	files: Pick<MergeRunFileView, 'path' | 'rule'>[] = [],
+): ProposalSection[] {
 	const sections: ProposalSection[] = [
 		{
 			key: 'conflicted',
@@ -777,6 +789,7 @@ export function proposalSections(e: MergeRunExplanation): ProposalSection[] {
 			title: 'Checks run',
 			lines: e.checks.map((c) => `${c.ok ? 'passed' : 'failed'}: ${c.command}`),
 		},
+		{ key: 'after-accept', title: 'What follows Accept', lines: afterAcceptLines(files) },
 		{ key: 'risks', title: 'Risks', lines: e.risks ? [e.risks] : [] },
 	];
 	return sections.filter((s) => s.lines.length > 0);
@@ -845,7 +858,7 @@ export function mergedInCard(
 		title: `Main merged in · ${run.acceptedBy ?? 'a person'} · ${timeAgo(run.finishedAt ?? run.updatedAt, now)} · main at ${shortSha(run.mainSha)}`,
 		rows: run.files.map((f) => ({
 			path: f.path,
-			text: `${choiceWord(f.choice)}${f.choice === 'combined' ? '; now differs from both sides' : ''}${f.deleted ? '; deleted' : ''}`,
+			text: `${choiceWord(f.choice)}${f.choice === 'combined' ? '; now differs from both sides' : ''}${f.deleted ? '; deleted' : ''}${afterAcceptText(f) ? `. ${afterAcceptText(f)}` : ''}`,
 		})),
 	};
 }
