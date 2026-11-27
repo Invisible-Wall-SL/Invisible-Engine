@@ -89,7 +89,7 @@ const MUTANTS = [
 	[
 		'snapshot',
 		'the Half body neck a unit longer',
-		[['rigTemplates.ts', '...neckChain(130, 40),', '...neckChain(130, 41),']],
+		[['rigTemplates.ts', 'neck(130, 40, [90, 90])', 'neck(130, 41, [90, 90])']],
 	],
 	[
 		'snapshot',

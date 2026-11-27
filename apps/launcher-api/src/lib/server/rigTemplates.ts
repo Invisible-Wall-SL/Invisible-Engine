@@ -38,6 +38,7 @@ import {
 	type RigTemplateControls,
 	type TemplateIk3d,
 } from './rigTemplateControls';
+import { HEAD_NOD, NECK_BONES, neck } from './rigTemplateBody';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 import {
 	parseModuleChoice,
@@ -352,35 +353,11 @@ export interface RigTemplateRef {
 
 export const RIG_TEMPLATE_SIDECAR = 'template.json';
 
-export { LIPSYNC_SHAPES };
+export { LIPSYNC_SHAPES, NECK_BONES };
 
 /** The face block on `head`: the head turn's parallax and a head up / down control (§5.4). */
 const FACE = faceBlock('head', { back: ['hair_back'], front: ['hair_front'] });
 
-/**
- * The neck (§3.6): `neck` on the chest at the collar, `neck_upper` halfway up it, the head on that.
- * A turn of the neck is shared by the two, so it bends rather than swinging stiff from the collar,
- * and its drawing is skinned across both. `neck_upper` came later: a `link`.
- */
-function neckChain(at: number, length: number): RigTemplateBone[] {
-	return [
-		{ name: 'neck', parent: 'chest', x: 0, y: at },
-		{ name: 'neck_upper', parent: 'neck', x: 0, y: length / 2, link: true },
-		{ name: 'head', parent: 'neck_upper', x: 0, y: length / 2 },
-	];
-}
-/** The neck's bones, base first: what a turn of the neck is shared by. */
-export const NECK_BONES = ['neck', 'neck_upper'] as const;
-/** The Head nod control: degrees, the neck's turn shared by its bones. */
-const HEAD_NOD: RigTemplateChannel = {
-	id: 'head_nod',
-	label: 'Head nod',
-	tip: 'Degrees, turned along the neck.',
-	min: -10,
-	max: 10,
-	rest: 0,
-	drives: NECK_BONES.map((bone) => ({ bone, prop: 'rotate' as const, per: 1 / NECK_BONES.length })),
-};
 /** The Breath control: the chest swells a little. */
 const BREATH: RigTemplateChannel = {
 	id: 'breath',
@@ -516,6 +493,8 @@ function talkKeys(t: RigTemplate, from: number, secs: number): RigTemplateClipKe
 	return out;
 }
 
+const BUST_NECK = neck(110, 40, [90, 90]);
+
 /**
  * Bust with face: a bust with the shared face block on its head (`rigTemplateFace.ts`) — mouth
  * corners, lips, cheeks, lids, inner and outer brows, the jaw sideways and the nose, with bending
@@ -531,7 +510,7 @@ export const BUST_FACE: RigTemplate = {
 		{ name: 'root', x: 0, y: 0 },
 		{ name: 'chest', parent: 'root', x: 0, y: 120 },
 		...sides((s, k) => [{ name: `shoulder_${s}`, parent: 'chest', x: 110 * k, y: 40 }]),
-		...neckChain(110, 40),
+		...BUST_NECK.bones,
 		{ name: 'head_image', parent: 'head', x: 0, y: 0 },
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
 		...FACE.bones,
@@ -540,7 +519,7 @@ export const BUST_FACE: RigTemplate = {
 	slots: [
 		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
 		{ name: 'body', bone: 'chest', setup: 'body' },
-		{ name: 'neck', bone: 'neck', setup: 'neck' },
+		BUST_NECK.slot,
 		{ name: 'head', bone: 'head_image', setup: 'head' },
 		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
 		...FACE.slots,
@@ -549,7 +528,7 @@ export const BUST_FACE: RigTemplate = {
 	parts: [
 		part('hair_back', 'hair_back', [300, 300]),
 		part('body', 'body', [420, 240], true),
-		part('neck', 'neck', [90, 90]),
+		BUST_NECK.part,
 		part('head', 'head', [260, 300], true),
 		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
 		...FACE.parts,
@@ -724,6 +703,8 @@ const SIDE = { l: 'left', r: 'right' } as const;
 const ELBOW_REACH = 168;
 const HAND_POSES = ['open', 'fist', 'point'];
 
+const FULL_NECK = neck(90, 30, [60, 50]);
+
 /**
  * A whole standing character, drawn facing the viewer or facing right (the game flips it). Every
  * channel is a forward (FK) rotation or move: an IK constraint would override the rotation keys the
@@ -739,7 +720,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		{ name: 'hip', parent: 'root', x: 0, y: 290 },
 		{ name: 'spine', parent: 'hip', x: 0, y: 30 },
 		{ name: 'chest', parent: 'spine', x: 0, y: 90 },
-		...neckChain(90, 30),
+		...FULL_NECK.bones,
 		...sides((s, k) => [
 			{ name: `upper_arm_${s}`, parent: 'chest', x: 70 * k, y: 70 },
 			{ name: `lower_arm_${s}`, parent: `upper_arm_${s}`, x: 0, y: -95 },
@@ -759,7 +740,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		]),
 		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
-		{ name: 'neck', bone: 'neck', setup: 'neck' },
+		FULL_NECK.slot,
 		{ name: 'head', bone: 'head', setup: 'head' },
 		...sides((s) => [
 			{ name: `upper_arm_${s}`, bone: `upper_arm_${s}`, setup: `upper_arm_${s}` },
@@ -775,7 +756,7 @@ const FLAT_FULL_BODY: RigTemplate = {
 		]),
 		part('pelvis', 'pelvis', [150, 80]),
 		part('torso', 'torso', [200, 240], true),
-		part('neck', 'neck', [60, 50]),
+		FULL_NECK.part,
 		part('head', 'head', [180, 200], true),
 		...sides((s) => [
 			part(`upper_arm_${s}`, `upper_arm_${s}`, [50, 110], true),
@@ -1069,6 +1050,8 @@ const segmentSlots = (s: string) =>
 /** A hand's digit bones in bone order: thumb to pinky, each knuckle to tip. */
 const digitBones = (s: string) => DIGITS.flatMap((d) => SEGMENTS.map((n) => bone(d, n, s)));
 
+const HALF_NECK = neck(130, 40, [90, 90]);
+
 /**
  * The upper body of a character beside the reels, drawn facing the viewer: torso, arms, and hands
  * with a bone and an image for every finger segment, so a hand can count, point, wave and close.
@@ -1088,7 +1071,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		{ name: 'hip', parent: 'root', x: 0, y: 30 },
 		{ name: 'spine', parent: 'hip', x: 0, y: 40 },
 		{ name: 'chest', parent: 'spine', x: 0, y: 150 },
-		...neckChain(130, 40),
+		...HALF_NECK.bones,
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
 		...FACE.bones,
 		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
@@ -1111,7 +1094,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
 		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
-		{ name: 'neck', bone: 'neck', setup: 'neck' },
+		HALF_NECK.slot,
 		{ name: 'head', bone: 'head', setup: 'head' },
 		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
 		...FACE.slots,
@@ -1128,7 +1111,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		part('hair_back', 'hair_back', [300, 300]),
 		part('pelvis', 'pelvis', [300, 120]),
 		part('torso', 'torso', [360, 380], true),
-		part('neck', 'neck', [90, 90]),
+		HALF_NECK.part,
 		part('head', 'head', [260, 300], true),
 		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
 		...FACE.parts,
