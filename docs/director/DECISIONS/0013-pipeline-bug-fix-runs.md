@@ -309,7 +309,7 @@ never a PR:
 |---|---|
 | No path under `.github/`, `.claude/`, any `CLAUDE.md`, `CODEOWNERS`, `scripts/git-hooks/`, `scripts/check-secrets.mjs`, `scripts/bug-fix/`, `scripts/current-games/`, `services/director-worker/agents/`, `services/director-worker/families/`, `docs/knowledge/`, `docs/director/DECISIONS/` | Agent definitions, knowledge and runtime prompts are their own pipeline changes (ground rule 2, ADR-0009 §5). The harness and workflows already need the owner (current-games verdict). |
 | No `pnpm-lock.yaml`, no `dependencies` change in a `package.json`; no growth of `svelte-check-baseline.json` or the ESLint suppressions | A new dependency or a looser ratchet is a person's call. |
-| At most 40 files and 400 KB; UTF-8 text only | A bug fix is small; a binary cannot be reviewed in a diff. |
+| At most 40 files and 400 KB of changed lines; UTF-8 text only | A bug fix is small; a binary cannot be reviewed in a diff. **Amended 2026-11-27 (owner's choice):** the 400 KB counts each file's added plus removed lines against the base (a new or deleted file counts whole), not the whole file, so a one-line fix to a 1.6 MB file passes. The whole-file checks (paths, secrets on added lines, NUL, UTF-8, hidden characters, 2 MB per file, 40 files) are unchanged. |
 | A secret scan with `scripts/check-secrets.mjs`'s patterns, plus any `sk-ant-` string | The PR is public. |
 | Title, summary and lesson contain neither the bug's project key nor its client key | The PR is public; the bug is not. |
 | `scope` passes `subjectHasScope` | The squash title becomes the commit on `main` (root `CLAUDE.md`, commit scopes). |

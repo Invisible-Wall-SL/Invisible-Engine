@@ -7,6 +7,10 @@
 # Nightly over every live online game (the current-games harness's own list, `/api/pipeline/games`),
 # and on demand for one game (`game`) or all (empty).
 #
+# The Salmons lab (`salmons`): Salmons' room, played headless for a minute (scripts/playtest/salmons-lab.mjs),
+# on demand only. It builds the runtime itself, runs three times and compares with the committed baseline
+# (scripts/playtest/fixtures/salmons-lab-baseline.json); it posts nothing and needs no secret.
+#
 # SECRETS: the current-games harness's own two, no new one — PIPELINE_GAMES_URL (the launcher is its
 # origin) and PIPELINE_CI_TOKEN (opens each game's 2-hour lab session). It reads nothing from R2 and
 # posts only readings.
@@ -22,6 +26,10 @@ on:
         description: A game key (empty = every live online game)
         type: string
         default: ''
+      salmons:
+        description: Run the Salmons lab (local game server, three runs) instead of the games
+        type: boolean
+        default: false
 
 concurrency:
   group: profiler-lab-${{ inputs.game || 'all' }}
@@ -32,6 +40,7 @@ permissions:
 
 jobs:
   list:
+    if: ${{ !inputs.salmons }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -108,5 +117,50 @@ jobs:
         if: always()
         with:
           name: profiler-lab-${{ matrix.game }}
+          retention-days: 7
+          path: lab
+
+  salmons:
+    if: ${{ inputs.salmons }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Key the headless shell cache
+        id: shell
+        run: echo "key=$(scripts/current-games/headless-shell.sh key)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: .cache/headless-shell
+          key: ${{ steps.shell.outputs.key }}
+
+      - name: Install the headless shell
+        timeout-minutes: 15
+        run: scripts/current-games/headless-shell.sh install .cache/headless-shell profiler-lab
+
+      - name: Let the headless shell start its sandbox
+        run: |
+          f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+
+      - name: Build the runtime
+        timeout-minutes: 15
+        run: pnpm --filter lines build
+
+      - name: Salmons lab
+        timeout-minutes: 15
+        run: |
+          node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+            scripts/playtest/salmons-lab.mjs --runs 3 --out lab \
+            --compare scripts/playtest/fixtures/salmons-lab-baseline.json
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: salmons-lab
           retention-days: 7
           path: lab
