@@ -741,6 +741,9 @@ export function salmonsConfig(river = salmonsRiver(), { lobby, levels } = {}) {
 				// `max`: a device that says what its window shows is sent the players there too, as
 				// far as this: a 3840 × 2160 window at the desktop zoom.
 				nearby: { w: 3300, h: 3300, max: { w: 6400, h: 6400 } },
+				// 15 states a second (owner, 2026-11-27: a quarter fewer messages and bytes), drawn
+				// two states' time behind (`netcode.js` `interpolationDelayFor`: 133 ms).
+				patchHz: 15,
 				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
 				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
 				// jumps a salmon, swipes a bear and casts a fisherman's line.

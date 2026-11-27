@@ -49,6 +49,9 @@
 // sandbank it meets and a caught player stays out, so on the original's levels (the config
 // `scripts/salmons/export.mjs` writes) the room goes still and its cost reads far too low.
 //
+// `--positions float` joins as a runtime from before packed places does (float32 for everyone);
+// the default, `u16`, as the runtime joins since (everyone else's place packed, in a nearby room).
+//
 // `--warmup 25` measures from that long after the last device joined instead of 3 s: a config with
 // a lobby (Salmons' export) starts its game only after its countdown.
 //
@@ -64,7 +67,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { cameraZoom, resolveCameraSpec } from '../packages/engine-mechanics/src/camera.js';
-import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import {
+	BUTTONS,
+	MOVE_SCALE,
+	PACKED_POSITIONS,
+	clampInput,
+} from '../packages/engine-mechanics/src/online.js';
 import {
 	BUTTONS3D,
 	clampInput3d,
@@ -101,9 +109,12 @@ const { values: opt } = parseArgs({
 		respawn: { type: 'boolean', default: false },
 		warmup: { type: 'string', default: '3' },
 		'3d': { type: 'boolean', default: false },
+		positions: { type: 'string', default: PACKED_POSITIONS },
 		out: { type: 'string' },
 	},
 });
+if (opt.positions !== PACKED_POSITIONS && opt.positions !== 'float')
+	throw new Error(`--positions is float or ${PACKED_POSITIONS}, not "${opt.positions}"`);
 const DEVICES = Number(opt.devices);
 const SECONDS = Number(opt.seconds);
 const LATENCY = Number(opt.latency);
@@ -402,7 +413,12 @@ const tickMs = 1000 / online.tickHz;
 async function joinDevice(n, roomId) {
 	const character = characterFor(n);
 	const client = new Client(`ws://127.0.0.1:${proxyPort}`);
-	const options = { game: 'load', name: `Load ${n}`, character };
+	const options = {
+		game: 'load',
+		name: `Load ${n}`,
+		character,
+		...(opt.positions === PACKED_POSITIONS ? { positions: PACKED_POSITIONS } : {}),
+	};
 	const room = roomId
 		? await client.joinById(roomId, options)
 		: await client.joinOrCreate(is3d ? ROOM_NAME_3D : ROOM_NAME, options);
