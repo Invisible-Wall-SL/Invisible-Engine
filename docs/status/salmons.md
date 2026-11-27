@@ -2626,6 +2626,38 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-27 — **Prop components: the PR #1929 review fixes** (owner: "1 cap, 2 yes, look approved,
+  fix 3–5 here"; design §7 P8's "As built (review fixes)"; agent `arcade-games`; branch
+  `claude/bold-cannon-3a8unw`). Five commits:
+  1. **The collider is capped** so a room always sends it: 8 solids, lists of 8 ids of 32 letters.
+     The compile, the launcher's `normalizeProp`, the readers and the editor's ＋ Solid all enforce
+     it. The config save refuses props too long to send. The worst-case collider of a family is
+     3,911 characters of 16,384.
+  2. **A device draws the room's version** of the prop (`roomPropDef`), else the seed. It plays the
+     room's props even when only their stamp differs.
+  3. **A pinned root's pinned pieces ship** at their versions (`resolveComponentClosureWithPins`).
+  4. **`<SpawnProps>` follows a rebuilt spawn layer** (`spawnTargetStale`).
+  5. **The prop timelines survive** a later timeline registration: they are registered again on
+     the next room state.
+  - **Gates:**
+    - `check:prop-shape` 45 (2 new in §6).
+    - `check:prop-depth` 28 (2 new: the rebuilt layer, the timelines' survival).
+    - `check:room-levels` 22 (2 new: a capped collider round-trips and is adopted; a device with
+      other props draws the room's version's pieces).
+    - `check:zone-art` 149 (2 new: an oversize collider is refused at save; a pinned piece ships at
+      its version).
+    - `check:component-prop-editor` 52 (2 new: ＋ Solid stops at the cap, and a saved prop past it
+      is refused).
+    - Unchanged: `check:salmons-art` 50, `check:salmons-levels` 28, `check:room-sim` 43,
+      `check:online-rules` 40, `check:save-keeps-unknown-blocks` 170,
+      `check:component-duplicate` 54, `check:desktop-publish-checks` 195/195.
+    - `check:svelte` is at its baseline for engine-layout (290), lines (145) and the launcher (44).
+      Lint and prettier are clean.
+    - Playtests: `salmons-play.mjs --bridge-component` 7/7, `salmons-rejoin-play` 58 PASS, 0 FAIL.
+    - Runtime bytes (five `--out` builds, dbe5ca74e against the fixes): lines, match-3 and card are
+      identical. The arcade main bundle is +667 B gzip and its Salmons art chunk −464 B;
+      arcade3d's are +689 B and −465 B.
+
 - 2026-11-26 — **Prop components P6: the ship chain** (design §6, §7 P6 "As built"; agent
   `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). A Salmons project now draws its
   bridges with its own prop component, and the room plays that component's collider.

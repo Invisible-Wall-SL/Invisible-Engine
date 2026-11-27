@@ -110,6 +110,12 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-27 — **The prop card's ＋ Solid stops at 8** (PR #1929's review). A collider holds at
+  most `PROP_MAX_SOLIDS` (8) solids, so a room can always send it. At 8, ＋ Solid is greyed out
+  with an InfoTip, `addPropSolid` adds nothing, and a save of a prop past it is refused
+  ([tools/component-editor](../tools/component-editor.md)). The rest of the review fixes:
+  [status/salmons](salmons.md).
+
 - 2026-11-26 — **Prop components P7: the editor** ([arcade-prop-components](../design/arcade-prop-components.md)
   §7 P7 As built, branch `claude/bold-cannon-3a8unw`, in review). On a prop:
   - **The Prop card** (Properties): zone kind, preview length and height, snap, near and far ramp

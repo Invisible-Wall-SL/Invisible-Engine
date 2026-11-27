@@ -580,6 +580,32 @@ the 2-cell near slope) has merged.
      - The editor itself is not browser-verified (it needs the launcher's DB and R2). The card,
        the prop view, the collider handles and the stand-in were driven in headless Chrome in a
        stand-alone harness.
+   **As built (review fixes, 2026-11-27; PR #1929's review, owner: "1 cap, 2 yes, fix 3–5 here").**
+   - **The cap.** `propShape.js` defines `PROP_MAX_SOLIDS` (8), `PROP_MAX_CHARACTERS` (8 ids a list)
+     and `PROP_MAX_ID` (32 letters).
+     - The compile refuses more than that, and so does the launcher's `normalizeProp` (a save
+       refuses it).
+     - `readPropShapes` and the `game-config` mirror drop what is past it.
+     - The editor's ＋ Solid is greyed out at 8, with an InfoTip.
+     - `compileZoneArtProps` also refuses props longer than `ROOM_LEVELS_MAX` altogether.
+     - So `roomLevelState` now always sends the props the room plays. The worst-case collider of a
+       family is 3,911 characters of 16,384 (`check:prop-shape` §6).
+   - **The room's version is drawn.** `roomLevelGame` plays the room's props whenever they are not
+     the device's to the letter, a re-stamp alone included (it names no difference). The art's def
+     is `engine-layout` `roomPropDef(props, family, resolve)`: the adopted props' `from` component at
+     exactly that version, else the seed. `apps/lines` `zonePropOf(props, family)` uses it, so the
+     device's own config no longer decides.
+   - **The pinned pieces ship.** `zoneArtPropSeeds` runs `resolveComponentClosureWithPins` over
+     each pinned root, so a piece the root pins ships at that version beside it.
+   - **A rebuilt layer.** `<SpawnProps>` looks at the layer every frame while it has pieces, and
+     looks for the container again when the layer is new or the container is gone
+     (`spawnTargetStale`). `<PropsInto>` is keyed by the container.
+   - **The timelines survive.** The prop timelines are registered again, from the room-state feed,
+     whenever a registration has dropped them, with the project's as `bakedCinematics()` gives them
+     then. `componentTimelines.ts` is untouched: it is in every runtime.
+   - **Not folded.** `BUILTIN_COMPONENTS` stays an alias of `RUNTIME_BUILTIN_COMPONENTS`: the
+     current-games harness reads `BUILTIN_COMPONENTS` from `builtinComponents.ts` by name, in older
+     engine checkouts too.
 8. **P8 — live.** Publish Salmons with a project bridge. The owner changes a ramp and the art in the
    component window. The room plays the new ramp, and the device draws it.
    *Proof:* the published link in headless Chromium and the owner's look, by the checklist in
