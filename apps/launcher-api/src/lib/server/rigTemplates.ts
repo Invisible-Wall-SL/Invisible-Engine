@@ -22,7 +22,7 @@ import type {
 	RigPositions3d,
 } from '../rigMotion3d';
 import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
-import { VIEW_SUFFIXES, angleDrawings } from '../rig3dViews';
+import { angleDrawings } from '../rig3dViews';
 import {
 	FACE_BOARD,
 	CONSTRAINT_KINDS,
@@ -38,8 +38,8 @@ import {
 	type RigTemplateControls,
 	type TemplateIk3d,
 } from './rigTemplateControls';
-import { HEAD_NOD, NECK_BONES, neck } from './rigTemplateBody';
-import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
+import { FACE, FACE_HEAD, HEAD_NOD, NECK_BONES, angleParts, neck } from './rigTemplateBody';
+import { LIPSYNC_SHAPES, part, sides } from './rigTemplateFace';
 import {
 	parseModuleChoice,
 	takenBy,
@@ -355,9 +355,6 @@ export const RIG_TEMPLATE_SIDECAR = 'template.json';
 
 export { LIPSYNC_SHAPES, NECK_BONES };
 
-/** The face block on `head`: the head turn's parallax and a head up / down control (§5.4). */
-const FACE = faceBlock('head', { back: ['hair_back'], front: ['hair_front'] });
-
 /** The Breath control: the chest swells a little. */
 const BREATH: RigTemplateChannel = {
 	id: 'breath',
@@ -383,47 +380,6 @@ const BODY_CANNOT = 'Breathing, and anything the face does not show (shoulders, 
 // square — so it never thins to a sliver; flat things (a hand, the torso, the face's features) turn
 // as cards. Parts sit in depth, so a turned head shows the parallax of a round one.
 
-/** The head turned by the face's 3D pose; its outline and the back hair square to the viewer. */
-const HEAD_3D: Bone3dMotion[] = [
-	{ kind: 'bone3d', bone: 'head', face: 'matrix' },
-	{ kind: 'bone3d', bone: 'head_image', viewer: 'square' },
-	{ kind: 'bone3d', bone: 'hair_back', viewer: 'square' },
-];
-/**
- * The face block's parts in depth, on a head about 260 units wide: the face 95 in front of the
- * head's middle (a 25° turn slides it 40 units, as a round head's features move), the nose further,
- * the cheeks and mouth corners round the sides, the fringe in front and the back hair behind.
- */
-const FACE_DEPTHS: Record<string, number> = {
-	face: 95,
-	nose: 25,
-	cheek_l: -25,
-	cheek_r: -25,
-	mouth_corner_l: -10,
-	mouth_corner_r: -10,
-	hair_front: 100,
-	hair_back: -100,
-};
-/** The face's 2D controls a 3D import leaves to the head's turn and the parts' depth. */
-const FACE_REPLACED = ['head_tilt', 'head_turn', 'head_pitch'];
-/**
- * The head's draw-order layer: its outline, ears, the face's parts and the fringe move in depth as
- * one (a hand passes in front of the whole face or behind it), so a turned head does not reorder its
- * left and right eyes, which never overlap.
- */
-const HEAD_LAYER = {
-	head: ['head', 'ear_l', 'ear_r', ...FACE.slots.map((x) => x.name), 'hair_front'],
-};
-const HEAD_3D_CANNOT =
-	'A head turned past about 40°: the face slides toward the edge of a round head; a ¾ or profile head is its drawing by angle (head_3q_*, head_side_*).';
-
-/**
- * A part's drawings by angle (rig-2p5d §4.7, P5), all optional: ¾ and side either way (`_3q_r`,
- * `_side_r`: made for the part turned toward the picture's right), and the ¾-back and back views a
- * full turnaround shows. Named after `base`; each fills the same slot as the part.
- */
-const angleParts = (base: string, slot: string, size: [number, number]): RigTemplatePart[] =>
-	Object.values(VIEW_SUFFIXES).map((v) => part(`${base}_${v}`, slot, size));
 /** The head's drawings by angle: its outline turned ¾, side-on and (full turnaround) from behind. */
 const HEAD_VIEWS: Drawing[] = angleDrawings('head');
 const NEAR_CANNOT =
@@ -511,39 +467,30 @@ export const BUST_FACE: RigTemplate = {
 		{ name: 'chest', parent: 'root', x: 0, y: 120 },
 		...sides((s, k) => [{ name: `shoulder_${s}`, parent: 'chest', x: 110 * k, y: 40 }]),
 		...BUST_NECK.bones,
-		{ name: 'head_image', parent: 'head', x: 0, y: 0 },
-		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
-		...FACE.bones,
-		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
+		...FACE_HEAD.bones,
 	],
 	slots: [
-		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
+		...FACE_HEAD.back.slots,
 		{ name: 'body', bone: 'chest', setup: 'body' },
 		BUST_NECK.slot,
-		{ name: 'head', bone: 'head_image', setup: 'head' },
-		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
-		...FACE.slots,
-		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
+		...FACE_HEAD.front.slots,
 	],
 	parts: [
-		part('hair_back', 'hair_back', [300, 300]),
+		...FACE_HEAD.back.parts,
 		part('body', 'body', [420, 240], true),
 		BUST_NECK.part,
-		part('head', 'head', [260, 300], true),
-		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
-		...FACE.parts,
-		part('hair_front', 'hair_front', [300, 200]),
-		...angleParts('head', 'head', [260, 300]),
+		...FACE_HEAD.front.parts,
+		...FACE_HEAD.angles,
 		...angleParts('body', 'body', [420, 240]),
 	],
 	channels: [...FACE.channels, HEAD_NOD, BREATH, APPROACH],
 	clips: [],
 	rig3d: {
 		turnaround: 'side',
-		depths: FACE_DEPTHS,
+		depths: FACE_HEAD.depths,
 		// Made 3D, the body's drawings get an image bone of their own: its bone carries the neck.
 		views: { head: HEAD_VIEWS, body: angleDrawings('body') },
-		layers: HEAD_LAYER,
+		layers: FACE_HEAD.layers,
 	},
 };
 BUST_FACE.motion = {
@@ -559,11 +506,11 @@ BUST_FACE.motion = {
 		smooth: 0.03,
 		follow: 20,
 		minVisibility: 0.5,
-		entries: HEAD_3D,
+		entries: FACE_HEAD.bones3d,
 		// A bust is placed by its face.
-		positions: { root: { bone: 'root', anchors: faceMarks() }, limbs: [] },
-		replaces: FACE_REPLACED,
-		cannot: [HEAD_3D_CANNOT, FACE.cannot[1], BODY_CANNOT],
+		positions: { root: { bone: 'root', anchors: FACE_HEAD.marks }, limbs: [] },
+		replaces: FACE_HEAD.replaces,
+		cannot: [FACE_HEAD.cannot3d, FACE.cannot[1], BODY_CANNOT],
 	},
 	cannot: [...FACE.cannot, BODY_CANNOT],
 };
@@ -1072,9 +1019,7 @@ const FLAT_HALF_BODY: RigTemplate = {
 		{ name: 'spine', parent: 'hip', x: 0, y: 40 },
 		{ name: 'chest', parent: 'spine', x: 0, y: 150 },
 		...HALF_NECK.bones,
-		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
-		...FACE.bones,
-		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
+		...FACE_HEAD.bones,
 		...sides((s, k) => [
 			{ name: `clavicle_${s}`, parent: 'chest', x: 25 * k, y: 110 },
 			{ name: `upper_arm_${s}`, parent: `clavicle_${s}`, x: 115 * k, y: 0 },
@@ -1091,14 +1036,11 @@ const FLAT_HALF_BODY: RigTemplate = {
 		]),
 	],
 	slots: [
-		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
+		...FACE_HEAD.back.slots,
 		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
 		HALF_NECK.slot,
-		{ name: 'head', bone: 'head', setup: 'head' },
-		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
-		...FACE.slots,
-		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
+		...FACE_HEAD.front.slots,
 		...sides((s) => [
 			{ name: `shoulder_${s}`, bone: `clavicle_${s}`, setup: `shoulder_${s}` },
 			{ name: `upper_arm_${s}`, bone: `upper_arm_${s}`, setup: `upper_arm_${s}` },
@@ -1108,14 +1050,11 @@ const FLAT_HALF_BODY: RigTemplate = {
 		]),
 	],
 	parts: [
-		part('hair_back', 'hair_back', [300, 300]),
+		...FACE_HEAD.back.parts,
 		part('pelvis', 'pelvis', [300, 120]),
 		part('torso', 'torso', [360, 380], true),
 		HALF_NECK.part,
-		part('head', 'head', [260, 300], true),
-		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
-		...FACE.parts,
-		part('hair_front', 'hair_front', [300, 200]),
+		...FACE_HEAD.front.parts,
 		...sides((s) => [
 			part(`shoulder_${s}`, `shoulder_${s}`, [110, 70]),
 			part(`upper_arm_${s}`, `upper_arm_${s}`, [70, 190], true),
@@ -1955,19 +1894,6 @@ const leg3d = (s: 'l' | 'r'): Bone3dMotion[] => {
 	];
 };
 
-/**
- * Following positions (§5.8): the face's eyes (Face Landmarker's corners, the picture's left eye
- * first) and mouth corners, on the face block's bones.
- */
-function faceMarks(): FollowMark[] {
-	return [
-		{ point: { face: [33, 133] }, bone: 'eye_l' },
-		{ point: { face: [362, 263] }, bone: 'eye_r' },
-		{ point: { face: [61] }, bone: 'mouth_corner_l' },
-		{ point: { face: [291] }, bone: 'mouth_corner_r' },
-	];
-}
-
 /** An arm reaching the tracked wrist (the hand model's where it found the hand on it). */
 const armReach = (s: 'l' | 'r'): FollowLimb[] => {
 	const p = POSE_SIDE[s];
@@ -2205,7 +2131,6 @@ FULL_BODY.motion = {
  */
 const HALF_BODY_IMAGES = withImageBones(FLAT_HALF_BODY, [
 	'torso',
-	'head',
 	...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`]),
 ]);
 
@@ -2217,7 +2142,7 @@ export const HALF_BODY: RigTemplate = {
 	parts: [
 		...FLAT_HALF_BODY.parts,
 		...angleParts('torso', 'torso', [360, 380]),
-		...angleParts('head', 'head', [260, 300]),
+		...FACE_HEAD.angles,
 		...sides((s) => angleParts(`hand_${s}`, `hand_${s}`, [80, 85])),
 	],
 	channels: [
@@ -2276,7 +2201,7 @@ export const HALF_BODY: RigTemplate = {
 	clips: FLAT_HALF_BODY.clips,
 	rig3d: {
 		turnaround: 'side',
-		depths: { ...FACE_DEPTHS, ...poleDepths(false) },
+		depths: { ...FACE_HEAD.depths, ...poleDepths(false) },
 		// Made 3D, a hand's drawings get an image bone of their own: its bone carries the fingers.
 		views: {
 			torso: TORSO_VIEWS,
@@ -2285,7 +2210,7 @@ export const HALF_BODY: RigTemplate = {
 		},
 		// A hand and its fingers move in depth as one, in the order they are drawn.
 		layers: {
-			...HEAD_LAYER,
+			...FACE_HEAD.layers,
 			...Object.fromEntries(sides((s) => [[`hand_${s}`, [`hand_${s}`, ...segmentSlots(s)]]])),
 		},
 	},
@@ -2307,7 +2232,7 @@ HALF_BODY.motion = {
 			spine3d('spine', 60),
 			spine3d('chest', 30),
 			body3d('torso_image', [12, 11]),
-			...HEAD_3D,
+			...FACE_HEAD.bones3d,
 			...sides((s) => arm3d(s, true)),
 		],
 		fingers: sides(fingerSegments),
@@ -2319,14 +2244,14 @@ HALF_BODY.motion = {
 				anchors: sides((s) => [{ point: { pose: POSE_SIDE[s].shoulder }, bone: `upper_arm_${s}` }]),
 			},
 			limbs: sides(armReach),
-			neck: { bones: [...NECK_BONES], marks: faceMarks(), limit: NECK_BEND },
+			neck: { bones: [...NECK_BONES], marks: FACE_HEAD.marks, limit: NECK_BEND },
 		},
 		replaces: [
 			'lean',
 			'twist',
 			'turn',
 			'turn_width',
-			...FACE_REPLACED,
+			...FACE_HEAD.replaces,
 			// The neck's turn: the face's 3D pose turns the whole head, so a neck keyed under the import
 			// (a nod, or a frame clip's pose) would add to it and carry the head off the drawn neck.
 			'head_nod',
@@ -2349,7 +2274,7 @@ HALF_BODY.motion = {
 		cannot: [
 			TURN_3D_CANNOT,
 			NEAR_CANNOT,
-			HEAD_3D_CANNOT,
+			FACE_HEAD.cannot3d,
 			FACE.cannot[1],
 			...FINGERS_CANNOT,
 			'Breathing.',
