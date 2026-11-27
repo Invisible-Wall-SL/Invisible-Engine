@@ -1655,6 +1655,67 @@ mock.module('pixi-svelte', { namedExports: { getRigLoadScale: () => 1 } });
 			!withPieces.pinned.some((d) => d.id === 'mySlope' && d.version === 2),
 		JSON.stringify(withPieces.pinned.map((d) => `${d.id}@${d.version}`)),
 	);
+
+	// 13.5 Rule 8 for painted art: a piece the author copied and painted with an atlas region and
+	// a clip (a water piece; the river draws it, `salmonsArt/propDraw.ts`) ships its sheets and its
+	// clip, though no scene places it.
+	const { PROP_COMPONENTS } =
+		await import('../../../packages/engine-layout/src/lib/propComponents.ts');
+	const paintSheet = sheetIn(project, 'S_BridgePaint', 'plank');
+	const rippleSheet = sheetIn(project, 'S_BridgeRipple', 'bripple_0');
+	clipIn(project, 'bridge_ripple', rippleSheet, 'bripple_0');
+	const seedWater = PROP_COMPONENTS.find((d) => d.id === 'bridgePropWater')!;
+	put(projectComponentKey(project, 'myWater'), {
+		...structuredClone(seedWater),
+		id: 'myWater',
+		scope: 'project',
+		internal: undefined,
+		root: {
+			...seedWater.root,
+			children: [
+				{
+					id: 'paint',
+					label: 'Reflection',
+					kind: 'sprite',
+					x: 0,
+					y: 12,
+					assetKey: paintSheet,
+					region: 'plank',
+				},
+				{
+					id: 'ripple',
+					label: 'Pillar reflection',
+					kind: 'flipbook',
+					x: 0,
+					y: 0,
+					clipId: 'bridge_ripple',
+				},
+			],
+		},
+	});
+	put(projectComponentVersionKey(project, 'myBridge', 2), {
+		...pinnedSlope,
+		root: {
+			...pinnedSlope.root,
+			children: pinnedSlope.root.children.map((c) =>
+				c.label === 'Water' ? { ...c, componentId: 'myWater' } : c,
+			),
+		},
+	});
+	const paintedSeeds = await zoneArtPropSeeds(compiled.doc, (id, version) =>
+		loadComponentForGame(id, project, version),
+	);
+	const painted = await exportEditorArt(CLIENT, project);
+	const playedPaint = await collectPlayedClipIds(CLIENT, project);
+	ok(
+		'13. a painted piece ships: its region’s sheet and its clip’s, its clip played (rule 8)',
+		paintedSeeds.ids.includes('myWater') &&
+			painted.sheets.some((sheet) => sheet.key === paintSheet) &&
+			painted.sheets.some((sheet) => sheet.key === rippleSheet) &&
+			!painted.missing.includes('plank') &&
+			!!playedPaint?.has('bridge_ripple'),
+		JSON.stringify([paintedSeeds.ids, painted.sheets.map((sheet) => sheet.key), painted.missing]),
+	);
 }
 
 console.log(`check:zone-art — ${passed} passed, ${failed} failed`);

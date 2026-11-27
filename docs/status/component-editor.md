@@ -110,6 +110,16 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-27 — **Prop components: painted art in every band** (PR #1929; [arcade-prop-components](../design/arcade-prop-components.md)
+  §7 "As built (painted art)").
+  - The river now draws a prop piece's `sprite` and `flipbook` nodes in the water and behind bands,
+    not only its `PropGraphic` art. Each node keeps its transform, its tint and its state-machine
+    visibility.
+  - The piece def comes from the registry, so a project's copy of a piece is drawn.
+  - The prop view draws painted pieces too.
+  - A painted piece's sheets and clips ship (`check:zone-art` 13).
+  - Gates: `check:prop-depth` 29, `check:component-prop-editor` 55, `check:zone-art` 149 → 150,
+    `check:salmons-art` 50 (unchanged).
 - 2026-11-27 — **The prop card's ＋ Solid stops at 8** (PR #1929's review). A collider holds at
   most `PROP_MAX_SOLIDS` (8) solids, so a room can always send it. At 8, ＋ Solid is greyed out
   with an InfoTip, `addPropSolid` adds nothing, and a save of a prop past it is refused

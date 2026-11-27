@@ -13,6 +13,10 @@
 // - the deck cells, one per cell of every bridge, at the code's `amongZ` (`Z.deck` 1100), are the
 //   recorded ones, and the river draws none of them itself;
 // - the reflections' sway is the code shimmer's, cell by cell, frame by frame;
+// - painted art: a project's copy of a water piece and of a pillar, with an atlas region and a
+//   clip in place of the seed's drawing, is drawn by the river in the same layers, places and
+//   order: each sprite with its node's anchor, size, rotation, alpha and tint, the clip played,
+//   a hidden node left out, the seed's drawing of the copy's own `PropGraphic` nodes unchanged;
 // - a character on the deck (`z > 0`) sorts over the deck cell it stands on, and under an `over`
 //   piece anywhere on that cell; one under the deck (`z` 0) sorts under the cell when behind it.
 //
@@ -46,7 +50,7 @@ import { CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PIXI = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve('pixi.js');
-const { Container, Graphics, Texture, TextureSource } = await import(
+const { AnimatedSprite, Container, Graphics, Sprite, Texture, TextureSource } = await import(
 	pathToFileURL(PIXI.replace(/index\.js$/, 'index.mjs')).href
 );
 registerHooks({
@@ -65,6 +69,18 @@ const { mountSalmonsRiver } = await import(
 	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/river.ts')).href
 );
 const { clearSpawnProps, publishBridges } = await import('./salmons/art-fingerprint.mjs');
+const { setSpawnProps } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/arcadeProps.svelte.ts')).href
+);
+const { registerComponents } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/registerComponents.ts')).href
+);
+const { registerFlipbooks } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/registerFlipbooks.ts')).href
+);
+const { editorArtTextureKey } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/editorArtKey.ts')).href
+);
 globalThis.document ??= { createElement: () => ({ getContext: () => null }) };
 
 let passed = 0;
@@ -286,6 +302,157 @@ for (const [seed, river] of RIVERS) {
 		});
 	}
 }
+
+check(
+	'painted art: a copy’s sprites and clips draw in the water and behind, as the seed would',
+	() => {
+		const SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_Bridge.json';
+		const water = structuredClone(defOf('bridgePropWater'));
+		water.id = 'myWater';
+		water.root.children = [
+			{
+				id: 'paint',
+				label: 'Reflection',
+				kind: 'sprite',
+				x: 0,
+				y: 12,
+				assetKey: SHEET,
+				region: 'water_tile',
+				anchor: { x: 0.5, y: 0.5 },
+				width: 96,
+				height: 48,
+				rotation: 0.25,
+				alpha: 0.5,
+				tint: 0x88aaff,
+			},
+			{
+				id: 'below',
+				label: 'Pillar reflection',
+				kind: 'flipbook',
+				x: 0,
+				y: 0,
+				clipId: 'bridge_ripple',
+				anchor: { x: 0.5, y: 0 },
+			},
+		];
+		const pillar = structuredClone(defOf('bridgePropPillar'));
+		pillar.id = 'myPillar';
+		pillar.root.children = [
+			{
+				id: 'post',
+				label: 'Pillar',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				assetKey: SHEET,
+				region: `${SHEET}::post`,
+				anchor: { x: 0.5, y: 1 },
+				scale: { x: 2, y: 2 },
+			},
+		];
+		const bridge = structuredClone(BRIDGE_PROP_DEF);
+		bridge.id = 'myBridge';
+		for (const child of bridge.root.children) {
+			if (child.label === 'Water') child.componentId = 'myWater';
+			if (child.label === 'Pillars') child.componentId = 'myPillar';
+		}
+		registerComponents({ myWater: water, myPillar: pillar });
+		registerFlipbooks([
+			{ id: 'bridge_ripple', assetKey: SHEET, frames: ['ripple_0', 'ripple_1'], fps: 8 },
+		]);
+		const textures = {
+			[editorArtTextureKey(SHEET, 'water_tile')]: named('water_tile'),
+			[editorArtTextureKey(SHEET, 'post')]: named('post'),
+			[editorArtTextureKey(SHEET, 'ripple_0')]: named('ripple_0'),
+			[editorArtTextureKey(SHEET, 'ripple_1')]: named('ripple_1'),
+		};
+		const [, river] = RIVERS[0];
+		const projector = ISO_PROJECTOR_MIRRORED;
+		const elevation = riverElevation(river.waterfalls);
+		const zones = (river.bridges ?? []).map((b, i) => ({ id: `bridge${i}`, ...b }));
+		const pieces = zones.flatMap((zone, b) =>
+			placeSalmonsProp(bridge, zone, b, elevation.at(zone.y + CELL / 2)),
+		);
+		setSpawnProps(SALMONS_FIELD_LAYER, pieces);
+		const app = {
+			renderer: { generateTexture: () => named('made'), screen: { width: 1e7, height: 1e7 } },
+			ticker: { add: () => {}, remove: () => {} },
+		};
+		const art = { region: (name) => named(name), face: named('face'), cliff: named('cliff') };
+		const into = new Container();
+		const layer = new Container();
+		const unregister = registerProjectedLayer(SALMONS_FIELD_LAYER, layer);
+		const from = Texture.from;
+		Texture.from = (source) => (source?.getContext ? named('canvas') : from.call(Texture, source));
+		let mounted;
+		try {
+			mounted = mountSalmonsRiver(into, app, art, river, river.seed, projector, {
+				stamps: [],
+				assets: () => textures,
+			});
+		} finally {
+			Texture.from = from;
+			clearSpawnProps();
+			registerComponents({});
+		}
+		const [, , , , reflections, upright] = into.children;
+		const label = (v) => v.texture?.label;
+		const painted = reflections.children.filter(
+			(v) => v instanceof Sprite && label(v) === 'water_tile',
+		);
+		const ripples = reflections.children.filter((v) => v instanceof AnimatedSprite);
+		const posts = upright.children.filter((v) => v instanceof Sprite && label(v) === 'post');
+		const waterPieces = pieces.filter((p) => p.band === 'water');
+		const pillarPieces = pieces.filter((p) => p.band === 'behind' && p.componentId === 'myPillar');
+		const pillarCells = (n, i) => i === 0 || i === n - 1 || i % 3 === 0;
+		const expectedPosts = pillarPieces.filter((p) => pillarCells(p.params.count, p.cell)).length;
+		assert.equal(painted.length, waterPieces.length, 'a painted reflection per water cell');
+		assert.equal(
+			ripples.length,
+			expectedPosts,
+			'the clip on the pillar cells only (their machine)',
+		);
+		assert.equal(posts.length, expectedPosts, 'a painted pillar on the pillar cells only');
+		const first = waterPieces[0];
+		const at = projector.project(first.x, first.y);
+		const sprite = painted[0];
+		assert.deepEqual(
+			[
+				round(sprite.x),
+				round(sprite.y),
+				sprite.anchor.x,
+				sprite.anchor.y,
+				round(sprite.width),
+				round(sprite.height),
+				sprite.rotation,
+				sprite.alpha,
+				sprite.tint,
+			],
+			[round(at.x), round(at.y - first.lift + 12), 0.5, 0.5, 96, 48, 0.25, 0.5, 0x88aaff],
+			'the sprite at its node’s place and transform',
+		);
+		assert.deepEqual(
+			ripples[0].textures.map((t) => t.label),
+			['ripple_0', 'ripple_1'],
+			'the clip’s frames, played',
+		);
+		const post = posts[0];
+		const postPiece = pillarPieces.find((p) => pillarCells(p.params.count, p.cell));
+		assert.deepEqual(
+			[post.zIndex, post.anchor.y, post.scale.x, post.scale.y],
+			[postPiece.zIndex, 1, 2, 2],
+			'the pillar sprite at its band’s Z, with its scale',
+		);
+		assert.equal(
+			reflections.children.filter((v) => v instanceof Graphics && firstColor(v) === 0x4a3020)
+				.length,
+			0,
+			'the copy replaced the seed’s drawn reflection',
+		);
+		mounted.teardown();
+		unregister();
+	},
+);
 
 check("the reflections' sway is the code shimmer's, cell by cell, frame by frame", () => {
 	const sway = timelineOf(BRIDGE_PROP_TIMELINES.sway);

@@ -576,11 +576,22 @@ The Outline shows each node's band as a chip. The chip is dim when the band is i
 On a prop, `occupied`, `stepOn` and `stepOff` show in **Inputs** with an **engine** badge and no
 ✎ or ×. The game sets them from the room, so their id and kind are locked.
 
-### What the editor draws
+### What a piece can be drawn with
 
-A piece's art is **PropGraphic** nodes: polygons, rectangles and lines with a fill and a stroke.
-They are drawn on the node canvas and in the prop view as the game draws them. They are edited as
-data for now: there is no shape tool.
+The seed draws its pieces with **PropGraphic** nodes: polygons, rectangles and lines with a fill
+and a stroke. A PropGraphic node is edited as data; there is no shape tool. To paint the bridge
+with your own art, **⧉ Duplicate** a piece (**Bridge water**, **Bridge pillar**, a **Bridge deck**
+cell, **Bridge slope**). Replace its nodes with sprites from your atlases, or clips, and point your
+prop's repeater or slope at the copy.
+
+| Band | Node kinds the game draws |
+|---|---|
+| *On the water*, *Behind characters* | PropGraphic, **sprite** (an atlas region, or the image param its frame is bound to) and **flipbook** (the clip, played at its rate). Each has its anchor, size, scale, rotation, alpha and tint, and may sit in a container. The river draws these into its own layers, so other node kinds are not drawn there. |
+| *Sorted with characters*, *Over characters* | Any node a component can hold: each piece is a real component instance among the players. |
+
+Each band keeps its depth, and its state machine's visibility keys and looping keys still play. The
+node canvas and the prop view draw sprites and clips too; the prop view shows a clip's first frame.
+The art a piece names ships with the game: its sheets, its clips.
 
 ## Win Overlay — per-tier presentation
 

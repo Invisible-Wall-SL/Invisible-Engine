@@ -907,10 +907,15 @@ export function mountSalmonsRiver(
 	// the field's layer (`arcadeProps.svelte.ts`; the seed `bridgeProp`, placed by
 	// `propPlacement.ts`), drawn in the river's own layers. Their `sorted` pieces (the deck cells)
 	// stand among the players, drawn by `<SpawnProps>`.
+	// A piece's painted art (a sprite's region, a clip) is drawn as a zone's picture is.
+	const propPictures = (source: ZoneArtSource) => {
+		const frames = zoneFrames(source, zoneArt?.assets());
+		return frames ? pictureOf(frames) : undefined;
+	};
 	const swaying: DrawnPropNode[] = [];
 	for (const piece of spawnPropsOf(SALMONS_FIELD_LAYER)) {
 		if (piece.band !== 'water' && piece.band !== 'behind') continue;
-		for (const node of drawPropPiece(piece, project)) {
+		for (const node of drawPropPiece(piece, project, propPictures)) {
 			if (piece.band === 'water') {
 				reflections.addChild(node.view);
 				uprightCulled.push({ view: node.view, box: boxOf(node.view) });

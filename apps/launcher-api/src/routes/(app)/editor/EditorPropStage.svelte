@@ -29,6 +29,7 @@
 		type GroundBox,
 	} from '$lib/editor/propEdit';
 	import { liftPx, propStageItems } from '$lib/editor/propStage';
+	import { drawPicture } from './propPictures.client';
 	import { segmentTimelines, segmentTimelinesVersion } from './segmentTimelines.client.svelte';
 
 	interface Props {
@@ -59,6 +60,8 @@
 	let local = $state(0);
 	let drawingSolid = $state(false);
 	let selectedSolid = $state<number | null>(null);
+	/** Bumped when a sheet, a page or the clips a painted piece draws with have loaded. */
+	let picturesLoaded = $state(0);
 
 	const zone = $derived.by(() => {
 		void version;
@@ -132,6 +135,7 @@
 		void version;
 		void local;
 		void segmentTimelinesVersion();
+		void picturesLoaded;
 		if (!canvas) return;
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
@@ -152,6 +156,8 @@
 		);
 		for (const item of items) {
 			if ('kind' in item) drawStandIn(ctx, item.x, item.y - item.lift);
+			else if (item.picture)
+				drawPicture(ctx, item.picture, item.x, item.y, () => (picturesLoaded += 1));
 			else drawShapes2d(ctx, item.shapes, item.x, item.y);
 		}
 		ctx.restore();

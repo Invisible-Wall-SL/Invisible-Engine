@@ -406,5 +406,71 @@ const blank = (): ComponentDef => ({
 	);
 }
 
+// ---- 9. painted pieces in the prop view -----------------------------------------------------------
+{
+	const SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_Bridge.json';
+	const defs = new Map(BUILTIN_LIBRARY_COMPONENTS.map((d) => [d.id, structuredClone(d)]));
+	const water = structuredClone(defs.get('bridgePropWater')!);
+	water.id = 'myWater';
+	water.params = [
+		...(water.params ?? []),
+		{ key: 'tile', kind: 'image', default: `${SHEET}::wet` },
+	];
+	water.root.children = [
+		{
+			id: 'paint',
+			label: 'Reflection',
+			kind: 'sprite',
+			x: 3,
+			y: 12,
+			assetKey: SHEET,
+			region: 'plank',
+			anchor: { x: 0.5, y: 0.5 },
+			width: 96,
+			tint: 0x88aaff,
+			paramBindings: { region: 'tile' },
+		},
+		{
+			id: 'grp',
+			label: 'Group',
+			kind: 'container',
+			x: 10,
+			y: 0,
+			children: [{ id: 'clip', kind: 'flipbook', x: 1, y: 2, clipId: 'ripple' }],
+		},
+	];
+	defs.set('myWater', water);
+	const bridge = structuredClone(BRIDGE_PROP_DEF);
+	bridge.root.children = bridge.root.children.map((c) =>
+		c.label === 'Water' ? { ...c, componentId: 'myWater' } : c,
+	);
+	const items = propStageItems(
+		bridge,
+		(id) => defs.get(id),
+		() => [],
+	);
+	const pictures = items.filter((i) => !('kind' in i) && i.picture);
+	eq(
+		'a painted water piece draws its sprite (its bound image) and its clip, per cell',
+		[
+			pictures.filter((i) => !('kind' in i) && i.picture?.kind === 'sprite').length,
+			pictures.filter((i) => !('kind' in i) && i.picture?.kind === 'flipbook').length,
+		],
+		[6, 6],
+	);
+	const first = pictures[0] as Exclude<(typeof items)[number], { kind: 'standIn' }>;
+	eq(
+		'…the bound region, its anchor, size and tint',
+		[first.picture?.ref, first.picture?.anchor, first.picture?.width, first.picture?.tint],
+		[`${SHEET}::wet`, { x: 0.5, y: 0.5 }, 96, 0x88aaff],
+	);
+	const clip = pictures[1] as typeof first;
+	eq(
+		'…a clip inside a container at the container’s place plus its own',
+		[clip.x - first.x, clip.y - first.y],
+		[10 + 1 - 3, 2 - 12],
+	);
+}
+
 console.log(`\n${failed ? '❌' : '✅'} component prop editor: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

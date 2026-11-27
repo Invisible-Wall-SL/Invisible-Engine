@@ -606,6 +606,32 @@ the 2-cell near slope) has merged.
    - **Not folded.** `BUILTIN_COMPONENTS` stays an alias of `RUNTIME_BUILTIN_COMPONENTS`: the
      current-games harness reads `BUILTIN_COMPONENTS` from `builtinComponents.ts` by name, in older
      engine checkouts too.
+   **As built (painted art, 2026-11-27; owner: "fix those two before the rock").**
+   - **Painted art in the water and behind bands.**
+     - `salmonsArt/propDraw.ts` draws a piece's `sprite` and `flipbook` nodes, besides its
+       `PropGraphic` ones, and a container's children. The textures come from the river's own
+       zone-art picture path (`zoneFrames` over the game's loaded assets, `pictureOf`, which
+       plays a clip on the river's ticker).
+     - Each node keeps its anchor, size (`width` / `height`, `keepAspect`), scale, rotation,
+       alpha and tint, and a `region` bound to an image param. Pieces keep the river's
+       projection, lift, cell, the band's Z and culling, and their settled visibility. The
+       looping keys multiply a sprite's own size.
+     - The piece def and its timelines are now the REGISTERED ones, so a project's copy
+       shadows the seed; with none registered, the seed's.
+     - Rendering those bands as real `<ComponentInstance>`s was not done: those layers are
+       plain Pixi containers the river builds, sorts once and culls. Mounting Svelte trees in
+       them would mean a second mount path, and their culling and order are the river's.
+     - The `sorted` / `over` pieces were already instances.
+     - Rule 8: the art export's def walk already reached a piece copy (the bundle's closure is
+       seeded with the prop's pieces). `check:zone-art` 13 now proves a painted water piece's
+       region sheet and clip sheet ship and its clip is played. Its sheets stay loaded: an
+       unplaced def's art counts as named (`stockAssets.ts`).
+     - The editor's prop view draws sprites and clips (`propStage.ts` pictures,
+       `propPictures.client.ts`, the node canvas's region geometry). The node canvas already
+       drew them.
+     - Proof: `check:prop-depth` (a painted water copy and pillar copy: places, transforms,
+       the clip's frames, the pillar cells only, at the band's Z) and
+       `check:component-prop-editor` §9.
 8. **P8 — live.** Publish Salmons with a project bridge. The owner changes a ramp and the art in the
    component window. The room plays the new ramp, and the device draws it.
    *Proof:* the published link in headless Chromium and the owner's look, by the checklist in
