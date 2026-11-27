@@ -79,13 +79,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   below, "the start screen's tap"), and then a reel game's base game and board with the reels'
   filler views, unless the tap turns the anticipation mode on (2026-11-13 below, "the base game
   and its board"). Every device starts at full quality (pixel ratio up to 2, MSAA); the game lowers it
-  only when frames measurably fall behind while a round plays,
-
-  Spread across frames behind the loading screen. Every device starts at full quality (the
-  screen's pixel ratio up to 2, MSAA; next bullet); the game lowers it only when frames measurably
-  fall behind while a round plays,
-  never from device memory (`renderQuality.ts`, 2026-11-10 below). `?render=full` pins full,
-  `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
+  only when frames measurably fall behind while a round plays, never from device memory
+  (`renderQuality.ts`, 2026-11-10 below). **The ladder** (2026-11-27): 2, 1.75, 1.5, 1.5 without
+  MSAA, 1.25, 1, then 1 with the effects lowered (stage post FX left out, particle budget capped at
+  0.5), each step a trial kept only if the slow share halves or frames get 20% shorter. **The
+  second chance** after a step that did not help: four slow windows start a walk, one level at a
+  time (straight to the effects level only from resolution 1), kept at the first level that helps
+  and back to its start when none does; 15 good windows while it waits give it back unused. The
+  `?perf=1` HUD's quality line shows post FX, the particle cap and the second chance.
+  `?render=full` pins full, `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
   never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout per frame: verified with
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
@@ -253,6 +255,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `?perf=1` Copy (`perf: 3`, its `quality.trials`) after ~20 spins on the iPhone 13 Pro (14 fps
   spinning on 2026-11-09), which should step down and keep a step only if its slow share halves or
   its frames get 20% shorter; and the Nothing Phone (1) again, which should now revert to full.
+  Since 2026-11-27 also owed: a reading on BUG-20's Mali-G57 MC2 phone (28.5 fps spinning), whose
+  quality line should show the walk to `L6` with `post FX off`, and the Nothing Phone (1) again,
+  which should stop above `L6` with `post FX on` or end at `L0` with `no more steps down`.
 
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
   below; spike records 2026-11-10). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on
@@ -609,6 +614,30 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-27 — **Render quality: the second chance walks down instead of jumping to the effects
+  level** (follow-up to #1930, BUG-20, branch `bug-20-fix-f907656591`). #1930 gave
+  `pixi-svelte` `renderQuality.ts` steps to 1.25 and 1 and a last level with the stage post FX
+  left out and the particle budget capped at 0.5, plus a second chance after a step down that did
+  not help, which jumped straight to that last level and waited forever. Review: a phone just over
+  the line (the Nothing Phone (1), 13% slow, no gain at 1.75) would reach the effects level in
+  ~8 s, where nearly any device reads as helped, and stay there; a heavy bonus 20 minutes later
+  jumped there too. Now the second chance (four slow windows after the revert) steps one level
+  down, or straight to the effects level only from a level already at resolution 1, and walks on
+  one level at a time while a level does not help (each judged against those four windows),
+  keeping the first that does; at the last level that does not help it goes back to its start and
+  stepping down stops. A device slow at every resolution (BUG-20's Mali-G57) still reaches the
+  effects level. `QUALITY_RULES.retryGoodWindows` (15) good windows in a row give a waiting second
+  chance back as `unused`, so a later slow spell starts from a first step. Max 12 switches as
+  before (a full walk on a DPR-3 phone is 9). Also: `configureParticleBudget` run again keeps the
+  ladder's cap (`particleBudget.ts`), and the `?perf=1` HUD's quality line shows `post FX on|off`,
+  `particle cap <n>` and `second chance <state>`, so L5 and L6 read apart. Guard:
+  `renderQuality.fixture.ts` (just-over-the-line keeps its effects at 1.25; slow-at-every-resolution
+  walks to the effects level; expiry after 15 good windows; the DPR-1 jump; the 90%-late 45 ms feed
+  and `trials.length === 7` restored; the effects wiring of `installRenderQuality` on a stand-in
+  app, lowered and given back only on a change and on teardown), `particleBudget.fixture.ts`;
+  every rule mutated in turn fails it. **Not verified:** any real phone; a Profiler reading on the
+  BUG-20 phone is still owed. Lesson: `docs/knowledge/lessons/engine.md`.
 
 - 2026-11-26 — **The page shell is pinned, so iOS Safari cannot slide a game off the screen**
   (#1937 and its follow-up). On a BrowserStack iPhone 16 Pro Max / iOS 27 Salmons sat about 60 px
@@ -2494,7 +2523,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `check:svelte` at baseline (pixi-svelte 14, lines 145).
   - **Not verified:** any real phone; Safari's frame timestamps for `late`.
 
-- 2026-11-10 — **Render quality keeps a step only if it measurably helped** (branch
+- 2026-11-10 — **Render quality keeps a step only if it measurably helped** (ladder and the
+  no-gain stop superseded on 2026-11-27, Recent changes) (branch
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1581). Read on the released build:
   the Nothing Phone (1) stepped from 2 to 1.75 at 21.9 s (13% slow, 17.8 ms mean) and kept it,
   then spun at 54.3 fps (18.4 ms) with 1.3% of spin frames over 33 ms, the same as at full quality
@@ -2508,7 +2538,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   120 Hz, reel max 0.8 px). Guard: `renderQuality.fixture.ts` (54 checks; the Nothing Phone's case,
   15% → 9% slow with frames 5% shorter, reverts, and both verdicts are read back).
 
-- 2026-11-10 — **Render quality follows measured frame times, not device memory** (branch
+- 2026-11-10 — **Render quality follows measured frame times, not device memory** (its four-level
+  ladder, the stop after one step that did not help and the 6-switch cap are superseded: 2026-11-27,
+  Recent changes) (branch
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1578; it replaces that branch's
   Brave guard). Every device starts at full quality, the pixel ratio up to 2 with MSAA, as every
   device drew before #1410. `pixi-svelte` `renderQuality.ts` lowers it only on a device that cannot
