@@ -1805,7 +1805,8 @@ made before #1951 read past it).
   may trade) to the edited mapping's name, or the kept one's for a part unmapped (so the merge takes it
   off); a renamed prop's bone goes with it. A region mapped anew gets its slot where a new rig draws
   it (`frameRigUpdate` `newSlots`). After the merge, a template slot no region is drawn in that draws
-  nothing goes with its keys (`keepDrawOrders`). The report's `renamed` lists it all; the page renames
+  nothing goes with its keys (`keepDrawOrders`); one no mapping draws in goes before the renames, so
+  a region may take its name. The report's `renamed` lists it all; the page renames
   the rig's `controls.json` (`renameControls`) and `rig3d.json` (`rename3d`, which now renames a
   draw-order 🔒 lock too) before the rebuild drops what names a slot gone. The rig's own order stays
   (renames keep places), so the author's Layers order does.
@@ -1913,7 +1914,8 @@ swaps; the Controls and 3D layers name the rig's slots only, the mouth's shapes 
 each on the region-named slots) and `update` (an old rig: 17 slots renamed with their colour,
 attachment and draw-order keys, the chain prop and its bone past their Photoshop name, 46 empty template
 slots out, the author's Layers order and slot kept, a second update a no-op, an ear mapped anew given its
-slot); 12 mutants, about 25 s. The sheet gates read slots through the role map (`slotOf`, or the slot
+slot, and one named like an empty template slot taking its name on its own bone); 13 mutants,
+about 30 s. The sheet gates read slots through the role map (`slotOf`, or the slot
 drawing a part), and `capture-draw-order.mjs` `import` guards the body depth found by part (1 mutant).
 
 ### 13.4 Owed
