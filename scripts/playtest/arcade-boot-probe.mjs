@@ -1,17 +1,17 @@
 // Measures what SALMONS loads at boot, on a phone-class page (390 × 844, a phone's user agent
-// and touch, device scale factor 3, or `--dpr`), in the headless shell on the real clock against a
-// real game server on localhost: the profiler's own report (`?perf=1`, `window.__IE_PERF__`) after
-// the page has joined its room and played a while — transfer bytes by class, the boot and
-// first-frame times, the GPU textures and which stock files they are, and the quality ladder —
-// plus the `[stock-assets]` / `[sound]` console lines, the console's warnings, and a frame every
-// 250 ms from the navigation, so a person can see what is on screen while the river builds
-// (docs/design/salmons-performance.md T3). It prints numbers only, no verdict; run it on two
-// builds to compare them.
+// and touch, device scale factor 3, or `--size` / `--dpr`), in the headless shell on the real
+// clock against a real game server on localhost: the profiler's own report (`?perf=1`,
+// `window.__IE_PERF__`) after the page has joined its room and played a while — transfer bytes by
+// class, the boot and first-frame times, the GPU textures and which stock files they are, and the
+// quality ladder — plus the `[stock-assets]` / `[sound]` console lines, the console's warnings,
+// and a frame every 250 ms from the navigation, so a person can see what is on screen while the
+// river builds (docs/design/salmons-performance.md T3). It prints numbers only, no verdict; run it
+// on two builds to compare them.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/arcade-boot-probe.mjs --runtime apps/lines/build --out <dir> \
-//     [--runs 2] [--frames 40] [--play 15] [--dpr 3] [--size 390x844] [--throttle <n>] [--round <s>] \
-//     [--chrome <exe>]
+//     [--runs 2] [--frames 40] [--play 15] [--dpr 3] [--size 390x844] [--throttle <n>] \
+//     [--round <s>] [--chrome <exe>]
 //
 // `--dpr 1 --round 20 --play 120` plays several rounds: the quality ladder
 // measures each round and switches in the 5 s between them.
