@@ -1260,6 +1260,15 @@ export const mergeMainRuns = pgTable(
 		files: jsonb('files').$type<MergeRunFile[]>(),
 		explanation: jsonb('explanation').$type<MergeRunExplanation>(),
 		mergeSha: text('merge_sha'),
+		/**
+		 * The merge commit an Accept built, stored before it moves the branch: the one commit the
+		 * launcher will call its own, compared exactly (never by parents or a public token).
+		 */
+		acceptSha: text('accept_sha'),
+		/** When an Accept took the claim (`accepting`): a lease the backstop clears. */
+		acceptingAt: timestamp('accepting_at', { withTimezone: true }),
+		/** A random id minted with the claim: every update, settle and release of an Accept matches it. */
+		acceptClaim: text('accept_claim'),
 		spendUsd: doublePrecision('spend_usd'),
 		ghRunId: bigint('gh_run_id', { mode: 'number' }),
 		startedById: text('started_by_id').notNull(),
@@ -1277,11 +1286,11 @@ export const mergeMainRuns = pgTable(
 		uniqueIndex('merge_main_runs_gh_run_id_idx').on(table.ghRunId),
 		uniqueIndex('merge_main_runs_live_idx')
 			.on(table.prNumber)
-			.where(sql`${table.status} in ('dispatched', 'running', 'proposed')`),
+			.where(sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepting')`),
 		index('merge_main_runs_pr_idx').on(table.prNumber, table.createdAt),
 		check(
 			'merge_main_runs_status_check',
-			sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')`,
+			sql`${table.status} in ('dispatched', 'running', 'proposed', 'accepting', 'accepted', 'discarded', 'stale', 'needs_person', 'no_proposal', 'failed', 'cancelled')`,
 		),
 	],
 );
@@ -1429,11 +1438,20 @@ export const perfReports = pgTable(
 		counts: jsonb('counts').$type<PerfCounts>(),
 		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */
 		facts: jsonb('facts').$type<ReportFacts>(),
+		/** The probe's id for one measuring window (`<loadId>.<resets>`): a later send replaces an earlier. */
+		sendKey: text('send_key'),
+		/** Frames the reading holds, over every phase: of two sends of one window the fuller wins. */
+		sendFrames: integer('send_frames').notNull().default(0),
 		keep: boolean('keep').notNull().default(false),
+		/** Set when the reading was archived: out of every list and verdict unless "Show archived". */
+		archivedAt: timestamp('archived_at', { withTimezone: true }),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
 	(table) => [
 		index('perf_reports_project_idx').on(table.projectKey, table.capturedAt),
+		index('perf_reports_send_key_idx')
+			.on(table.projectKey, table.sendKey)
+			.where(sql`${table.sendKey} is not null`),
 		index('perf_reports_purge_idx').on(table.keep, table.capturedAt),
 		index('perf_reports_session_idx').on(table.session),
 		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste', 'lab')`),
@@ -1491,6 +1509,8 @@ export const perfBuilds = pgTable(
 		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
 		registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
 		keep: boolean('keep').notNull().default(false),
+		/** Set when the build record was archived: out of every list unless "Show archived". */
+		archivedAt: timestamp('archived_at', { withTimezone: true }),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
 	(table) => [
@@ -1573,6 +1593,11 @@ export const perfFindingBugs = pgTable(
 			.array()
 			.notNull()
 			.default(sql`'{}'::text[]`),
+		/**
+		 * The finding without its build (`Finding.subject`), so a bug follows the finding to the next
+		 * build; null on a link filed before it (filled in the first time its finding id is seen again).
+		 */
+		subject: text('subject'),
 		filedAt: timestamp('filed_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [

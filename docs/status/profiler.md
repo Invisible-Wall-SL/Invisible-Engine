@@ -448,6 +448,53 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-27 — **Archive and delete, no duplicates, filed bugs leave the list** (owner request;
+  `claude/profiler-archive-dedupe`; migration `0054_perf_archive.sql`, additive). Why the list was
+  full of old and repeated entries — read from the code, not from production data: (1) the probe's
+  reading is the whole window since the last Reset, and `PerfHud` sends it on every tap, every
+  time the page is hidden, every Reset, and again after a failed send, each under a fresh server
+  UUID with no identity, so one measurement became several superset readings; (2) a pasted copy of a
+  reading was never recognised; (3) Findings ids embed the build, so each new build re-listed every
+  finding as new and dropped its link to the bug filed on the last one, and `featureCost` was keyed
+  by a reading id, so two sends of one measurement were two findings.
+  - **Duplicates.** The report carries `sendKey` = `<performance.timeOrigin>.<resets>` (`PerfHud`,
+    no `perf` bump); the launcher stores `send_key` / `send_frames` and decides in `store.ts`
+    (`storedSend`, SQL in `rowFilters.ts`): a send no fuller than one stored for its window, project
+    and session answers that reading's id and writes nothing; a fuller one is stored and then
+    claims the strictly shorter sends of its window through the purge's claim (`replaceEarlierSends`;
+    never a kept or cited one). `profilerDedupe.ts` `withoutRepeats` is the read-side net, applied
+    in `listReports`: of one window all but the fullest, and of readings with no key (stored before)
+    exact copies only — every phase's frames, fps, p50, p95, hitches, device, build and switches
+    equal — never "looks like a superset", which cannot tell a longer window from a Reset. A kept
+    reading is never folded away.
+  - **Findings.** `Finding.subject` (every rule sets it: the id without its build) and
+    `mergeBySubject` in `index.ts`: one row per (subject, owner), evidence unioned.
+  - **Archive.** `perf_reports` / `perf_builds.archived_at`; `listReports` / `listBuilds` leave
+    archived rows out unless `?archived=1`; the page load computes every tab from the same lists, so
+    Devices, Budgets, Findings and Compare follow. The purge holds an archived row 90 days from
+    `archived_at` (`purgeJob.ts` `expired`; `retentionEnd` in `profiler.ts` is the pure twin) and
+    counts only live builds as "a newer build" for the newest-of-line rule. `POST
+    /api/profiler/manage` `{ project, type, action: archive | unarchive | delete | count, ids |
+    before | perfBefore }`, gated like opening a capture (the tool and `requireProjectScope`).
+  - **Delete** = the purge's path (`purge.ts` `removeClaimed`: claim, file, row). The claim's SQL
+    (`deletableReport` / `deletableBuild`) refuses a row an open or working bug cites and a kept row
+    unless a closed bug cites it; it runs in a transaction after `SELECT … FOR UPDATE` on the
+    rows, so a bug filed meanwhile is read (concurrency review). Refusals come back with reasons
+    (`refusalReasons`). The newest build of a line may be deleted by hand (the purge never takes it).
+  - **Filed bugs.** `perf_finding_bugs.subject` (filled in lazily for links filed before, the first
+    time their finding id is seen); `profilerFindings/filed.ts` `filedViews`: a bug open, working or
+    won't fix hides its finding (and the same subject on the next build); resolved + a reading or
+    build captured after `status_at` still showing it = `regressed`, shown and re-fileable on a new
+    build; resolved with nothing newer stays hidden. Filing is refused while an open bug has the
+    subject (`activeBugFor`). The Findings tab has **Show filed**.
+  - Gates: `check-profiler-archive.ts` (22–24, imported by `check:profiler`): window keys, the
+    fold and its mutants, the rendered SQL of every claim and list, retention parity, a Delete
+    ending where the purge does, subjects and the filed / regressed rules. The delete / archive SQL
+    was also run against a local Postgres by hand (open-bug-cited, kept, closed-bug-kept, plain).
+  - Not done / watch: a probe older than this change keeps sending without `sendKey` until the
+    games rebuild their runtime release; the owner's old readings clear with **Archive all before
+    perf 10**. Unarchiving a row older than 15 days hands it to the next purge (the page asks first).
+
 - 2026-11-27 — **One-off token scrub of the readings already kept** (the owner asked, after #1949).
   #1949 redacts route tokens on receipt from its deploy on; a `perf: 9` reading kept before it could
   hold a published game's read token in its R2 file and in its row's `network` / `facts`.

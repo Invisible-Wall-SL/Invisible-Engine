@@ -42,6 +42,7 @@ export const unusedBytes: Rule = (ctx) => {
 			if (k.bytes <= 0) continue;
 			out.push({
 				id: `unusedBytes:${k.id}:${b.id}`,
+				subject: `unusedBytes:${k.id}:${b.gameKey}:${b.kind}`,
 				rule: 'unusedBytes',
 				severity: k.bytes >= UNUSED_MEDIUM_BYTES ? 'medium' : 'low',
 				title: `${mbOf(k.bytes)} MB ${k.title} in v${b.build}`,

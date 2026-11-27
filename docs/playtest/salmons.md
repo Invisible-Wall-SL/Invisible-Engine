@@ -730,13 +730,15 @@ bear under the first deck: the water row behind it, which a fisherman cannot sta
 stands the fisherman on the near ramp, on the deck's middle and back on the bank. Each place is
 screenshot (`bridge-under.png`, `bridge-ramp.png`, `bridge-deck.png`, `bridge-bank.png`), and the
 probe's `online.bridges` (each zone's `occupied`, and the `stepOn` / `stepOff` fired, scoped to the
-zone) is written to `bridge-triggers.json`. 7 verdicts:
+zone) is written to `bridge-triggers.json`. 8 verdicts:
 
 - the pieces are published;
 - the bear under the deck is on the ground and nothing is occupied or fired;
 - on the ramp he is aloft, `bridge0` is occupied and its `stepOn` has fired once;
 - on the deck nothing more fires;
 - back on the bank `stepOff` fires;
+- page BB, another device (sent his place packed, T7), reads him the same: occupied on the ramp
+  and the deck, then `stepOn` and `stepOff`;
 - the deck's planks are on screen round him on it;
 - no page error.
 

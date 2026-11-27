@@ -1652,6 +1652,15 @@ play: try {
 				z: room?.sim.players.get(id)?.z ?? 0,
 				occupied: bridges?.occupied?.bridge0,
 				fired: (bridges?.fired ?? []).map((f) => `${f.zone}:${f.signal}`),
+				// Page BB's own reading of him: another player's place, sent it packed (T7).
+				seen: await (async () => {
+					await settle(bb, 300);
+					const other = (await bb.state()).arcade?.online?.bridges;
+					return {
+						occupied: other?.occupied?.bridge0,
+						fired: (other?.fired ?? []).map((f) => `${f.zone}:${f.signal}`),
+					};
+				})(),
 			});
 		}
 		writeFileSync(join(out, 'bridge-triggers.json'), JSON.stringify(log, null, 1));
@@ -1680,6 +1689,14 @@ play: try {
 			'…back on the bank, bridge0 is free and its stepOff fired',
 			bank.stood && bank.occupied === 0 && bank.fired.join() === 'bridge0:stepOn,bridge0:stepOff',
 			bank,
+		);
+		verdict(
+			'…page BB, another device, reads him the same from his packed place: occupied on the ramp and the deck, stepOn then stepOff',
+			ramp.seen.occupied === 1 &&
+				onDeck.seen.occupied === 1 &&
+				bank.seen.occupied === 0 &&
+				bank.seen.fired.join() === 'bridge0:stepOn,bridge0:stepOff',
+			{ ramp: ramp.seen, deck: onDeck.seen, bank: bank.seen },
 		);
 		// The deck's planks (the seed's wood, red over green over blue, darker than his tan look)
 		// round where he is drawn on it (`online.drawn`'s ground and aloft), the screenshot's own.

@@ -51,6 +51,7 @@ export const textures: Rule = (ctx) => {
 			const top = list.slice(0, 5);
 			out.push({
 				id: `textures:gpu:${key}:${listed?.buildVersion ?? newest[0].buildVersion ?? ''}`,
+				subject: `textures:gpu:${key}`,
 				rule: 'textures',
 				severity: verdict === 'fail' ? 'high' : 'medium',
 				title: `${round1(mb)} MB of textures on ${deviceOf(group[0])}`,
@@ -80,6 +81,7 @@ export const textures: Rule = (ctx) => {
 			const f = factsOf(ctx, fellBack)!;
 			out.push({
 				id: `textures:ktx2:${key}:${fellBack.buildVersion ?? ''}`,
+				subject: `textures:ktx2:${key}`,
 				rule: 'textures',
 				severity: 'medium',
 				title: `${f.ktx2Fallbacks.length} KTX2 asset${f.ktx2Fallbacks.length === 1 ? '' : 's'} fell back to WebP/PNG on ${deviceOf(fellBack)}`,
@@ -98,6 +100,7 @@ export const textures: Rule = (ctx) => {
 		if (!facts?.oversized.length) continue;
 		out.push({
 			id: `textures:oversize:${b.id}`,
+			subject: `textures:oversize:${b.gameKey}:${b.kind}`,
 			rule: 'textures',
 			severity: 'medium',
 			title: `${facts.oversized.length} page${facts.oversized.length === 1 ? '' : 's'} over 4096 px in v${b.build}`,

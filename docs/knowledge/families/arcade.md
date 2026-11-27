@@ -49,20 +49,20 @@ A seed and the same keys replay the same game.
   the device import the same file (`packages/engine-mechanics/src/online.js`).
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (pointer too:
   `check:arcade-pointer`; a class's touch scheme, `arcade.online.touch`, played by `touchControl.js` and read off the raw config with `game-config` `touchScheme.ts`, carried not normalized: `check:arcade-touch`, `docs/design/arcade-touch-controls.md`) and what its screen shows (`shown.js`: it only adds to the `nearby` box,
-  never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`).
+  never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`). Others' places uint16 to a `positions: 'u16'` join, own float32, fields only appended (`check:room-wire`).
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents, pulls and
   solids (`true` or one-way, per character) live in `onlineLevel` / `stepPlayer`, run by the device
   too. A rules module runs on the server only: what it moves (climb, reel), holds or lets through
   (`level`) is a correction; a move it carries (`steer`) is synced, schema-defaulted, and folded by
   both predictors. Its choices hash the seed; a change re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
-  (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
-  `server` variables (`variable-server-owned`), written as each state lands with others' places;
-  the own reconcile and `acked` take the newest once a frame (`check:netcode` stall rows). Own
-  `ability` is raised on the press (`createAbilityPredictor`); the room's echo is dropped per
-  button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
-  ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
-  `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
+  (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as `server`
+  variables (`variable-server-owned`), written per state; the own reconcile takes the newest once a
+  frame (`check:netcode`). Own `ability` is raised on the press (`createAbilityPredictor`); the
+  room's echo is dropped per button, an unexpected echo raised (`predicted: false`), a refused press
+  expires a state after its ack; a round start or own join clears cooldowns of taken inputs, not of
+  an echo still due. The `mark`ed players and `hook` lines are drawn from the state
+  (`arcadeMarks.svelte.ts`).
 - **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call

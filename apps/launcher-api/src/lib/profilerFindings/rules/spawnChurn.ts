@@ -47,6 +47,7 @@ export const spawnChurn: Rule = (ctx) => {
 		if (bursts) detail.push(`${bursts} play spikes were spawn bursts.`);
 		out.push({
 			id: `spawnChurn:${key}:${group[0].r.buildVersion ?? ''}`,
+			subject: `spawnChurn:${key}`,
 			rule: 'spawnChurn',
 			severity: bursts >= SPIKE_MIN.count ? 'medium' : 'low',
 			title: `${round1(churn)} spawns a play frame (up to ${peak}) on ${deviceOf(group[0].r)}`,

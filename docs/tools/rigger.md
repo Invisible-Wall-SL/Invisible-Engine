@@ -1703,7 +1703,15 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    control swaps between (a hand's poses, the mouth's shapes, a lid drawn half and closed) share one
    slot, named after its main drawing; the template's slots no region is drawn in (an ear, a cheek,
    the shoulders) are not made. Every control, lip-sync, 🎥 Motion and the 3D data find each part by
-   the template's name through the rig's own. The rig draws the
+   the template's name through the rig's own. **Only the bones the mapping needs**: each region's
+   bone and the bones above it, the bones a drawing bends on, what a limb's IK moves it by (its
+   hand control, its spaces, its elbow pole) and the face's control bones for the features you drew
+   (the jaw under a lower lip, a lid's follow bone, the mouth's corners a lip bends on); every prop
+   and custom part on a bone of its own. The template's other bones are left out — a hand drawn as
+   one picture has no fingers, Full body with no legs drawn no legs, brows nobody drew no brows — and
+   so are their controls, keys and 3D setup. The side panel's **Bones** section (hover its header)
+   counts what is made and lists what is left out; tick a bone there to keep it anyway, for a
+   region you will map later (kept with the mapping). The rig draws the
    sheet's own regions (nothing is copied or renamed) and opens when made; the report gives the
    scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
    does not map. When a rig cannot be made, the popup says why.
@@ -1734,8 +1742,8 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
 **🔄 Update rig** (in 🦴 Create rig's place):
 
 - **What it rebuilds.** The parts are built as Create rig builds them and swapped into the open rig.
-- **What stays.** Its bones (yours too, where you put them), every clip and key, constraints and IK,
-  the Controls and the 3D data, and your own slots.
+- **What stays.** Its bones (yours too, where you put them) but those the mapping leaves out (below),
+  every clip and key on them, constraints and IK, the Controls and the 3D data, and your own slots.
 - **The arrangement.** The clip **frame** takes the new arrangement, unless you keyed that clip
   yourself: then yours stays and the report says so.
 - **The layers.** The Layers list opens as the rig draws its slots now, a reorder in Setup's
@@ -1752,6 +1760,13 @@ take off props (↺ Start over puts the first guess in its place, ↶ the rig's 
   its 3D depth and its controls; the template's empty slots go, with the keys on them; your Layers
   order and your own slots stay. The report lists each rename. A part you map anew gets a slot of
   its own; one you re-map to another region takes that region's name, keys and all.
+- **Only the bones the mapping needs.** A rig made with every bone of the template loses those
+  nothing is drawn on (the fingers of a hand drawn whole, cheeks, brows, hair with no region), with
+  the keys on them, and you are shown how many keys before anything changes; every drawing poses
+  exactly as before and every key on a bone that stays is kept. A template bone one of your own
+  bones, slots or constraints hangs from stays, and the mapping keeps it from then on (ticked in
+  **Bones**). A region you map anew on a bone the rig lacks (brows drawn later) brings that bone,
+  where a new rig has it.
 - **The neck.** A rig made before the neck had two bones gets `neck_upper` (between `neck` and the
   head, on its own line), its drawing skinned along both and into the torso and the head at its
   seams. Every clip poses as it did; Head nod shares a nod along the neck from then on, and a capture

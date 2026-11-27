@@ -1085,7 +1085,7 @@ try {
 			/const roomFields = \{[\s\S]*?\n\tlevels: t\.string\(\),[\s\S]*?\n\tlevelHash: t\.string\(\),[\s\S]*?\n\tprops: t\.string\(\),\n\};/,
 		);
 		assert.match(schema, /export const RoomState = schema\(\{ \.\.\.roomFields,/);
-		assert.match(schema, /export const NearbyRoomState = schema\(\{ \.\.\.roomFields,/);
+		assert.match(schema, /export const NearbyRoomState = schema\(\{\s*\.\.\.roomFields,/);
 
 		const online = read('apps/lines/src/game/online.ts');
 		// The device resolves its game as `deviceGame` above does.

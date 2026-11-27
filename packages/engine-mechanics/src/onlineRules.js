@@ -43,7 +43,14 @@
  * step, players act in the order they joined.
  */
 
-import { BUTTONS, MOVE_SCALE, clipToField, levelCell } from './online.js';
+import {
+	BUTTONS,
+	INTERPOLATION_DELAY_MS,
+	MOVE_SCALE,
+	clipToField,
+	interpolationDelayFor,
+	levelCell,
+} from './online.js';
 import {
 	GRACE_MS,
 	STATUS,
@@ -62,6 +69,13 @@ export { GRACE_MS, STATUS };
 /** How far back an ability is tested against what its user saw, at most, ms (§6: lag
  *  compensation). Whole steps, rounded down. */
 export const REWIND_MS = 250;
+
+/** The rewind of a room sending `patchHz` states a second: {@link REWIND_MS}, and as much again as
+ *  its devices draw everyone else further behind than at 20 a second (`online.js`
+ *  `interpolationDelayFor`), so a slower rate compensates the same round trip (Salmons, 15 a
+ *  second: 283 ms). */
+export const rewindMsFor = (patchHz) =>
+	REWIND_MS + interpolationDelayFor(patchHz) - INTERPOLATION_DELAY_MS;
 
 /** The message type every room event travels as (`services/game-server` broadcasts each step's
  *  events as one array of it; `apps/lines` `game/online.ts` reads it). */
@@ -148,7 +162,7 @@ export const ONLINE_RULES_MODULES = Object.freeze({ tag, ...SALMONS_RULES });
 export function createOnlineRules(game, { spawn, seed = 0 }) {
 	const { online } = game;
 	const { rules, tickHz } = online;
-	const rewind = Math.max(1, Math.floor((REWIND_MS * tickHz) / 1000));
+	const rewind = Math.max(1, Math.floor((rewindMsFor(online.patchHz) * tickHz) / 1000));
 	const grace = stepsOf(GRACE_MS, tickHz);
 	const goals = createStaticIndex(
 		rules.zones

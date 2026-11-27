@@ -10,6 +10,7 @@ import { listBuilds } from '$lib/server/profiler/builds';
 import { filedFindings } from '$lib/server/profiler/findingBugs';
 import { OWNERS, projectFindings } from '$lib/server/profiler/findings';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
+import { archivedCounts } from '$lib/server/profiler/manage';
 import { listReports } from '$lib/server/profiler/store';
 import { storedProjectGameType } from '$lib/server/projects';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -35,12 +36,15 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [readings, builds, games, overrides, gameKind] = await Promise.all([
-		listReports(projectKey),
-		listBuilds(projectKey),
+	// Archived rows are out of every list, verdict, finding and comparison unless asked for.
+	const showArchived = url.searchParams.get('archived') === '1';
+	const [readings, builds, games, overrides, gameKind, archived] = await Promise.all([
+		listReports(projectKey, { archived: showArchived }),
+		listBuilds(projectKey, { archived: showArchived }),
 		listGamesOwnedByProject(projectKey),
 		listBudgetOverrides(projectKey),
 		storedProjectGameType(projectKey),
+		archivedCounts(projectKey).catch(() => ({ readings: 0, builds: 0 })),
 	]);
 	const budgets = effectiveBudgets(overrides);
 	// The other tabs never wait on a failure here: the Findings tab says it could not be read.
@@ -50,7 +54,7 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 	});
 	// P5: which list each finding is filed in, and the bug it already has.
 	const filed = findings
-		? await filedFindings(projectKey).catch((e) => {
+		? await filedFindings(projectKey, findings, readings, builds).catch((e) => {
 				console.error('[profiler] filed findings failed', e);
 				return null;
 			})
@@ -69,6 +73,8 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		gameKind,
 		findings,
 		filed,
+		showArchived,
+		archived,
 		fileAs,
 		tab:
 			(['devices', 'builds', 'findings', 'compare', 'budgets'] as const).find((t) => t === tab) ??

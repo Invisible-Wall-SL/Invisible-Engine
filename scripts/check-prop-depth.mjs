@@ -777,6 +777,72 @@ check(
 	},
 );
 
+// Another player's place packed in 16 bits (main's T7: `px` / `py` × the room's `posScale`, no
+// `x` / `y`), read as the runtime reads it (`online.ts` `applyState`: `placeOnWire`, main's own
+// decoder): a fisherman who is not the device's own still occupies the deck, fires `stepOn` /
+// `stepOff`, and is drawn lifted and over the deck cell he stands on.
+const { packPosition, placeOnWire, positionScale } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-mechanics/src/online.js')).href
+);
+const { aloftLift } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/bridge.ts')).href
+);
+const { bridgeOccupancy } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-mechanics/src/salmonsRules.js')).href
+);
+check(
+	"another player's packed place: he occupies the deck, fires its steps, and is drawn over it",
+	() => {
+		const [, river] = RIVERS[0];
+		const g = geometryOf(river);
+		const game = { zones: g.zones, online: { rules: { zones: g.zoneRules } } };
+		const posScale = positionScale(river.world);
+		const zone = g.zones.find((z) => z.id === 'bridge0');
+		const row = zone.y + CELL / 2;
+		/** A packed fisherman as a packed device is sent him: no `x` / `y`. */
+		const packed = (x, y, z) => ({
+			px: packPosition(x, posScale),
+			py: packPosition(y, posScale),
+			z,
+			character: 'fisherman',
+		});
+		const read = (p) => ({ ...placeOnWire(p, posScale), z: p.z, character: p.character });
+		const onDeck = packed(zone.x + zone.w / 2 + 0.3, row, 6 * CELL);
+		assert.equal(onDeck.x, undefined, 'the wire sends no x');
+		const at = read(onDeck);
+		assert.ok(
+			Math.abs(at.x - (zone.x + zone.w / 2 + 0.3)) <= 1 / posScale,
+			'decoded within a step',
+		);
+		const shown = showSalmonsBridges(
+			BRIDGE_PROP_DEF,
+			game,
+			'packed',
+			() => 0,
+			() => [],
+		);
+		shown.inputs([read(packed(zone.x - 4 * CELL, row, 0))], 1);
+		shown.inputs([at], 2);
+		shown.inputs([read(packed(zone.x - 4 * CELL, row, 0))], 3);
+		const probe = shown.probe();
+		shown.drop();
+		assert.deepEqual(
+			probe.fired.filter((f) => f.zone === 'bridge0').map((f) => `${f.signal}@${f.step}`),
+			['stepOn@2', 'stepOff@3'],
+		);
+		assert.equal(bridgeOccupancy(game, [at]).get('bridge0'), 1, 'occupied by him');
+		const lift = aloftLift('fisherman', at.z);
+		assert.ok(lift > 0, 'drawn lifted');
+		const deck = placeSalmonsProp(BRIDGE_PROP_DEF, zone, 0, 0).find(
+			(p) => p.band === 'sorted' && p.cell === Math.floor((at.x - zone.x) / CELL),
+		);
+		assert.ok(
+			isoDepthOrder(at.x, at.y, 9, aloftDepth(lift)) > isoDepthOrder(deck.x, deck.y, 0, deck.bias),
+			'and over the deck cell he stands on',
+		);
+	},
+);
+
 console.log(
 	process.exitCode ? 'check:prop-depth FAILED' : `check:prop-depth: all ${passed} checks pass`,
 );

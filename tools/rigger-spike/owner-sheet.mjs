@@ -24,7 +24,7 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 
 /** The modules a mutant may be planted in. */
 const SHIPPED =
-	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigRegionSlots|rigRename|rigTemplateFit|rigTemplates|rigTemplateBody|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
+	/[\\/](rigMotion|rigMotion3d|rigFrameFit|rigFrameFace|rigSheetFit|rigSheetBones|rigSheetMap|rigSheetUpdate|rigFrameUpdate|rigHeadTurn|rigRegionSlots|rigRename|rigTemplateFit|rigTemplates|rigTemplateBody|rigTemplateModules|rigTemplateStore|riggerNewRig|rig2p5d|rig3d|rig3dImport)\.ts$/;
 let bundles = 0;
 /**
  * The shipped modules, with `mutate` ([file, from, to]) swapped into their source (LF) first; `page`
@@ -36,7 +36,9 @@ export async function load(mutate = []) {
 		stdin: {
 			contents: [
 				"export * from './server/rigSheetFit.ts';",
+				"export * from './server/rigSheetBones.ts';",
 				"export * from './server/rigSheetUpdate.ts';",
+				"export { irigDocProblem } from './server/riggerIrig.ts';",
 				"export { changeModules, frameSourceOf, madeAttachments, madeParts, planModules, updateFrameRig } from './server/rigFrameUpdate.ts';",
 				"export { framePartsRequest, propPivots } from './server/rigFrameFit.ts';",
 				"export * from './rigSheetMap.ts';",

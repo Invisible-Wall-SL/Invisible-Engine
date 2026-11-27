@@ -7,7 +7,8 @@
 	 * their saved versions (`DeletedDocsModal`). `play` / `pause`: a preview's clock. `reverse`: turn
 	 * about. `reroll`: a new random pick (a generated level's seed). `replay`: play a preview again
 	 * from its start. `up` / `down`: move an entry of a list one place. `plus`: add (a block a
-	 * section is empty without: Make a prop).
+	 * section is empty without: Make a prop). `archive` / `unarchive`: put a row away out of the
+	 * lists / bring it back.
 	 */
 	interface Props {
 		icon:
@@ -23,7 +24,9 @@
 			| 'replay'
 			| 'up'
 			| 'down'
-			| 'plus';
+			| 'plus'
+			| 'archive'
+			| 'unarchive';
 		label: string;
 		onclick: () => void;
 		/** For a chevron: points down when expanded, right when folded. */
@@ -72,6 +75,14 @@
 	{:else if icon === 'replay'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"
 			><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5V5h2.5M7 6l3 2-3 2z" /></svg
+		>
+	{:else if icon === 'archive'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"
+			><path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" /></svg
+		>
+	{:else if icon === 'unarchive'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"
+			><path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M8 11V8M6.3 9.5L8 7.8l1.7 1.7" /></svg
 		>
 	{:else if icon === 'up'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10l4-4 4 4" /></svg>
