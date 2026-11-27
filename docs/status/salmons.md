@@ -2678,7 +2678,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     line went from 25 skipped keys to 36. The loading screen and the river look the same in the
     frame series. Slow run (`--dpr 1 --round 20 --play 120`, ~10 fps here): main's ladder history
     stays empty; the branch steps down between rounds (2 → level 1 at 44.9 s), and its trial
-    reverts on "no gain" (this machine is not pixel-bound).
+    reverts on "no gain" (this machine is not pixel-bound). Merged with main (#1960's second
+    chance): 0 → 1 at 44.7 s, 1 → 2 at 94.2 s, 2 → 1 on "no gain" at 119.2 s, no BindGroup warning.
   - **A bug it exposed, fixed** (`pixi-svelte` `AssetsLoader.svelte`): the card sample's only
     stock assets are now preloads, so nothing was left to load after them, no `await` came before
     the GPU warm-up, and the state its warm-ups read (the flow's shown screens) re-ran the load
@@ -2701,8 +2702,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     mutants), every `check:all --only stock,arcade,card,renderQuality,perf` gate, svelte-check at
     baseline (`apps/lines` 145, `pixi-svelte` 14).
   - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five intended: the boot code is
-    shared): lines +267 B gzip, match-3 +288 B, card +269 B, arcade +319 B, arcade3d +303 B — the
-    main bundle each; every other chunk only renamed, within 2 B. Not 0 B for the 2D slot,
+    shared; on main after #1972, with the MSAA fix): lines +412 B gzip, match-3 +401 B, card +388 B,
+    arcade +545 B, arcade3d +487 B — the main bundle each; every other chunk only renamed. Not 0 B for the 2D slot,
     match-3 and card runtimes: the ladder reads its gate once, when the renderer is made, so the
     gate is in `Game.svelte`, and the walk's branch is in the shared boot.
   - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
