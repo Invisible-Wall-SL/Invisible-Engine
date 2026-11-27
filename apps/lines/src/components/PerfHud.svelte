@@ -444,6 +444,9 @@
 				? `L${up.level} never again (${up.failures} failed)`
 				: `L${up.level} again after ${up.good}/${up.goodWindows} good windows ` +
 					`(${up.failures} failed)`;
+		const left = q.budget;
+		const refill = left?.refillIn === undefined ? '' : ` (+1 in ${left.refillIn} windows)`;
+		const budget = left ? `budget ${left.left}/${left.burst}${refill}` : undefined;
 		return [
 			q.mode,
 			...(q.levels > 1 ? [`L${q.level.index} of L0–L${q.levels - 1}`] : []),
@@ -453,6 +456,7 @@
 			`particle cap ${q.level.particleCap ?? 1}`,
 			...(q.secondChance ? [`second chance ${q.secondChance}`] : []),
 			...(q.effectsNext ? ['effects next'] : []),
+			...(budget ? [budget] : []),
 			...(q.mode === 'adaptive' ? [switches] : []),
 			...(verdict ? [verdict] : []),
 			...(q.downStopped ? ['no more steps down'] : []),
