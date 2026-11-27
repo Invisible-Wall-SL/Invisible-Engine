@@ -13,12 +13,16 @@
  *   - the prune: an unset style stays unset, defaults drop, a tip without its kind's asset is no
  *     tip, a tip keeps only its kind's asset field, numbers clamp, the trail dedupes and caps, the
  *     result is a fixed point, and the other `line` fields pass through untouched;
- *   - `winLineEffectIds` names the effect tip, the burst (only when bursting) and the trail.
+ *   - `winLineEffectIds` names the effect tip, the burst (only when bursting) and the trail;
+ *   - `paintWinLine` makes exactly the calls `WinLine.svelte`'s own `paint` made before the strokes
+ *     moved here (the legacy painter below is that code, verbatim but for its types), over random
+ *     lines, shapes, styles, progress and passes; and `winLineDrawMs` is its old duration formula.
  */
 
 import {
 	normalizeWinLineColor,
 	normalizeWinLineTip,
+	paintWinLine,
 	pathHeadPose,
 	pathLength,
 	pathSlice,
@@ -26,8 +30,17 @@ import {
 	taperPieces,
 	taperRuns,
 	WIN_LINE_TRAIL_FX_MAX,
+	WIN_LINE_CORE_RATIO,
+	winLineDrawMs,
 	winLineEffectIds,
+	winLineGlowAdditive,
+	type WinLineGraphics,
+	type WinLineHeadPose,
+	type WinLinePaintPart,
+	type WinLinePaintStyle,
 	type WinLinePoint,
+	type WinLineShape,
+	type WinLineTaperRun,
 } from './src/lib/winLineStyle.ts';
 
 let failures = 0;
@@ -336,6 +349,216 @@ const randomLine = (): WinLinePoint[] => {
 		[],
 	);
 	check('no win line, no effects', winLineEffectIds(undefined), []);
+}
+
+// 6. THE STROKES ARE THE GAME'S OLD STROKES
+{
+	type Op = [string, ...unknown[]];
+	const recorder = (): { g: WinLineGraphics; ops: Op[] } => {
+		const ops: Op[] = [];
+		return {
+			ops,
+			g: {
+				moveTo: (x, y) => ops.push(['moveTo', x, y]),
+				lineTo: (x, y) => ops.push(['lineTo', x, y]),
+				arc: (x, y, r, a, b) => ops.push(['arc', x, y, r, a, b]),
+				closePath: () => ops.push(['closePath']),
+				stroke: (style) => ops.push(['stroke', style]),
+				fill: (style) => ops.push(['fill', style]),
+			},
+		};
+	};
+	const SYMBOL_SIZE = 120;
+
+	/** `WinLine.svelte`'s `paint` (and its helpers) before #1946's strokes moved to `engine-layout`. */
+	function legacyPaint(
+		graphics: WinLineGraphics,
+		line: WinLinePaintStyle,
+		entry: {
+			points: WinLinePoint[];
+			fullPoints: WinLinePoint[];
+			progress: number;
+			shape: WinLineShape;
+			color?: string;
+		},
+		cellHalf: number,
+		part: WinLinePaintPart,
+	): void {
+		const tapered = line.taper.alpha < 1 || line.taper.width < 1;
+		const poseOf = (pts: WinLinePoint[], p: number): WinLineHeadPose =>
+			pathHeadPose(pts, p) ?? { ...pts[0], angle: 0 };
+		const tracePoints = (g: WinLineGraphics, pts: WinLinePoint[]) => {
+			g.moveTo(pts[0].x, pts[0].y);
+			for (let i = 1; i < pts.length; i += 1) g.lineTo(pts[i].x, pts[i].y);
+		};
+		const tracePath = (g: WinLineGraphics, pts: WinLinePoint[], p: number) =>
+			tracePoints(g, pathSlice(pts, 0, p));
+		const capArc = (
+			g: WinLineGraphics,
+			pose: WinLineHeadPose,
+			radius: number,
+			facing: 'tail' | 'head',
+		) => {
+			const start = pose.angle + (facing === 'head' ? -Math.PI / 2 : Math.PI / 2);
+			g.moveTo(pose.x + Math.cos(start) * radius, pose.y + Math.sin(start) * radius);
+			g.arc(pose.x, pose.y, radius, start, start + Math.PI);
+			g.closePath();
+		};
+		const strokeRuns = (
+			g: WinLineGraphics,
+			runs: WinLineTaperRun[],
+			ends: { tail: WinLineHeadPose; head: WinLineHeadPose },
+			style: { color: string; width: number; alpha: number },
+		) => {
+			if (!runs.length) return;
+			for (const run of runs) {
+				tracePoints(g, run.points);
+				g.stroke({
+					color: style.color,
+					width: style.width * run.width,
+					alpha: style.alpha * run.alpha,
+					cap: 'butt',
+					join: 'round',
+				});
+			}
+			const first = runs[0];
+			const last = runs[runs.length - 1];
+			capArc(g, ends.tail, (style.width * first.width) / 2, 'tail');
+			g.fill({ color: style.color, alpha: style.alpha * first.alpha });
+			capArc(g, ends.head, (style.width * last.width) / 2, 'head');
+			g.fill({ color: style.color, alpha: style.alpha * last.alpha });
+		};
+		const traceColumns = (g: WinLineGraphics, pts: WinLinePoint[], half: number) => {
+			for (const pt of pts) {
+				g.moveTo(pt.x, pt.y - half);
+				g.lineTo(pt.x, pt.y + half);
+			}
+		};
+		const traceReels = (g: WinLineGraphics, pts: WinLinePoint[], half: number) => {
+			const spans: { x: number; top: number; bottom: number }[] = [];
+			for (const pt of pts) {
+				const span = spans.find((candidate) => candidate.x === pt.x);
+				if (!span) spans.push({ x: pt.x, top: pt.y, bottom: pt.y });
+				else {
+					span.top = Math.min(span.top, pt.y);
+					span.bottom = Math.max(span.bottom, pt.y);
+				}
+			}
+			for (const span of spans) {
+				g.moveTo(span.x, span.top - half);
+				g.lineTo(span.x, span.bottom + half);
+			}
+		};
+		const pts = entry.points;
+		const full = entry.fullPoints;
+		const p = entry.progress;
+		const drawn = entry.shape;
+		const half = cellHalf;
+		const coreWidth = SYMBOL_SIZE * line.width;
+		const configColor = line.useConfigColor ? entry.color : undefined;
+		const coreColor = configColor ?? line.color;
+		const haloColor = configColor ?? line.glowColor;
+		const trace = (g: WinLineGraphics) => {
+			if (drawn === 'reels') return traceReels(g, pts, half);
+			if (drawn === 'cells') return traceColumns(g, pts, half);
+			return tracePath(g, pts, p);
+		};
+		const taper =
+			tapered && drawn === 'path' && pts.length >= 2
+				? {
+						runs: taperRuns(
+							pts,
+							p,
+							line.taper.alpha,
+							line.taper.width,
+							((line.glow ? 4.5 : 1) * coreWidth) / 2,
+						),
+						ends: { tail: poseOf(pts, 0), head: poseOf(pts, p) },
+					}
+				: undefined;
+		const strokeLine = (g: WinLineGraphics, color: string, width: number, alpha: number) => {
+			if (taper) return strokeRuns(g, taper.runs, taper.ends, { color, width, alpha });
+			trace(g);
+			g.stroke({ color, width, alpha, cap: 'round', join: 'round' });
+		};
+		if (part !== 'glow' && drawn === 'path' && line.fullPayline && full.length >= 2) {
+			tracePath(graphics, full, 1);
+			graphics.stroke({
+				color: line.fullPaylineColor,
+				width: coreWidth,
+				alpha: 0.85,
+				cap: 'round',
+				join: 'round',
+			});
+		}
+		if (pts.length < 2) return;
+		if (line.glow && part !== 'line') {
+			const halos = [
+				{ w: coreWidth * 4.5, a: 0.08 },
+				{ w: coreWidth * 3, a: 0.13 },
+				{ w: coreWidth * 1.8, a: 0.2 },
+			];
+			for (const halo of halos) strokeLine(graphics, haloColor, halo.w, halo.a);
+		}
+		if (part === 'glow') return;
+		strokeLine(graphics, coreColor, coreWidth, 0.95);
+		if (line.coreColor) {
+			strokeLine(graphics, line.coreColor, coreWidth * WIN_LINE_CORE_RATIO, 1);
+		}
+	}
+
+	const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)];
+	const randomStyle = (): WinLinePaintStyle => ({
+		color: '#ffcc00',
+		width: pick([0.005, 0.03, 0.12]),
+		glow: random() < 0.5,
+		glowColor: '#ff3300',
+		fullPayline: random() < 0.3,
+		fullPaylineColor: '#4a90d9',
+		useConfigColor: random() < 0.5,
+		coreColor: random() < 0.5 ? '#ffffff' : undefined,
+		blend: random() < 0.5 ? 'add' : 'normal',
+		taper:
+			random() < 0.5
+				? { alpha: 1, width: 1 }
+				: { alpha: pick([0, 0.2, 1]), width: pick([0, 0.5, 1]) },
+	});
+	let same = 0;
+	let tapered = 0;
+	const runs = 2000;
+	for (let n = 0; n < runs; n += 1) {
+		const style = randomStyle();
+		const points = n % 17 === 0 ? randomLine().slice(0, 1) : randomLine();
+		const entry = {
+			points,
+			fullPoints: random() < 0.5 ? randomLine() : [],
+			progress: n % 10 === 0 ? 1 : n % 13 === 0 ? 0 : random(),
+			shape: pick(['path', 'path', 'cells', 'reels'] as const),
+			color: random() < 0.5 ? '#00ff88' : undefined,
+		};
+		const part: WinLinePaintPart = winLineGlowAdditive(style) ? pick(['glow', 'line']) : 'both';
+		const before = recorder();
+		const after = recorder();
+		legacyPaint(before.g, style, entry, 60, part);
+		paintWinLine(after.g, style, { ...entry, cellHalf: 60, symbolSize: SYMBOL_SIZE }, part);
+		if (JSON.stringify(before.ops) === JSON.stringify(after.ops)) same += 1;
+		if (style.taper.alpha < 1 || style.taper.width < 1) tapered += 1;
+	}
+	check('paintWinLine makes the very calls the game’s paint made', same, runs);
+	ok('…over tapered styles too', tapered > runs / 4);
+	for (const [len, speed] of [
+		[0, 1],
+		[480, 1],
+		[2400, 0.25],
+		[9600, 4],
+		[100000, 1],
+	] as const) {
+		check(
+			`winLineDrawMs(${len}, ${speed}) is the old duration`,
+			winLineDrawMs(len, speed, SYMBOL_SIZE),
+			Math.min(2000, Math.max(180, ((len / (SYMBOL_SIZE * 4)) * 220) / speed)),
+		);
+	}
 }
 
 // A throw exits non-zero without Node's types, which this package does not carry.
