@@ -14,6 +14,7 @@ import {
 } from './bugFixRunsActions';
 import { ENV } from './env';
 import { GithubAppError, githubApp, type GithubApp } from './githubApp';
+import { forgetResultObject } from './pipelineRunResultUpload';
 import {
 	bindMergeRun,
 	markMergeRunRunning,
@@ -185,7 +186,11 @@ export async function backstopMergeRuns(app: GithubApp, nowMs = Date.now()): Pro
 	const runs = await workingMergeRuns();
 	if (!runs.length) return;
 	const age = (at: Date) => nowMs - at.getTime();
-	const end = (run: MergeMainRun, ending: Ending) => settleMergeRun(run.id, WORKING, ending);
+	const end = async (run: MergeMainRun, ending: Ending) => {
+		const ended = await settleMergeRun(run.id, WORKING, ending);
+		if (ended) await forgetResultObject('merge', run.id);
+		return ended;
+	};
 	const unbound: MergeMainRun[] = [];
 	const bound: (MergeMainRun & { ghRunId: number })[] = [];
 	for (const run of runs) {

@@ -18,7 +18,7 @@
 // pinned CLI on a hosted runner (bug-fix-proof.yml).
 
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import {
 	chmodSync,
@@ -3010,11 +3010,265 @@ const changeError = (M, setup, undo) => {
 		undo();
 	}
 };
+// A result too large for the launcher's request limit travels through R2 (ADR-0013 §4): the job
+// asks `…/result-upload`, PUTs the gzipped bytes to the address it is given, and posts a pointer.
+const R2_ACCOUNT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+/**
+ * `M.postResult` against a fake launcher that answers the upload address as `issue` says, a fake
+ * R2 that takes the PUT, and the OIDC endpoint. `body` is encoded by `M` itself.
+ */
+const uploadRun = async (M, body, issue = {}) => {
+	const seen = { asks: 0, leaks: 0, puts: [], posts: [] };
+	const origin = { value: '' };
+	const srv = createServer((req, res) => {
+		const chunks = [];
+		req.on('data', (c) => chunks.push(c));
+		req.on('end', () => {
+			const raw = Buffer.concat(chunks);
+			const url = new URL(req.url, 'http://x');
+			res.setHeader('content-type', 'application/json');
+			if (url.pathname === '/oidc') return res.end(JSON.stringify({ value: 'oidc-token' }));
+			if (url.pathname.endsWith('/result-upload')) {
+				seen.asks++;
+				return res.end(
+					JSON.stringify({
+						url: `${origin.value}/put`,
+						key: '_runs/fix/abcdef0123/result.json.gz',
+						expiresAt: 'x',
+						maxBytes: 8 * 1024 * 1024,
+						...(issue.answer?.(origin.value) ?? {}),
+					}),
+				);
+			}
+			if (url.pathname === '/leak') {
+				seen.leaks++;
+				return res.end('{}');
+			}
+			if (url.pathname === '/put') {
+				seen.puts.push({ method: req.method, headers: req.headers, raw });
+				if (issue.redirect) {
+					res.writeHead(303, { location: `${origin.value}/leak` });
+					return res.end();
+				}
+				return res.end('{}');
+			}
+			seen.posts.push({ path: url.pathname, headers: req.headers, raw });
+			return res.end('{}');
+		});
+	});
+	await new Promise((done) => srv.listen(0, '127.0.0.1', done));
+	origin.value = `http://127.0.0.1:${srv.address().port}`;
+	const saved = [
+		process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
+		process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+	];
+	process.env.ACTIONS_ID_TOKEN_REQUEST_URL = `${origin.value}/oidc?api-version=2.0`;
+	process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'request-token';
+	try {
+		const sent = M.encodeBody(body);
+		await M.postResult({
+			base: `${origin.value}/api/pipeline/fix-runs/abcdef0123`,
+			kind: 'fix',
+			id: 'abcdef0123',
+			audience: 'invisible-launcher-bug-fix',
+			sent,
+			rebuild: (why) => M.encodeBody({ failure: why }),
+		});
+		return { seen, sent };
+	} finally {
+		[process.env.ACTIONS_ID_TOKEN_REQUEST_URL, process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN] = saved;
+		if (saved[0] === undefined) delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+		if (saved[1] === undefined) delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+		await new Promise((done) => srv.close(done));
+	}
+};
+const noise = (bytes) => ({ x: randomBytes(bytes).toString('base64') });
+const hugeBody = noise(600 * 1024);
+const issuedUrl = `https://${R2_ACCOUNT}.r2.cloudflarestorage.com/bucket/_runs/fix/abcdef0123/result.json.gz?X-Amz-Signature=SIGNATURE-NEVER-LOGGED`;
+const refusesUrl = (M, raw, issued = raw) => {
+	try {
+		M.uploadUrl(raw, issued);
+		return false;
+	} catch (err) {
+		return !String(err.message).includes('SIGNATURE-NEVER-LOGGED');
+	}
+};
+
+const bigRun = await uploadRun(C, hugeBody);
+const put0 = bigRun.seen.puts[0];
+const pointer0 = bigRun.seen.posts[0]
+	? JSON.parse(bigRun.seen.posts[0].raw.toString('utf8'))
+	: null;
+check(
+	bigRun.sent.upload === true &&
+		bigRun.seen.asks === 1 &&
+		bigRun.seen.puts.length === 1 &&
+		put0.method === 'PUT' &&
+		put0.headers['content-type'] === 'application/gzip' &&
+		put0.raw.equals(bigRun.sent.bytes) &&
+		JSON.stringify(gunzipSync(put0.raw)) === JSON.stringify(gunzipSync(bigRun.sent.bytes)),
+	'a result whose gzip is past 400 KB is asked for an address and PUT there, gzipped',
+);
+check(
+	bigRun.seen.posts.length === 1 &&
+		bigRun.seen.posts[0].path === '/api/pipeline/fix-runs/abcdef0123/result' &&
+		bigRun.seen.posts[0].headers.authorization === 'Bearer oidc-token' &&
+		bigRun.seen.posts[0].headers['content-encoding'] === undefined &&
+		bigRun.seen.posts[0].raw.length < 1024 &&
+		JSON.stringify(pointer0) ===
+			JSON.stringify({
+				upload: {
+					key: '_runs/fix/abcdef0123/result.json.gz',
+					sha256: createHash('sha256').update(put0.raw).digest('hex'),
+					bytes: put0.raw.length,
+				},
+			}),
+	'the job then posts only the pointer: the run’s key, the sha256 and the size of what was uploaded',
+);
+const midBody = { x: 'y'.repeat(500 * 1024) };
+const midRun = await uploadRun(C, midBody);
+check(
+	midRun.sent.upload === false &&
+		midRun.seen.asks === 0 &&
+		midRun.seen.puts.length === 0 &&
+		midRun.seen.posts.length === 1 &&
+		midRun.seen.posts[0].headers['content-encoding'] === 'gzip' &&
+		JSON.parse(gunzipSync(midRun.seen.posts[0].raw)).x.length === 500 * 1024,
+	'a result that gzips under 400 KB still goes inline, gzipped',
+);
+const smallRun = await uploadRun(C, noise(100 * 1024));
+check(
+	smallRun.sent.upload === false &&
+		smallRun.seen.asks === 0 &&
+		smallRun.seen.puts.length === 0 &&
+		smallRun.seen.posts[0].headers['content-encoding'] === undefined &&
+		smallRun.seen.posts[0].raw.length > 100 * 1024,
+	'a result under 400 KB is posted inline, plain',
+);
+check(
+	!refusesUrl(C, issuedUrl) &&
+		!refusesUrl(C, issuedUrl.replace('https://', 'https://invisibleassets.')) &&
+		!refusesUrl(C, issuedUrl.replace('.r2.', '.eu.r2.')) &&
+		!refusesUrl(C, 'http://127.0.0.1:9/put') &&
+		refusesUrl(C, issuedUrl, `${issuedUrl}&x=1`) &&
+		refusesUrl(C, issuedUrl, issuedUrl.replace('abcdef0123', 'abcdef0124')) &&
+		refusesUrl(C, issuedUrl.replace(R2_ACCOUNT, 'evil')) &&
+		refusesUrl(C, 'https://evil.example/put?X-Amz-Signature=SIGNATURE-NEVER-LOGGED') &&
+		refusesUrl(C, `https://${R2_ACCOUNT}.r2.cloudflarestorage.com.evil.example/put`) &&
+		refusesUrl(C, `https://evil.example/${R2_ACCOUNT}.r2.cloudflarestorage.com`) &&
+		refusesUrl(C, issuedUrl.replace('https://', 'https://user:pw@')) &&
+		refusesUrl(C, issuedUrl.replace('https:', 'http:')) &&
+		refusesUrl(C, 'https://pipelines.actions.githubusercontent.com/put') &&
+		refusesUrl(C, 'https://app.invisiblewall.org/put') &&
+		refusesUrl(C, 'not a url'),
+	'the upload allowlist takes only the address the launcher issued, over https, at an R2 host (never printed)',
+);
+const evilRun = await uploadRun(C, hugeBody, {
+	answer: () => ({ url: 'https://evil.example/put' }),
+});
+check(
+	evilRun.seen.puts.length === 0 &&
+		evilRun.seen.posts.length === 1 &&
+		/not an R2 address/.test(JSON.parse(evilRun.seen.posts[0].raw.toString('utf8')).failure ?? ''),
+	'an address at another host is never PUT to: the run ends with a failure body, inline',
+);
+const otherKeyRun = await uploadRun(C, hugeBody, {
+	answer: () => ({ key: '_runs/fix/abcdef0124/result.json.gz' }),
+});
+check(
+	otherKeyRun.seen.puts.length === 0 &&
+		/not for this run/.test(
+			JSON.parse(otherKeyRun.seen.posts[0].raw.toString('utf8')).failure ?? '',
+		),
+	'an address for another run’s key is never PUT to',
+);
+const redirectRun = await uploadRun(C, hugeBody, { redirect: true });
+check(
+	redirectRun.seen.leaks === 0 && redirectRun.seen.posts.length === 1,
+	'a redirect from the upload address is not followed',
+);
+const tooBigRun = await uploadRun(C, hugeBody, { answer: () => ({ maxBytes: 1000 }) });
+check(
+	tooBigRun.seen.puts.length === 0 && tooBigRun.seen.posts.length === 1,
+	'a result larger than the address’s maxBytes is not PUT',
+);
+
 /**
  * [what, from, to, probe]: the probe answers true when the mutant is caught — when the mutated
  * collect.mjs does what the check above, on the real one, says it must not.
  */
 const COLLECT_MUTANTS = [
+	[
+		'no sha256 of the uploaded bytes',
+		"sha256: createHash('sha256').update(bytes).digest('hex')",
+		"sha256: '0'.repeat(64)",
+		async (M) => {
+			const run = await uploadRun(M, hugeBody);
+			const pointer = JSON.parse(run.seen.posts[0].raw.toString('utf8')).upload;
+			return pointer.sha256 !== createHash('sha256').update(run.seen.puts[0].raw).digest('hex');
+		},
+	],
+	[
+		'the byte count of the pointer',
+		'bytes: bytes.length },',
+		'bytes: 1 },',
+		async (M) => {
+			const run = await uploadRun(M, hugeBody);
+			return (
+				JSON.parse(run.seen.posts[0].raw.toString('utf8')).upload.bytes !== run.sent.bytes.length
+			);
+		},
+	],
+	[
+		'inline above the threshold',
+		'upload: bytes.length > UPLOAD_OVER,',
+		'upload: false,',
+		async (M) => {
+			const run = await uploadRun(M, hugeBody);
+			return run.seen.puts.length === 0 && run.seen.posts[0].raw.length > 512 * 1024;
+		},
+	],
+	[
+		'the pointer below the threshold',
+		"return { bytes: raw, headers: { 'content-type': 'application/json' }, upload: false };",
+		"return { bytes: raw, headers: { 'content-type': 'application/json' }, upload: true };",
+		async (M) => (await uploadRun(M, noise(100 * 1024))).seen.asks === 1,
+	],
+	[
+		'any https host accepted',
+		'R2_HOST.test(url.hostname)',
+		'true',
+		async (M) => !refusesUrl(M, 'https://evil.example/put'),
+	],
+	[
+		'any address the launcher names accepted',
+		'raw !== issued',
+		'false',
+		async (M) => !refusesUrl(M, issuedUrl, `${issuedUrl}&x=1`),
+	],
+	[
+		'plain http to an R2 host accepted',
+		"url.protocol === 'https:' && !url.username",
+		'!url.username',
+		async (M) => !refusesUrl(M, issuedUrl.replace('https:', 'http:')),
+	],
+	[
+		'another run’s key accepted',
+		'if (got?.key !== key)',
+		'if (false)',
+		async (M) =>
+			(
+				await uploadRun(M, hugeBody, {
+					answer: () => ({ key: '_runs/fix/abcdef0124/result.json.gz' }),
+				})
+			).seen.puts.length === 1,
+	],
+	[
+		'a redirect followed',
+		"redirect: 'error',",
+		'',
+		async (M) => (await uploadRun(M, hugeBody, { redirect: true })).seen.leaks > 0,
+	],
 	[
 		'a prompt holds one mode only',
 		'} else if (!inside || inside === mode) kept.push(line);',

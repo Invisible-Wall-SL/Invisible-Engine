@@ -717,6 +717,13 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
     their Postgres row (`bug_report_screenshots`) to someone who may see the bug; no shipped asset
     class reads them. A purged project's game bugs take theirs with them. See
     [status/bug-reports](status/bug-reports.md).
+  - `_runs/fix/<id>/result.json.gz`, `_runs/merge/<id>/result.json.gz` — a fix run's or a merge run's
+    result too large for the launcher's 512 KB request limit (ADR-0013 §4, ADR-0015 §10; 2026-11-27).
+    The Actions job PUTs it to a 15-minute presigned URL from `POST /api/pipeline/{fix,merge}-runs/<id>/result-upload`;
+    the launcher reads it once, deletes it, and the once-a-minute backstop deletes a leftover when it
+    ends a run. **Lifetime: minutes.** **Owner action (optional, belt and braces):** a lifecycle rule
+    expiring the `_runs/` prefix after 1 day in the main bucket catches an object a stopped run left.
+    No new secret or env var: the launcher signs with its existing `R2_*` credentials.
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — rig assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
