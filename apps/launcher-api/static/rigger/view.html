@@ -725,6 +725,7 @@
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
         <label title="A template is a fixed skeleton that expects images by name (mouth_A, eyelid_l_closed…): art named that way attaches itself, and any missing part is listed after Create.">Apply saved rig or template (optional)</label>
         <select id="newRigApply"></select>
+        <div id="newRigModules" style="display:none;margin-top:6px;"></div>
         <label style="margin-top:6px;">Atlas (images)</label>
         <select id="newRigAtlas"></select>
         <div style="display:flex;gap:6px;margin-top:6px;">
@@ -4171,11 +4172,74 @@ async function deleteRigFromLibrary(a){
   } catch (e){ alert("Delete failed: " + (e && e.message ? e.message : e)); }
 }
 
-// The New-rig "Apply" choice as request fields: a saved rig's id, or a template's.
+// The New-rig "Apply" choice as request fields: a saved rig's id, or a template's (with the modules
+// picked off their default, docs/design/rig-modules.md).
 function newRigApplyChoice(){
   const v = ($("#newRigApply") && $("#newRigApply").value) || "";
-  if (v.startsWith("template:")) return { templateId: v.slice("template:".length) };
+  if (v.startsWith("template:")){
+    const modules = newRigModuleChoice();
+    return Object.assign({ templateId: v.slice("template:".length) }, Object.keys(modules).length ? { modules } : {});
+  }
   return v ? { rigId: v } : {};
+}
+
+// The template picked in the New-rig panel (a summary), or null.
+function newRigTemplate(){
+  const v = ($("#newRigApply") && $("#newRigApply").value) || "";
+  return v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) || null : null;
+}
+
+// The Modules row under the template: one picker per module (Hands: with fingers, simple, none). The
+// three ways to make a rig from a template (Create, 🗺 From my sheet, 🎞 Frame to rig) all read it.
+function renderNewRigModules(){
+  const box = $("#newRigModules"); if (!box) return;
+  const tpl = newRigTemplate();
+  box.innerHTML = "";
+  box.style.display = tpl && tpl.modules && tpl.modules.length ? "" : "none";
+  if (!tpl || !tpl.modules) return;
+  for (const m of tpl.modules){
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:3px;";
+    const lab = document.createElement("label");
+    lab.textContent = m.label; lab.title = m.tip; lab.style.cssText = "margin:0;min-width:52px;";
+    const sel = document.createElement("select");
+    sel.className = "newRigModule"; sel.dataset.module = m.id; sel.title = m.tip; sel.style.flex = "1";
+    for (const o of m.options){
+      const op = document.createElement("option");
+      op.value = o.id; op.textContent = o.label;
+      if (o.parts.length) op.title = "Leaves out " + o.parts.length + " part" + (o.parts.length > 1 ? "s" : "") + ": " + o.parts.slice(0, 12).join(", ") + (o.parts.length > 12 ? "…" : "");
+      sel.appendChild(op);
+    }
+    sel.value = m.default;
+    row.append(lab, sel);
+    box.appendChild(row);
+  }
+}
+
+// The modules picked in the New-rig panel off their template's default ({ module: option }).
+function newRigModuleChoice(){
+  const tpl = newRigTemplate(), out = {};
+  for (const sel of document.querySelectorAll("#newRigModules .newRigModule")){
+    const m = tpl && (tpl.modules || []).find((x) => x.id === sel.dataset.module);
+    if (m && sel.value !== m.default) out[m.id] = sel.value;
+  }
+  return out;
+}
+
+// A template summary as module set `choice` leaves it: the parts its options leave out gone, and the
+// slots left with no part. (The server builds with `templateWithModules`; this is what a dialog shows.)
+function templateAsChosen(tpl, choice){
+  const taken = new Set(), gone = new Set();
+  for (const m of tpl.modules || []){
+    const o = m.options.find((x) => x.id === (choice[m.id] || m.default));
+    for (const p of (o && o.parts) || []) taken.add(p);
+    for (const b of (o && o.bones) || []) gone.add(b);
+  }
+  if (!taken.size && !gone.size) return tpl;
+  const parts = tpl.parts.filter((p) => !taken.has(p.name));
+  const emptied = new Set(tpl.parts.filter((p) => taken.has(p.name)).map((p) => p.slot));
+  for (const p of parts) emptied.delete(p.slot);
+  return Object.assign({}, tpl, { parts, slots: tpl.slots.filter((s) => !emptied.has(s)), bones: tpl.bones.filter((b) => !gone.has(b.name)), choice: Object.assign({}, choice) });
 }
 
 // After a create from a template: name the parts the art lacked (the rig leaves them out).
@@ -4203,7 +4267,9 @@ async function useRigInNew(a){
 // the library.
 async function loadNewRigApplyOptions(){
   const sel = $("#newRigApply"); if (!sel) return;
+  sel.onchange = renderNewRigModules;
   sel.innerHTML = '<option value="">— none (blank skeleton) —</option>';
+  renderNewRigModules();
   try {
     const t = await (await fetch("/api/rigger/templates")).json();
     newRigTemplates = t.templates || [];
@@ -10829,6 +10895,10 @@ function openFrameToRig(){
     $("#newRigNote").textContent = "pick Half body (or a template with its parts) above, then cut a frame";
     return;
   }
+  if (Object.keys(newRigModuleChoice()).length){
+    $("#newRigNote").textContent = "🎞 Frame to rig cuts the template's every part for now: set its Modules back to their default (or make the rig with ＋ Create or 🗺 From my sheet)";
+    return;
+  }
   // A cut opened by ✂ Edit cut belongs to its rig: a new rig starts from a clip of its own.
   if (f2r.edit){ f2r.edit = null; f2rPickClip(""); }
   const same = !!f2r.tpl && f2r.tpl.id === tpl.id;
@@ -12386,8 +12456,9 @@ async function openSheetToRig(edit){
   if (edit === true){
     if (!sheetSrc.doc || !selected) return;
     if (!newRigTemplates.length) await loadNewRigApplyOptions();
-    const tpl = newRigTemplates.find((t) => t.id === sheetSrc.doc.template.id);
-    if (!tpl){ showAlert("The template “" + irigStem(selected) + "” was made from (" + sheetSrc.doc.template.id + ") is gone.", "Can't edit the mapping"); return; }
+    const whole = newRigTemplates.find((t) => t.id === sheetSrc.doc.template.id);
+    if (!whole){ showAlert("The template “" + irigStem(selected) + "” was made from (" + sheetSrc.doc.template.id + ") is gone.", "Can't edit the mapping"); return; }
+    const tpl = templateAsChosen(whole, sheetSrc.doc.template.modules || {});
     Object.assign(s2r, { edit: { dir: selected.dir_b64 || "", stem: irigStem(selected) }, tpl });
     s2rModeUi();
     const sel = $("#s2rSheet");
@@ -12406,7 +12477,7 @@ async function openSheetToRig(edit){
   const tpl = v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) : null;
   if (!tpl){ $("#newRigNote").textContent = "pick a template above (Half body), then map your sheet to it"; return; }
   $("#newRigNote").textContent = "";
-  s2r.tpl = tpl;
+  s2r.tpl = templateAsChosen(tpl, newRigModuleChoice());
   s2rModeUi();
   const sel = $("#s2rSheet");
   sel.innerHTML = "";
@@ -12848,7 +12919,7 @@ function s2rMapping(st = s2r){
   const parts = {};
   for (const [part, m] of Object.entries(st.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
-    sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
+    sheet: 1, manifestKey: s2r.sheetKey, template: Object.assign({ id: s2r.tpl.id, version: s2r.tpl.version }, s2r.tpl.choice && Object.keys(s2r.tpl.choice).length ? { modules: s2r.tpl.choice } : {}), parts,
     props: st.props.map(({ name, region, host, bone, at, turn: t, custom }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}), ...(custom ? { custom: true } : {}) })),
     ...(Object.keys(arrange).length ? { arrange } : {}),
     ...(st.swap ? { swapSides: true } : {}),

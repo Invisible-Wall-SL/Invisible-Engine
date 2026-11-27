@@ -66,6 +66,7 @@ import {
 	type SheetProp,
 } from '../rigSheetMap';
 import { inDrawOrder } from '../rigSlotOrder';
+import { parseModuleChoice } from './rigTemplateModules';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
@@ -108,11 +109,13 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 	const tpl = raw.template;
 	if (
 		!isRecord(tpl) ||
-		extraKey(tpl, ['id', 'version']) !== undefined ||
+		extraKey(tpl, ['id', 'version', 'modules']) !== undefined ||
 		typeof tpl.id !== 'string' ||
 		!Number.isInteger(tpl.version)
 	)
-		return no('it names its template as { id, version }');
+		return no('it names its template as { id, version, modules? }');
+	const modules = parseModuleChoice(tpl.modules);
+	if (modules === null) return no("its template's modules are { module: option }");
 	if (raw.scale !== undefined && !(finite(raw.scale) && raw.scale > 0 && raw.scale < 1000))
 		return no('its scale is a number above 0');
 	if (raw.turn !== undefined && !(finite(raw.turn) && raw.turn >= 0 && raw.turn <= HEAD_TURN_MAX))
@@ -196,7 +199,11 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 	const mapping: SheetMapping = {
 		sheet: 1,
 		manifestKey: raw.manifestKey,
-		template: { id: tpl.id, version: tpl.version as number },
+		template: {
+			id: tpl.id,
+			version: tpl.version as number,
+			...(modules && Object.keys(modules).length ? { modules } : {}),
+		},
 		parts,
 		props,
 		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),

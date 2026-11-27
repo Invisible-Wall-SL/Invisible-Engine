@@ -33,6 +33,7 @@ import {
 	type SheetPreview,
 } from './rigSheetFit';
 import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
+import { templateWithModules } from './rigTemplateModules';
 import {
 	templateWithLinks,
 	templateRig,
@@ -45,6 +46,7 @@ const isRecord = (v: unknown): v is Json =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export interface SheetUpdateInput {
+	/** The template whole: each mapping is built with its own modules (`asMapped`). */
 	template: RigTemplate;
 	/** The sheet's regions (the rig's own sheet: an update never changes it). */
 	regions: readonly TemplateRegion[];
@@ -125,6 +127,10 @@ function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMappi
 	};
 }
 
+/** Template `t` (whole) with the modules mapping `m` was made with (docs/design/rig-modules.md). */
+export const asMapped = (t: RigTemplate, m: SheetMapping): RigTemplate =>
+	templateWithModules(t, m.template.modules);
+
 /** What 🔄 Update rig merges into the open rig (`frameRigUpdate`), and the edited mapping's fit. */
 export function merging(o: SheetUpdateInput): Fitted<{
 	fit: RigFit;
@@ -133,17 +139,22 @@ export function merging(o: SheetUpdateInput): Fitted<{
 	asMade: Json | null;
 	sameRegion: (part: string) => boolean;
 }> {
-	const now = build(o.template, o.regions, o.mapping);
+	const tNow = asMapped(o.template, o.mapping);
+	const now = build(tNow, o.regions, o.mapping);
 	if (!now.ok) return now;
 	const { skeleton: fresh, fit } = now.value;
-	const freshBind = frameWorld(fitTemplate(o.template, fit).bones, fit.frame);
+	const freshBind = frameWorld(fitTemplate(tNow, fit).bones, fit.frame);
 	// As made: the kept mapping built today (a rig made before the head turn, none of its bones, built
 	// without one; before a link of the template, without it); a kept mapping that no longer builds
 	// takes the rig's own attachments as made, so nothing reads as edited by hand.
 	const bones = ((o.current.bones ?? []) as { name?: unknown }[]).map((b) => String(b.name));
 	const turnedBefore = bones.some((b) => (HEAD_TURN_BONES as readonly string[]).includes(b));
 	const keptAs = turnedBefore || o.was.turn !== undefined ? o.was : { ...o.was, turn: 0 };
-	const was = build(templateWithLinks(o.template, new Set(bones)), o.regions, keptAs);
+	const was = build(
+		templateWithLinks(asMapped(o.template, o.was), new Set(bones)),
+		o.regions,
+		keptAs,
+	);
 	const asMade = was.ok ? was.value.skeleton : o.current;
 	const names = was.ok
 		? madeAttachments(asMade).map((m) => m.name)
@@ -174,7 +185,7 @@ export function merging(o: SheetUpdateInput): Fitted<{
 					(o.mapping.parts[part]?.region ?? o.mapping.props.find((p) => p.name === part)?.region),
 		);
 	const keep = new Set([...(o.keep ?? [])].filter(sameRegion));
-	const links = o.template.bones.filter((b) => b.link).map((b) => b.name);
+	const links = tNow.bones.filter((b) => b.link).map((b) => b.name);
 	return {
 		ok: true,
 		value: {
@@ -210,7 +221,7 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 	const { fit, input, asMade, sameRegion } = merge.value;
 	const { doc, report } = frameRigUpdate(input);
 	const layers = sheetLayersApplied(
-		o.template,
+		asMapped(o.template, o.mapping),
 		fit,
 		o.mapping,
 		o.was.layers,
@@ -255,7 +266,7 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		ok: true,
 		value: {
 			doc,
-			depths: headTurnDepths(o.template, fit),
+			depths: headTurnDepths(asMapped(o.template, o.mapping), fit),
 			report: {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
@@ -301,12 +312,12 @@ export function outlineDoc(rig: SheetRigOutline): Json {
 export function sheetEditPreview(
 	o: Pick<SheetUpdateInput, 'template' | 'regions' | 'was' | 'mapping'> & { rig: SheetRigOutline },
 ): LayersFitted<SheetPreview> {
-	const shown = sheetPreview(o.template, o.regions, o.mapping, { edit: true });
+	const shown = sheetPreview(asMapped(o.template, o.mapping), o.regions, o.mapping, { edit: true });
 	if (!shown.ok) return shown;
 	const merge = merging({ ...o, current: outlineDoc(o.rig) });
 	if (!merge.ok) return merge;
 	const layers = sheetLayersApplied(
-		o.template,
+		asMapped(o.template, o.mapping),
 		merge.value.fit,
 		o.mapping,
 		o.was.layers,

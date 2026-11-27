@@ -1334,8 +1334,17 @@ template** below), listed as `<name> (template v<n>)`.
 - **A missing part is left out, never named.** The game cannot load a rig naming an image its
   atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
   have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
+- **Modules** (hover each for what it does): under a template that has switchable pieces, a row
+  of pickers. **Hands** — Half body **With fingers** (as above), **Simple (one bone)** (the hand
+  image and its drawn poses, no finger bones) or **None** (no hand drawn or rigged: the arm ends
+  at the wrist, where its IK control stays, so 🎥 Motion still reaches the tracked wrist); Full body
+  **Simple** or **None**. Hover an option for the parts it leaves out. The row applies to
+  **Create**, **🗺 From my sheet** (its parts list drops what the choice leaves out) and, for now,
+  only the defaults to **🎞 From a Flipbook frame**. The rig's Controls, picker, IK, 3D setup and
+  🎥 Motion all follow the choice: a capture keys no hand the rig lacks.
 - A template can't be combined with a saved rig: both are a whole skeleton.
-- The rig remembers its template in a `template.json` beside it in the bundle.
+- The rig remembers its template, and its modules off their default, in a `template.json` beside
+  it in the bundle (a 🗺 rig's mapping keeps them too, so 🔄 Update rig builds the same rig).
 
 #### The rig-building workspaces: zoom, pan and shortcuts
 

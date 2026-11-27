@@ -40,6 +40,12 @@ import {
 } from './rigTemplateControls';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 import {
+	parseModuleChoice,
+	takenBy,
+	type RigModuleChoice,
+	type RigTemplateModule,
+} from './rigTemplateModules';
+import {
 	boneWorld,
 	chainWeights,
 	controlTarget,
@@ -262,6 +268,13 @@ export interface RigTemplate {
 	controls?: RigTemplateControls;
 	/** Native constraints its rigs start with (a template saved from a rig keeps the rig's). */
 	constraints?: RigTemplateConstraints;
+	/**
+	 * The pieces a rig may have one of several ways (docs/design/rig-modules.md): this definition is
+	 * every module at its default; `templateWithModules` takes away what another option names.
+	 */
+	modules?: RigTemplateModule[];
+	/** The modules this template was made with off their default (`templateWithModules` sets it). */
+	choice?: RigModuleChoice;
 }
 
 /**
@@ -333,6 +346,8 @@ export const TEMPLATE_SLOT_TIMELINES = [
 export interface RigTemplateRef {
 	id: string;
 	version: number;
+	/** Its modules off their default (docs/design/rig-modules.md); none = the definition. */
+	modules?: RigModuleChoice;
 }
 
 export const RIG_TEMPLATE_SIDECAR = 'template.json';
@@ -2539,6 +2554,33 @@ const halfControls = builtinControls(HALF_BODY, {
 });
 HALF_BODY.controls = withLimbs(halfControls, HALF_IK.limbs, { arm: [0.25, 0.75] });
 
+/**
+ * The hands (docs/design/rig-modules.md §3): with fingers, one bone with its drawn poses, or none —
+ * the arm ending at a bare wrist (its IK, its control there and the capture's reach to the tracked
+ * wrist keep it).
+ */
+function handsModule(fingers: boolean): RigTemplateModule {
+	const roots = fingers ? sides((s) => DIGITS.map((d) => bone(d, 1, s))) : [];
+	return {
+		id: 'hands',
+		label: 'Hands',
+		tip: 'How the hands are rigged. With fingers: a bone per finger joint, the curls and the hand tracker keying them. Simple: one bone and one image per hand (its drawn poses swap). None: no hand drawn or rigged; the arm ends at the wrist, where its IK control stays.',
+		default: fingers ? 'fingers' : 'simple',
+		options: [
+			...(fingers ? [{ id: 'fingers', label: 'With fingers' }] : []),
+			{ id: 'simple', label: 'Simple (one bone)', ...(roots.length ? { bones: roots } : {}) },
+			{
+				id: 'none',
+				label: 'None',
+				...(roots.length ? { bones: roots } : {}),
+				bare: sides((s) => [`hand_${s}`]),
+			},
+		],
+	};
+}
+HALF_BODY.modules = [handsModule(true)];
+FULL_BODY.modules = [handsModule(false)];
+
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
 
 /** A built-in template by id, at `version` when one is given (null-ish when we no longer have it). */
@@ -3858,7 +3900,11 @@ export function templateRig(
 	};
 	return {
 		skeleton,
-		ref: { id: t.id, version: t.version },
+		ref: {
+			id: t.id,
+			version: t.version,
+			...(t.choice && Object.keys(t.choice).length ? { modules: { ...t.choice } } : {}),
+		},
 		missing,
 		missingRequired,
 		controls: ft.controls ? structuredClone(ft.controls) : null,
@@ -3976,6 +4022,18 @@ export interface RigTemplateSummary {
 	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
 	origin: 'builtin' | 'user';
 	saved?: RigTemplateSaved;
+	/**
+	 * Its modules (docs/design/rig-modules.md), each option with the parts and the bones it leaves out
+	 * (of this template's), and the options it was made with off their default.
+	 */
+	modules?: {
+		id: string;
+		label: string;
+		tip: string;
+		default: string;
+		options: { id: string; label: string; parts: string[]; bones: string[] }[];
+	}[];
+	choice?: RigModuleChoice;
 }
 
 export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): RigTemplateSummary {
@@ -3997,6 +4055,18 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 		rig3d: t.rig3d ?? null,
 		origin: saved ? 'user' : 'builtin',
 		...(saved ? { saved } : {}),
+		...(t.modules?.length
+			? {
+					modules: t.modules.map((m) => ({
+						id: m.id,
+						label: m.label,
+						tip: m.tip,
+						default: m.default,
+						options: m.options.map((o) => ({ id: o.id, label: o.label, ...takenBy(t, o) })),
+					})),
+				}
+			: {}),
+		...(t.choice && Object.keys(t.choice).length ? { choice: { ...t.choice } } : {}),
 	};
 }
 
@@ -4015,9 +4085,14 @@ export function parseTemplateRef(text: string | null): RigTemplateRef | null {
 		return null;
 	}
 	if (!ref || typeof ref !== 'object') return null;
-	const { id, version } = ref as { id?: unknown; version?: unknown };
+	const { id, version, modules } = ref as { id?: unknown; version?: unknown; modules?: unknown };
 	if (typeof id !== 'string' || !id) return null;
-	return { id, version: typeof version === 'number' && Number.isInteger(version) ? version : 1 };
+	const choice = parseModuleChoice(modules);
+	return {
+		id,
+		version: typeof version === 'number' && Number.isInteger(version) ? version : 1,
+		...(choice && Object.keys(choice).length ? { modules: choice } : {}),
+	};
 }
 
 /** The BUILT-IN template a `template.json` names, or null (`rigTemplateStore` resolves user ones). */
