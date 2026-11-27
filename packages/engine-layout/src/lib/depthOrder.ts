@@ -16,11 +16,15 @@ import type { Container } from 'pixi.js';
 const depths = new WeakMap<Container, number>();
 const kept = new WeakSet<Container>();
 
-/** Each child given its depth as its `zIndex` (a changed one asks the parent for a sort). */
-const flush = (parent: Container) => {
+/** Each child given its depth as its `zIndex`: through its setter, which asks the parent for a
+ *  sort (and its render group for a new draw list) if one changed; or, `quiet`, for a sort already
+ *  under way, whose draw list is being built or already asked for. */
+const flush = (parent: Container, quiet = false) => {
 	for (const child of parent.children) {
 		const depth = depths.get(child);
-		if (depth !== undefined) child.zIndex = depth;
+		if (depth === undefined) continue;
+		if (quiet) child._zIndex = depth;
+		else child.zIndex = depth;
 	}
 };
 
@@ -40,7 +44,7 @@ function keep(parent: Container) {
 	kept.add(parent);
 	const sort = parent.sortChildren;
 	parent.sortChildren = () => {
-		if (parent.sortDirty) flush(parent);
+		if (parent.sortDirty) flush(parent, true);
 		sort.call(parent);
 	};
 	const before = parent.onRender;
