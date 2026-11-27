@@ -15,6 +15,22 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-27 · Phase 12 · director-backend (Update from main over a runtime-bytes conflict)
+- Did: Update from main on a conflicted change merges `main` in when the runtime-bytes manifests
+  are the only paths both sides changed: a three-tree merge in the launcher, main's manifests
+  kept, `[head, main]` parents, fast-forward only. The change is labelled `rerecord-runtime-bytes`,
+  and a 2-minute watch re-records from CI's failed `runtime-bytes` artifact without a click, then
+  takes the label off when the check passes (or gives the change back to a person).
+- Files: `pipelineManifestMerge.ts` (new), `pipelineUpdate.ts`, `pipelineRuntimeBytes.ts`
+  (`runtimeBytesRunOf` exported), `pipelineChanges.ts` (`openPulls` exported), `hooks.server.ts`,
+  `view.ts`, `ChangeDetailPanel.svelte`, `check-pipeline-changes.ts`, the tool doc, status.
+- Branch / PR: `claude/vibrant-bardeen-z4vg3a`.
+- Tests: `check:pipeline-changes` 9353 pass; `pnpm lint` and `check:undefined-names` clean.
+- Decisions: the owner asked for it ("make the merge auto re-record those files"); it is the
+  first mechanical rule of ADR-0015 §3, run where it needs no workflow. It still needs a person's
+  click on Update from main, and still writes nothing when any other file conflicts.
+- Next: 15B1 and 15C for the other conflicts.
+
 ## 2026-11-27 · Phase 12 · coordinator (15A spike answered)
 - Did: the owner clicked Update from main on the scratch PR #1940, whose branch started before
   #1928's workflow change. GitHub accepted `update-branch` as the App (merge commit `bee763a`,

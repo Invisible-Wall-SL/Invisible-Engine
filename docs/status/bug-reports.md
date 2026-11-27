@@ -275,6 +275,26 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-27 — **Update from main merges over a runtime-bytes conflict, and re-records on its own
+  (ADR-0015 §3's first rule, done in the launcher).** Two engine changes always conflict in
+  `scripts/runtime-bytes/*.json`; #1930 had been re-merged by hand three times as `main` moved.
+  - `pipelineManifestMerge.ts`: on a `dirty` change, Update from main reads the merge base
+    (`compare/<main>...<head>`) and the three recursive trees, and merges path by path
+    (`threeWay`): one side's change is kept, a manifest both changed takes `main`'s, anything else
+    both changed (or a file where the other side has a folder) is a 409 `conflict` naming the
+    files. The commit is `[head, main]`, `ci: merge main into #n, taking main's runtime-bytes
+    manifests (…)`, and the branch moves by fast-forward only (a moved branch is `head_moved`).
+    The answer carries `how: 'manifests'`; a clean change still goes through `update-branch`
+    (`how: 'github'`).
+  - The change is labelled `rerecord-runtime-bytes` (made on first use). `startRuntimeBytesWatch`
+    (from `hooks.server.ts` `init`, every 2 minutes) runs `watchOne` on each labelled open change:
+    wait for a finished run, label off on a pass, `rerecordRuntimeBytes` as "Pipeline Changes
+    (automatic)" on a failure, and give it back (label off) when a re-record still fails or is
+    refused for any reason but no run yet / head moved.
+  - `check:pipeline-changes` covers the three-way rules, the merge commit and tree, the refusals
+    and every watch outcome.
+  - Not done: a text merge of other files both sides changed (that is 15B1/15C's Resolve).
+
 - 2026-11-26 — **Update from main, and On hold (ADR-0015 card 15A).** The owner: "I get the
   conflict with main a lot, and there is no way to fix it from the pipeline."
   - `POST /api/pipeline/changes/<n>/update` `{ headSha }` calls `update-branch` as the App with

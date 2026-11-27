@@ -40,6 +40,8 @@ export const MERGE_RETRY_TEXT = 'Try again resends the same request, so it never
 export const ON_HOLD_OFFERS_TEXT =
 	'This change is on hold: resume it before updating, re-recording or merging.';
 export const UPDATE_DONE_TEXT = 'GitHub is merging main in; CI re-runs on the new head.';
+export const UPDATE_CONFLICT_TEXT =
+	'It conflicts with main. If only the runtime-bytes manifests conflict, the pipeline merges main in and re-records them from CI; any other conflict is refused, naming the files.';
 /** Days a draft stays in conflict before the page offers to put it on hold. */
 export const HOLD_HINT_DAYS = 14;
 export const ROLLBACK_NEEDS_CAPABILITY_TEXT =
@@ -537,27 +539,48 @@ export function rerecordBar(
 export interface UpdateBar {
 	/** The head the page showed: what the server pins `update-branch` to. */
 	headSha: string;
+	/** The change conflicts with main: only a runtime-bytes conflict is merged. */
+	conflict: boolean;
 	text: string;
 }
 
 /**
  * Update from main (ADR-0015 §1): offered to a `pipelineMerge` holder on an open change that is not
- * on hold, that GitHub says merges cleanly, and that is behind `main` (`behindBy`, read in the
- * detail). Changes are branches of this repository only. Null: nothing to offer.
+ * on hold and is behind `main` (`behindBy`, read in the detail), when GitHub says it merges cleanly
+ * or it conflicts (`dirty`). A conflict is merged only when the runtime-bytes manifests are all that
+ * both sides changed; the server refuses any other, naming the files. Changes are branches of this
+ * repository only. Null: nothing to offer.
  */
 export function updateBar(
 	detail: Pick<ChangeDetail, 'state' | 'merged' | 'mergeable' | 'headSha' | 'behindBy'> & {
 		onHold?: boolean;
+		mergeableState?: string | null;
 	},
 	canMerge: boolean,
 ): UpdateBar | null {
 	if (!canMerge || detail.state !== 'open' || detail.merged || detail.onHold) return null;
-	if (detail.mergeable !== true || !detail.behindBy || detail.behindBy < 1) return null;
+	if (!detail.behindBy || detail.behindBy < 1) return null;
 	const n = detail.behindBy;
+	const behind = `${n} ${plural(n, 'commit')} behind main.`;
+	if (detail.mergeableState === 'dirty') {
+		return { headSha: detail.headSha, conflict: true, text: `${behind} ${UPDATE_CONFLICT_TEXT}` };
+	}
+	if (detail.mergeable !== true) return null;
 	return {
 		headSha: detail.headSha,
-		text: `${n} ${plural(n, 'commit')} behind main. GitHub merges main into this branch; there is nothing to choose.`,
+		conflict: false,
+		text: `${behind} GitHub merges main into this branch; there is nothing to choose.`,
 	};
+}
+
+/** The server's sentence for the launcher's own merge over a runtime-bytes conflict; null for
+ *  GitHub's `update-branch`, which the page words itself. */
+export function updateDoneText(body: unknown): string | null {
+	const { how, githubMessage } = (body && typeof body === 'object' ? body : {}) as {
+		how?: unknown;
+		githubMessage?: unknown;
+	};
+	return how === 'manifests' && typeof githubMessage === 'string' ? githubMessage : null;
 }
 
 /** What the page does with a refused update: GitHub's own link only for the workflow refusal. */

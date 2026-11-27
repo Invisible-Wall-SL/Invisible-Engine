@@ -41,6 +41,7 @@
 		safeHref,
 		timeAgo,
 		updateBar,
+		updateDoneText,
 		updateRefusalView,
 	} from './view';
 
@@ -288,7 +289,9 @@
 		const headSha = update.headSha;
 		const confirmed = await askConfirm({
 			title: `Update #${number} from main`,
-			message: `GitHub merges main into this branch as a new commit. There is nothing to choose, and CI re-runs on the new head. It does not merge the change.`,
+			message: update.conflict
+				? `The pipeline merges main into this branch as a new commit, keeping main's runtime-bytes manifests, and re-records them from CI's build once its runtime-bytes check fails. Any other conflicting file stops it, and nothing is written. It does not merge the change.`
+				: `GitHub merges main into this branch as a new commit. There is nothing to choose, and CI re-runs on the new head. It does not merge the change.`,
 			confirmLabel: 'Update',
 		});
 		if (!confirmed) return;
@@ -303,7 +306,7 @@
 			});
 			const body: unknown = await res.json().catch(() => null);
 			if (!res.ok) updateError = updateRefusalView(res.status, body);
-			else updated = UPDATE_DONE_TEXT;
+			else updated = updateDoneText(body) ?? UPDATE_DONE_TEXT;
 			await reread();
 		} catch (err) {
 			updateError = { text: err instanceof Error ? err.message : String(err), href: null };

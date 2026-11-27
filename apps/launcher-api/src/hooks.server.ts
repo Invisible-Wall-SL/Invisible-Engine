@@ -8,6 +8,7 @@ import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
 import { resumeAtlasJobWatches } from '$lib/server/director/atlasJobs';
 import { resumeDraftJobWatches } from '$lib/server/director/draftJobs';
 import { captureServerError, initServerErrorTracking } from '$lib/server/errorTracking';
+import { startRuntimeBytesWatch } from '$lib/server/pipelineManifestMerge';
 import { PROFILER_CORS_HEADERS, isProfilerCorsPath } from '$lib/server/profiler/cors';
 import { startPerfPurge } from '$lib/server/profiler/purgeJob';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
@@ -19,7 +20,8 @@ import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
  * the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control / idle
  * auto-stop isn't configured), and start the Admin → Costs monthly recorder so a
  * month's figure doesn't depend on someone happening to open the page, and the Invisible Profiler's
- * daily purge of readings past their 15 days. The Director's render
+ * daily purge of readings past their 15 days, and Pipeline Changes' runtime-bytes watch (the
+ * re-record owed after main was merged in over the manifests). The Director's render
  * watches are armed again for every render still queued. */
 export const init: ServerInit = async () => {
 	await initServerErrorTracking();
@@ -27,6 +29,7 @@ export const init: ServerInit = async () => {
 	resumeAtlasJobWatches().catch((e) => console.error('director atlas jobs: not re-armed:', e));
 	resumeDraftJobWatches().catch((e) => console.error('director draft jobs: not re-armed:', e));
 	startRunpodIdleWatchdog();
+	startRuntimeBytesWatch();
 	startCostRecorder();
 	startPerfPurge();
 };

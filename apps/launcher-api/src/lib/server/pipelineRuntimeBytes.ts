@@ -189,7 +189,7 @@ interface GhArtifact {
 }
 
 /** The runtime-bytes run of THIS repository that CI made for the pull request on `sha`; newest. */
-const runOf = (runs: GhRun[], sha: string): GhRun | undefined =>
+export const runtimeBytesRunOf = (runs: GhRun[], sha: string): GhRun | undefined =>
 	runs
 		.filter(
 			(r) =>
@@ -248,7 +248,7 @@ export async function rerecordRuntimeBytes(
 		const { workflow_runs } = await app.json<{ workflow_runs: GhRun[] }>(
 			`/repos/${r}/actions/runs?head_sha=${headSha}&per_page=100`,
 		);
-		const run = runOf(workflow_runs, headSha);
+		const run = runtimeBytesRunOf(workflow_runs, headSha);
 		if (!run) refuse('no_run', 'CI has no runtime-bytes run for this head.');
 		if (run.status !== 'completed')
 			refuse('no_run', 'The runtime-bytes run for this head has not finished.');

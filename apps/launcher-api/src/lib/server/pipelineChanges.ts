@@ -551,7 +551,7 @@ const clip = (s: string): string => {
 /** The repository every change lives in, `owner/name`. */
 export const repo = (): string => ENV.GITHUB_ENGINE_REPO;
 
-async function openPulls(app: GithubApp): Promise<GhPull[]> {
+export async function openPulls(app: GithubApp): Promise<GhPull[]> {
 	const pulls: GhPull[] = [];
 	for (let page = 1; page <= MAX_PAGES; page++) {
 		const batch = await app.json<GhPull[]>(

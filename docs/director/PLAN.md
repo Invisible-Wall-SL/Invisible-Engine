@@ -165,7 +165,10 @@ Update from main when GitHub can merge cleanly; Resolve conflict otherwise: mech
 rules in code, real conflicts proposed by Claude Code, nothing lands until a person accepts. Cards
 15A–15D are in the ADR's phasing. **15A done** (#1938, live 2026-11-26): Update from main, On hold and
 Resume; the `on-hold` label exists; the spike (#1940) showed `update-branch` as the App is accepted
-over a workflow change. Next: 15B1 and 15C in parallel (15C proves the Git Data Accept path).
+over a workflow change. 2026-11-27: Update from main also merges a change whose only overlap with
+main is the runtime-bytes manifests (the launcher's three-tree merge, main's manifests, then an
+automatic re-record from CI; label `rerecord-runtime-bytes`). Next: 15B1 and 15C in parallel (15C
+proves the Git Data Accept path; 15B1's runtime-bytes rule is now only needed beside other conflicts).
 
 ## Phase 6 — Pilot
 
