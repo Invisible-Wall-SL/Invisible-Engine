@@ -8,13 +8,15 @@
 //  - without following (Angles only) the rig is off the performer: the precondition that makes the
 //    rest mean something;
 //  - with it, as the game poses the clip: the shoulders' middle on the performer's; each hand on the
-//    wrist of the hand found on it; the eyes' and the mouth's middles on the face; each elbow bent to
+//    wrist of the hand found on it; the eyes' and the mouth's middles on the face across the neck
+//    (the neck bends; its base stays on the torso); each elbow bent to
 //    the tracked elbow's side and within reach of it; a forearm held toward the camera still drawn in
 //    front of the body;
 //  - a wrist further than the arm reaches turns the arm as tracked (and is reported); a face further
-//    off the neck than the head's limit holds the head at it (and is reported);
-//  - only the limbs' turns change: every other bone's 3D keys are the Angles-only import's; the keys
-//    are ordinary 2D translates on the root and the neck; the Rigger's Animate pose is the game's;
+//    to the side than the neck bends holds the bend at its limit (and is reported);
+//  - only the limbs' and the neck's turns change: every other bone's 3D keys are the Angles-only
+//    import's; the root's keys are ordinary 2D translates, the neck's translate held at its setup; the
+//    Rigger's Animate pose is the game's;
 //  - Full body's feet land on the ankles; a Bust's face lands on the face;
 //  - the validator refuses a positions map it cannot place a rig with.
 //   node tools/rigger-spike/motion-positions.mjs
@@ -249,7 +251,7 @@ function import3d(rig, track, follow) {
 // ── The performer ──────────────────────────────────────────────────────────────────────────────
 // Frames, by what they test: 0–23 settle (the first second is the distance's neutral), 24–40 the
 // left forearm toward the camera, 44–56 the right arm held out straight (further than the rig's arm
-// reaches), 60–65 the face far off the neck.
+// reaches), 60–65 the face far off the neck (further to the side than a neck bends).
 const N = 72;
 const FRONT = [28, 37];
 const STRAIGHT = [46, 55];
@@ -284,13 +286,24 @@ const poseAt = (i, t) => {
 		},
 	};
 };
-/** The face's points: eyes and mouth corners at the rig's own spacing, off the neck by `side`. */
+/**
+ * The face's points: eyes and mouth corners at the rig's own spacing, above the shoulders' middle and
+ * leaning `lean` degrees as the body does (a head rides its body: its 3D pose leans too), off the
+ * neck by `side` across it.
+ */
 const RIG_PX = 180 / 280;
-function faceAt(f, side) {
+function faceAt(f, side, lean) {
 	const lm = f.pose.landmarks;
 	const mid = [(lm[11][0] + lm[12][0]) / 2, (lm[11][1] + lm[12][1]) / 2];
-	const c = [mid[0] + side, mid[1] - (170 * RIG_PX) / P.W];
-	const at = (x, y) => [c[0] + (x * RIG_PX) / P.W, c[1] - (y * RIG_PX) / P.H];
+	const [c0, s0] = [Math.cos(lean / DEG), Math.sin(lean / DEG)];
+	/** A picture offset given x right and y up, leaning with the body. */
+	const lent = (x, y) => [x * c0 - y * s0, -(x * s0 + y * c0)];
+	const o = lent(side, (170 * RIG_PX) / P.W);
+	const c = [mid[0] + o[0], mid[1] + o[1]];
+	const at = (x, y) => {
+		const d = lent((x * RIG_PX) / P.W, (y * RIG_PX) / P.H);
+		return [c[0] + d[0], c[1] + d[1]];
+	};
 	const pts = Array.from({ length: 478 }, () => [c[0], c[1]]);
 	for (const [k, x, y] of [
 		[33, -60, 20],
@@ -306,7 +319,7 @@ function faceAt(f, side) {
 function performer(withFace = true) {
 	const track = P.track(N, FPS, (i, t) => ({
 		pose: poseAt(i, t),
-		opts: { hands: true, ...(withFace ? { face: P.ry(0) } : {}) },
+		opts: { hands: true, ...(withFace ? { face: P.rz(poseAt(i, t).body.lean) } : {}) },
 	}));
 	track.frames.forEach((f, i) => {
 		// A quick shrug of the right shoulder (and its arm with it): 4 cm, twice a second.
@@ -324,7 +337,8 @@ function performer(withFace = true) {
 		if (f.face)
 			f.face.landmarks = faceAt(
 				f,
-				(within(i, FAR) ? 0.2 : 0.03) * Math.sin(i / 7) + (within(i, FAR) ? 0.15 : 0),
+				(within(i, FAR) ? 0.2 : 0.008) * Math.sin(i / 7) + (within(i, FAR) ? 0.15 : 0),
+				poseAt(i, f.t).body.lean,
 			);
 		f.pose.landmarks = f.pose.landmarks.map((p) => [...moved(p, s), p[2]]);
 		// Hand Landmarker's wrist a little off Pose Landmarker's, as on real footage (about 10 rig units).
@@ -348,6 +362,14 @@ const at = (skel, n) => {
 	return [b.worldX, b.worldY];
 };
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
+const turnOf = (skel, n) => Math.atan2(skel.findBone(n).c, skel.findBone(n).a) * DEG;
+/** A world point in the chest's frame. */
+const inChest = (skel, p) => {
+	const v = { x: p[0], y: p[1] };
+	skel.findBone('chest').worldToLocal(v);
+	return [v.x, v.y];
+};
 const timeOf = (i) => track.frames[i].t + 1e-4;
 /** Per frame: the rig's joints and the tracked ones mapped onto it. */
 function measure(run) {
@@ -402,7 +424,23 @@ function measure(run) {
 					];
 				}),
 			),
-			neck: Math.hypot(skel.findBone('neck').x - 0, skel.findBone('neck').y - 130),
+			bend: fold(turnOf(skel, 'neck_upper') - turnOf(skel, 'chest')),
+			base: Math.hypot(...sub(inChest(skel, at(skel, 'neck')), [0, 130])),
+			// The eyes' and the mouth corners' middle (what the neck bends onto) across the neck.
+			across:
+				inChest(
+					skel,
+					mid(
+						mid(at(skel, 'eye_l'), at(skel, 'eye_r')),
+						mid(at(skel, 'mouth_corner_l'), at(skel, 'mouth_corner_r')),
+					),
+				)[0] -
+				inChest(
+					skel,
+					T2(
+						mid(mid(mid(face[33], face[133]), mid(face[362], face[263])), mid(face[61], face[291])),
+					),
+				)[0],
 			order: skel.drawOrder.map((x) => x.data.name),
 		});
 	}
@@ -432,8 +470,7 @@ const got = {
 	shoulders: worst(B, settled, (r) => r.shoulders),
 	wristL: worst(B, reachable, (r) => r.wrist.l),
 	wristR: worst(B, reachable, (r) => r.wrist.r),
-	eyes: worst(B, onFace, (r) => r.eyes),
-	mouth: worst(B, onFace, (r) => r.mouth),
+	base: worst(B, settled, (r) => r.base),
 };
 console.log(
 	`  half body, Angles only → Follow positions (median rig units): shoulders ${r1(off.shoulders)} → ${r1(median(pick(B, settled, (r) => r.shoulders)))}, ` +
@@ -445,8 +482,7 @@ ok(
 	got.wristL < 8 && got.wristR < 8,
 	`${r1(got.wristL)} ${r1(got.wristR)}`,
 );
-ok('the eyes’ middle lands on the face’s (within 3)', got.eyes < 3, r1(got.eyes));
-ok('the mouth’s middle lands on the face’s (within 3)', got.mouth < 3, r1(got.mouth));
+ok('the neck’s base stays on the torso (within 0.5)', got.base < 0.5, r1(got.base));
 for (const s of ['l', 'r']) {
 	const rows = B.filter((r) => reachable(r.i));
 	const side = rows.filter((r) => r.elbow[s].sameSide).length / rows.length;
@@ -467,7 +503,7 @@ ok(
 	front.every((r) => r.order.indexOf('hand_l') > r.order.indexOf('torso')),
 );
 
-// Out of reach and past the head's limit: reported, and held as they should be.
+// Out of reach and past the neck's bend: reported, and held as they should be.
 const report = follow.solved.follow;
 // Its inner frames: at the segment's edges the smoothed points still lean toward the bent arm.
 const straight = B.filter((r) => within(r.i, [STRAIGHT[0] + 2, STRAIGHT[1] - 2]));
@@ -491,14 +527,38 @@ ok(
 );
 const far = B.filter((r) => within(r.i, FAR));
 ok(
-	'a face further off the neck than the limit is reported…',
-	report.head.clamped >= FAR[1] - FAR[0],
-	JSON.stringify(report.head),
+	'a face further to the side than the neck bends is reported…',
+	report.neck.clamped >= FAR[1] - FAR[0],
+	JSON.stringify(report.neck),
+);
+/** A bone's turn about its z on the import's 3D keys at time `t` (the last key at or before it). */
+const keyedTurn = (bone, t) => {
+	const ks = follow.solved.bones3d[bone]?.orient ?? [];
+	const k = [...ks].reverse().find((q) => (q.time ?? 0) <= t + 1e-6) ?? ks[0];
+	return k ? 2 * Math.atan2(k.value[3], k.value[0]) * DEG : NaN;
+};
+const farBend = far.map(
+	(r) => keyedTurn('neck', timeOf(r.i)) + keyedTurn('neck_upper', timeOf(r.i)),
+);
+// Where the neck reaches the face (bent short of its limit), the face's middle lands across it.
+const bendAt = (i) => keyedTurn('neck', timeOf(i)) + keyedTurn('neck_upper', timeOf(i));
+const reached = B.filter((r) => onFace(r.i) && Math.abs(bendAt(r.i)) < report.neck.limit - 0.5);
+const reachMiss = Math.max(...reached.map((r) => Math.abs(r.across)));
+ok(
+	'the neck reaches the face on most frames (a face off its neck as a person’s is)',
+	reached.length >= 0.6 * B.filter((r) => onFace(r.i)).length,
+	`${reached.length} of ${B.filter((r) => onFace(r.i)).length}`,
 );
 ok(
-	'…and the head is held at its limit there',
-	far.every((r) => Math.abs(r.neck - report.head.limit) < 1.5),
-	far.map((r) => r1(r.neck)).join(' '),
+	// The turns' keys hold within 1°: the chest's alone is 3 units at the face.
+	'…and there the eyes’ and mouth’s middle lands on the face’s across the neck (within 4)',
+	reachMiss < 4,
+	r1(reachMiss),
+);
+ok(
+	'…and the neck is held at its limit there',
+	farBend.every((d) => Math.abs(Math.abs(d) - report.neck.limit) < 1.5),
+	farBend.map(r1).join(' '),
 );
 
 // Only the limbs' turns change, through ordinary keys; the Rigger shows what the game plays.
@@ -510,20 +570,33 @@ const limbs = new Set([
 	'lower_arm_r',
 	'hand_r',
 ]);
+// The neck bends: it and what hangs from it turn against a bent parent (the head's world turn is
+// the face's either way).
+const underNeck = new Set(['neck', 'neck_upper', 'head', 'head_image', 'hair_back']);
 const same = Object.keys(angles.solved.bones3d).filter(
 	(b) =>
 		!limbs.has(b) &&
+		!underNeck.has(b) &&
 		JSON.stringify(angles.solved.bones3d[b]) !== JSON.stringify(follow.solved.bones3d[b]),
 );
-ok('every bone but the limbs keeps the Angles-only turns', same.length === 0, same.join(', '));
-const anim = follow.irig.animations.imp;
 ok(
-	'the root and the neck carry plain 2D translate keys',
+	'every bone but the limbs and the neck keeps the Angles-only turns',
+	same.length === 0,
+	same.join(', '),
+);
+const anim = follow.irig.animations.imp;
+const neckKeys = ['neck', 'neck_upper'].flatMap((b) => follow.solved.keys2d[b]?.translate ?? []);
+ok(
+	'the root carries plain 2D translate keys, the neck’s held at its setup',
 	anim.bones.root.translate.length > 1 &&
-		anim.bones.neck.translate.length > 1 &&
-		[...anim.bones.root.translate, ...anim.bones.neck.translate].every(
-			(k) => Number.isFinite(k.x) && Number.isFinite(k.y),
-		),
+		anim.bones.root.translate.every((k) => Number.isFinite(k.x) && Number.isFinite(k.y)) &&
+		neckKeys.length > 0 &&
+		neckKeys.every((k) => k.x === 0 && k.y === 0),
+	JSON.stringify(neckKeys),
+);
+ok(
+	'the neck bends with 3D keys on both its bones',
+	['neck', 'neck_upper'].every((b) => follow.solved.bones3d[b]?.orient?.length > 1),
 );
 ok(
 	'the moves the root’s channels made are the fit’s now (not keyed twice)',
@@ -651,15 +724,16 @@ for (const [what, run, rows] of [
 			}),
 		],
 		['a pole inside its limb', withPos({ limbs: [{ ...pos.limbs[0], pole: 'hand_l' }] })],
-		['a head bone turned in 3D', withPos({ head: { ...pos.head, bone: 'head' } })],
+		['a neck bone turned in 3D', withPos({ neck: { ...pos.neck, bones: ['head'] } })],
+		['a neck that is not a chain', withPos({ neck: { ...pos.neck, bones: ['neck', 'head'] } })],
 		[
-			'a head mark not under its bone',
-			withPos({ head: { ...pos.head, marks: [{ point: { pose: 11 }, bone: 'chest' }] } }),
+			'a neck mark not under its top bone',
+			withPos({ neck: { ...pos.neck, marks: [{ point: { pose: 11 }, bone: 'chest' }] } }),
 		],
-		['a head limit of 0', withPos({ head: { ...pos.head, limit: 0 } })],
+		['a neck limit of 0', withPos({ neck: { ...pos.neck, limit: 0 } })],
 		[
 			'a face point the tracker does not have',
-			withPos({ head: { ...pos.head, marks: [{ point: { face: [478] }, bone: 'eye_l' }] } }),
+			withPos({ neck: { ...pos.neck, marks: [{ point: { face: [478] }, bone: 'eye_l' }] } }),
 		],
 	];
 	for (const [what, t] of bad) ok(`validator refuses ${what}`, T.rigTemplateProblem(t) !== null);

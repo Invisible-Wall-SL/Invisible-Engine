@@ -416,7 +416,8 @@ try {
 		const a = rawDoc.animations.take;
 		return {
 			jaw: a.bones.jaw.translate.map((k) => [k.time, k.y]),
-			nod: a.bones.neck.rotate.map((k) => [k.time, k.value]),
+			// Head nod shares a nod along the neck: the two bones together.
+			nod: a.bones.neck.rotate.map((k, i) => [k.time, k.value + (a.bones.neck_upper?.rotate?.[i]?.value ?? 0)]),
 			lid: (a.slots.eyelid_l.attachment || []).map((k) => [k.time, k.name || null]),
 			mouth: a.slots.mouth.attachment.map((k) => [k.time, k.name || null]),
 		};
