@@ -1561,6 +1561,67 @@ export const FX_PRESETS: FxPreset[] = [
 			}),
 	},
 	{
+		key: 'banknotes',
+		label: 'Banknotes',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 1.2, max: 1.8 },
+				frequency: 0.06,
+				maxParticles: 60,
+				behaviors: [
+					{
+						type: 'alpha',
+						config: {
+							alpha: {
+								list: [
+									{ time: 0, value: 1 },
+									{ time: 0.7, value: 1 },
+									{ time: 1, value: 0 },
+								],
+							},
+						},
+					},
+					scale(0.45, 0.4),
+					{
+						type: 'rotation',
+						config: { minStart: 220, maxStart: 320, minSpeed: -200, maxSpeed: 200, accel: 0 },
+					},
+					accel(0, 420, 120, 260, false),
+					torus(6),
+				],
+			}),
+	},
+	{
+		key: 'embers',
+		label: 'Embers',
+		build: () =>
+			baseConfig({
+				lifetime: { min: 0.6, max: 1.2 },
+				frequency: 0.012,
+				maxParticles: 150,
+				behaviors: [
+					{
+						type: 'alpha',
+						config: {
+							alpha: {
+								list: [
+									{ time: 0, value: 1 },
+									{ time: 0.6, value: 0.9 },
+									{ time: 1, value: 0 },
+								],
+							},
+						},
+					},
+					scale(0.18, 0.04),
+					colorList('#ffd27a', '#ff3b1d'),
+					rotStatic(270, 40),
+					accel(0, -120, 30, 90),
+					torus(5),
+					blend('add'),
+				],
+			}),
+	},
+	{
 		key: 'magic',
 		label: 'Magic glow',
 		build: () =>

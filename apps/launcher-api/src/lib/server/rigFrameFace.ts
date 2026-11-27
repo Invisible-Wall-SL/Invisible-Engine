@@ -84,8 +84,8 @@ const FACE_CORE = 0.6;
 /** A head drawn without its face: the face's region reaches this share of the way to its ink. */
 const APART_REACH = 0.9;
 /** The furthest a 3D import turns and nods a drawn face (its cannot list: about 40°, and 25°). */
-const TURN_3D = (40 * Math.PI) / 180;
-const NOD_3D = (25 * Math.PI) / 180;
+export const TURN_3D = (40 * Math.PI) / 180;
+export const NOD_3D = (25 * Math.PI) / 180;
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
@@ -670,7 +670,7 @@ function roomScales(
 }
 
 /** The convex hull of `pts`, counter-clockwise (Andrew's monotone chain). */
-function convexHull(pts: readonly P[]): P[] {
+export function convexHull(pts: readonly P[]): P[] {
 	const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 	const cross = (o: P, a: P, b: P) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
 	const half = (list: P[]) => {
@@ -686,7 +686,7 @@ function convexHull(pts: readonly P[]): P[] {
 }
 
 /** Whether `p` lies inside the counter-clockwise convex polygon `hull`, or within `margin` of it. */
-function inside(hull: readonly P[], p: P, margin = 0): boolean {
+export function inside(hull: readonly P[], p: P, margin = 0): boolean {
 	for (let i = 0; i < hull.length; i++) {
 		const [a, b] = [hull[i], hull[(i + 1) % hull.length]];
 		const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);

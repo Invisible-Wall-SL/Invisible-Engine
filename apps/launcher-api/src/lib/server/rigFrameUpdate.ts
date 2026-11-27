@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { FrameSourceDoc } from '../rigFrameSource';
-import { fitTemplate, frameWorld, type Affine, type RigFit } from './rigTemplateFit';
+import {
+	HEAD_TURN_BONES,
+	fitTemplate,
+	frameWorld,
+	type Affine,
+	type RigFit,
+} from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
 /**
@@ -394,6 +400,8 @@ export interface FrameUpdateReport {
 	handEdited: { part: string; kept: boolean }[];
 	/** Props new to the rig: a bone and a slot each. */
 	added: string[];
+	/** The head turn's bones new to the rig (frame-to-rig §13.1g), its head weighted to them. */
+	turned: string[];
 	/** What the cut no longer makes, removed, with what named it; `keptBone` when its bone stayed. */
 	removed: (Removal & { references: string[]; keptBone: boolean })[];
 	/** A prop the cut hangs from another bone now, or with another motion: its bone re-hung. */
@@ -406,6 +414,78 @@ export interface FrameUpdateReport {
 	slotless: string[];
 }
 
+type MergeInput = Pick<FrameUpdateInput, 'current' | 'fresh' | 'made' | 'props'>;
+
+/** Whether a name is a prop's: `prop_…`, or one the input names (a sheet's custom part, named freely). */
+function propTest(input: Pick<FrameUpdateInput, 'made' | 'props'>): (name: string) => boolean {
+	const named = new Set([...input.props, ...input.made.props].map((p) => p.name));
+	return (name) => name.startsWith('prop_') || named.has(name);
+}
+
+/** What the rig was made with that the cut (its attachments `made`) no longer makes. */
+function goneParts(
+	input: Pick<FrameUpdateInput, 'made'>,
+	made: { has(name: string): boolean },
+	isProp: (name: string) => boolean,
+): Removal[] {
+	return Object.entries(input.made.parts)
+		.filter(([name]) => !made.has(name))
+		.map(([name, was]): Removal => ({
+			name,
+			kind: isProp(name) ? 'prop' : 'part',
+			slot: was.slot,
+		}));
+}
+
+/**
+ * New props' slots, drawn where the build draws them (`fresh`, back to front): after the slot before
+ * them there, else last. Each is spliced into `slots` at `at` in turn.
+ */
+function newSlotPlaces<S extends { name: string }>(
+	slots: readonly { name: string }[],
+	fresh: readonly S[],
+	isProp: (name: string) => boolean,
+): { at: number; slot: S }[] {
+	const names = slots.map((s) => s.name);
+	const out: { at: number; slot: S }[] = [];
+	for (let i = 0; i < fresh.length; i++) {
+		const s = fresh[i];
+		if (!isProp(s.name) || names.includes(s.name)) continue;
+		let at = names.length;
+		for (let j = i - 1; j >= 0; j--) {
+			const k = names.indexOf(fresh[j].name);
+			if (k >= 0) {
+				at = k + 1;
+				break;
+			}
+		}
+		names.splice(at, 0, s.name);
+		out.push({ at, slot: s });
+	}
+	return out;
+}
+
+/**
+ * The slots `frameRigUpdate` leaves the rig, by name, back to front: its own less each prop the cut
+ * no longer makes, and each new prop's drawn where the build draws it. Reads only the rig's slots,
+ * so `current` may be the rig's outline (its slots, and its skins' attachment names by slot).
+ */
+export function mergedSlots(input: MergeInput): string[] {
+	const fresh = input.fresh as Doc;
+	const isProp = propTest(input);
+	const made = new Set(madeAttachments(fresh).map((m) => m.name));
+	const drop = new Set(
+		goneParts(input, made, isProp)
+			.filter((r) => r.kind === 'prop')
+			.map((r) => r.slot),
+	);
+	const slots = ((input.current as Doc).slots ?? []).filter((s) => !drop.has(s.name));
+	const names = slots.map((s) => s.name);
+	for (const { at, slot } of newSlotPlaces(slots, fresh.slots ?? [], isProp))
+		names.splice(at, 0, slot.name);
+	return names;
+}
+
 /** The rig with the new cut's parts in it, and what changed. Neither input is modified. */
 export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: FrameUpdateReport } {
 	const doc = structuredClone(input.current) as Doc;
@@ -414,6 +494,7 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		replaced: [],
 		handEdited: [],
 		added: [],
+		turned: [],
 		removed: [],
 		rehung: [],
 		deformDropped: [],
@@ -424,28 +505,23 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 	const freshBones = new Map(fresh.bones.map((b) => [b.name, b]));
 	const freshNames = fresh.bones.map((b) => b.name);
 	const reorder = keepDrawOrders(doc);
-	// A prop is `prop_…`, or one the input names (a sheet's custom part, named freely).
-	const named = new Set([...input.props, ...input.made.props].map((p) => p.name));
-	const isProp = (name: string) => name.startsWith('prop_') || named.has(name);
+	const isProp = propTest(input);
 
 	// What the cut no longer makes goes first, so the bones it frees do not stay numbered.
-	for (const [name, was] of Object.entries(input.made.parts)) {
-		if (made.has(name)) continue;
-		const r: Removal = isProp(name)
-			? {
-					name,
-					kind: 'prop',
-					slot: was.slot,
-					...(doc.bones.some((b) => b.name === name) ? { bone: name } : {}),
-				}
-			: { name, kind: 'part', slot: was.slot };
+	for (const one of goneParts(input, made, isProp)) {
+		const r: Removal =
+			one.kind === 'prop' && doc.bones.some((b) => b.name === one.name)
+				? { ...one, bone: one.name }
+				: one;
 		const refs = references(doc, r);
 		const { keptBone } = remove(doc, r);
 		report.removed.push({ ...r, references: refs, keptBone });
 	}
 
-	// New props' bones, appended in the build's order (a parent before its child), so nothing moves.
+	// New props' bones and the head turn's, appended in the build's order (a parent before its
+	// child), so nothing moves.
 	const has = (n: string) => doc.bones.some((b) => b.name === n);
+	const turning = new Set<string>(HEAD_TURN_BONES);
 	const nearest = (n: string): string => {
 		for (
 			let b: Bone | undefined = freshBones.get(n);
@@ -456,9 +532,9 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		return doc.bones[0].name;
 	};
 	for (const b of fresh.bones) {
-		if (has(b.name) || !isProp(b.name) || !made.has(b.name)) continue;
+		if (has(b.name) || !((isProp(b.name) && made.has(b.name)) || turning.has(b.name))) continue;
 		doc.bones.push(placedOn(b, nearest(b.parent ?? b.name), fresh, doc));
-		report.added.push(b.name);
+		(turning.has(b.name) ? report.turned : report.added).push(b.name);
 	}
 	// A prop whose bone or motion the cut changed hangs where the new build hangs it.
 	const before = new Map(input.made.props.map((p) => [p.name, p]));
@@ -481,22 +557,10 @@ export function frameRigUpdate(input: FrameUpdateInput): { doc: Json; report: Fr
 		report.rehung.push(p.name);
 	}
 
-	// New props' slots, drawn where the build draws them: after the slot before them there.
 	doc.slots ??= [];
 	const freshSlots = fresh.slots ?? [];
-	for (let i = 0; i < freshSlots.length; i++) {
-		const s = freshSlots[i];
-		if (!isProp(s.name) || doc.slots.some((x) => x.name === s.name)) continue;
-		let at = doc.slots.length;
-		for (let j = i - 1; j >= 0; j--) {
-			const k = doc.slots.findIndex((x) => x.name === freshSlots[j].name);
-			if (k >= 0) {
-				at = k + 1;
-				break;
-			}
-		}
-		doc.slots.splice(at, 0, { ...s, bone: has(s.bone) ? s.bone : nearest(s.bone) });
-	}
+	for (const { at, slot } of newSlotPlaces(doc.slots, freshSlots, isProp))
+		doc.slots.splice(at, 0, { ...slot, bone: has(slot.bone) ? slot.bone : nearest(slot.bone) });
 
 	// Every attachment the cut makes, bound to the rig's bones by name.
 	doc.skins ??= [];
@@ -742,7 +806,7 @@ export function madeParts(
 	const boneNames = d.bones.map((b) => b.name);
 	const want = new Set(names);
 	const skin = (d.skins ?? []).find((s) => s.name === 'default') ?? d.skins?.[0];
-	const out: Record<string, { slot: string; hash: string }> = {};
+	const out: Record<string, { slot: string; hash: string }> = Object.create(null);
 	for (const [slot, by] of Object.entries(skin?.attachments ?? {}))
 		for (const [name, att] of Object.entries(by))
 			if (want.has(name) && isRecord(att))

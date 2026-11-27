@@ -1688,8 +1688,10 @@ are sitting, and I can't control that at setup phase. This is still a 2D rig in 
   rig had, or draws a slot new to it that a depth control steps (a prop worn anew on an arm); a prop
   worn elsewhere is not judged. A slot drawn wrong that the list does not name is worded for Setup's
   slots. 🗺 Edit mapping opens the list from the rig's own slot order, so a reorder in Setup's slots
-  survives an update that does not touch the list; its preview sends the open rig (`rig`) and is
-  judged by the same `layersJudged`, else draws the list unjudged.
+  survives an update that does not touch the list; its preview sends the open rig (`rig`: its
+  slots, its skins' attachment names, the mapping it keeps) and is judged by the update's own rule
+  (`sheetLayersApplied`) on the slots the update's merge leaves (`mergedSlots`); without a rig it
+  refuses what 🦴 Create rig refuses.
 - **Props are real slots.** A sheet's prop is a slot of its own on a bone of its own (`RigFitProp.at`),
   so Setup's ⋮⋮ (#1893) drags it as any slot; the bone tree shows it under its host's `_image` bone.
 
@@ -1722,6 +1724,45 @@ the lower lip and the upper lip, instead of different mouth shapes."
   new bone of its own under the template bone the author picks, placed on a part's drawing as a prop
   is, in Layers. 🔄 Update rig treats a custom part as the prop it is (`frameRigUpdate` takes the
   props the input names, not only `prop_…`).
+
+### 13.1g ↻ Head turn — the drawn head turns round (2026-11-26)
+
+The owner, on a 3D capture of `NellyAnimTest`: "my head is still not rotating … I guess I need some
+extra bones on the head to give the impression that is rotating, cause the facial bones are working
+perfectly". Diagnosed on their region names (`sheet-head.mjs`): a capture's roll already turns the
+whole head; a yaw or a nod slid the features over a still head (its one drawing square to the
+viewer), the glasses (on `head_image`) not at all, and a face found on the head not even its face
+(`roomScales` left it no room).
+
+- **The 2D cut-out turn** (`rigHeadTurn.ts`, from `sheetRig` for a drawn head): the head's mesh is
+  weighted in a dome about the face — a **plateau** whole on `face` over the features (their regions
+  where found, their drawings where apart; 0.45–0.55 of the way to the outline, 0.8 found), falling to
+  a **ring** of four bones under the head (`head_turn_l/r/d/u`, `HEAD_TURN_BONES`, one `RigSkinSpot`
+  `split` by side) at 0.45 of the face's depth, falling to the **outline** on `head_image`. Below the
+  face the ring is whole down to the drawing's edge (the chin and jaw line turn over the neck); the
+  ring is drawn in until the drawing's edges above the chin lie on or past it (a sheet's drawing sits
+  at a slant to the face).
+- **Depths, not new machinery**: the ring, the lips and jaw (a little in front of the eyes) and each
+  prop worn on the head's drawing (re-hung on `head` at the dome's depth there, in front; half the
+  head's width behind it when the Layers draw it behind) are ordinary bones at a depth
+  (`RigFit.turn` → the fitted template's `rig3d.depths`, so `rig3d.json`); the face's own depth is set
+  by the head turn (`features.scale.face`). A 3D clip bakes them into plain keys as it bakes the
+  face's parallax; the Head turn / Head up-down controls slide each by its depth as they slide the
+  face (`slidByDepth`; a bone another control moves that way keeps its depth in 3D alone).
+- **Never folds at 1×**: the face's depth is the template's round head at the drawing's half-width,
+  cut until a 40° turn or a 25° nod squeezes no skin past 0.9 — measured on a lattice with the head
+  card's own narrowing by the cosine. On the owner's shape (drawn apart) a 25° turn slides the face 20
+  rig units (15.9 before), the round part-way, the outline 0; found on the head, 5.3 (0 before).
+- **↻ Head turn** in the dialog's top row (`SheetMapping.turn`, 0 off … 2, none = 1): the strength
+  scales the fold-safe depth (past 1× a turn folds the skin sooner: 2× past about 20°). 🔄 Update rig
+  gives a rig made before it the head turn: its ring appended after the rig's bones, the head
+  rebuilt, the props re-hung (`frameRigUpdate` `turned`), the old rig's as-made build without one (no
+  false hand edit), and the update's `depths` (the face's, the ring's, the props') written into the
+  rig's `rig3d.json`; the mapping's save writes the fit into `template.json` so the Controls drive it.
+- **Reuse**: 🎞 Frame to rig's head and a template rig take it by setting `RigFit.turn` and the
+  head's skin from `headTurn` (not wired: a frame-made head is the cut's whole face, found, and turns
+  as the found case does). Ears drawn on the head move as the head card narrows; drawn apart they
+  stay on `head` (no bone of their own yet).
 
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
@@ -1780,7 +1821,9 @@ white under pupil under lids under the glasses, the glasses under the front hair
 the page's list the same, and the list may still put the glasses behind the eyes; 2 mutants);
 `sheet-rig.mjs` `draworder` (the head's props over the face, under the front hair). `sheet-rig-update.mjs` `layers`
 (a Setup reorder kept while the list is unchanged or opened from the rig; a changed list applied,
-every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-rig-browser.mjs` (the list
+every other slot and a draw-order key's drawing kept; 4 mutants). `sheet-layers-preview.mjs`, a gate of
+its own for `check:all`'s five minutes (🗺 Edit mapping's preview judges the slots 🔄 Update rig's merge
+leaves and warns exactly when it refuses, in its words; without a rig, as 🦴 Create rig). `sheet-rig-browser.mjs` (the list
 as the launcher orders it; ⋮⋮ dragged with a mouse and a pen through real pointer input; Ctrl+[,
 Ctrl+Shift+] / [; ◧ Arranged in the new order before the launcher answers; the depth control's word
 under the list; sent with the create and the rig drawn so; ↺ Reuse brings it back; Setup's ⋮⋮ drags a
@@ -1803,6 +1846,15 @@ Look on the drawn lids and pupils; 2 mutants);
 `sheet-rig-browser.mjs` (the Face group's jointed rows and tooltip, ＋🦴, the launcher drawing them,
 the report; 5 page mutants, `--only-mutants` to run a subset).
 
+The head (§13.1g), on the owner's region names (`owner-sheet.mjs`): `sheet-head.mjs` `roll` (a 3D
+capture's roll turns the head's drawing whole, the features and glasses round it; 3 mutants) and
+`gain` (the import's Head gain scales a 3D head turn; 2 mutants); `sheet-head-turn.mjs` `yaw` / `found`
+(a 25° turn: the face's slide past the turn-off rig's, the skin under its middle with it, the round
+part-way, the outline still, the near side squashed and the far stretched, each ring bone on its side,
+the glasses ≥ the eyes, the nose and lips >, the earring <, a prop behind the head the other way),
+`nod` (the middle and the chin with the face, the skull's top still), `fold` (1× at 40° and 25°, 2× at
+20°: no triangle flips or keeps under 5%), `controls`, `strength` and `update`; 11 mutants.
+
 ### 13.4 Owed
 
 - Not verified on the authed page against R2: verified in Chromium on the shipped page with the API
@@ -1813,8 +1865,9 @@ the report; 5 page mutants, `--only-mutants` to run a subset).
   the wrist only); Full body's legs (rigid on their bones: `skinBends` knows the arms only).
 - Face tracking on a stylised head may find no face; the head then turns its middle with the face
   (`apartFace`, §13.1c), not its own drawn features.
-- A head turn on a face drawn apart moves the face at about half the template's (the room a 3D
-  import's 40° turn leaves the head's skin); a ¾ or profile head is still its drawing by angle.
+- A head turn (§13.1g) moves the face at about 0.6 of the template's round head's on the owner's
+  shape (the room a 40° turn leaves a pinned outline), and little where a found face fills its drawing
+  (5 units at 25°); a ¾ or profile head is still its drawing by angle.
 - Not reproduced on the owner's real `S_NellyAnimTest` (production reads refused in auto mode): on
   their shape only.
 - A capture's clipping (2026-11-26) was the 2.5D bake's draw order, not the sheet's meshes: fixed in

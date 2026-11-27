@@ -84,6 +84,11 @@ fixed in a session that never pushed the merge, and branches that were rebased.
    creates or updates a workflow file. Its docs don't say whether that includes a merge that only
    brings in `main`'s own workflow change. If it does, about 1 resolution in 6 is affected. 15A
    tests it first.
+   - **15A's answer (2026-11-27, #1940):** `update-branch` as the App was **accepted** with
+     `main`'s change to `.github/workflows/bug-fix.yml` in the merge (merge commit `bee763a`). So
+     Update from main is unaffected. A merge commit the launcher builds through the Git Data API
+     and pushes with a ref update (15C's Accept) is still untested: 15C proves it on its first
+     workflow-bringing resolution, and falls back to item 10 if GitHub refuses.
 
 ## Decision
 

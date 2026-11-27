@@ -169,7 +169,8 @@ async function openW() {
 	await evaluate('location.reload(); true').catch(() => {});
 	await wait(300);
 	await waitFor('typeof skeletons !== "undefined" && skeletons.length === 1', 30000);
-	await evaluate('window.confirm = () => true; window.alert = () => {}; window.prompt = () => null; document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); true');
+	// 🧲 Snap to bone off: W's sparks share one origin, and a drag measured against the mouse's must not snap
+	await evaluate('window.confirm = () => true; window.alert = () => {}; window.prompt = () => null; boneSnap = false; document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); true');
 	await evaluate(`(() => { document.getElementById("loadRigBtn").click(); const row = [...document.querySelectorAll("#list .item")].find((d) => d.querySelector(".nm").textContent === "W"); row.click(); return true; })()`);
 	await waitFor('!document.getElementById("loadingOverlay").classList.contains("on")', 30000);
 	await waitFor('!!skeleton && !!rawDoc', 15000);
@@ -232,7 +233,9 @@ async function suite(quiet) {
 
 	await step('3. Animate: a drag on a bone keys its translate, a drag on the ring keys its rotate', async () => {
 		await setMode('animate');
-		await evaluate('newAnimation(); animWorkLen[curAnim] = 1; graphSnap = false; tlSelOnly = true; true');
+		// the dopesheet takes the bottom of the stage: frame the rig again, so the bone picked in Setup is
+		// not left under the mode bar (a press there never reaches the stage)
+		await evaluate('newAnimation(); animWorkLen[curAnim] = 1; graphSnap = false; tlSelOnly = true; fitView(); true');
 		await frames(2);
 		// What the bone's pose adds to its setup now: a key is written as that, so a drag's own share is
 		// the key less this.

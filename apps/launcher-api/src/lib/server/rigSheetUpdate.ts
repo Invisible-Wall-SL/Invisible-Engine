@@ -14,18 +14,25 @@
  *   would refuse from the list) unless the author changed the mapping's Layers list since and it
  *   moves a slot; then the slots it lists take its order, held to the depth controls as a create's.
  */
-import type { SheetMapping } from '../rigSheetMap';
-import { inDrawOrder } from '../rigSlotOrder';
+import type { SheetMapping, SheetProp } from '../rigSheetMap';
 import {
 	frameRigUpdate,
 	keepDrawOrders,
 	madeAttachments,
 	madeParts,
+	mergedSlots,
+	type FrameUpdateInput,
 	type FrameUpdateReport,
 } from './rigFrameUpdate';
 import type { Fitted } from './rigFrameFit';
-import { layersJudged, sheetLayerOrder, sheetRig, slotsAgainstDepth } from './rigSheetFit';
-import { fitTemplate, frameWorld } from './rigTemplateFit';
+import {
+	sheetLayersApplied,
+	sheetPreview,
+	sheetRig,
+	type LayersFitted,
+	type SheetPreview,
+} from './rigSheetFit';
+import { HEAD_TURN_BONES, fitTemplate, frameWorld, type RigFit } from './rigTemplateFit';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 
 type Json = Record<string, unknown>;
@@ -51,6 +58,11 @@ export type FrameClipChange = 'unchanged' | 'replaced' | 'added' | 'removed' | '
 
 export interface SheetUpdateResult {
 	doc: Json;
+	/**
+	 * The depths the mapping's head turn gives its bones and what the head wears (z in the parent's
+	 * frame, rig units): a rig with 3D data takes them into its `rig3d.json`.
+	 */
+	depths: Record<string, number>;
 	report: Omit<FrameUpdateReport, 'handEdited'> & {
 		handEdited: { part: string; kept: boolean; canKeep: boolean }[];
 		frame: FrameClipChange;
@@ -96,7 +108,7 @@ export function sameKeys(a: unknown, b: unknown): boolean {
 
 /**
  * The rig a mapping builds, as 🦴 Create rig builds it but in the template's order: the layers are
- * applied to the merged rig, and held to the depth controls only as `layersJudged` says.
+ * applied to the merged rig, and held to the depth controls only as `sheetLayersApplied` says.
  */
 function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMapping) {
 	const fitted = sheetRig(t, regions, m, { fitLayers: false });
@@ -108,24 +120,47 @@ function build(t: RigTemplate, regions: readonly TemplateRegion[], m: SheetMappi
 	};
 }
 
-/** The open rig with the edited mapping's parts in it, and what changed; refused when it does not fit. */
-export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
+/** What 🔄 Update rig merges into the open rig (`frameRigUpdate`), and the edited mapping's fit. */
+export function merging(o: SheetUpdateInput): Fitted<{
+	fit: RigFit;
+	input: FrameUpdateInput;
+	/** The kept mapping built today, when it still builds. */
+	asMade: Json | null;
+	sameRegion: (part: string) => boolean;
+}> {
 	const now = build(o.template, o.regions, o.mapping);
 	if (!now.ok) return now;
 	const { skeleton: fresh, fit } = now.value;
 	const freshBind = frameWorld(fitTemplate(o.template, fit).bones, fit.frame);
-	// As made: the kept mapping built today; a kept mapping that no longer builds takes the rig's own
-	// attachments as made, so nothing reads as edited by hand.
-	const was = build(o.template, o.regions, o.was);
+	// As made: the kept mapping built today (a rig made before the head turn, none of its bones, built
+	// without one); a kept mapping that no longer builds takes the rig's own attachments as made, so
+	// nothing reads as edited by hand.
+	const turnedBefore = ((o.current.bones ?? []) as { name?: unknown }[]).some((b) =>
+		(HEAD_TURN_BONES as readonly unknown[]).includes(b.name),
+	);
+	const keptAs = turnedBefore || o.was.turn !== undefined ? o.was : { ...o.was, turn: 0 };
+	const was = build(o.template, o.regions, keptAs);
 	const asMade = was.ok ? was.value.skeleton : o.current;
 	const names = was.ok
 		? madeAttachments(asMade).map((m) => m.name)
 		: [...Object.keys(o.was.parts), ...o.was.props.map((p) => p.name)];
+	// Each prop's bone as its build hangs it (one worn on the head hangs from the head when it turns).
+	const boneOf = (built: RigFit | undefined, p: SheetProp) =>
+		built?.props?.find((x) => x.name === p.name)?.bone ?? p.bone;
 	const made = {
 		parts: madeParts(asMade, names),
-		props: o.was.props.map((p) => ({ name: p.name, take: true, motion: 'rides', bone: p.bone })),
+		props: o.was.props.map((p) => ({
+			name: p.name,
+			take: true,
+			motion: 'rides',
+			bone: boneOf(was.ok ? was.value.fit : undefined, p),
+		})),
 	};
-	const props = o.mapping.props.map((p) => ({ name: p.name, motion: 'rides', bone: p.bone }));
+	const props = o.mapping.props.map((p) => ({
+		name: p.name,
+		motion: 'rides',
+		bone: boneOf(fit, p),
+	}));
 	// A hand-edited mesh may stay while its part draws the region it drew.
 	const sameRegion = (part: string) =>
 		[o.was.parts[part]?.region, o.was.props.find((p) => p.name === part)?.region].some(
@@ -135,26 +170,61 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 					(o.mapping.parts[part]?.region ?? o.mapping.props.find((p) => p.name === part)?.region),
 		);
 	const keep = new Set([...(o.keep ?? [])].filter(sameRegion));
-	const { doc, report } = frameRigUpdate({
-		current: o.current,
-		fresh,
-		freshBind,
-		made,
-		props,
-		keep,
-	});
+	return {
+		ok: true,
+		value: {
+			fit,
+			input: { current: o.current, fresh, freshBind, made, props, keep },
+			asMade: was.ok ? asMade : null,
+			sameRegion,
+		},
+	};
+}
+
+/**
+ * The depths a sheet's fit gives the head (z in the parent's frame): the face's, which the head turn
+ * sets, its ring's and those it sets (`RigFit.turn`); none for a template with no 3D setup.
+ */
+export function headTurnDepths(t: RigTemplate, fit: RigFit): Record<string, number> {
+	const depths = fitTemplate(t, fit).rig3d?.depths;
+	if (!depths) return {};
+	const named = [
+		'face',
+		...(fit.turn?.bones ?? []).map((b) => b.name),
+		...Object.keys(fit.turn?.depths ?? {}),
+	];
+	return Object.fromEntries(named.map((b) => [b, depths[b] ?? 0]));
+}
+
+const slotNames = (doc: Json) => ((doc.slots ?? []) as { name: string }[]).map((s) => s.name);
+
+/** The open rig with the edited mapping's parts in it, and what changed; refused when it does not fit. */
+export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
+	const merge = merging(o);
+	if (!merge.ok) return merge;
+	const { fit, input, asMade, sameRegion } = merge.value;
+	const { doc, report } = frameRigUpdate(input);
+	const layers = sheetLayersApplied(
+		o.template,
+		fit,
+		o.mapping,
+		o.was.layers,
+		slotNames(o.current),
+		slotNames(doc),
+	);
+	if (!layers.ok) return layers;
 
 	// The arrangement: the new build's `frame` clip, unless the author keyed theirs since.
 	doc.animations ??= {};
 	const animations = doc.animations as Json;
 	const [cur, old, neu] = [
 		animations.frame,
-		was.ok ? (asMade.animations as Json | undefined)?.frame : undefined,
-		(fresh.animations as Json | undefined)?.frame,
+		(asMade?.animations as Json | undefined)?.frame,
+		(input.fresh.animations as Json | undefined)?.frame,
 	];
 	let frame: FrameClipChange = 'unchanged';
 	if (!sameKeys(neu, old)) {
-		if (cur !== undefined && !(was.ok && sameKeys(cur, old))) frame = 'kept';
+		if (cur !== undefined && !(asMade && sameKeys(cur, old))) frame = 'kept';
 		else if (neu === undefined) {
 			delete animations.frame;
 			frame = 'removed';
@@ -164,32 +234,23 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 		}
 	}
 	// The layers: the edited list's order when the author changed it and it moves a slot, every
-	// draw-order key still drawing what it drew; else the rig's own order stays (a Setup reorder
-	// included, even one a depth control would refuse from the list). The order applied is held to
-	// the depth controls as `layersJudged` says (as the page's preview judges).
+	// draw-order key still drawing what it drew; else the rig's own order stays.
 	const layered: string[] = [];
-	if (JSON.stringify(o.mapping.layers ?? null) !== JSON.stringify(o.was.layers ?? null)) {
-		const want = sheetLayerOrder(o.template, o.mapping);
+	if (layers.value) {
+		const now = layers.value;
 		const slots = (doc.slots ?? []) as { name: string }[];
 		const byName = new Map(slots.map((s) => [s.name, s]));
 		const was = slots.map((s) => s.name);
-		const now = inDrawOrder(was, want);
-		if (now.some((n, i) => n !== was[i])) {
-			const had = ((o.current.slots ?? []) as { name: string }[]).map((s) => s.name);
-			const against =
-				layersJudged(o.template, fit, o.mapping, o.was.layers, had) &&
-				slotsAgainstDepth(fitTemplate(o.template, fit).channels, now, new Set(want));
-			if (against) return { ok: false, problem: against };
-			const back = keepDrawOrders(doc as Parameters<typeof keepDrawOrders>[0]);
-			doc.slots = now.map((n) => byName.get(n)!);
-			back();
-			layered.push(...now.filter((n, i) => n !== was[i]));
-		}
+		const back = keepDrawOrders(doc as Parameters<typeof keepDrawOrders>[0]);
+		doc.slots = now.map((n) => byName.get(n)!);
+		back();
+		layered.push(...now.filter((n, i) => n !== was[i]));
 	}
 	return {
 		ok: true,
 		value: {
 			doc,
+			depths: headTurnDepths(o.template, fit),
 			report: {
 				...report,
 				handEdited: report.handEdited.map((h) => ({ ...h, canKeep: sameRegion(h.part) })),
@@ -198,4 +259,54 @@ export function updateSheetRig(o: SheetUpdateInput): Fitted<SheetUpdateResult> {
 			},
 		},
 	};
+}
+
+/** The open rig as the 🗺 Edit mapping preview sends it: its slots, back to front, and its skin. */
+export interface SheetRigOutline {
+	slots: readonly string[];
+	/**
+	 * The skin `madeParts` reads (`default`, else the first; none when the rig has no skin): its
+	 * attachment names, by slot.
+	 */
+	skins: readonly { name: string; attachments: Readonly<Record<string, readonly string[]>> }[];
+}
+
+/** An outline as a rig document `merging` reads: its slots, and its skin's attachments by name. */
+export function outlineDoc(rig: SheetRigOutline): Json {
+	return {
+		bones: [],
+		slots: rig.slots.map((name) => ({ name })),
+		skins: rig.skins.map((s) => ({
+			name: s.name,
+			attachments: Object.fromEntries(
+				Object.entries(s.attachments).map(([slot, names]) => [
+					slot,
+					Object.fromEntries(names.map((n) => [n, {}])),
+				]),
+			),
+		})),
+	};
+}
+
+/**
+ * The 🗺 Edit mapping preview of mapping `mapping` over the open rig (`rig`, which keeps mapping
+ * `was`): `sheetPreview` with its layers drawn unjudged, refused when 🔄 Update rig would refuse them
+ * (`sheetLayersApplied`, on the slots the update's merge leaves the rig, `mergedSlots`).
+ */
+export function sheetEditPreview(
+	o: Pick<SheetUpdateInput, 'template' | 'regions' | 'was' | 'mapping'> & { rig: SheetRigOutline },
+): LayersFitted<SheetPreview> {
+	const shown = sheetPreview(o.template, o.regions, o.mapping, { edit: true });
+	if (!shown.ok) return shown;
+	const merge = merging({ ...o, current: outlineDoc(o.rig) });
+	if (!merge.ok) return merge;
+	const layers = sheetLayersApplied(
+		o.template,
+		merge.value.fit,
+		o.mapping,
+		o.was.layers,
+		o.rig.slots,
+		mergedSlots(merge.value.input),
+	);
+	return layers.ok ? shown : layers;
 }
