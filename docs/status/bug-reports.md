@@ -303,6 +303,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
        head has a merge commit that brings in the workflow change).
     5. Close the PR and delete the branch. If refused, ADR-0015's item 10 default applies: the
        person uses GitHub's own Update branch.
+    - **Result (2026-11-27, #1940): accepted.** The owner clicked Update from main; GitHub made
+      merge commit `bee763a` as the App, bringing in `main`'s `.github/workflows/bug-fix.yml`
+      change. The Git Data Accept path (15C) is still untested. #1940 is closed.
 - 2026-11-26 — **A failed check says what to do, and runtime bytes re-record from the page.**
   BUG-20's fix run built the owner's option and opened #1930, which sat Blocked on
   `runtime-bytes` with nothing on the page saying why or how forward: the fix changed
