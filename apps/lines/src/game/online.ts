@@ -164,6 +164,7 @@ import {
 	setRoomDocChange,
 } from '../editor-scenes';
 import { arcadePerf, messageLabel } from './arcadePerf';
+import { notePlayFieldFrame } from './playFieldPhase';
 import { typingInto } from './flowKeys';
 import { zoneArtDrawsRig, zonePropOf, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
@@ -3116,6 +3117,7 @@ export function tickOnline(dtMs: number) {
 		predictAbilities(current, input.buttons, input.seq);
 	});
 	current.me?.frame(dtMs);
+	notePlayFieldFrame(stateOf(current.room).phase === 'running');
 	if (arcadePerf.on) {
 		const room = stateOf(current.room);
 		const me = room.players?.get(current.room.sessionId);

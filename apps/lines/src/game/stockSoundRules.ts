@@ -21,7 +21,15 @@
  */
 export const STOCK_SOUND_RULES = ['always', 'slot', 'devFlow', 'declaration'] as const;
 export type StockSoundRule = (typeof STOCK_SOUND_RULES)[number];
-export type StockSoundConsumer = { file: string; rule: StockSoundRule; names: readonly string[] };
+export type StockSoundConsumer = {
+	file: string;
+	rule: StockSoundRule;
+	names: readonly string[];
+	/** On an `always` row, required: whether a boardless game's code (a play field, a card table)
+	 *  plays it too. `false` for the reels', the book's, the bet's and the win's, which such a game
+	 *  never has. `check-stock-sound-coverage.mjs` fails an `always` row that does not say. */
+	boardless?: boolean;
+};
 
 const WIN_LEVEL_BEDS = [
 	'bgm_winlevel_big',
@@ -34,27 +42,53 @@ const ladder = (stem: string): string[] => [1, 2, 3, 4, 5].map((n) => `${stem}${
 
 /** Every runtime source that writes a stock sound's name, and why. Paths are repo-relative. */
 export const STOCK_SOUND_CONSUMERS: readonly StockSoundConsumer[] = [
+	// The presses: any game's menus and buttons raise them (`components-ui-html`, `components-ui-pixi`).
 	{
 		file: 'apps/lines/src/components/Sound.svelte',
 		rule: 'always',
-		names: ['sfx_btn_general', 'sfx_btn_spin', 'sfx_btn_stop', 'sfx_winlevel_end'],
+		names: ['sfx_btn_general', 'sfx_btn_spin', 'sfx_btn_stop'],
+		boardless: true,
+	},
+	// The super-spin bet mode's switch.
+	{
+		file: 'apps/lines/src/components/Sound.svelte',
+		rule: 'always',
+		boardless: false,
+		names: ['sfx_winlevel_end'],
 	},
 	{
 		file: 'apps/lines/src/game/anticipationPresentation.ts',
 		rule: 'always',
+		boardless: false,
 		names: ['sfx_anticipation', 'sfx_anticipation_start'],
 	},
 	{
 		file: 'apps/lines/src/game/bookEventHandlerMap.ts',
 		rule: 'always',
+		boardless: false,
 		names: ['sfx_scatter_win_v2', 'sfx_winlevel_small'],
 	},
-	{ file: 'apps/lines/src/game/flowEffects.ts', rule: 'always', names: ['sfx_bigwin_coinloop'] },
+	{
+		file: 'apps/lines/src/game/flowEffects.ts',
+		rule: 'always',
+		boardless: false,
+		names: ['sfx_bigwin_coinloop'],
+	},
 	// The coded win ladder: the tiers a project with no authored `winLevels` presents, and the coded
 	// row any authored tier falls back to by level or alias.
-	{ file: 'packages/engine-game/src/game/winLevelMap.ts', rule: 'always', names: WIN_LEVEL_BEDS },
+	{
+		file: 'packages/engine-game/src/game/winLevelMap.ts',
+		rule: 'always',
+		boardless: false,
+		names: WIN_LEVEL_BEDS,
+	},
 	// A Hold and Win preset's tiers: written into a new project's config, and read from code too.
-	{ file: 'packages/game-config/src/holdAndWinPresets.ts', rule: 'always', names: WIN_LEVEL_BEDS },
+	{
+		file: 'packages/game-config/src/holdAndWinPresets.ts',
+		rule: 'always',
+		boardless: false,
+		names: WIN_LEVEL_BEDS,
+	},
 	{
 		file: 'packages/game-config/src/sounds.ts',
 		rule: 'slot',
@@ -143,7 +177,13 @@ function declaredStockSounds(): string[] {
 	];
 }
 
+const codedSounds = (rows: readonly StockSoundConsumer[]): readonly string[] =>
+	[...new Set(rows.filter((c) => c.rule === 'always').flatMap((c) => c.names))].sort();
+
 /** The stock sounds the engine's own code plays whatever a game's data says: their banks always load. */
-export const CODED_STOCK_SOUNDS: readonly string[] = [
-	...new Set(STOCK_SOUND_CONSUMERS.filter((c) => c.rule === 'always').flatMap((c) => c.names)),
-].sort();
+export const CODED_STOCK_SOUNDS: readonly string[] = codedSounds(STOCK_SOUND_CONSUMERS);
+
+/** {@link CODED_STOCK_SOUNDS} on a boardless game: the rows marked `boardless`. */
+export const BOARDLESS_CODED_STOCK_SOUNDS: readonly string[] = codedSounds(
+	STOCK_SOUND_CONSUMERS.filter((c) => c.boardless),
+);

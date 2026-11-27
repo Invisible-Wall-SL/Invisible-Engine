@@ -29,7 +29,9 @@ upload.
   T1–T6 (probe accuracy, Salmons lab run, arcade boot diet + ladder, river chunks, filters into
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
-  - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
+  - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder —
+    in review, PR #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures
+    arcade; the coded slot background stays here, replaced in T3b) ·
     T6 net client — merged #1970 · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
     objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
     #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; owner accepted the sharper,
@@ -3030,6 +3032,74 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `aloft` (144 on a deck) and `depth` for him. Left: the own device still predicts neither the
     deck's row nor its height (a short correction onto it); a salmon thrown from the deck starts
     its arc from the water's level as its lift eases down.
+
+- 2026-11-27 — **Performance T3: an arcade boot loads no slot art or audio, and the quality ladder
+  measures arcade play** ([salmons-performance](../design/salmons-performance.md) T3; branch
+  `claude/salmons-perf-t3-boot`; in review). No config, layout, flow or look change.
+  - **Boardless reach.** The stock-asset walk (`game/stockAssets.ts`) and the stock-sound plan
+    (`game/stockSounds.ts`) take `boardless` (a play field or a card table, `GameMechanic.playField`
+    / `cardTable`; set at boot by `stockAssetBoot.ts` and `EnableSound.svelte`). Such a game walks
+    only its own doc's scenes (the slot fallbacks, the win, buy screens, book and counter, come back
+    only when a flow fires a free-spin switch), has no board mounts (`BoardFrame`, win frame,
+    anticipation) and no symbol rule, keeps the feature background only on a free-spin switch, and
+    keeps `ALWAYS_KEPT` less `goldFont` (`BOARDLESS_ALWAYS_KEPT`). Its code plays only the presses
+    (`stockSoundRules.ts`: every coded row says `boardless: true | false`, held by
+    `check-stock-sound-coverage.mjs`), and its slots only `baseMusic`, when no flow
+    drives its screens (`Sound.svelte`'s boot autoplay). Everything the data names still loads;
+    every doubt still loads everything. A standalone build's plan (`stockAssetBuild.ts`,
+    `stockSoundBuild.ts`) is unchanged, a superset of what the boot loads.
+  - **The coded slot background stays.** Salmons' loading / tap-to-start screen IS the slot
+    sample's purple mine (`foregroundAnimation`, the arcade reference's `background` scene holds
+    only the coded anchor). Removing it changes the look: an owner decision (give the arcade
+    reference its own loading background; then `mm_bg`, 2.9 MB of GPU, goes too).
+  - **The ladder measures arcade.** `game/playFieldPhase.ts`: the 2D arcade runtime notes each
+    frame whether the field is played (online: the room `running`; offline: a body on the field,
+    `ArcadeLoop.bodyCount`), and `Game.svelte` makes that `measuring` and its absence `quiet` for a
+    play-field mechanic. Not the 3D stage: its canvas walks its own ladder (`engine-3d`
+    `createQuality3d`) and the Pixi HUD over it keeps its resolution (review, 2026-11-27). The ladder's steps are unchanged; a switch still lands only in a quiet moment, so in a
+    long round it waits for the next menu or the time between rounds.
+  - **Measured** (`scripts/playtest/arcade-boot-probe.mjs`, new: Salmons' exported config, its
+    data naming no stock sound as a publish ships it, a 390 × 844 phone page at device scale 3 in
+    the headless shell, two runs each, arcade build of main vs the branch): transfer 9.34 → 3.99 MB
+    (54 → 22 files; stock rigs 2.04 → 0.09 MB, stock audio 3.39 → 0.02 MB: 16 banks → `buttons`,
+    `sfx_btn_stop`); GPU textures 41.7 → 23.3–24.1 MB (loaded art 34.2 → 15.9 MB: `reelsFrame`,
+    `mm_bg_feature`, `symbols3`, `SD2_Coin`, `reelhouse_glow`, `transition`, `anticipation`,
+    `symbols`, `big_wins`, `symbolsStatic`, `mm_gold` gone); `bootMs` 6460 / 5802 → 4977 / 4275;
+    `firstFrameMs` 2887 / 2790 → 3298 / 2881 (unchanged: before the stock assets). The stock-asset
+    line went from 25 skipped keys to 36. The loading screen and the river look the same in the
+    frame series. Slow run (`--dpr 1 --round 20 --play 120`, ~10 fps here): main's ladder history
+    stays empty; the branch steps down between rounds (2 → level 1 at 44.9 s), and its trial
+    reverts on "no gain" (this machine is not pixel-bound). Merged with main (#1960's second
+    chance): 0 → 1 at 44.7 s, 1 → 2 at 94.2 s, 2 → 1 on "no gain" at 119.2 s, no BindGroup warning.
+  - **A bug it exposed, fixed** (`pixi-svelte` `AssetsLoader.svelte`): the card sample's only
+    stock assets are now preloads, so nothing was left to load after them, no `await` came before
+    the GPU warm-up, and the state its warm-ups read (the flow's shown screens) re-ran the load
+    effect mid-load: the warm-up ran twice, `cardDeckPick` was mounted ahead twice, and Svelte threw
+    `each_key_duplicate`. The warm-up and the `loaded` flag now run untracked (`finishLoad`), as they
+    always did after an `await`. Main ran it once; the branch twice before the fix, once after.
+  - **A second bug it exposed, fixed** (`pixi-svelte` `renderQuality.ts` `backBufferMsaaOf`):
+    once the ladder steps on an arcade game, its MSAA switch destroyed the back buffer's texture
+    while the present's shader still sampled it as `uTexture` (Pixi's `_presentBackBuffer` leaves
+    it bound until the next present), and Pixi warned "[BindGroup] a 'textureSource' was destroyed
+    while still bound". The switch now retires the texture and destroys it on a later tick, once the
+    present no longer samples it, and destroys the rest on release. Guards:
+    `renderQuality.fixture.ts` (a switch never destroys a bound texture) and
+    `pixi-back-buffer.fixture.mjs` claim 8 (the present binds it so).
+  - **Gates:** `stockAssets.fixture.ts` 12 (new: a boardless game — Salmons, the arcade and card
+    samples keep `foregroundAnimation`, `pressToContinueText`, `progressBar`, `sound`; a transition
+    cue, a free-spin switch, a `gold` text, a placed `Win`, a named symbol rig, a bone effect, an
+    authored background each move exactly their keys; doubt keeps all; every board kind's scene set
+    leaves out exactly what it did on main), `stockSounds.fixture.ts` 18 → 21 (claim 7 and three
+    mutants), every `check:all --only stock,arcade,card,renderQuality,perf` gate, svelte-check at
+    baseline (`apps/lines` 145, `pixi-svelte` 14).
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five intended: the boot code is
+    shared; on main after #1972, with the MSAA fix): lines +412 B gzip, match-3 +401 B, card +388 B,
+    arcade +545 B, arcade3d +487 B — the main bundle each; every other chunk only renamed. Not 0 B for the 2D slot,
+    match-3 and card runtimes: the ladder reads its gate once, when the renderer is made, so the
+    gate is in `Game.svelte`, and the walk's branch is in the shared boot.
+  - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
+    (2 / 2 runs; failed on `each_key_duplicate` before the loader fix, passes on main).
+
 - 2026-11-27 — **Performance T7: everyone else's place in 16 bits, Salmons at 15 states a second**
   (owner: "go ahead with 16-bit positions and patchHz 15"; plan
   [design/salmons-performance](../design/salmons-performance.md) §5; branch

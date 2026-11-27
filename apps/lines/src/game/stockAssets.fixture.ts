@@ -18,6 +18,10 @@
  *     nothing consumes.
  *  7. THE HOOK removes a stock entry only while it is still the stock one.
  *  8. THE SHARED SCENE SELECTION degrades the reference `Win` exactly when the doc places a `win`.
+ * 12. A BOARDLESS GAME (a play field, a card table) keeps what its own scenes and data name and the
+ *     coded background: Salmons, the arcade sample and the card sample load no slot art; a flow's
+ *     transition cue, a free-spin switch, a text in `gold`, a placed `Win`, a named symbol rig each
+ *     bring back exactly their keys; doubt still keeps all; a board's walk is unchanged.
  *
  * The tables against the sources, the asset files and `Game.svelte`'s bound parts are held by
  * `scripts/check-stock-asset-coverage.mjs`.
@@ -25,6 +29,9 @@
 
 import {
 	BUILTIN_COMPONENTS,
+	arcadeReferenceLayout,
+	cardReferenceLayout,
+	getFullSceneSet,
 	type ComponentDef,
 	type LayoutDoc,
 	type LayoutNode,
@@ -32,6 +39,11 @@ import {
 } from 'engine-layout';
 import { createGameConfig } from 'engine-game/src/game/gameConfig';
 import { normalizeGameConfigDoc, symbolsInPlay, type GameConfigDoc } from 'game-config';
+import { ARCADE_DRIVEN_SEED_DOC, CARD_DRIVEN_SEED_DOC } from 'engine-flow-v2';
+import { SALMONS_SEED_DOC } from '../../../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
+import { salmonsReferenceLayout } from '../../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { SALMONS_LEVELS, SALMONS_LOBBY, salmonsConfig } from 'engine-mechanics/src/salmons.js';
+import { SALMONS_MAP_SEED, levelShape, salmonsMapRiver } from 'engine-mechanics/src/salmonsMap.js';
 
 import stockAssets from './assets.ts';
 import compiledConfig from './config.ts';
@@ -980,6 +992,153 @@ check(
 	),
 	[],
 );
+
+console.log('\n12. a boardless game');
+{
+	const river = salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS));
+	const salmonsGame = normalizeGameConfigDoc(
+		salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS }),
+	) as GameConfigDoc;
+	const salmonsDoc = salmonsReferenceLayout(river);
+	const arcadeGame = normalizeGameConfigDoc({ family: 'arcade' }) as GameConfigDoc;
+	const cardGame = normalizeGameConfigDoc({ family: 'card' }) as GameConfigDoc;
+	const field = (
+		doc: LayoutDoc,
+		game: GameConfigDoc,
+		flow: unknown,
+		over: Partial<StockAssetData> = {},
+		inp: Partial<StockAssetsInput> = {},
+	): StockAssetsInput =>
+		input(
+			{ ...stockAssetDataOf({ doc, config: game, flowV2: flow } as never), ...over },
+			{ config: game, symbolsInPlay: symbolsInPlay(game), boardless: true, ...inp },
+		);
+	const BACKGROUND = ['foregroundAnimation', 'pressToContinueText', 'progressBar', 'sound'];
+	const salmons = field(salmonsDoc, salmonsGame, SALMONS_SEED_DOC);
+	check('Salmons keeps its coded background, the press, the loading bar and the audio', kept(salmons), BACKGROUND); // prettier-ignore
+	check('…and keeps all on no question', analyseStockAssets(salmons).keptAllBecause, undefined);
+	check(
+		'on a board the same data keeps the slot art it kept before',
+		kept({ ...salmons, boardless: undefined }),
+		sorted([...BACKGROUND, 'H1', 'explosion', 'symbolsStatic', 'reelsFrame', 'anticipation', 'goldFont', 'bigwin', 'coins', 'foregroundFeatureAnimation', 'reelhouse', 'transition']), // prettier-ignore
+	);
+	check(
+		'a doc with no base game of its own walks the reference one the game mounts',
+		kept(field({ ...salmonsDoc, scenes: salmonsDoc.scenes.filter((s) => s.role !== 'basegame') } as LayoutDoc, salmonsGame, SALMONS_SEED_DOC)).includes('reelsFrame'), // prettier-ignore
+		true,
+	);
+	check('the arcade sample keeps the same', kept(field(arcadeReferenceLayout(), arcadeGame, ARCADE_DRIVEN_SEED_DOC)), BACKGROUND); // prettier-ignore
+	check('the card sample keeps the same', kept(field(cardReferenceLayout(), cardGame, CARD_DRIVEN_SEED_DOC)), BACKGROUND); // prettier-ignore
+
+	const withFlow = (flow: unknown) => field(salmonsDoc, salmonsGame, flow);
+	const cue = (ref: string) => ({
+		...SALMONS_SEED_DOC,
+		graph: {
+			...SALMONS_SEED_DOC.graph,
+			nodes: [...SALMONS_SEED_DOC.graph.nodes, { id: 'cue_x', kind: 'fireCue', ref }],
+		},
+	});
+	check('a flow firing the transition cue keeps its rig', kept(withFlow(cue('transition'))), sorted([...BACKGROUND, 'transition'])); // prettier-ignore
+	check(
+		'a flow firing a free-spin switch brings back the slot fallbacks and the feature background',
+		kept(withFlow(cue('freeSpinCounterShow'))).filter((key) => !BACKGROUND.includes(key)),
+		sorted(['reelsFrame', 'goldFont', 'bigwin', 'coins', 'transition', 'foregroundFeatureAnimation']), // prettier-ignore
+	);
+	const placed = (nodes: LayoutNode[], scenes: Scene[] = []) =>
+		({
+			...salmonsDoc,
+			scenes: [
+				...salmonsDoc.scenes,
+				...(nodes.length ? [scene('extra', nodes, { space: 'canvas' })] : []),
+				...scenes,
+			],
+		}) as LayoutDoc;
+	check(
+		'a text in the stock gold face keeps its font',
+		kept(field(placed([node({ id: 't', kind: 'text', text: 'x', font: 'gold' })]), salmonsGame, SALMONS_SEED_DOC)), // prettier-ignore
+		sorted([...BACKGROUND, 'goldFont']),
+	);
+	check(
+		'a placed Win keeps the win rig, the coins and gold',
+		kept(field(placed([node({ id: 'w', kind: 'container', bind: { component: 'Win' }, children: [] })]), salmonsGame, SALMONS_SEED_DOC)), // prettier-ignore
+		sorted([...BACKGROUND, 'bigwin', 'coins', 'goldFont']),
+	);
+	check(
+		'a named stock symbol rig is kept by its name',
+		kept(field(placed([node({ id: 's', kind: 'spine', assetKey: 'W' })]), salmonsGame, SALMONS_SEED_DOC)), // prettier-ignore
+		sorted([...BACKGROUND, 'W']),
+	);
+	check(
+		'a bone-placed effect keeps the foreground rig that hosts it, the background authored',
+		kept(
+			field(
+				placed([], [scene('ownBackground', [node({ id: 'bg', kind: 'sprite', assetKey: 'proj/bg.json' })], { space: 'background' })]), // prettier-ignore
+				salmonsGame,
+				SALMONS_SEED_DOC,
+				{ effects: [{ id: 'fx', layers: [{ placement: { space: 'bone', bone: 'b' } }] }] },
+			),
+		),
+		BACKGROUND,
+	);
+	check(
+		'an authored background drops the coded one',
+		kept(
+			field(
+				placed(
+					[],
+					[
+						scene('ownBackground', [node({ id: 'bg', kind: 'sprite', assetKey: 'proj/bg.json' })], {
+							space: 'background',
+						}),
+					],
+				),
+				salmonsGame,
+				SALMONS_SEED_DOC,
+			),
+		),
+		BACKGROUND.filter((key) => key !== 'foregroundAnimation'),
+	);
+	check(
+		'a registered part with no rule still keeps every key',
+		analyseStockAssets(field(placed([node({ id: 'p', kind: 'container', bind: { component: 'NoRule' }, children: [] })]), salmonsGame, SALMONS_SEED_DOC, {}, { isBoundPart: (name) => name === 'NoRule' })).keptAllBecause, // prettier-ignore
+		"bound part 'NoRule' has no stock rule",
+	);
+	// What each board kind's own scene set leaves out, recorded before boardless games existed: the
+	// slot and match-3 kinds load exactly the files they loaded.
+	const COMMON = ['loader', 'H5', 'W', 'payFrame', 'goldBlur', 'silverFont', 'purpleFont', 'globalMultiplier']; // prettier-ignore
+	const TUMBLE = ['tumble_multiplier', 'tumble_win', 'clusterWin'];
+	const NO_FREE_SPINS = ['fsIntro', 'fsIntroNumber', 'fsOutroNumber', 'freeSpins', 'winSmall'];
+	const BOARD_SKIPS: Record<string, string[]> = {
+		lines: [...COMMON, ...TUMBLE],
+		bookOf: [...COMMON, ...TUMBLE],
+		ways: [...COMMON, ...TUMBLE],
+		cluster: [...COMMON, ...TUMBLE],
+		scatter: [...COMMON, ...TUMBLE],
+		holdAndWin: [...COMMON, ...TUMBLE, ...NO_FREE_SPINS],
+		match3: [...COMMON, ...TUMBLE, ...NO_FREE_SPINS],
+	};
+	for (const [kind, skips] of Object.entries(BOARD_SKIPS)) {
+		const baked = kind === 'match3' ? normalizeGameConfigDoc({ family: 'match3' }) : undefined;
+		const game = createGameConfig({ bakedConfig: () => baked as never, compiledConfig });
+		const board = input(stockAssetDataOf({ doc: getFullSceneSet(kind) } as never), {
+			resolveDef: (id) => builtin(id),
+			isBoundPart: (name) => name in PART_NEEDS,
+			config: game.getActiveGameConfig(),
+			symbolsInPlay: game.getSymbolsInPlay(),
+		});
+		check(`the ${kind} scene set leaves out what it did`, sorted(STOCK_KEYS.filter((key) => !analyseStockAssets(board).needed.has(key))), sorted(skips)); // prettier-ignore
+	}
+	check(
+		'a board keeps what it kept with the field unset',
+		kept(input(authoredData(), { boardless: false })),
+		kept(input(authoredData())),
+	);
+	check(
+		'the reference game keeps what it kept with the field unset',
+		kept(input({ doc: fallbackEditorScenes, other: [] }, { boardless: false })),
+		kept(input({ doc: fallbackEditorScenes, other: [] })),
+	);
+}
 
 if (failures) throw new Error(`${failures} stock-asset assertion(s) FAILED`);
 console.log('\nAll stock-asset assertions passed.\n');

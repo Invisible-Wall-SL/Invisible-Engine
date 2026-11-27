@@ -8,7 +8,8 @@
 	import { bakedFlowV2Doc, bakedSoundCatalog, bakedSoundSrcBase } from '../editor-scenes';
 	import stockTable from '../game/assets';
 	import { getContext } from '../game/context';
-	import { loadFlowV2Doc } from '../game/flowV2Runtime.svelte';
+	import { flowV2DrivesScreens, loadFlowV2Doc } from '../game/flowV2Runtime.svelte';
+	import { gameMechanic } from '../game/mechanic';
 	import { sound, type SoundName } from '../game/sound';
 	import { stockSoundBanks, type StockAudio } from '../game/stockSounds';
 
@@ -16,6 +17,7 @@
 
 	onMount(() => {
 		const catalog = bakedSoundCatalog();
+		const mechanic = gameMechanic();
 		// The engine's stock banks this game can play, FIRST, then the project's own uploaded sounds —
 		// `load()` resolves a name to the LAST bank declaring it, so a project sound named after a
 		// built-in replaces it rather than colliding with it. An un-baked or sound-less project
@@ -27,6 +29,10 @@
 			flowOverridden:
 				loadFlowV2Doc() !== bakedFlowV2Doc() || globalThis.__IE_FLOW_V2_LIB__ !== undefined,
 			canPlay: canPlayAudioFormat,
+			boardless:
+				mechanic.playField || mechanic.cardTable
+					? { musicAtBoot: !flowV2DrivesScreens() }
+					: undefined,
 		});
 		console.info(
 			`[sound] stock: ${stock.banks.length} bank(s)` +

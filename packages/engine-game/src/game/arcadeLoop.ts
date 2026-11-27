@@ -193,6 +193,8 @@ export interface ArcadeLoop {
 	value(key: string): unknown;
 	/** Steps run so far. */
 	readonly steps: number;
+	/** How many bodies are on the field now (no copy: read every frame). */
+	readonly bodyCount: number;
 	/** Give the loop its world camera, once: the layout may load after the loop starts. A loop that
 	 *  has one keeps it. */
 	attachCamera(options: ArcadeCameraOptions): void;
@@ -668,6 +670,9 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		culled: () => culled,
 		get steps() {
 			return clock.steps;
+		},
+		get bodyCount() {
+			return bodies.size;
 		},
 		bodies: () =>
 			[...bodies.values()].map((b) => {
