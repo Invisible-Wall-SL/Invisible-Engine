@@ -41,6 +41,7 @@ import { getDirectorPricing } from './costs/pricingConfig';
 import { ENV } from './env';
 import { GithubAppError, githubApp, type GithubApp } from './githubApp';
 import { githubOidc, type GithubOidc } from './githubOidc';
+import { issueResultUpload, type ResultUpload } from './pipelineRunResultUpload';
 import { approverName, forgetChanges, isOnHold, readPull, type GhPull } from './pipelineChanges';
 import {
 	cancelListedMergeRun,
@@ -308,7 +309,7 @@ export async function acceptMergeRunResult(
 	deps: MergeJobDeps = {},
 ): Promise<MergeResultAnswer> {
 	const run = await jobRun(request, id, deps);
-	const body = await readResultBody(request, MERGE_CAPS.body);
+	const body = await readResultBody(request, MERGE_CAPS.body, { kind: 'merge', id: run.id });
 	const spendUsd = await recordSpend(run.id, parseUsage(body.usage));
 	let result: ParsedMergeResult;
 	try {
@@ -324,6 +325,20 @@ export async function acceptMergeRunResult(
 	if (!ended)
 		throw error(409, 'A result was already accepted for this merge run, or it has ended.');
 	return { mergeRun: ended.id, status: ended.status, spendUsd };
+}
+
+/**
+ * The address a working run's job uploads a large result to (`POST …/result-upload`, ADR-0015 §10):
+ * the same token and run binding as the result, and only a working run gets one.
+ */
+export async function issueMergeRunResultUpload(
+	request: Request,
+	id: string,
+	deps: MergeJobDeps = {},
+): Promise<ResultUpload> {
+	const run = await jobRun(request, id, deps);
+	if (!isWorkingMergeRun(run.status)) throw error(409, 'This merge run has ended.');
+	return issueResultUpload('merge', run.id, MERGE_CAPS.body);
 }
 
 async function recordSpend(id: string, usage: ReturnType<typeof parseUsage>): Promise<number> {

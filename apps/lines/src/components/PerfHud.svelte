@@ -466,19 +466,36 @@
 				`${last.at} s (${Math.round(last.slowShare * 100)}% slow, ${last.frameMs} ms)`
 			: 'no switches';
 		const trial = q.trials.at(-1);
+		const outcome = trial?.kept ? 'kept' : trial?.steppedOn ? 'stepped on' : 'reverted';
 		const verdict = trial
-			? `last trial L${trial.level} ${trial.kept ? 'kept' : 'reverted'} ` +
+			? `last trial L${trial.level} ${outcome} ` +
 				`(${Math.round(trial.before.slowShare * 100)}% → ${Math.round(trial.after.slowShare * 100)}% ` +
 				`slow, ${trial.before.frameMs} → ${trial.after.frameMs} ms)`
 			: undefined;
+		const up = q.stepUp;
+		const stepUp = !up
+			? undefined
+			: up.never
+				? `L${up.level} never again (${up.failures} failed)`
+				: `L${up.level} again after ${up.good}/${up.goodWindows} good windows ` +
+					`(${up.failures} failed)`;
+		const left = q.budget;
+		const refill = left?.refillIn === undefined ? '' : ` (+1 in ${left.refillIn} windows)`;
+		const budget = left ? `budget ${left.left}/${left.burst}${refill}` : undefined;
 		return [
 			q.mode,
 			...(q.levels > 1 ? [`L${q.level.index} of L0–L${q.levels - 1}`] : []),
 			`res ${q.level.resolution}`,
 			q.level.msaa ? 'MSAA' : 'no MSAA',
+			q.level.postFx === false ? 'post FX off' : 'post FX on',
+			`particle cap ${q.level.particleCap ?? 1}`,
+			...(q.secondChance ? [`second chance ${q.secondChance}`] : []),
+			...(q.effectsNext ? ['effects next'] : []),
+			...(budget ? [budget] : []),
 			...(q.mode === 'adaptive' ? [switches] : []),
 			...(verdict ? [verdict] : []),
 			...(q.downStopped ? ['no more steps down'] : []),
+			...(stepUp ? [stepUp] : []),
 		].join(' · ');
 	};
 
