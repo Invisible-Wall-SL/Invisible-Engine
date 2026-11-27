@@ -194,8 +194,8 @@ online rules the data cannot say.
 
 ## 5. The wire and its rates
 
-**In short:** one small input goes up per step, state comes down 20 times a second for the
-players near you, and events arrive as they happen.
+**In short:** one small input goes up per step, state comes down 20 times a second (Salmons 15)
+for the players near you, and events arrive as they happen.
 
 - **Input** (device → server): a flat input schema declared with Colyseus 0.18's `defineInput`:
   `{ seq, moveX, moveY, buttons, aimX, aimY }`. `buttons` is a bitfield (jump, ability 1, ability
@@ -269,6 +269,26 @@ screen shows, and a room that opts in sends it the players there as well as the 
   window and across two: a phone turned on its side has both for a second or two.) After a
   reconnect the device's newest input is empty until it sends one; the held view covers a gap
   shorter than the hold.
+- **Packed places (owner, 2026-11-27; [salmons-performance](salmons-performance.md) T7).** A
+  device that joins a nearby room with `positions: 'u16'` (`engine-mechanics` `PACKED_POSITIONS`;
+  every runtime since) is sent everyone else's place as two uint16, `px` / `py`, in steps of the
+  room's `posScale` (`positionScale`: the finest power of two, at most 16, that covers the field's
+  longer side in 65535 steps; a generated Salmons river, 1800 × 7200, is ⅛ px, the original's map,
+  6768 × 19728, ½ px; 0 for a field over 65535 px, which packs nothing). Its own player keeps
+  float32 `x` / `y`, so its prediction is still compared to 1/64 px. 3 bytes a coordinate instead
+  of 5: in a Salmons room a packed device's patch is ~30 % smaller (`check:room-wire`). Built with
+  view tags, not a second room: `x` / `y` are tagged `exact`, `px` / `py` `packed`, and the room
+  gives each device's view `exact` for its own player and, for everyone else, `packed` only if it
+  asked (`arcadeRoom.ts` `nearby`). `px`, `py` and the room's `posScale` are appended fields, view
+  tags never reach the wire, so both deploy orders work: a runtime that does not ask (any from
+  before) is sent float32 for everyone, and a runtime on a server that does not pack reads `x` /
+  `y` (`placeOnWire`: no `posScale`, or no `px`). Old and new devices share a room. A room with no
+  `nearby` box (its state has no views) sends float32 to everyone as before, and the 3D wire is
+  untouched. `scripts/playtest/salmons-wire-play.mjs` plays both orders against main's server.
+- **Salmons sends 15 states a second** (`salmons.js` `patchHz: 15`; owner, 2026-11-27): a quarter
+  fewer messages and bytes than the default 20. Everyone else is drawn two states' time behind the
+  room (`netcode.js` `interpolationDelayFor`: 133 ms at 15, the fixed 100 ms at 20 and faster, so
+  every other game draws as before).
 - **Not built: sending a device less than the box** (a phone shows a third of Salmons' box). It
   needs a reciprocal rule first, `sees(other, me)`, so that whoever can act on a player is still
   sent to it: an open owner decision in [status/salmons.md](../status/salmons.md).

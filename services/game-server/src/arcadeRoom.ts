@@ -4,11 +4,14 @@ import { CloseCode, Room, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
 import {
 	ONLINE_EVENT,
+	PACKED_POSITIONS,
 	STATUS,
 	boxRegion,
 	holdView,
 	nearbyHolds,
+	packPosition,
 	pastRegion,
+	positionScale,
 	roomLevelSeed,
 	roomLevelState,
 	sanitizeInput,
@@ -38,6 +41,7 @@ import {
 	RoomState,
 	Stain,
 	type InputFrame,
+	type NearbyPlayerData,
 	type RoomStateData,
 } from './schema.ts';
 
@@ -158,6 +162,8 @@ type JoinOptions = {
 	pass?: unknown;
 	game?: unknown;
 	size?: unknown;
+	/** `PACKED_POSITIONS`: send it everyone else's place packed (a nearby room that can pack). */
+	positions?: unknown;
 };
 
 /** The room class of a game's public rooms, or with `test` of its test rooms. */
@@ -229,7 +235,13 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			this.maxClients = online.maxPlayers;
 			this.seatReservationTimeout = deps.seatSeconds;
 			this.maxMessagesPerSecond = messagesPerSecond(online.tickHz);
-			if (online.nearby) this.state = new NearbyRoomState();
+			if (online.nearby) {
+				const state = new NearbyRoomState();
+				this.posScale = positionScale(sim.game.field);
+				state.posScale = this.posScale;
+				// The same fields as `RoomState`'s and more, which only this room writes.
+				this.state = state as unknown as RoomStateData;
+			}
 			this.state.phase = 'waiting';
 			this.state.seed = seed;
 			// From the game the sim plays and what its own generator made, never from the config
@@ -279,6 +291,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			this.writeRoom();
 			if (sim.game.online.nearby) {
 				client.view = new StateView();
+				if (options?.positions === PACKED_POSITIONS && this.posScale > 0)
+					this.packed.add(client.sessionId);
 				this.seen.set(client.sessionId, new Set());
 				this.nearby();
 			}
@@ -321,6 +335,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			sim.leave(client.sessionId);
 			this.seen.delete(client.sessionId);
 			this.held.delete(client.sessionId);
+			this.packed.delete(client.sessionId);
 			client.view?.dispose();
 			this.syncPlayers();
 			if (sim.game.online.nearby) this.nearby();
@@ -378,6 +393,12 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 		/** Room player ids each device's view holds, by session (`online.nearby` only). */
 		private seen = new Map<string, Set<string>>();
 
+		/** The devices sent everyone else's place packed (they joined asking for it). */
+		private packed = new Set<string>();
+
+		/** Steps per px of a packed place in this room: 0 until made, or when it cannot pack. */
+		private posScale = 0;
+
 		/** Each device's held view, by session (a box with a `max` only): {@link holdViews}. */
 		private held = new Map<string, HeldView>();
 
@@ -418,6 +439,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 				const me = sim.players.get(client.sessionId);
 				if (!view || !seen || !me) continue;
 				const viewIn = this.held.get(client.sessionId)?.view;
+				const others = this.packed.has(client.sessionId) ? VIEW_TAG.packed : VIEW_TAG.exact;
 				const viewKeep = pastRegion(viewIn, NEARBY_MARGIN);
 				for (const [id, other] of sim.players) {
 					const dx = other.body.x - me.body.x;
@@ -428,7 +450,10 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 					if (!player) continue;
 					if (near && !has) {
 						view.add(player, VIEW_TAG.near);
-						if (id === me.id) view.add(player, VIEW_TAG.own);
+						if (id === me.id) {
+							view.add(player, VIEW_TAG.own);
+							view.add(player, VIEW_TAG.exact);
+						} else view.add(player, others);
 						seen.add(id);
 					} else if (has && !near && !nearbyHolds(boxKeep, viewKeep, dx, dy)) {
 						view.remove(player);
@@ -473,6 +498,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			if (!from || !to) return;
 			to.x = from.body.x;
 			to.y = from.body.y;
+			if (this.posScale > 0) {
+				const packed = to as unknown as NearbyPlayerData;
+				packed.px = packPosition(from.body.x, this.posScale);
+				packed.py = packPosition(from.body.y, this.posScale);
+			}
 			to.facing = from.facing;
 			to.moving = from.moving;
 			to.ack = from.ack;
