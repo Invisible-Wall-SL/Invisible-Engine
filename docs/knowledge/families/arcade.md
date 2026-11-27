@@ -49,7 +49,8 @@ A seed and the same keys replay the same game.
   the device import the same file (`packages/engine-mechanics/src/online.js`).
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (pointer too:
   `check:arcade-pointer`; a class's touch scheme, `arcade.online.touch`, played by `touchControl.js` and read off the raw config with `game-config` `touchScheme.ts`, carried not normalized: `check:arcade-touch`, `docs/design/arcade-touch-controls.md`) and what its screen shows (`shown.js`: it only adds to the `nearby` box,
-  never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`).
+  never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`). Others
+  packed, own float32 (`positions: 'u16'`, view tags); fields only appended (`check:room-wire`).
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents, pulls and
   solids (`true` or one-way, per character) live in `onlineLevel` / `stepPlayer`, run by the device
   too. A rules module runs on the server only: what it moves (climb, reel), holds or lets through
@@ -57,9 +58,8 @@ A seed and the same keys replay the same game.
   both predictors. Its choices hash the seed; a change re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
   (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
-  `server` variables (`variable-server-owned`). `online.ts` RECORDS each state as it lands (arrival,
-  others' places) and APPLIES the newest once a frame (Flow's values, own reconcile, `acked`): a
-  stall's burst never runs a pass per state (`check:netcode` stall rows). The own `ability` is raised on the press (`createAbilityPredictor`); the room's echo of it is dropped per
+  `server` variables (`variable-server-owned`). `online.ts` records each state's arrival and others'
+  places; it applies only the newest, once a frame (`check:netcode` stall rows). The own `ability` is raised on the press (`createAbilityPredictor`); the room's echo of it is dropped per
   button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).

@@ -92,9 +92,16 @@ after T4 merges to avoid `SpawnLayer.svelte` conflicts).
 - **Desktop KTX2 via BC7** (`deviceClass.ts` `prefersCompressedTextures`): ~85–110 MB GPU saved,
   near-lossless; reverses the 2026-11-12 rule.
 - **Quantised positions for other players** (int16 ¼ px, own player float): −30 % bytes; needs a
-  versioned room so old runtimes keep working.
+  versioned room so old runtimes keep working. **Approved by the owner 2026-11-27** ("go ahead
+  with 16-bit positions and patchHz 15"), **built in T7**: uint16 at the finest power-of-two step
+  that covers the room's field (⅛ px on a generated river, ½ px on the original's 6768 × 19728
+  map), sent by view tags to a device that asks instead of a second room; old and new runtimes and
+  servers mix ([realtime-multiplayer](realtime-multiplayer.md) §5 "Packed places").
 - **Config values (Game Config, a person's call):** a tighter `nearby.max`; `patchHz` 15 with a
-  133 ms interpolation delay.
+  133 ms interpolation delay. **`patchHz` 15 approved by the owner 2026-11-27, built in T7**:
+  Salmons' config in code says 15 and the delay follows the rate (`interpolationDelayFor`); the live
+  project takes it when its Game Config says 15 and is published (an owner step, in the T7 PR). A
+  tighter `nearby.max` is still open.
 - **Bake ground chunks to textures** (`cacheAsTexture`) after T4: far fewer vertices, may shift
   sub-pixels.
 - **Salmons' own loading background** (found by T3): the loading / tap-to-start screen shows the

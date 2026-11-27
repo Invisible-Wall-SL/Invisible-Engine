@@ -30,7 +30,8 @@ upload.
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
   - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
-    T6 net client — draft PR #1970 · T4 river chunks — started · T5 filters → shaders — after T4.
+    T6 net client — draft PR #1970 · T4 river chunks — started · T5 filters → shaders — after T4 ·
+    T7 packed places + 15 states a second (owner, 2026-11-27) — draft PR, on T6.
 
 - **Zone art takes a rig: rocks and whirlpools can be drawn by one of the project's rigs
   (2026-11-26; owner: "add rig as a zone art source"; in review; branch
@@ -2639,6 +2640,28 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-27 — **Performance T7: everyone else's place in 16 bits, Salmons at 15 states a second**
+  (owner: "go ahead with 16-bit positions and patchHz 15"; plan
+  [design/salmons-performance](../design/salmons-performance.md) §5; branch
+  `claude/salmons-perf-t7-wire`, on T6; in review). Wire:
+  [design/realtime-multiplayer](../design/realtime-multiplayer.md) §5 "Packed places".
+  - **What changed.** A device joins with `positions: 'u16'` and a nearby room sends it everyone
+    else's place as uint16 `px` / `py` in steps of the room's `posScale` (`engine-mechanics`
+    `positionScale`: ⅛ px on a generated river, ½ px on the original's 6768 × 19728 map, which the
+    live project plays), its own float32 as before. View tags on the nearby state (`schema.ts`
+    `VIEW_TAG.exact` / `packed`), fields only appended: a runtime that does not ask is sent float32
+    for everyone, a runtime on a server that does not pack reads `x` / `y` (`placeOnWire`), and
+    both kinds share a room. A room with no nearby box, and the 3D wire, are unchanged. Salmons'
+    config in code sends 15 states a second; everyone else is drawn two states' time behind
+    (`netcode.js` `interpolationDelayFor`: 133 ms; 100 ms at 20 and faster, so every other game
+    draws as before).
+  - **Owner steps.** (1) The game server must be redeployed with this (Railway `game-server`
+    rebuilds on a merge that touches `services/game-server`): a deploy restarts the process and
+    closes every running room, as any game-server deploy does; devices see the room lost and load
+    again. Deploy order does not matter: old runtimes keep working on the new server and new
+    runtimes on the old one. (2) The live project does not pin `patchHz` (it reads the default,
+    20): in `/config` → **Online room** → **States per second** type **15**, then **Publish**.
+    Rooms made after that (≤ 90 s: the launcher's and the server's config caches) send 15.
 - 2026-11-27 — **Performance T6: the net client applies the room's state once a frame**
   ([design/salmons-performance](../design/salmons-performance.md) §4 T6; branch
   `claude/salmons-perf-t6-net`; in review; runtime only, no wire, schema, server or config
