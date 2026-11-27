@@ -6,11 +6,13 @@
 // drawn apart, a jointed mouth, glasses, an earring, a chain, a watch and a hood worn), keyed by the
 // page's own control code (`view.html`) and engine-rig playing it. Asserted:
 //  - skeleton: no bone nothing is drawn on (cheeks, brows, hair, the fingers of a hand drawn as one
-//    picture; on Full body with no legs drawn, no leg), every region's bone and the bones above it,
-//    the face's control bones for what is drawn (jaw, lips, teeth, corners, lids and their follow bones,
-//    pupils), the arms' IK controls, poles and spaces, every prop on a bone of its own; the fitted
-//    template (Controls, picker, motion map, 3D setup) naming only bones the rig has; the rig a valid
-//    4.2 skeleton engine-rig loads;
+//    picture), every region's bone and the bones above it, the face's control bones for what is drawn
+//    (jaw, lips, teeth, corners, lids and their follow bones, pupils), the arms' IK controls, poles and
+//    spaces, every prop on a bone of its own; the fitted template (Controls, picker, motion map, 3D
+//    setup) naming only bones the rig has; the rig a valid 4.2 skeleton engine-rig loads;
+//  - found: a face found on the head keeps the brows' ends its mesh bends on (none drawn);
+//  - shapes: a head drawn without its features keeps the face marks the neck bends to; Full body with
+//    no legs drawn makes no leg;
 //  - drive: every control keyed at once, lip-sync, and a 3D capture imported and baked as 🎥 Motion does
 //    it, each played by engine-rig, keying no bone or slot the rig lacks;
 //  - keep: a bone the author keeps with no region (a brow, a finger) is made with the bones above it,
@@ -320,18 +322,28 @@ const GUARDS = {
 				problem === null && weights.length > 0 && plays(rig.irig, null),
 				problem ?? '',
 			) && good;
-		// The tracker finding the face on the head: the head's mesh bends on the brows' ends, drawn or not.
+		log(`Half body ${t.bones.length} bones → ${names.length} (${leftOut.length} left out)`);
+		return good;
+	},
+
+	/** The tracker finding the face on the head: the head's mesh bends on the brows' ends, drawn or not. */
+	found(M, ok, log) {
 		const found = ownerRig(M, { face: true });
-		const foundWhy = Object.fromEntries(found.sr.skeleton.map((b) => [b.name, b.why]));
+		const why = Object.fromEntries(found.sr.skeleton.map((b) => [b.name, b.why]));
 		const brows = ['brow_in_l', 'brow_out_l', 'brow_in_r', 'brow_out_r'];
-		good =
-			ok(
-				"skeleton: a face found on the head keeps the bones its mesh bends on (the brows' ends, no brow drawn), the cheeks still out",
-				brows.every((b) => foundWhy[b] === 'mesh' && found.irig.bones.some((x) => x.name === b)) &&
-					!found.irig.bones.some((b) => /^cheek_/.test(b.name)) &&
-					M.irigDocProblem(found.irig) === null,
-				brows.map((b) => `${b}:${foundWhy[b]}`).join(' '),
-			) && good;
+		log(`${found.irig.bones.length} bones with the face found`);
+		return ok(
+			"found: a face found on the head keeps the bones its mesh bends on (the brows' ends, no brow drawn), the cheeks still out",
+			brows.every((b) => why[b] === 'mesh' && found.irig.bones.some((x) => x.name === b)) &&
+				!found.irig.bones.some((b) => /^cheek_/.test(b.name)) &&
+				M.irigDocProblem(found.irig) === null,
+			brows.map((b) => `${b}:${why[b]}`).join(' '),
+		);
+	},
+
+	/** Sheets drawing less: a head without its features, Full body with no legs. */
+	shapes(M, ok, log) {
+		let good = true;
 		// A head drawn with none of its features: the neck still bends to the capture's face marks.
 		const bare = ownerMapping(M);
 		const body = [
@@ -349,7 +361,7 @@ const GUARDS = {
 		const marks = plain.tpl.motion.bones3d.positions.neck?.marks.map((m) => m.bone) ?? [];
 		good =
 			ok(
-				"skeleton: a head drawn without its features keeps the face marks the neck bends to under a capture, and nothing else of the face's",
+				"shapes: a head drawn without its features keeps the face marks the neck bends to under a capture, and nothing else of the face's",
 				marks.length === 4 &&
 					marks.every((b) => plain.irig.bones.some((x) => x.name === b)) &&
 					!plain.irig.bones.some((b) => /^(pupil|lid|jaw|lip|teeth|nose)/.test(b.name)),
@@ -359,7 +371,7 @@ const GUARDS = {
 		const fullNames = full.irig.bones.map((b) => b.name);
 		good =
 			ok(
-				'skeleton: Full body with no leg drawn makes no leg (thighs, shins, feet, their IK), its arms whole',
+				'shapes: Full body with no leg drawn makes no leg (thighs, shins, feet, their IK), its arms whole',
 				!fullNames.some((n) => LEG.test(n)) &&
 					IK.every((b) => fullNames.includes(b)) &&
 					full.tpl.motion.bones3d.positions.root.anchors.length > 0 &&
@@ -367,9 +379,7 @@ const GUARDS = {
 					plays(full.irig, null),
 				fullNames.filter((n) => LEG.test(n)).join(' '),
 			) && good;
-		log(
-			`Half body ${t.bones.length} bones → ${names.length} (${leftOut.length} left out); Full body ${M.FULL_BODY.bones.length} → ${fullNames.length}`,
-		);
+		log(`Full body ${M.FULL_BODY.bones.length} bones → ${fullNames.length}`);
 		return good;
 	},
 
@@ -680,12 +690,12 @@ const MUTANTS = [
 		[['rigSheetBones.ts', "for (const b of h.needs) mark(b, 'control');", 'void h;']],
 	],
 	[
-		'skeleton',
+		'found',
 		"the bones a mesh is weighted to not kept (a found face's head bends on the brows' ends)",
 		[['rigSheetBones.ts', "for (const b of bendBones(bend)) mark(b, 'mesh');", 'void bend;']],
 	],
 	[
-		'skeleton',
+		'shapes',
 		"the root's capture anchors kept though others are (Full body's thighs with no leg drawn)",
 		[
 			[
@@ -696,7 +706,7 @@ const MUTANTS = [
 		],
 	],
 	[
-		'skeleton',
+		'shapes',
 		'the face marks a kept neck bends to not kept (a head drawn without features)',
 		[['rigSheetBones.ts', 'needs: positions.neck.marks.map((m) => m.bone)', 'needs: []']],
 	],
