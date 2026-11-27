@@ -644,6 +644,45 @@ zone) is written to `bridge-triggers.json`. 7 verdicts:
 - the deck's planks are on screen round him on it;
 - no page error.
 
+## P8: a project bridge, live (owner + headless check)
+
+The live check of [design/arcade-prop-components](../design/arcade-prop-components.md) §7 P8.
+`salmons-play.mjs` runs its own room, so this one is played on the published link.
+
+**Before it (in order):**
+
+1. PR #1929 merged into `main`. Railway then redeploys the launcher, and the game server too
+   (`/packages/engine-mechanics/**` and `/packages/game-config/**` are on its watch list,
+   [INFRA](../INFRA.md)). No manual redeploy is needed. Check the game server's deploy finished
+   before step 4: until it does, rooms play the old rule and send no `props`.
+2. The runtime release from the merge is live, so the published link boots the new arcade runtime.
+
+**The owner, on the live launcher:**
+
+3. `/editor?view=components`: open **Bridge (prop)**, ⧉ **Duplicate** it into the Salmons project
+   and save. Set the near ramp to **3** in the Prop card and change one piece of art (a plank
+   colour is enough to see). Save again.
+4. `/config` → Zone art → `bridge#`: **Drawn with: Component**, pick the copy. Save. The
+   **Collider** row shows `ramp: { near: 3, far: 2 }` and the pinned version.
+5. Publish Salmons.
+
+**What to look for (owner's look and the headless check):**
+
+- the published link boots; a room opens (`GET /rooms?game=salmons` lists it);
+- the bridges draw the changed art, all three, with the near slope 3 cells long on the ground —
+  note: until the seed's slope pieces follow the collider (design §7 P7, Known limitations), the
+  *drawn* near slope stays 2 cells: the room plays 3, the art shows 2. Report it, don't fix it here;
+- a Fisherman walks onto the near ramp a cell further out than before and rises to the deck,
+  drawn on the planks, over them, not on the reflections;
+- the deck dips on the step on and off (the seed's `stepOn` / `stepOff`);
+- a Bear or a Salmon passes under, covered by the deck;
+- a second device joins the same room without a "different versions" notice (the room's `props`
+  adopted, P3);
+- no page error.
+
+**Rolling back:** set `bridge#` back to **Default** in `/config` and publish. The room then plays
+today's bridge and its fingerprint is the pre-P2 one (`check:room-levels`).
+
 ## Zone art's rigs (`--zone-rig`)
 
 ```

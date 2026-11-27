@@ -582,7 +582,9 @@ the 2-cell near slope) has merged.
        stand-alone harness.
 8. **P8 — live.** Publish Salmons with a project bridge. The owner changes a ramp and the art in the
    component window. The room plays the new ramp, and the device draws it.
-   *Proof:* `salmons-play.mjs` against `rooms.invisiblewall.org`, then the owner's look.
+   *Proof:* the published link in headless Chromium and the owner's look, by the checklist in
+   [playtest/salmons](../playtest/salmons.md) "P8: a project bridge, live" (`salmons-play.mjs`
+   runs its own room, so it cannot be pointed at `rooms.invisiblewall.org`).
 
 **Editor additions (P7)**, on `/editor?view=components`, to the rule 10 style (section intros are
 `SectionCard` `info` tooltips, help on a control is `InfoTip`):
