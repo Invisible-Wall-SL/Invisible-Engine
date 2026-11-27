@@ -19,7 +19,7 @@ with a new one. Use this format:
 - Did: merged `main`, with #1990, into 15B2; the prompt stops asking the model for each side of a
   hunk (the job reads both from git) and names the launcher's diff and the refusals for a written
   line; the workflow fixture follows (hunk keys, the new heading, the audience passed to the shared
-  `postResult`), each with a mutant. The owner had it merged by hand: current-games refuses a harness
+  `postResult`), each with a mutant. Merged at the owner's request: current-games refuses a harness
   edit by design. Also #1986: Director worker's Postgres proofs run when the Accept claim's code
   changes.
 - Files: `scripts/merge-main/coordinator.md`, `scripts/merge-main/workflow.fixture.mjs`,
