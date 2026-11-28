@@ -1784,6 +1784,7 @@
 				pickSheets={data.pickSheets}
 				clips={data.clips}
 				rigs={zoneArtRigs}
+				props={data.props}
 			/>
 		{/if}
 

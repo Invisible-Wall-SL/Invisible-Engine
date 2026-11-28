@@ -42,6 +42,18 @@ export function componentInputs(
 	return out;
 }
 
+/**
+ * The inputs every PROP component has (`docs/design/arcade-prop-components.md` §4), which the
+ * arcade runtime sets from the room state: how many of the prop's characters are on it, and a
+ * trigger as one steps on and as one steps off. The editor seeds them when a def becomes a prop and
+ * locks their id and kind; they are ordinary `inputs` rows, read through {@link componentInputs}.
+ */
+export const PROP_INPUTS = [
+	{ id: 'occupied', kind: 'number', default: 0 },
+	{ id: 'stepOn', kind: 'trigger' },
+	{ id: 'stepOff', kind: 'trigger' },
+] as const satisfies readonly ComponentInput[];
+
 /** The ids of a def's trigger inputs — the signals it declares, in {@link componentInputs} order. */
 export function componentTriggers(
 	def: Pick<ComponentDef, 'inputs' | 'signals'> | null | undefined,

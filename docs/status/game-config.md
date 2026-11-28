@@ -820,6 +820,37 @@ with the accessor-based files), so a new game inherits the authored-config wirin
     and Getting Hot renamed and played (owed: open `/config` on `getting-hot`, **Import paytable from
     server**, tick the box, Apply, Save, publish, spin).
 
+- 2026-11-26 — **Zone art takes a prop component** (agent `arcade-games`; branch
+  `claude/bold-cannon-3a8unw`, in review; prop components P6,
+  [arcade-prop-components](../design/arcade-prop-components.md) §6).
+  - **`zoneArt.ts`.** `ZoneArtComponent` `{ kind: 'component', component, version }`: a zone
+    family's only picture, never a variant or scenery (the validator says so). Also
+    `zoneArtPropKind` and `zoneArtComponentRoots`. `zoneArtStamps` stamps no component.
+  - **`onlineProps.ts`.** `withProps(doc, raw)`, the launcher's carry, now in
+    `gameConfigStorage.ts` `withStoredBlocks` and in `pageDoc.ts` `applyPasted`.
+  - **The save compiles** each component's collider at its pin (`zoneArtProps.ts`
+    `compileZoneArtProps`, in `saveGameConfigDoc`) into `arcade.online.props`. It warns of a
+    missing or wrong-kind component, a newer version, and a pasted collider no component draws.
+  - **The card.** Zone art's **Component** choice: the project's props of the family's kind, the
+    pin, **Use vN**, **Open**, and the compiled **Collider**. The page sends `props`.
+  - **Gates:** `check:zone-art` 147, `check:game-config-family` 580. The detail is in
+    [status/salmons](salmons.md).
+
+- 2026-11-26 — **`arcade.online.props`: a prop's collider, carried** (agent `arcade-games`; branch
+  `claude/bold-cannon-3a8unw`, in review; prop components P2,
+  [arcade-prop-components](../design/arcade-prop-components.md) §3). New `src/onlineProps.ts`:
+  `normalizeOnlineProps` / `normalizePropShape` (defaults, bad fields, unstamped entries and keys
+  that are not zone families are dropped). The lists and defaults are mirrored as
+  `ONLINE_PROP_*`, and `check:prop-shape` holds them equal to `engine-mechanics` `propShape.js`'s.
+  Importing them made the slot runtime keep `PROP_SHAPE_DEFAULTS`' `Object.freeze` (+71 B gzip,
+  measured), so they are not imported, `onlinePropsOf(rawDoc)` and `withOnlineProps(game, rawDoc)`. `shapedOnlineGame` applies
+  it, so the room and the device get `online.props` with no new call. `ArcadeOnline.props` and
+  `ResolvedArcadeOnline.props` are typed. `normalizeGameConfigDoc` drops the block, as it drops
+  the levels' shape, so non-arcade runtimes stay the same bytes. **Not yet:** the launcher's
+  load, save and paste do not carry it back (`withProps` beside `withLevelsShape` in
+  `gameConfigStorage.ts` and `pageDoc.ts`). P6 adds it with the compile on save. Gates and the
+  rules side: [status/salmons](salmons.md).
+
 - 2026-11-27 — **Zone art: ＋ Variant, Scale and the bin did nothing once a family had art**
   (owner report; branch `claude/youthful-mccarthy-bweigw`). `config/zoneArtDoc.ts` copied the map
   with `structuredClone`, which throws a DataCloneError on the page's `$state` proxy, so every edit

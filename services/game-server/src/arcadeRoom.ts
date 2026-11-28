@@ -244,11 +244,12 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			this.state.phase = 'waiting';
 			this.state.seed = seed;
 			// From the game the sim plays and what its own generator made, never from the config
-			// again: a device adopts these levels and is held to this fingerprint.
+			// again: a device adopts these levels and props and is held to this fingerprint.
 			const level = roomLevelState(sim.game, seed, sim.made);
 			if (level) {
 				this.state.levels = level.levels;
 				this.state.levelHash = level.levelHash;
+				if (level.props) this.state.props = level.props;
 			}
 			this.game = game;
 			await this.listPlayers();

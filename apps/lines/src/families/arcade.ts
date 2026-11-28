@@ -5,7 +5,8 @@
  * `config-vite`) resolves this module to `off/arcade.ts` instead.
  */
 import { ARCADE_LOOP_ACTIONS, ARCADE_VOCAB, type TemplateVocabulary } from 'engine-flow-v2';
-import { IsoWorld, registerProjectedWorld } from 'engine-layout/svelte';
+import { registerBoundComponents, type BoundComponent } from 'engine-layout';
+import { IsoWorld, PropGraphic, registerProjectedWorld } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, usesSalmonsArt } from 'game-config';
 
 import { bakedGameConfig, setRoomDocChange } from '../editor-scenes';
@@ -13,6 +14,8 @@ import { withZoneArt } from '../game/zoneArt';
 
 // A world screen with `projection: 'isometric'` (P11.4) is drawn by the family's isometric world.
 registerProjectedWorld(IsoWorld);
+// A prop's vector art (`propGraphic.ts`): a bound part only an arcade game's props draw with.
+registerBoundComponents({ PropGraphic: PropGraphic as unknown as BoundComponent });
 // The config's zone art on its own zones (`game/zoneArt.ts`); a room whose generator makes its field
 // replaces this change with its own, and its art draws the stamps.
 setRoomDocChange(withZoneArt);

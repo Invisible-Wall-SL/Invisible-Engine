@@ -8,7 +8,7 @@
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		boundComponentSkin,
-		BUILTIN_TIMELINES,
+		BUILTIN_LIBRARY_TIMELINES,
 		BUTTON_STATE_PARAMS,
 		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
@@ -62,6 +62,8 @@
 	import ComponentList from './ComponentList.svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
+	import EditorPropStage from './EditorPropStage.svelte';
+	import { propBandOf } from '$lib/editor/propEdit';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorDataPanel from './EditorDataPanel.svelte';
@@ -1144,6 +1146,27 @@
 	let animateVisited = $state(false);
 	/** Animate's two panels, Rive-style tabs: the Timeline, or the State Machine (Phase 5b). */
 	let animateTab = $state<'timeline' | 'stateMachine'>('timeline');
+	/** A prop's view on the stage (`EditorPropStage`), its collider over it and the stand-in:
+	 *  editor view state, never saved. */
+	let propView = $state(true);
+	let propCollider = $state(true);
+	let propStandIn = $state(false);
+	const isProp = $derived(!!componentDraft?.prop);
+	/** The prop view shows in Design, and beside the State machine tab (the stand-in drives its
+	 *  preview); the Timeline keys nodes on the node canvas. */
+	const propStageShown = $derived(
+		isProp && propView && (!animating || animateTab === 'stateMachine'),
+	);
+	/** The stand-in moved: what it does to the prop's inputs reaches the State machine preview. */
+	function onPropStandIn(occupied: number, fired: string[]): void {
+		stateMachinePanel?.previewProp(occupied, fired);
+	}
+	/** The Outline's band chip per node, on a prop. */
+	const outlineBandOf = $derived.by(() => {
+		void editNonce;
+		const def = componentDraft;
+		return def?.prop ? (id: string) => propBandOf(def.root, id) : undefined;
+	});
 	/** The State Machine panel: the stage's pointer drives its listener preview (Phase 6b). */
 	let stateMachinePanel = $state<ReturnType<typeof EditorStateMachinePanel>>();
 	/** A state card asked for its timeline: the Timeline tab opens it. */
@@ -1380,8 +1403,8 @@
 					components.map((c) => c.name),
 				),
 				mintNodeId: genComponentId,
-				timelines: componentOwnTimelines(source.id, BUILTIN_TIMELINES, projectDocs),
-				takenTimelineIds: [...listed, ...BUILTIN_TIMELINES].map((d) => d.id),
+				timelines: componentOwnTimelines(source.id, BUILTIN_LIBRARY_TIMELINES, projectDocs),
+				takenTimelineIds: [...listed, ...BUILTIN_LIBRARY_TIMELINES].map((d) => d.id),
 				projectDefaults: ((await defaults.json()) as { params?: Record<string, unknown> }).params,
 			});
 			// Edited while the reads ran: what opening the copy discards is no longer what was asked.
@@ -2740,6 +2763,33 @@
 						Animate
 					</button>
 				</div>
+				{#if isProp && (!animating || animateTab === 'stateMachine')}
+					<div class="mode-toggle" role="group" aria-label="Prop view">
+						<button
+							type="button"
+							class:on={propView}
+							aria-pressed={propView}
+							title="Prop view: the prop drawn as the game draws it on its preview zone. Off: its nodes, to arrange them."
+							onclick={() => (propView = !propView)}>Prop view</button
+						>
+						<button
+							type="button"
+							class:on={propCollider}
+							aria-pressed={propCollider}
+							disabled={!propView}
+							title="The collider over the prop: deck, ramps, snap band, hole and solids, with their handles"
+							onclick={() => (propCollider = !propCollider)}>Collider</button
+						>
+						<button
+							type="button"
+							class:on={propStandIn}
+							aria-pressed={propStandIn}
+							disabled={!propView}
+							title="Show a character: a stand-in fisherman to drag under, onto and over the prop"
+							onclick={() => (propStandIn = !propStandIn)}>Show a character</button
+						>
+					</div>
+				{/if}
 				<!-- Another author (or your own other tab) holds this component's lease → read-only
 				     here. The draft saveState refuses to save (its blockWhen); Take over is always
 				     offered. Promote-to-shared is a SEPARATE global key and is not lease-gated. -->
@@ -3175,6 +3225,7 @@
 							onMove={treeEditable ? moveOutlineNode : undefined}
 							{revealRequest}
 							onDelete={treeEditable ? deleteFromOutline : undefined}
+							bandOf={outlineBandOf}
 						/>
 					{/if}
 				</div>
@@ -3186,7 +3237,20 @@
 			class:animating
 			class:tall={animating && animateTab === 'stateMachine'}
 		>
-			{#if componentDraft && componentScene}
+			{#if componentDraft && componentScene && propStageShown}
+				<div class="canvas-slot">
+					<EditorPropStage
+						def={componentDraft}
+						version={editNonce}
+						{componentMap}
+						showCollider={propCollider}
+						showStandIn={propStandIn}
+						readOnly={isInspecting || lease.readOnly}
+						onChanged={() => (editNonce += 1)}
+						onStandIn={onPropStandIn}
+					/>
+				</div>
+			{:else if componentDraft && componentScene}
 				<div class="canvas-slot">
 					<EditorCanvas
 						scene={componentScene}
@@ -3310,6 +3374,7 @@
 						onSetInputSource={setComponentInputSource}
 						flowVariables={data.flowVariables}
 						{componentDraft}
+						draftVersion={editNonce}
 						componentReservedIds={savedRowIds}
 						componentReadOnly={isInspecting}
 						onRenameEvent={(id) => void renameComponentEvent(id)}

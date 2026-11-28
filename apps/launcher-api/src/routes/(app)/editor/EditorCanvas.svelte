@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { drawPropGraphicNode } from '$lib/editor/propCanvas';
 	import {
 		backgroundCoverAnchor,
 		backgroundCoverScale,
@@ -3088,6 +3089,11 @@
 						instanceRigBundle,
 					);
 			drawPartSkin(ctx, skin, skinParams, t, true);
+		} else if (node.bind?.component === 'PropGraphic') {
+			// A prop's vector art (`propGraphic.ts`): its ops drawn as the game's bound part draws
+			// them, reading the instance's params, so a prop's pieces look like the game.
+			const params = instanceParams ?? componentParams;
+			drawPropGraphicNode(ctx, node.bind.props, (key) => params[key]);
 		} else if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
 			// editor-renderable art — the game mounts the real component at runtime.

@@ -3126,8 +3126,13 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	ENHANCEMENT_DIAL_DEF,
 ];
 
-/** Every built-in component def — the launcher's lowest-precedence layer. */
-export const BUILTIN_COMPONENTS: ComponentDef[] = [
+/**
+ * The built-in defs every runtime carries: what a boot resolves a layout doc's component ids
+ * against (`stockAssetBoot.ts`). The prop built-ins are not here (`propComponents.ts`): the
+ * launcher's library adds them (`builtinLibrary.ts`), and a runtime gets them from the arcade art
+ * that draws them, so no runtime reaches them statically.
+ */
+export const RUNTIME_BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
 	BUTTON_DEF,
 	TEXT_BOX_DEF,
@@ -3150,6 +3155,10 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	SEGMENTED_COUNTER_SEGMENT_DEF,
 	...HOLD_AND_WIN_COMPONENTS,
 ];
+
+/** Every built-in component def a layout doc can place (what a publish bakes copies of); the
+ *  launcher's lowest-precedence layer adds the prop built-ins (`builtinLibrary.ts`). */
+export const BUILTIN_COMPONENTS: ComponentDef[] = [...RUNTIME_BUILTIN_COMPONENTS];
 
 /**
  * Whether the Scene Editor's palette offers `def` to a project of kind `gameType` (with the add-ons

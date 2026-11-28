@@ -1,6 +1,7 @@
 import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
 import type { ArcadeOnlineCarry, ArcadeOnlineStains, ResolvedArcadeCarry } from './onlineCarry';
+import type { ArcadeOnlineProps } from './onlineProps';
 import type { ArcadeOnlineSlide } from './onlineSlide';
 import type { ArcadeOnlineTouch } from './touchScheme';
 import type { GameConfigDoc } from './types';
@@ -408,6 +409,10 @@ export type ArcadeOnline = {
 	 *  normalizer, which drops it: read it off the raw doc with `slideOf`. Absent ⇒ it stops
 	 *  there, as every online game did before the setting. */
 	slide?: ArcadeOnlineSlide;
+	/** The prop components' colliders by zone family, which its generator lays into the level
+	 *  (`onlineProps.ts`). Carried past the normalizer, which drops it: read it off the raw doc
+	 *  with `onlinePropsOf`. Absent ⇒ every prop plays today's rule. */
+	props?: ArcadeOnlineProps;
 };
 
 /**
@@ -721,12 +726,15 @@ export type ResolvedArcadeOnline = Required<
 		| 'keys'
 		| 'touch'
 		| 'slide'
+		| 'props'
 	>
 > & {
 	/** Absent ⇒ the world's axes. */
 	keys?: 'screen';
 	/** Absent ⇒ no slide. Put on by `withOnlineSlide` (`onlineSlide.ts`) from the raw doc. */
 	slide?: ArcadeOnlineSlide;
+	/** Absent ⇒ today's props. Put on by `withOnlineProps` (`onlineProps.ts`) from the raw doc. */
+	props?: ArcadeOnlineProps;
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };

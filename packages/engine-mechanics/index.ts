@@ -26,6 +26,7 @@ export * from './src/onlineBots.js';
 export * from './src/botNames.js';
 export * from './src/onlineGenerators.js';
 export * from './src/salmonsBiomes.js';
+export { bridgeOccupancy, occupancySteps } from './src/salmonsRules.js';
 export {
 	CELL as SALMONS_CELL,
 	ROCK_PASS as SALMONS_ROCK_PASS,

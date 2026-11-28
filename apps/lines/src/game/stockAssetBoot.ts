@@ -1,5 +1,5 @@
 import {
-	BUILTIN_COMPONENTS,
+	RUNTIME_BUILTIN_COMPONENTS,
 	getBoundComponent,
 	getComponentDefaults,
 	resolveComponent,
@@ -51,7 +51,8 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 			data: withUrl ? { ...data, other: [...(data.other ?? []), ANTICIPATION_SWITCHES] } : data,
 			fallbackDoc: fallbackEditorScenes,
 			resolveDef: (id, version) =>
-				resolveComponent(id, version).def ?? BUILTIN_COMPONENTS.find((def) => def.id === id),
+				resolveComponent(id, version).def ??
+				RUNTIME_BUILTIN_COMPONENTS.find((def) => def.id === id),
 			componentDefaults: getComponentDefaults,
 			isBoundPart: (name) => getBoundComponent(name) !== undefined,
 			config: getActiveGameConfig(),

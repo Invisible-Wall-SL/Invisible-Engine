@@ -1,4 +1,5 @@
 import type {
+	ArcadeProp,
 	ComponentDef,
 	ComponentEvent,
 	ComponentInput,
@@ -7,6 +8,7 @@ import type {
 	ComponentStateMachine,
 	LayoutNode,
 	NodeListener,
+	PropCollider,
 	SmEnterAction,
 	SmLayer,
 	SmState,
@@ -47,6 +49,10 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	blendMode: true,
 	zIndex: true,
 	parallax: true,
+	propDepth: true,
+	propZOffset: true,
+	propCell: true,
+	propRamp: true,
 	overrides: true,
 	visibleFor: true,
 	slotId: true,
@@ -164,7 +170,23 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	stateMachine: true,
 	events: true,
 	characterClips: true,
+	prop: true,
 	guides: true,
+};
+const propFields: Record<keyof ArcadeProp, true> = {
+	zoneKind: true,
+	fromZone: true,
+	collider: true,
+	preview: true,
+};
+const propColliderFields: Record<keyof PropCollider, true> = {
+	characters: true,
+	deck: true,
+	snap: true,
+	ramps: true,
+	hole: true,
+	solids: true,
+	sideExit: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,
@@ -268,6 +290,8 @@ export const EVENT_PAYLOAD_FIELDS = fields(eventPayloadFields);
 export const NODE_LISTENER_FIELDS = fields(nodeListenerFields);
 export const SM_ENTER_ACTION_FIELDS = fields(smEnterActionFields);
 export const STATE_MACHINE_FIELDS = fields(stateMachineFields);
+export const PROP_FIELDS = fields(propFields);
+export const PROP_COLLIDER_FIELDS = fields(propColliderFields);
 export const SM_LAYER_FIELDS = fields(smLayerFields);
 export const SM_STATE_FIELDS = fields(smStateFields);
 export const SM_TRANSITION_FIELDS = fields(smTransitionFields);

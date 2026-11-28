@@ -34,7 +34,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
-		BUILTIN_TIMELINES,
+		BUILTIN_LIBRARY_TIMELINES,
 		ComponentEventDispatcher,
 		ComponentStateMachineRunner,
 		type ComponentTimelinePlayer,
@@ -175,7 +175,7 @@
 
 	/** The project's timelines of the component, after the built-in ones it does not shadow — a
 	 *  built-in component's machine plays engine timelines no listing returns. */
-	const builtinTimelines = $derived(componentTimelinesOf([...BUILTIN_TIMELINES], def?.id));
+	const builtinTimelines = $derived(componentTimelinesOf([...BUILTIN_LIBRARY_TIMELINES], def?.id));
 	const timelines = $derived.by((): Row[] => {
 		const own = componentTimelinesOf(rows, def?.id);
 		const ids = new Set(own.map((t) => t.id));
@@ -491,6 +491,17 @@
 	 * while this panel is shown, the listening nodes under it hear `enter` / `leave` / `down` / `up`
 	 * / `click`, deepest first, through the game's dispatcher. Hidden, it hears nothing.
 	 */
+	/**
+	 * The prop view's stand-in moved (`EditorPropStage`): the open prop's `occupied` input takes its
+	 * count and each trigger it fired (`stepOn` / `stepOff`) fires, as the arcade runtime sets them
+	 * from a room. Only inputs the def declares; hidden, it does nothing.
+	 */
+	export function previewProp(occupied: number, fired: readonly string[]): void {
+		if (!active || !def?.prop) return;
+		const declared = new Set(componentInputs(def).map((i) => i.id));
+		if (declared.has('occupied')) setPreviewInput('occupied', occupied);
+		for (const id of fired) if (declared.has(id)) fire(id);
+	}
 	export function stagePointer(
 		kind: 'move' | 'down' | 'up' | 'leave',
 		nodeId: string | null,

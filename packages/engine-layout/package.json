@@ -49,6 +49,10 @@
 			"types": "./src/lib/sheetClipLook.ts",
 			"default": "./src/lib/sheetClipLook.ts"
 		},
+		"./prop-placement": {
+			"types": "./src/lib/salmonsArt/propPlacement.ts",
+			"default": "./src/lib/salmonsArt/propPlacement.ts"
+		},
 		"./zone-art": {
 			"types": "./src/lib/zoneArtNodes.ts",
 			"default": "./src/lib/zoneArtNodes.ts"

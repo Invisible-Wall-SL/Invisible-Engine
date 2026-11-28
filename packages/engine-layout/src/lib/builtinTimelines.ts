@@ -71,7 +71,12 @@ export const ENHANCEMENT_DIAL_TIMELINES: readonly CinematicDoc[] = ENHANCEMENT_D
 	}),
 );
 
-export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
+/** The built-in timelines every runtime registers at boot (`componentTimelines.ts`). */
+export const RUNTIME_BUILTIN_TIMELINES: readonly CinematicDoc[] = [
 	...SEGMENTED_COUNTER_TIMELINES,
 	...ENHANCEMENT_DIAL_TIMELINES,
 ];
+
+/** Every built-in timeline a placed built-in plays; the launcher's library adds the prop
+ *  built-ins' (`builtinLibrary.ts`). */
+export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [...RUNTIME_BUILTIN_TIMELINES];

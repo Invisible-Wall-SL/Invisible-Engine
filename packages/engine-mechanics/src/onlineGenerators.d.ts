@@ -3,7 +3,7 @@
  * `scripts/check-room-bots.mjs`, `scripts/check-room-sim.mjs` and `scripts/check-room-levels.mjs`.
  */
 
-import type { SalmonsGeometry, SalmonsRiver } from './salmons';
+import type { SalmonsGeometry, SalmonsProps, SalmonsRiver } from './salmons';
 import type { SalmonsLevels, SalmonsSeedLevels } from './salmonsMap';
 
 /** The part of a game (`game-config` `OnlineGame`) a generator reads and replaces. */
@@ -13,6 +13,8 @@ export type GeneratedGame = {
 	online: {
 		generator?: string;
 		levels?: SalmonsLevels;
+		/** The prop colliders its generator lays into the level, by zone family. */
+		props?: SalmonsProps;
 		spawn: { x: number; y: number };
 		characters: readonly { id: string; spawns?: { x: number; y: number }[] }[];
 		rules: { zones: readonly unknown[] };
@@ -25,7 +27,7 @@ export const ONLINE_GENERATORS: Readonly<
 		string,
 		{
 			make(seed: number | string, levels?: SalmonsLevels): SalmonsRiver;
-			geometry(made: SalmonsRiver): SalmonsGeometry;
+			geometry(made: SalmonsRiver, props?: SalmonsProps): SalmonsGeometry;
 			/** The config's levels as the level of `seed` reads them; a generator that reads none
 			 *  has no such reader. */
 			levels?(levels: SalmonsLevels | undefined, seed: number | string): SalmonsSeedLevels;
@@ -51,7 +53,7 @@ export function roomLevels(game: GeneratedGame, seed: number): SalmonsSeedLevels
 export function levelHash(game: GeneratedGame, made: SalmonsRiver | undefined): string;
 
 /** The two fields a room's state carries beside its seed (`services/game-server` `schema.ts`). */
-export type RoomLevelState = { levels: string; levelHash: string };
+export type RoomLevelState = { levels: string; levelHash: string; props?: string };
 
 export function roomLevelState(
 	game: GeneratedGame,
@@ -60,13 +62,14 @@ export function roomLevelState(
 ): RoomLevelState | undefined;
 
 /** What a device read of them in a room's state: either is missing from an older game server. */
-export type RoomLevelSaid = { levels?: unknown; levelHash?: unknown };
+export type RoomLevelSaid = { levels?: unknown; levelHash?: unknown; props?: unknown };
 
 /** What a device did about its room's level (`roomLevelGame`). */
 export type RoomLevelReport = {
 	/** It plays the room's levels in place of its own config's. */
 	adopted: boolean;
-	/** The parts of its own config's levels that are not the room's, in name order. */
+	/** The parts of its own config's levels that are not the room's, and the kinds of prop whose
+	 *  colliders are not (`bridges`), in name order. */
 	differs: string[];
 	/** Its fingerprint of the level it made when the room said one ('' otherwise), and the room's. */
 	levelHash: string;

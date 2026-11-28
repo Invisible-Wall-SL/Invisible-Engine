@@ -110,6 +110,156 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-27 — **Prop components: a ramp's art follows the collider** (PR #1929;
+  [arcade-prop-components](../design/arcade-prop-components.md) §7 "As built (painted art)").
+  - A root piece with `propRamp` (Depth → **Stands at**) stands at that ramp's foot, with `run`
+    set to the ramp's length. The seed's slopes use it, so a longer ramp draws a longer slope, in
+    the game and in the prop view.
+  - Today's 2/2 bridge is unchanged: `check:prop-depth` 30 (a near ramp of 3 drawn as the rule
+    plays it), `check:salmons-art` 50, `check:salmons-levels` 28, `check:component-prop-editor`
+    59.
+  - The seed `bridgeProp`'s pin in `test-hold-and-win-template` was re-pinned.
+  - **Playtests** (arcade build, headless Chrome): `salmons-play.mjs --bridge-component` 7/7 and
+    the new `--bridge-art` 5/5. The latter runs a project copy whose deck is a cyan sprite and
+    whose near ramp is 3. It checks the room lifts the fisherman 2½ cells out, the cyan deck is on
+    screen, and the near slope draws 4 : 3 as wide as the far one.
+  - **Runtime bytes**, both fixes, `--out` builds of 9f5c197bc against a64c50b36: lines, match3
+    and card are identical. arcade is +652 B gzip and arcade3d +629 B (`propDraw.ts`'s sprites,
+    clips and containers; `propRamp` in `propPieces`).
+- 2026-11-27 — **Prop components: painted art in every band** (PR #1929; [arcade-prop-components](../design/arcade-prop-components.md)
+  §7 "As built (painted art)").
+  - The river now draws a prop piece's `sprite` and `flipbook` nodes in the water and behind bands,
+    not only its `PropGraphic` art. Each node keeps its transform, its tint and its state-machine
+    visibility.
+  - The piece def comes from the registry, so a project's copy of a piece is drawn.
+  - The prop view draws painted pieces too.
+  - A painted piece's sheets and clips ship (`check:zone-art` 13).
+  - Gates: `check:prop-depth` 29, `check:component-prop-editor` 55, `check:zone-art` 149 → 150,
+    `check:salmons-art` 50 (unchanged).
+- 2026-11-27 — **The prop card's ＋ Solid stops at 8** (PR #1929's review). A collider holds at
+  most `PROP_MAX_SOLIDS` (8) solids, so a room can always send it. At 8, ＋ Solid is greyed out
+  with an InfoTip, `addPropSolid` adds nothing, and a save of a prop past it is refused
+  ([tools/component-editor](../tools/component-editor.md)). The rest of the review fixes:
+  [status/salmons](salmons.md).
+
+- 2026-11-26 — **Prop components P7: the editor** ([arcade-prop-components](../design/arcade-prop-components.md)
+  §7 P7 As built, branch `claude/bold-cannon-3a8unw`, in review). On a prop:
+  - **The Prop card** (Properties): zone kind, preview length and height, snap, near and far ramp
+    and height (each with a param toggle), hole, **Side exit** and the solids, with the
+    collider's problems listed live. **＋ Make a prop** on any component; a bin to stop.
+  - **The Depth card** per node (band, z offset, and a cell for a root component instance), and a
+    band chip in the Outline.
+  - **The editor bar's Prop view / Collider / Show a character:**
+    - the prop drawn as the game draws it;
+    - the collider over it, with ramp and snap handles and **＋ Solid** (move and resize by its
+      corners);
+    - a stand-in fisherman the bridge rule lifts. His `occupied` / `stepOn` / `stepOff` drive
+      the State machine preview.
+  - `occupied` / `stepOn` / `stepOff` are locked in Inputs with an **engine** badge.
+  - `PropGraphic` art now draws on the node canvas.
+  - **Shared changes:**
+    - `IconButton` gains a `plus` icon.
+    - `salmonsRules.js` exports `bridgeDecks` / `bridgeDeckAt` (the rule's own lift).
+    - `engine-layout` gains `resolvePropGraphic`, `settledPropStates` and a `prop-placement`
+      subpath.
+  - **Gates:**
+    - new `check:component-prop-editor` (50);
+    - `check:prop-shape` 43, `check:prop-depth` 26, `check:zone-art` 147,
+      `check:component-state-machine-editor` 91, `check:component-repeat-segments-editor` 42,
+      `check:save-keeps-unknown-blocks` 170;
+    - `check:online-rules` 40, `check:salmons-art` 50, `check:salmons-levels` 28,
+      `check:room-sim` 43;
+    - the launcher build, and `check:svelte` at baseline.
+  - **Runtime bytes** (`--out` builds, before and after): lines, match3 and card are identical.
+    arcade is +100 B gzip and arcade3d +73 B: the game's `drawPropGraphic` now draws through
+    `resolvePropGraphic`, and the rule's lift is an exported `bridgeDeckAt`.
+  - **Browser:** the card, the view, a ramp drag and the stand-in on the deck were driven in
+    headless Chrome through a stand-alone harness. The real `/editor` needs the DB and R2.
+    ⏳ The owner's browser check is still to do.
+- 2026-11-26 — **Prop components P6 (arcade side): the ship chain** (agent `arcade-games`;
+  detail: [status/salmons](salmons.md)).
+  - A project prop def is drawn when the config's zone art names it. It ships in the bundle's
+    closure: the pinned def, its pieces, and the latest. `loadComponentForGame` strips
+    `prop.preview`, as it strips `guides`.
+  - The prop built-ins (the seed and its pieces) left `BUILTIN_COMPONENTS` / `BUILTIN_TIMELINES`
+    for the launcher's library, `builtinLibrary.ts` (`BUILTIN_LIBRARY_COMPONENTS` /
+    `_TIMELINES`). `componentStorage.ts` and the component editor's timeline lists read the
+    library, so **Save a copy** of the seed works as before. A runtime gets the prop built-ins only
+    with the Salmons art.
+
+- 2026-11-26 — **Prop components P5b (arcade side): the seed bridge drawn in the game** (agent
+  `arcade-games`; detail: [status/salmons](salmons.md)). `<SpawnProps>` looks for its layer's
+  instance container each frame until it is found. Its first look runs before `<ProjectedLayer>`
+  registers the layer, so pieces published before a remount were never drawn. The river draws a
+  prop's `water` / `behind` pieces itself (`salmonsArt/propDraw.ts`: `PropGraphic` nodes, the
+  settled machine's visibility, a looping state's property keys). The prop built-ins and their
+  timelines are registered by the arcade runtime once a page.
+- 2026-11-26 — **Prop components P5: the mount, and the seed bridge drawn as the code bridge**
+  ([arcade-prop-components](../design/arcade-prop-components.md) §5 / §7 P5 As built, branch
+  `claude/bold-cannon-3a8unw`, in review).
+  - **Cut into pieces.** A prop is cut into pieces per zone cell (`propPieces.ts`; new node field
+    `propCell`, kept by the launcher's save).
+  - **Placed by Salmons.** `salmonsArt/propPlacement.ts` places the pieces at the code's depths.
+  - **Among the players.** The `sorted` / `over` pieces stand among the players as real
+    `<ComponentInstance>`s. `<IsoWorld>` mounts `<SpawnProps>`, which reads the
+    `arcadeProps.svelte.ts` registry (`setSpawnProps`) and draws into the spawn layer's own
+    instance container. `SpawnLayer.svelte` is untouched, because it is in every runtime.
+  - **Drawn with `PropGraphic`.** The pieces draw through a new bound part, `PropGraphic`
+    (`propGraphic.ts`: polys, rects and lines filled and stroked in order), registered by the arcade
+    seam (`apps/lines/src/families/arcade.ts`).
+  - **The seed bridge's pieces.** `bridgeProp` is now `bridgePropWater` / `Pillar` /
+    `DeckNear|Middle|Far` / `Slope`, drawing as `river.ts` piece for piece. The per-cell shimmer
+    phase is `offsetParam: 'phase'` on a frame-keyed sway timeline.
+  - **Fixed in passing.** `componentFields.ts` lacked the collider's `sideExit` (from 0d48419): a
+    type error, and a save that would have re-grafted a cleared `sideExit`.
+  - **Gates.** New `pnpm check:prop-depth` (26; it fails 18 checks when a colour, alpha or place
+    is changed), `check:prop-shape` (43), `test-hold-and-win-template` (re-pinned),
+    `check:svelte` at baseline. The river still draws the code bridge
+    (`check:salmons-art` unchanged).
+  - **Next, the arcade agent:** the river swap, the inputs in `online.ts`, and deleting the code
+    bridge.
+- 2026-11-26 — **Prop components P4: the seed bridge** ([arcade-prop-components](../design/arcade-prop-components.md)
+  §7 P4, branch `claude/bold-cannon-3a8unw`, in review). The shared built-in `bridgeProp` and its
+  segments `bridgePropDeckNear` / `…Middle` / `…Far` and `bridgePropReflection`, with the
+  timelines its machines play, are in `engine-layout` `propComponents.ts` (`PROP_COMPONENTS`,
+  `PROP_TIMELINES`). It is `category: 'scenery'` and `internal`, and inert until a zone-art entry
+  names it (P6). Its collider is today's rule, so it compiles to `{ from, zoneKind }`. Its
+  placeholder art is close to the code bridge, in the §5 bands at the code's depths. Its state
+  machine has `idle` (looping water sway) / `occupied` and `stepOn` / `stepOff` dips, with inputs
+  `PROP_INPUTS`, scoped by an engine-provided `zone`. `BUILTIN_COMPONENTS` / `BUILTIN_TIMELINES`
+  (the launcher's layer) now include the prop built-ins. The runtime reads the new
+  `RUNTIME_BUILTIN_COMPONENTS` (`stockAssetBoot.ts`, `stockAssetBuild.ts`) and
+  `RUNTIME_BUILTIN_TIMELINES` (`registerGameTimelines`), which do not, so every runtime is
+  byte-identical (measured, all five). Two traps kept it so: the defs are built by single
+  `/* @__PURE__ */` calls, and `propComponents.ts` imports only `types.ts` (a new import edge
+  reorders the shared modules: +18 B). The five defs are pinned in
+  `test-hold-and-win-template.mjs`. The design gains §9 *Other obstacles* (waterfall, rock,
+  whirlpool, sandbank; plan P9–P13). `scripts/current-games/republish.fixture.mjs` fails on an
+  uncommitted tree for any built-in change (it compares HEAD's extraction with the working tree's);
+  it passes once committed. Gates: `check:prop-shape` (34 → 40),
+  `check:component-state-machine` 227, `check:component-repeat-segments` 81,
+  `check:component-state-machine-editor` 91, `engine-layout build`, `check:svelte` at baseline
+  (engine-layout 290, lines 145, launcher-api 44).
+- 2026-11-26 — **Prop components P1: the model and the compile** ([arcade-prop-components](../design/arcade-prop-components.md)
+  §7 P1, branch `claude/bold-cannon-3a8unw`, in review). `ComponentDef.prop` (`ArcadeProp`:
+  `zoneKind`, `fromZone`, `collider` with `PropLength` deck / ramps, `snap`, `hole`, opt-in
+  `solids`, editor-only `preview`) and each node's `propDepth` (`PROP_DEPTHS`: water / behind /
+  sorted / over) and `propZOffset` in `engine-layout` `types.ts`; `PROP_INPUTS` (`occupied`,
+  `stepOn`, `stepOff`) in `componentInterface.ts`. `engine-mechanics/src/propShape.js` (+ `.d.ts`,
+  deep-imported, not in the package index): `compilePropShape(def)` → `{ from, zoneKind }` plus the
+  fields that differ from today's bridge (`PROP_SHAPE_DEFAULTS`: ramps `BRIDGE_SLOPE` 2 both ends,
+  height `BRIDGE_HEIGHT` 6, snap 0.5, hole `deckAndRamps`, characters the bridge rule's), throwing
+  a `PropShapeError` with every problem (`propShapeErrors`) for a bad zone kind or zone param, a
+  deck that does not span its zone, a non-positive / non-numeric / zone-length-following length, a
+  snap outside (0, 1], an unknown hole or a malformed solid. The launcher keeps it through a save
+  (`src/lib/server/componentProp.ts`, kind lists imported from `engine-mechanics` / `engine-layout`):
+  malformed solids, characters, preview entries, bands and offsets drop; a save of a prop missing a
+  deck, ramps, snap or known hole is refused (400); a newer build's field inside `prop` or its
+  collider is kept, and a stored prop this build cannot read is put back whole
+  (`componentUnknownFields.ts`). Nothing reads any of it at runtime yet (P2), so every game is
+  untouched. Gates: `pnpm check:prop-shape` (new, 24), `check:save-keeps-unknown-blocks` (prop
+  section, 156 → 169), `pnpm --filter engine-layout build`, `check:svelte` at baseline
+  (engine-layout 290, launcher-api 44).
 - 2026-11-20 — **Invisible Characters creates a component through this save** (character
   pipeline C6b, in review; [status/game-families](game-families.md)). `componentSaveRequest` /
   `componentSaveError` moved to `$lib/componentSave.client.ts`; Characters' *＋ Add* posts a

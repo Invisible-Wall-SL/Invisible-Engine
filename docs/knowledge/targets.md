@@ -60,6 +60,8 @@ Owners: `docs/knowledge/owners.json`.
 - **A pipeline change** (tool, engine, template, agent definition) is its own branch and PR. It
   merges when the checks pass, the current-games check is green and the owner approves (ADR-0007).
 - **A game change** is made in the tools on that project's content, then published in Game Maker.
+- **An owner step is seen only through a row** in its design's build-plan table or an entry in
+  `docs/STATUS.md`'s owner list (Salmons' S0 art go waited unasked for want of one).
 - **Bugs** come in through Pipeline Bug Reports (`/bugs`) or Game Bug Reports (`/game-bugs`).
   Pipeline bugs go to a branch named `bug-<n>-…`. Game bugs are fixed in the project's content
   only (ADR-0009).

@@ -1341,7 +1341,7 @@ globalThis.OffscreenCanvas ??= class {
 globalThis.document.createElement = () => new OffscreenCanvas(256, 256);
 registerHooks({
 	resolve: (specifier, context, next) =>
-		specifier.endsWith('/worldDrawing.svelte')
+		/\/(worldDrawing|arcadeProps)\.svelte$/.test(specifier)
 			? next(`${specifier}.ts`, context)
 			: next(specifier, context),
 });
@@ -1685,22 +1685,27 @@ check("zone art's rigs: each moves on with the river's ticker while in view", ()
 // piece (`salmons/art-fingerprint.mjs`): a level with no biomes block is drawn exactly as it was.
 // The hashes were of the drawing at main a404522, before the biomes were data, and the same of
 // main's after its trees' art (#1922). Since the river is drawn in chunks (2026-11-27) they are of
-// what is drawn and in which order, not of the containers that hold it; recorded of main 665b407's
-// drawing, the last laid loose, which this one draws alike.
+// what is drawn and in which order, not of the containers that hold it. Re-pinned (merge of main
+// into the prop components branch, 2026-11-27) for the bridges drawn by the seed `bridgeProp`,
+// published as the arcade runtime does (`art-fingerprint.mjs` `publishBridges`), piece by piece:
+// - every piece that is not a bridge's is main's (`WITHOUT_BRIDGES`: the hashes of these rivers
+//   with every bridge piece taken away are those of main 39f4fea's drawing taken away alike);
+// - every bridge piece is the code bridge's recorded drawing (`check:prop-depth`): the water and
+//   the pillars the same, each slope at its land cell, the deck cells among the players.
 const { riverArtFingerprint } = await import('./salmons/art-fingerprint.mjs');
 const { ISO_PROJECTOR } = await import('../packages/engine-layout/src/lib/projection.ts');
 const { levelShape } = await import('../packages/engine-mechanics/src/salmonsMap.js');
 const { SALMONS_LEVELS } = await import('../packages/engine-mechanics/src/salmons.js');
 const DRAWN_BEFORE_BIOMES = [
-	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '6a92bfaa1328bae46bf10584' },
-	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '1958546a26690ea154a35aed' },
+	{ seed: 1, levels: undefined, projector: 'mirrored', hash: '564a90b929cf9e375a17e28f' },
+	{ seed: 7, levels: SALMONS_LEVELS, projector: 'mirrored', hash: '041bb8ce4de4fb1974d86299' },
 	{
 		seed: 123,
 		levels: { river: {}, waterfalls: { heightMin: 5, heightMax: 10 } },
 		projector: 'mirrored',
-		hash: 'b5fb208cb528704ff1cb5f01',
+		hash: '28bfffb4fdebfffceb651e3e',
 	},
-	{ seed: 42, levels: undefined, projector: 'plain', hash: '083661d70dd1ab4fab36c9c6' },
+	{ seed: 42, levels: undefined, projector: 'plain', hash: '8a75f37163a373f9e8b2270a' },
 ];
 const PROJECTORS = { mirrored: ISO_PROJECTOR_MIRRORED, plain: ISO_PROJECTOR };
 const riverOf = (seed, levels) => salmonsMapRiver(seed, undefined, levelShape(levels, seed));
@@ -1712,6 +1717,38 @@ for (const { seed, levels, projector, hash } of DRAWN_BEFORE_BIOMES) {
 check('biomes: with none authored the river is drawn as before them, piece for piece', () => {
 	for (const { seed, hash, drawn } of fingerprints)
 		assert.equal(drawn.hash, hash, `seed ${seed}: ${drawn.pieces} pieces`);
+});
+
+/** Main 39f4fea's rivers (the code bridge) with every bridge piece taken away: the drawing but the
+ *  bridges, which this drawing must match with its own bridge pieces taken away. */
+const WITHOUT_BRIDGES = [
+	'64604d88aad273b9912dcc32',
+	'bb28ec89da6a9f7279b615ca',
+	'fbb98d4cf0b9ba82745000ad',
+	'eff1beaa7f586d441a2d48cd',
+];
+const firstColor = (g) => g.context?.instructions?.[0]?.data?.style?.color;
+/** The bridge's colours: the reflections, the pillars, the slopes and the deck's side. */
+const BRIDGE_COLOURS = [0x4a3020, 0x3a2412, 0x5b3a20, 0x7a4f2a];
+/** Every drawing of a bridge's, wherever the river holds it (in a chunk or loose). */
+const withoutBridges = (...roots) => {
+	const strip = (c) => {
+		for (const child of [...c.children]) {
+			if (child.context && BRIDGE_COLOURS.includes(firstColor(child))) child.destroy();
+			else strip(child);
+		}
+	};
+	for (const root of roots) strip(root);
+};
+const bare = [];
+for (const { seed, levels, projector } of DRAWN_BEFORE_BIOMES)
+	bare.push(
+		await riverArtFingerprint(riverOf(seed, levels), PROJECTORS[projector], {
+			omit: withoutBridges,
+		}),
+	);
+check('the bridge drawn by its prop: every other piece of the river is as before', () => {
+	bare.forEach((drawn, i) => assert.equal(drawn.hash, WITHOUT_BRIDGES[i], `river ${i}`));
 });
 
 const AUTHORED = {

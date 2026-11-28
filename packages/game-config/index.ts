@@ -14,6 +14,7 @@ export * from './src/characterSheet';
 export * from './src/onlineSlide';
 export * from './src/touchScheme';
 export * from './src/levelsShape';
+export * from './src/onlineProps';
 export * from './src/onlineCarry';
 export * from './src/salmonsProjectArt';
 export * from './src/zoneArt';

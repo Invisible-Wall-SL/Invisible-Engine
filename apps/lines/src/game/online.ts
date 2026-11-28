@@ -107,8 +107,10 @@ import {
 	clearClips,
 	clearMarks,
 	clipsOn,
+	depthOf,
 	setClips,
 	setCodeLooks,
+	setDepths,
 	setFieldArt,
 	setLinks,
 	setMarks,
@@ -127,6 +129,7 @@ import {
 import type {
 	CodeLook,
 	SalmonsArt,
+	SalmonsBridges,
 	SalmonsScreenHost,
 	SalmonsStartHost,
 	SalmonsZoneArt,
@@ -151,6 +154,7 @@ import {
 
 import {
 	AUTHORING_PARAM,
+	bakedCinematics,
 	bakedFlowV2Doc,
 	bakedGameConfig,
 	editorArtSheetsWhere,
@@ -162,7 +166,7 @@ import {
 import { arcadePerf, messageLabel } from './arcadePerf';
 import { notePlayFieldFrame } from './playFieldPhase';
 import { typingInto } from './flowKeys';
-import { zoneArtDrawsRig, zoneSceneryOf, zoneStampsOf } from './zoneArt';
+import { zoneArtDrawsRig, zonePropOf, zoneSceneryOf, zoneStampsOf } from './zoneArt';
 import { dispatchFlowV2Complete, getFlowV2 } from './flowV2InterpreterHolder';
 import { restartFlow } from './roomFlow';
 import { stateApp } from './stateApp';
@@ -212,8 +216,9 @@ import { stateModes } from './stateModes.svelte';
  * the join waits for the room's first state, makes the room's own field from the seed it carries
  * (the very function the server ran) and draws it in place of the authored one
  * ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load. The state also carries the levels
- * the room's generator read and a fingerprint of the level it made, and the device makes its field
- * through `engine-mechanics` `roomLevelGame` alone: it plays the ROOM's levels, never its own
+ * the room's generator read, the prop colliders it laid in (a bridge's ramps) and a fingerprint of
+ * the level it made, and the device makes its field through `engine-mechanics` `roomLevelGame`
+ * alone: it plays the ROOM's levels and props, never its own
  * config's where the two differ (an authoring boot is told so, {@link showLevelsNotice}), and
  * leaves a room whose level it still cannot make ({@link otherLevel}). What it draws is what the
  * room collides against.
@@ -384,6 +389,9 @@ type RoomState = {
 	 *  no generator. */
 	levels?: string;
 	levelHash?: string;
+	/** The prop colliders it laid into the level, as JSON (`roomLevelState`); unset when it has
+	 *  none, or from an older server: the device then plays none. */
+	props?: string;
 	/** Whether the room lets its people change the class they play now (a lobby, until round 1
 	 *  starts); unset from an older server, or by a game with no lobby. */
 	picking?: boolean;
@@ -502,9 +510,12 @@ type Session = {
 	 *  pressed or asked for a respawn while it ran. Only then does the win screen join the next game
 	 *  by itself (an idle tab does not hop rooms for ever). */
 	played: boolean;
-	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
-	 *  screen px, eased, and where it was drawn. */
-	lifts: Map<string, { lift: number; x: number; y: number }>;
+	/** Room player id → how far it is drawn raised (`lift`, screen px, eased): with the ground under
+	 *  it (`ground`, the art's) and over it by the room's height (`aloft`, the art's: a fisherman on a
+	 *  bridge); and where it was drawn. */
+	lifts: Map<string, { lift: number; ground: number; aloft: number; x: number; y: number }>;
+	/** The room's bridges drawn as prop components (the art's `bridges`), fed every state. */
+	bridges: SalmonsBridges | undefined;
 	/** The device left this room for another ({@link switchRoom}): its leave is no lost room. */
 	quit: boolean;
 	/** Stop hearing the room's states and events. */
@@ -924,6 +935,7 @@ async function enterRoom(
 		buttons: 0,
 		played: false,
 		lifts: new Map(),
+		bridges: undefined,
 		quit: false,
 		unlisten: () => {},
 		closed: false,
@@ -962,6 +974,13 @@ async function enterRoom(
 				current.art = art;
 				arcadePerf.mount();
 				fieldArt = art.rivers;
+				// Before the river is drawn: it draws the water and behind pieces published here.
+				current.bridges = art.bridges(
+					current.game,
+					current.game.online.layer,
+					bakedCinematics,
+					zonePropOf(current.game.online.props, 'bridge#'),
+				);
 				setFieldArt(field.id, art.river);
 				current.screens = art.screens(screenHost(current, launch));
 				for (const [id, mount] of current.screens.mounts) setFieldArt(id, mount);
@@ -1140,6 +1159,8 @@ function closeSession(current: Session) {
 	for (const instance of current.drawn.values()) live.despawn(instance);
 	current.drawn.clear();
 	dropArt(current);
+	current.bridges?.drop();
+	current.bridges = undefined;
 	clearMarks();
 	clearClips();
 	worldCamera = undefined;
@@ -1491,6 +1512,19 @@ function applyState(current: Session) {
 	if (!players || state.step === undefined) return;
 	current.net.applied += 1;
 	current.others.retain(new Set(players.keys()));
+	// The bridges' inputs from the newest state, once a frame like the rest: a step on and back off
+	// between two frames is no change, so neither trigger fires (the room's `z` is the truth, and
+	// what is drawn is the newest state too). Whatever the netcode, and with no own player. Each
+	// place as the wire says it (`placeOnWire`: another player's may come packed in 16 bits).
+	const scale = state.posScale ?? 0;
+	current.bridges?.inputs(
+		[...players.values()].map((p) => ({
+			...placeOnWire(p, scale),
+			z: p.z,
+			character: p.character,
+		})),
+		state.step,
+	);
 	const player = players.get(current.room.sessionId) as OwnPlayerState | undefined;
 	if (!player) return;
 	// A respawn as another character: its own body, speed and abilities from now on.
@@ -1798,7 +1832,7 @@ const fieldPoint = (current: Session, at: Point | undefined): Point | undefined 
 	if (!at || !pointerIo) return undefined;
 	const global = pointerIo.toGlobal(at.x, at.y);
 	const point = spawnLayerPoint(current.game.online.layer, global.x, global.y);
-	const lift = current.lifts.get(current.room.sessionId)?.lift ?? 0;
+	const lift = current.lifts.get(current.room.sessionId)?.ground ?? 0;
 	return point && lift ? { x: point.x + lift, y: point.y + lift } : point;
 };
 
@@ -1943,17 +1977,41 @@ const LIFT_FOLLOW = 10;
 /** A move this far in one frame is a respawn or a correction: the lift is taken at once. */
 const LIFT_SNAP_PX = 192;
 
-/** Player `id`'s lift this frame, drawn at `at`, eased towards the ground's under it. */
-function easeLift(current: Session, id: string, at: { x: number; y: number }, dtMs: number) {
-	const target = current.art?.ground(at.x, at.y) ?? 0;
+/** `was` eased towards `target` over `dtMs`. */
+const eased = (was: number, target: number, dtMs: number) => {
+	const next = was + (target - was) * Math.min(1, (dtMs / 1000) * LIFT_FOLLOW);
+	return Math.abs(target - next) < 0.01 ? target : next;
+};
+
+/**
+ * Player `id`'s lift this frame, drawn at `at`, eased towards the ground's under it and the
+ * height the room has put it at over it (`aloft`: its holder's for a held player, so a salmon in a
+ * fisherman's hands on a bridge is up there with him).
+ */
+function easeLift(
+	current: Session,
+	id: string,
+	at: { x: number; y: number },
+	aloftTarget: number,
+	dtMs: number,
+) {
+	const groundTarget = current.art?.ground(at.x, at.y) ?? 0;
 	const was = current.lifts.get(id);
-	let lift = target;
-	if (was && Math.hypot(at.x - was.x, at.y - was.y) <= LIFT_SNAP_PX) {
-		lift = was.lift + (target - was.lift) * Math.min(1, (dtMs / 1000) * LIFT_FOLLOW);
-		if (Math.abs(target - lift) < 0.01) lift = target;
-	}
-	current.lifts.set(id, { lift, x: at.x, y: at.y });
+	const near = was && Math.hypot(at.x - was.x, at.y - was.y) <= LIFT_SNAP_PX;
+	const ground = near ? eased(was.ground, groundTarget, dtMs) : groundTarget;
+	const aloft = near ? eased(was.aloft, aloftTarget, dtMs) : aloftTarget;
+	const lift = { lift: ground + aloft, ground, aloft, x: at.x, y: at.y };
+	current.lifts.set(id, lift);
 	return lift;
+}
+
+/** How high over the ground the room has put `player` drawn, screen px (the art's `aloft`): its
+ *  holder's while it is held. */
+function aloftOf(current: Session, players: Map<string, PlayerState>, player: PlayerState) {
+	const { art } = current;
+	if (!art) return 0;
+	const by = holderOf(players, player)?.player ?? player;
+	return art.aloft(by.character, by.z ?? 0);
 }
 
 /** Player `id`'s lift as last drawn, else the ground's under `at`. */
@@ -2053,13 +2111,17 @@ function draw(current: Session, dtMs: number) {
 		if (look) restart(look);
 	}
 	const moves: { id: string; x: number; y: number }[] = [];
+	const depths = new Map<string, number>();
 	const places = new Map<string, { x: number; y: number }>();
 	players.forEach((player, id) => {
 		if (!shownInRoom(player)) return;
 		const at = carriedPlace(current, players, player) ?? placeOf(current, id, player);
 		places.set(id, at);
-		const shown = raisedPlace(at, easeLift(current, id, at, dtMs) + handLift(current, id, player));
+		const { lift, aloft } = easeLift(current, id, at, aloftOf(current, players, player), dtMs);
+		const shown = raisedPlace(at, lift + handLift(current, id, player));
 		const instance = current.drawn.get(id);
+		// Raised onto a bridge's deck: sorted over it, as the original's player on a bridge.
+		if (instance && aloft > 0 && current.art) depths.set(instance, current.art.aloftDepth(aloft));
 		if (instance) {
 			moves.push({ id: instance, x: shown.x, y: shown.y });
 			// Held for its catch and shown again (it respawned): its clips start afresh.
@@ -2081,6 +2143,7 @@ function draw(current: Session, dtMs: number) {
 		}
 	});
 	live.move(moves);
+	setDepths(depths);
 	const lines = current.lines.drawn(players);
 	drawMarks(current, players, lines);
 	drawClips(current, players, places, lines);
@@ -3082,6 +3145,8 @@ export function onlineProbe() {
 		x: number;
 		y: number;
 		ground?: number;
+		aloft?: number;
+		depth?: number;
 		status?: number;
 		heldBy?: string;
 	}[] = [];
@@ -3095,10 +3160,15 @@ export function onlineProbe() {
 		else if (current) {
 			const at = carriedPlace(current, everyone, p) ?? placeOf(current, id, p);
 			const ground = current.art ? liftOf(current, id, at) : 0;
+			const aloft = current.lifts.get(id)?.aloft ?? 0;
+			const instance = current.drawn.get(id);
+			const depth = instance ? depthOf(instance) : 0;
 			drawn.push({
 				id,
 				...at,
 				...(ground ? { ground } : {}),
+				...(aloft ? { aloft } : {}),
+				...(depth ? { depth } : {}),
 				...(p.status ? { status: p.status } : {}),
 				...(p.heldBy ? { heldBy: p.heldBy } : {}),
 			});
@@ -3136,6 +3206,7 @@ export function onlineProbe() {
 						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
 						fieldDrawn: current.fieldDrawn ?? null,
 						level: current.level ?? null,
+						bridges: current.bridges?.probe() ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),

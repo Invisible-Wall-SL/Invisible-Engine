@@ -10,6 +10,7 @@ import {
 	withCharacterSheets,
 	withLevelsShape,
 	withOnlineCarry,
+	withProps,
 	withSlide,
 	withTouchSchemes,
 	withZoneArt,
@@ -83,18 +84,21 @@ export const carry3dBlocks = (from: unknown, onto: GameConfigDoc): GameConfigDoc
 /** The live doc for a config applied from Raw JSON, or `undefined` when the text does not describe
  *  a game. Its 3D blocks, its character sheets (`game-config` `characterSheet.ts`), its touch
  *  control schemes (`touchScheme.ts`), its rules' `carry` and `stains` (`onlineCarry.ts`), its
- *  slide (`onlineSlide.ts`) and its zone art (`zoneArt.ts`), which the normalizer drops too, are the PASTED ones, so one the
+ *  slide (`onlineSlide.ts`), its zone art (`zoneArt.ts`) and its prop colliders (`onlineProps.ts`), which the normalizer drops too, are the PASTED ones, so one the
  *  author removed from the text is removed; the save normalizes and validates them. */
 export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 	const next = normalizeGameConfigDoc(pasted);
 	return (
 		next &&
 		openDoc(
-			withZoneArt(
-				withLevelsShape(
-					withSlide(
-						withOnlineCarry(
-							withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+			withProps(
+				withZoneArt(
+					withLevelsShape(
+						withSlide(
+							withOnlineCarry(
+								withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+								pasted,
+							),
 							pasted,
 						),
 						pasted,

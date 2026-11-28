@@ -18,6 +18,9 @@
 	import EditorTilemap from './EditorTilemap.svelte';
 	import EditorParallax from './EditorParallax.svelte';
 	import EditorEvents from './EditorEvents.svelte';
+	import EditorPropCard from './EditorPropCard.svelte';
+	import EditorPropNode from './EditorPropNode.svelte';
+	import { isLockedPropInput } from '$lib/editor/propEdit';
 	import { engineNumberSources } from './valueSourceOptions';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
@@ -209,6 +212,8 @@
 		/** The open component's draft, for its Events list and a node's Listeners (Rive plan Phase 6b,
 		 *  component mode). */
 		componentDraft?: ComponentDef | null;
+		/** Bumped by the page on every edit of the draft (the Prop card and Depth read it again). */
+		draftVersion?: number;
 		/** Ids of the last-saved component: a new listener or on-enter row never takes one. */
 		componentReservedIds?: Iterable<string>;
 		/** Inspecting a version: the Events list and Listeners are read-only. */
@@ -418,6 +423,7 @@
 		onSetInputSource,
 		flowVariables = [],
 		componentDraft = null,
+		draftVersion = 0,
 		componentReservedIds = [],
 		componentReadOnly = false,
 		onRenameEvent,
@@ -1016,6 +1022,9 @@
 
 	/** The bool / number inputs, in declaration order (triggers are the signal rows above). */
 	const valueInputRows = $derived(componentInputs.filter((i) => i.kind !== 'trigger'));
+	/** A prop's reserved inputs: the engine sets them, so their id and kind are locked. */
+	const lockedInput = (id: string): boolean =>
+		!!componentDraft && isLockedPropInput(componentDraft, id);
 	/** The flow variables an input of `kind` can follow (game-families §3.1): a number input a number
 	 *  variable, a bool input a bool one, a text input a string or enum one. */
 	const VARIABLE_TYPES_FOR: Record<string, readonly string[]> = {
@@ -2682,18 +2691,25 @@
 								>trigger{#if s.scope}
 									· per {s.scope}{/if}</span
 							>
-							<button
-								type="button"
-								class="param-remove"
-								title="Rename this input everywhere it is read"
-								onclick={() => onRenameInput?.(s.key)}>✎</button
-							>
-							<button
-								type="button"
-								class="param-remove"
-								title="Remove input"
-								onclick={() => onRemoveInput?.(s.key)}>×</button
-							>
+							{#if lockedInput(s.key)}
+								<span
+									class="engine-badge"
+									title="The game sets this on a prop: its id and kind are locked">engine</span
+								>
+							{:else}
+								<button
+									type="button"
+									class="param-remove"
+									title="Rename this input everywhere it is read"
+									onclick={() => onRenameInput?.(s.key)}>✎</button
+								>
+								<button
+									type="button"
+									class="param-remove"
+									title="Remove input"
+									onclick={() => onRemoveInput?.(s.key)}>×</button
+								>
+							{/if}
 						</div>
 					</li>
 				{/each}
@@ -2703,18 +2719,25 @@
 							<span class="var-icon" aria-hidden="true">{input.kind === 'bool' ? '◐' : '#'}</span>
 							<span class="var-name" title={input.note ?? undefined}>{input.id}</span>
 							<span class="opt-note">{input.kind}</span>
-							<button
-								type="button"
-								class="param-remove"
-								title="Rename this input everywhere it is read"
-								onclick={() => onRenameInput?.(input.id)}>✎</button
-							>
-							<button
-								type="button"
-								class="param-remove"
-								title="Remove input"
-								onclick={() => onRemoveInput?.(input.id)}>×</button
-							>
+							{#if lockedInput(input.id)}
+								<span
+									class="engine-badge"
+									title="The game sets this on a prop: its id and kind are locked">engine</span
+								>
+							{:else}
+								<button
+									type="button"
+									class="param-remove"
+									title="Rename this input everywhere it is read"
+									onclick={() => onRenameInput?.(input.id)}>✎</button
+								>
+								<button
+									type="button"
+									class="param-remove"
+									title="Remove input"
+									onclick={() => onRemoveInput?.(input.id)}>×</button
+								>
+							{/if}
 						</div>
 						<div class="var-row-body input-defaults">
 							{#if input.kind === 'bool'}
@@ -2816,6 +2839,15 @@
 			/>
 		{/if}
 	</section>
+
+	{#if componentDraft}
+		<EditorPropCard
+			def={componentDraft}
+			version={draftVersion}
+			readOnly={componentReadOnly}
+			onChanged={() => onDirty?.()}
+		/>
+	{/if}
 
 	{#if projectLabel}
 		<!-- §13.3 per-project component DEFAULTS: this game's values for the OPEN def, stored in a
@@ -3096,6 +3128,16 @@
 			{node}
 			def={componentDraft}
 			reserved={componentReservedIds}
+			readOnly={componentReadOnly}
+			onChanged={() => onDirty?.()}
+		/>
+	{/if}
+
+	{#if componentMode && componentDraft?.prop}
+		<EditorPropNode
+			def={componentDraft}
+			{node}
+			version={draftVersion}
 			readOnly={componentReadOnly}
 			onChanged={() => onDirty?.()}
 		/>
@@ -7056,5 +7098,13 @@
 	.var-row .param-default {
 		margin-top: 5px;
 		padding-left: 20px;
+	}
+	.engine-badge {
+		font-size: 10px;
+		padding: 0 5px;
+		border-radius: 8px;
+		background: #23324a;
+		color: #9cc0f0;
+		border: 1px solid #36507a;
 	}
 </style>

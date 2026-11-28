@@ -152,6 +152,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			category: c.category,
 			params: c.params ?? [],
 		})),
+		// The prop components a zone family may be drawn with (the Zone art card): the project's and
+		// the shared library's defs with a `prop` block, never an engine-internal seed (a project
+		// starts from one with Save a copy).
+		props: components
+			.filter((c) => c.prop && !c.internal)
+			.map((c) => ({ id: c.id, name: c.name, version: c.version, zoneKind: c.prop!.zoneKind })),
 		// The region-picker source for `image` card params — the SAME list the editor, the component
 		// editor and the symbols tool build, so the four writers of scoped frame refs cannot drift.
 		pickSheets: pickSheetsFrom(assets),

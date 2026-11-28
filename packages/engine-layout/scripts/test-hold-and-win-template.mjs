@@ -27,6 +27,7 @@ const bundled = await esbuild.build({
 			`export { getFullSceneSet, holdAndWinReferenceLayout, HOLD_AND_WIN_BOARD, HOLD_AND_WIN_HOTFIRE_BOARD, addOnSceneIds, mergeMissingScreens } from '../src/lib/referenceLayouts/index.ts';`,
 			`export { getTemplate } from '../src/lib/templates/index.ts';`,
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
+			`export { BUILTIN_LIBRARY_COMPONENTS } from '../src/lib/builtinLibrary.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
 			`export { reserveExpandingBoard, expandingBoardReserved, expandingBoardLiftRows } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
 			`export { addedRowSeat } from '../../game-config/src/holdAndWin.ts';`,
@@ -64,7 +65,10 @@ const current = {
 	sceneSets: Object.fromEntries(EXISTING_KINDS.map((k) => [k, hash(mod.getFullSceneSet(k))])),
 	templates: Object.fromEntries(EXISTING_TEMPLATES.map((k) => [k, hash(mod.getTemplate(k))])),
 	components: Object.fromEntries(
-		mod.BUILTIN_COMPONENTS.filter((def) => !def.capability).map((def) => [def.id, hash(def)]),
+		mod.BUILTIN_LIBRARY_COMPONENTS.filter((def) => !def.capability).map((def) => [
+			def.id,
+			hash(def),
+		]),
 	),
 };
 
@@ -111,6 +115,15 @@ const PINNED = {
 		// it is offered to every kind — a new library entry no existing screen places.
 		segmentedCounter: '01bdca67dc4830f3',
 		segmentedCounterSegment: 'efba786993eed387',
+		// The seed bridge prop and its pieces (arcade-prop-components P4–P5): `internal`, so no palette
+		// offers them, and placed only by a zone-art entry — a new library entry no screen places.
+		bridgeProp: '04e9e731d2e8a703',
+		bridgePropWater: 'a900bd5172d3611d',
+		bridgePropPillar: '8b3bb3999b2061f3',
+		bridgePropDeckNear: '57891d1ea6291576',
+		bridgePropDeckMiddle: 'b4cc7c5c8def4b60',
+		bridgePropDeckFar: 'a583eec213cbf750',
+		bridgePropSlope: '37a1254212f0b508',
 	},
 };
 

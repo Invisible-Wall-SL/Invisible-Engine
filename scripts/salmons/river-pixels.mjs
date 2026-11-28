@@ -53,9 +53,44 @@ const esbuild = createRequire(createRequire(join(ROOT, 'apps/lines/package.json'
 	'esbuild',
 );
 
+/**
+ * What a checkout whose bridges are prop components (`salmonsArt/propPlacement.ts`) adds to its
+ * page: the seed `bridgeProp` published for the field's layer as the arcade runtime publishes it
+ * (the river draws its water and behind pieces), and its deck cells stood in the spawn layer at
+ * their order among the players, as `<SpawnProps>` stands them (drawn as the river draws a piece).
+ * A checkout that draws its bridges in code has none of it.
+ */
+const propsOf = (root) =>
+	existsSync(join(root, 'packages/engine-layout/src/lib/salmonsArt/propPlacement.ts'))
+		? {
+				imports: `
+import { BRIDGE_PROP_DEF } from '${root}/packages/engine-layout/src/lib/propComponents.ts';
+import { placeSalmonsBridges } from '${root}/packages/engine-layout/src/lib/salmonsArt/propPlacement.ts';
+import { drawPropPiece } from '${root}/packages/engine-layout/src/lib/salmonsArt/propDraw.ts';
+import { clearSpawnProps, setSpawnProps } from '${root}/packages/engine-layout/src/lib/arcadeProps.svelte.ts';
+import { riverElevation } from '${root}/packages/engine-layout/src/lib/referenceLayouts/salmonsElevation.ts';
+import { isoDepthOrder } from '${root}/packages/engine-layout/src/lib/projection.ts';
+`,
+				publish: `
+	const elevation = riverElevation(river.waterfalls);
+	const zones = (river.bridges ?? []).map((b, i) => ({ id: 'bridge' + i, ...b }));
+	const pieces = placeSalmonsBridges(BRIDGE_PROP_DEF, zones, (y) => elevation.at(y));
+	setSpawnProps(SALMONS_FIELD_LAYER, pieces);
+`,
+				stand: `
+	for (const piece of pieces.filter((p) => p.band === 'sorted' || p.band === 'over'))
+		for (const node of drawPropPiece(piece, projector.project)) {
+			node.view.zIndex = isoDepthOrder(piece.x, piece.y, 0, piece.bias ?? 0);
+			layer.addChild(node.view);
+		}
+	clearSpawnProps();
+`,
+			}
+		: { imports: '', publish: '', stand: '' };
+
 /** The page's entry, for the checkout at `root`: `window.riverPixels.render(case)` draws one case
  *  and returns each stop's canvas as a PNG data URL; `stops(case)` the river's facts to place them. */
-const entry = (root) => `
+const entry = (root, props = propsOf(root)) => `${props.imports}
 import { Application, Container } from 'pixi.js';
 import { mountSalmonsRiver } from '${root}/packages/engine-layout/src/lib/salmonsArt/river.ts';
 import { loadSalmonsTextures } from '${root}/packages/engine-layout/src/lib/salmonsArt/load.ts';
@@ -110,8 +145,11 @@ async function render(c) {
 	};
 	lookAt(c.stops[0].x, c.stops[0].y);
 	app.renderer.render(app.stage);
-	const art = mountSalmonsRiver(into, app, await loadSalmonsTextures([]), riverOf(c), c.seed, projector);
+	const river = riverOf(c);
+${props.publish}
+	const art = mountSalmonsRiver(into, app, await loadSalmonsTextures([]), river, c.seed, projector);
 	art.aboveWater();
+${props.stand}
 	const shots = [];
 	for (let s = 1; s < c.stops.length; s++) {
 		const [a, b] = [c.stops[s - 1], c.stops[s]];

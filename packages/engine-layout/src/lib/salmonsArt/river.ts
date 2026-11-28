@@ -21,6 +21,8 @@ import {
 } from 'engine-mechanics';
 import { sceneryArtSourceFor, type ZoneArtSource, type ZoneStamp } from 'game-config';
 
+import { spawnPropsOf } from '../arcadeProps.svelte';
+import { hasDepth } from '../depthOrder';
 import { projectedLayer } from '../worldDrawing.svelte';
 import { ISO_DEPTH_SPREAD, ISO_PROJECTOR, isoDepth, type IsoProjector } from '../projection';
 import { SALMONS_FIELD_LAYER, type SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
@@ -28,6 +30,7 @@ import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { ZoneRig } from '../zoneArtRig';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
+import { drawPropPiece, type DrawnPropNode } from './propDraw';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
 import { TINT_ALPHA, tintOf, wetAt, type Wet } from './water';
@@ -44,14 +47,17 @@ import { zoneFrames, type RiverZoneArt, type ZoneFrames } from './zoneArt';
  * is top-left and the sea bottom-right as in the original, and every texture keeps the original's
  * orientation. Ground (painted diamonds: the grass and sand autotiles, the riverbed, the tint, the
  * sea) is drawn in the flat world under the projector's ground turn; upright things (rocks,
- * whirlpools, trees, the waterfalls' lips and splashes, the bridges) at their projected places, in
+ * whirlpools, trees, the waterfalls' lips and splashes, the bridges' pillars and slopes) at their
+ * projected places, in
  * the old client's z order. Per row, as the old client: grass only within 5 cells of the water,
  * then a forest wall of a tree on every cell 6 to 17 cells out on both sides (following the
  * meander), the forest floor beyond, 12 rows of forest past the source and the sea, and sandy
  * beaches in the last 80 columns (a river on the original's grid; P10.16's band river keeps its
- * grass world with a forest round it). The forest trees and the bridges' decks stand in front of a
- * character at the same depth (the old client's `+1001` / `+1100` over a player's `+1000`), so they
- * are drawn among the players, in the projected world's spawn layer. Everything upstream of a
+ * grass world with a forest round it). The forest trees stand in front of a character at the same
+ * depth (the old client's `+1001` over a player's `+1000`), so they are drawn among the players, in
+ * the projected world's spawn layer. The bridges are prop components (`propDraw.ts`): their water
+ * and behind pieces are drawn here from what the arcade runtime published, their deck cells among
+ * the players by `<SpawnProps>`. Everything upstream of a
  * waterfall is raised by its step (`referenceLayouts/salmonsElevation.ts`): a raised piece of
  * ground is drawn at its world place less its lift on both axes, which the turn makes straight up,
  * and an upright thing that much higher. Under each waterfall's lip a cliff of `cliff.png` and the
@@ -118,13 +124,11 @@ const WHIRLPOOL_W = 230.4 * K;
 const WHIRLPOOL_FPS = 9;
 const LIP_FPS = 3.6;
 const SPLASH_FPS = 4.8;
-/** The old client's sizes, old px: a rock's width, a lip, a splash, a bridge's pillar. */
+/** The old client's sizes, old px: a rock's width, a lip, a splash. */
 const ROCK_W = 119.5;
 const LIP = { w: 64, h: 24 };
 const SPLASH = { w: 64, h: 32 };
 const SPLASHES = 3;
-const PILLAR_W = 64 * 0.45;
-const BRIDGE_HEIGHT = 6;
 /** The old client's z offsets over a piece's screen y (old px), in ground depth (`x + y` world
  *  px: an old px of screen y is 3 of them): a player's is `+1000`. */
 const Z = {
@@ -132,11 +136,8 @@ const Z = {
 	lip: 50,
 	splash: 100,
 	rock: 300,
-	pillar: 400,
 	tree: 500,
-	slope: 500,
 	forest: 1001,
-	deck: 1100,
 	player: 1000,
 };
 const DEPTH_PER_OLD_PX = CELL / 16;
@@ -275,7 +276,7 @@ export type RiverArt = {
 	teardown: () => void;
 	regions: () => Record<string, number>;
 	destroyed: () => boolean;
-	/** How many pieces stand among the players now (forest trees and decks), and whether they
+	/** How many pieces stand among the players now (the forest trees), and whether they
 	 *  found the spawn layer they stand in (the probe's). */
 	among: () => { drawn: number; layer: boolean };
 	/** Move what stands on the water (the bridges' reflections, the upright pieces) over whatever
@@ -385,7 +386,7 @@ export function spawnLayerOf(id: string): Container | undefined {
 	let at = projectedLayer(id);
 	while (at && at.children.length === 1) {
 		const only = at.children[0];
-		if (only.label === AMONG || only.zIndex >= ISO_DEPTH_SPREAD) break;
+		if (only.label === AMONG || only.zIndex >= ISO_DEPTH_SPREAD || hasDepth(only)) break;
 		at = only;
 	}
 	return at;
@@ -1113,117 +1114,28 @@ export function mountSalmonsRiver(
 		standUp(view, boxOf(view));
 	}
 
-	// The bridges (placeholder drawings: the old game's own were generated placeholders too).
-	const shimmer: { view: Graphics; x: number; phase: number }[] = [];
-	const across = project(0, CELL / 2);
-	for (const [b, bridge] of (river.bridges ?? []).entries()) {
-		const n = Math.max(1, Math.round(bridge.w / CELL));
-		const y = bridge.y + CELL / 2;
-		const lift = elevation.at(y);
-		const deck = (bridge.height ?? BRIDGE_HEIGHT) * 16 * K;
-		const xOf = (i: number) => bridge.x + (i + 0.5) * CELL;
-		const diamondAt = (g: Graphics, cx: number, cy: number) => {
-			const pts = [
-				project(-CELL / 2, -CELL / 2),
-				project(CELL / 2, -CELL / 2),
-				project(CELL / 2, CELL / 2),
-				project(-CELL / 2, CELL / 2),
-			];
-			g.poly(pts.flatMap((p) => [cx + p.x, cy + p.y]));
-			return g;
-		};
-		for (let i = 0; i < n; i++) {
-			const x = xOf(i);
-			const at = project(x, y);
-			const base = { x: at.x, y: at.y - lift };
-			const reflection = diamondAt(new Graphics(), 0, 0).fill({ color: 0x4a3020, alpha: 0.5 });
-			reflection.position.set(base.x, base.y + CELL / 4);
-			reflections.addChild(reflection);
-			uprightCulled.push({ view: reflection, box: boxOf(reflection) });
-			shimmer.push({ view: reflection, x: base.x, phase: b * 1.7 + i * 0.9 });
-			if (i === 0 || i === n - 1 || i % 3 === 0) {
-				const w = PILLAR_W * K;
-				const pillar = new Graphics()
-					.rect(-w / 2, -deck, w, deck)
-					.fill(0x5b3a20)
-					.rect(-w / 2, -deck, w / 4, deck)
-					.fill({ color: 0x000000, alpha: 0.25 });
-				pillar.position.set(base.x, base.y);
-				pillar.zIndex = zOf(x, y, Z.pillar);
-				standUp(pillar, boxOf(pillar));
-				const below = new Graphics()
-					.rect(-w / 2, 0, w, deck * 0.6)
-					.fill({ color: 0x3a2412, alpha: 0.3 });
-				below.position.set(base.x, base.y);
-				reflections.addChild(below);
-				uprightCulled.push({ view: below, box: boxOf(below) });
+	// The bridges: the `water` and `behind` pieces of the props the arcade runtime published for
+	// the field's layer (`arcadeProps.svelte.ts`; the seed `bridgeProp`, placed by
+	// `propPlacement.ts`), drawn in the river's own layers. Their `sorted` pieces (the deck cells)
+	// stand among the players, drawn by `<SpawnProps>`.
+	// A piece's painted art (a sprite's region, a clip) is drawn as a zone's picture is.
+	const propPictures = (source: ZoneArtSource) => {
+		const frames = zoneFrames(source, zoneArt?.assets());
+		return frames ? pictureOf(frames) : undefined;
+	};
+	const swaying: DrawnPropNode[] = [];
+	for (const piece of spawnPropsOf(SALMONS_FIELD_LAYER)) {
+		if (piece.band !== 'water' && piece.band !== 'behind') continue;
+		for (const node of drawPropPiece(piece, project, propPictures)) {
+			if (piece.band === 'water') {
+				reflections.addChild(node.view);
+				uprightCulled.push({ view: node.view, box: boxOf(node.view) });
+				if (node.play) swaying.push(node);
+			} else {
+				node.view.zIndex = (piece as { zIndex?: number }).zIndex ?? 0;
+				standUp(node.view, boxOf(node.view));
 			}
-			const kind = i === 0 ? 0xa0703f : i === n - 1 ? 0x8a5c30 : 0x966637;
-			among.push({
-				make: () => {
-					const g = new Graphics();
-					const side = 8 * K;
-					const p = [
-						project(CELL / 2, -CELL / 2),
-						project(CELL / 2, CELL / 2),
-						project(-CELL / 2, CELL / 2),
-					];
-					g.poly([
-						p[0].x,
-						p[0].y,
-						p[1].x,
-						p[1].y,
-						p[2].x,
-						p[2].y,
-						p[2].x,
-						p[2].y + side,
-						p[1].x,
-						p[1].y + side,
-						p[0].x,
-						p[0].y + side,
-					]).fill(0x5b3a20);
-					diamondAt(g, 0, 0).fill(kind).stroke({ width: 2, color: 0x4a2e16 });
-					for (const k of [-0.25, 0.25]) {
-						const a = project(-CELL / 2, k * CELL);
-						const z = project(CELL / 2, k * CELL);
-						g.moveTo(a.x, a.y).lineTo(z.x, z.y).stroke({ width: 1, color: 0x5b3a20, alpha: 0.6 });
-					}
-					return g;
-				},
-				box: {
-					x0: base.x - CELL,
-					y0: base.y - deck - CELL / 2,
-					x1: base.x + CELL,
-					y1: base.y - deck + CELL / 2 + 8 * K,
-				},
-				z: amongZ(x, y, Z.deck),
-				at: { x: base.x, y: base.y - deck },
-				index: among.length,
-			});
 		}
-		// The slopes up to the deck from both banks.
-		const slope = (land: number, end: number) => {
-			const ground = placed(xOf(land), y);
-			const top = project(xOf(end), y);
-			const d = { x: top.x, y: top.y - lift - deck };
-			const g = new Graphics()
-				.poly([
-					ground.x - across.x,
-					ground.y - across.y,
-					ground.x + across.x,
-					ground.y + across.y,
-					d.x + across.x,
-					d.y + across.y,
-					d.x - across.x,
-					d.y - across.y,
-				])
-				.fill(0x7a4f2a)
-				.stroke({ width: 2, color: 0x4a2e16 });
-			g.zIndex = zOf(xOf(land), y, Z.slope);
-			standUp(g, boxOf(g));
-		};
-		slope(-3, 0);
-		slope(n + 1, n - 1);
 	}
 
 	// Sorted once by the old client's z; nothing in it moves (a zIndex turns sorting on per frame).
@@ -1486,12 +1398,7 @@ export function mountSalmonsRiver(
 			if (sprite.visible && sprite.parent && !stopped.has(sprite)) sprite.update(ticker);
 		for (const rig of rigs)
 			if (rig.view.visible && rig.view.parent && !stopped.has(rig.view)) rig.update(ticker.deltaMS);
-		for (const s of shimmer) {
-			if (!s.view.visible) continue;
-			const t = frame * 0.04 + s.phase;
-			s.view.x = s.x + (Math.sin(t) * 1.5 + Math.sin(1.7 * t) * 0.6) * K;
-			s.view.scale.x = 1 + Math.sin(t) * 0.04;
-		}
+		for (const node of swaying) if (node.view.visible) node.play?.(frame / 60);
 		placeAmong(cull());
 		buildAhead();
 	};

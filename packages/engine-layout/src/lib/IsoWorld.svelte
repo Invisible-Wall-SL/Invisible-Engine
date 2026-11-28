@@ -5,6 +5,7 @@
 	import IsoTilemap from './IsoTilemap.svelte';
 	import MountedArt from './MountedArt.svelte';
 	import ProjectedLayer from './ProjectedLayer.svelte';
+	import SpawnProps from './SpawnProps.svelte';
 	import { fieldArtOf } from './arcadeArt.svelte';
 	import { isoDepthOrder } from './projection';
 	import type { LayoutNode } from './types';
@@ -18,7 +19,8 @@
 	 * `<LayoutNodeView>` (so bindings, FX and visibility work as flat):
 	 * - a `spawnLayer` upright, its instances at their projected places in ground-depth order
 	 *   (`<SpawnLayer>` reads the scope this sets, by its id), in a container registered by its id
-	 *   (`<ProjectedLayer>`) for art that stands among them;
+	 *   (`<ProjectedLayer>`) for art that stands among them, and the props the arcade runtime
+	 *   publishes for it standing among them too (`<SpawnProps>`, `arcadeProps.svelte.ts`);
 	 * - a `tilemap` as 2:1 diamonds (`<LayoutNodeView>` draws it with `<IsoTilemap>`, by its id);
 	 * - both drawn at their projected place (`<LayoutNodeView>` projects their bound position), so a
 	 *   world point inside them is their place plus the point, projected;
@@ -71,6 +73,7 @@
 				{#if n.kind === 'spawnLayer'}
 					<ProjectedLayer id={n.id} zIndex={n.zIndex}>
 						{@render render(n)}
+						<SpawnProps id={n.id} />
 					</ProjectedLayer>
 				{:else if n.kind === 'tilemap'}
 					{@render render(n)}

@@ -44,7 +44,22 @@
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
 //     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn] [--trees] [--zone-rig]
-//     [--stall]
+//     [--bridge-component] [--bridge-art] [--stall]
+//
+// `--bridge-art` plays ONE room too (prop components, painted art, 2026-11-27): page BA, a
+// fisherman, in the wading's level with its bridges drawn by a project copy of the seed bridge
+// (`myBridge`, zone art's `component` source, its collider compiled into `arcade.online.props` as
+// a save does) whose deck cells are a cyan sprite of a stub sheet exported as a publish exports one
+// and whose near ramp is 3 cells. He stands 2½ cells off the deck's near end (on the ramp only
+// because it is 3) and on the deck: each is screenshot; the room lifts him on the ramp, and the
+// cyan deck is on screen round him on the deck.
+//
+// `--bridge-component` plays ONE room too (prop components P5, docs/design/arcade-prop-components.md
+// §4–§5): page BF, a fisherman, in a room of the original's level (the wading's), its bridges drawn
+// by the seed `bridgeProp` (the code-drawn bridge is gone). The room stands him under a deck (the
+// water row behind it), on its near ramp and on its middle, then on the bank: each is screenshot,
+// and the page's probe (`online.bridges`) says each bridge's `occupied` and the `stepOn` / `stepOff`
+// it fired, scoped to the zone, with the deck's planks on screen where he stands on them.
 //
 // `--stall` plays ONE room too (the net client once a frame, docs/design/salmons-performance.md
 // T6): page ST's main thread is blocked 2 s while the room keeps sending, three times. Each held
@@ -113,10 +128,17 @@ import { PNG } from 'pngjs';
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import {
+	SALMONS_MAP,
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
+import {
+	BRIDGE_PROP_DEF,
+	PROP_COMPONENTS,
+} from '../../packages/engine-layout/src/lib/propComponents.ts';
+import { deckLift } from '../../packages/engine-layout/src/lib/salmonsArt/bridge.ts';
+import { compilePropShape } from '../../packages/engine-mechanics/src/propShape.js';
 import { CLIP_FACINGS, clipMirrorOf } from '../../packages/engine-layout/src/lib/characterClips.ts';
 import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
 import {
@@ -135,6 +157,7 @@ import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/sa
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	withProps,
 	withZoneArt,
 	zoneArtArtNames,
 } from '../../packages/game-config/index.ts';
@@ -166,6 +189,8 @@ const { values: opt } = parseArgs({
 		hold: { type: 'boolean', default: false },
 		turn: { type: 'boolean', default: false },
 		trees: { type: 'boolean', default: false },
+		'bridge-component': { type: 'boolean', default: false },
+		'bridge-art': { type: 'boolean', default: false },
 		'zone-rig': { type: 'boolean', default: false },
 		stall: { type: 'boolean', default: false },
 	},
@@ -714,6 +739,87 @@ const snapTrees = await serveSnapshot({
 	bundleFile: withTrees,
 	name: 'Salmons',
 	snapshotId: 'salmons-trees',
+});
+// `--bridge-art`: the wading's level with its bridges drawn by a project copy of the seed bridge,
+// its deck cells a cyan frame of a stub sheet, its near ramp 3 cells; the room plays its collider.
+const BRIDGE_ART_GAME = 'salmons-wade-bridge-art';
+const BRIDGE_SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_BridgeStub.json';
+const BRIDGE_RGB = [0x00, 0xe0, 0xe0];
+const withBridgeArt = join(work, 'runtime-bridge-art.json');
+{
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_BridgeStub.png'),
+		png(32, 64, () => BRIDGE_RGB),
+	);
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_BridgeStub.json'),
+		JSON.stringify({
+			frames: { plank: stubFrame(0) },
+			meta: { image: 'S_BridgeStub.png', format: 'RGBA8888', size: { w: 32, h: 64 }, scale: '1' },
+		}),
+	);
+	const seed = (id) => PROP_COMPONENTS.find((d) => d.id === id);
+	const myDeck = {
+		...structuredClone(seed('bridgePropDeckMiddle')),
+		id: 'myDeck',
+		scope: 'project',
+		internal: undefined,
+	};
+	myDeck.root.children = [
+		{
+			id: 'myDeck-tile',
+			label: 'Tile',
+			kind: 'sprite',
+			x: 0,
+			y: -deckLift(SALMONS_MAP.BRIDGE_HEIGHT),
+			assetKey: BRIDGE_SHEET,
+			region: 'plank',
+			anchor: { x: 0.5, y: 0.5 },
+			width: 80,
+			height: 40,
+		},
+	];
+	const myBridge = structuredClone(BRIDGE_PROP_DEF);
+	Object.assign(myBridge, { id: 'myBridge', name: 'My bridge', scope: 'project' });
+	delete myBridge.internal;
+	myBridge.prop.collider.ramps.near = { length: 3 };
+	for (const child of myBridge.root.children)
+		if (child.label === 'Deck') {
+			child.componentId = 'myDeck';
+			child.variants = { first: 'myDeck', middle: 'myDeck', last: 'myDeck' };
+		}
+	const shape = compilePropShape(myBridge);
+	const raw = wadeGame((game) => {
+		game.arcade.zoneArt = {
+			'bridge#': {
+				source: { kind: 'component', component: 'myBridge', version: myBridge.version },
+				placement: 'stamp',
+			},
+		};
+		game.arcade.online.props = { 'bridge#': shape };
+	});
+	writeFileSync(join(configs, `${BRIDGE_ART_GAME}.json`), JSON.stringify(raw));
+	writeFileSync(
+		withBridgeArt,
+		JSON.stringify({
+			doc,
+			componentDefs: { ...componentDefs, myBridge, myDeck },
+			componentDefaults: {},
+			config: withProps(withZoneArt(normalizeGameConfigDoc(raw), raw), raw),
+			flowV2: SALMONS_SEED_DOC,
+			editorArt: {
+				sheets: [{ key: BRIDGE_SHEET, json: 'editor-art/S_BridgeStub.json' }],
+				images: [],
+			},
+			characterArt: [`${BRIDGE_SHEET}::plank`],
+		}),
+	);
+}
+const snapBridgeArt = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withBridgeArt,
+	name: 'Salmons',
+	snapshotId: 'salmons-bridge-art',
 });
 // `--zone-rig`: the game's own config with its rocks and whirlpools drawn by a stub rig, as a
 // publish stores the config and exports the rig.
@@ -1481,6 +1587,227 @@ const lookAt = (shot, arcade, id, lift) =>
 const mostly = (seen, test) => seen.length > 0 && seen.filter(test).length * 2 > seen.length;
 
 play: try {
+	if (opt['bridge-component']) {
+		const shotOf = async (game, file) => {
+			const png = await game.page.screenshot();
+			writeFileSync(join(out, file), png);
+			result.shots.push(file);
+			return PNG.sync.read(png);
+		};
+		const bf = await ready(
+			await boot('bf', {
+				rooms_name: 'Brin',
+				rooms_character: 'fisherman',
+				rooms_game: WADE_GAME,
+				editorDocBase: snapWade.origin,
+			}),
+		);
+		// A fisherman cannot stand under a deck: the water is solid to him but on the deck's row,
+		// where the rule lifts him. So the one under it is a bear (bears pass under), page BB.
+		const bb = await ready(
+			await boot('bb', {
+				rooms_name: 'Bo',
+				rooms_character: 'bear',
+				rooms_game: WADE_GAME,
+				editorDocBase: snapWade.origin,
+			}),
+		);
+		await settle(bf, 600);
+		await settle(bb, 300);
+		const { me } = await drawnOf(bf);
+		const { me: bear } = await drawnOf(bb);
+		const bridgesOf = async () => (await drawnOf(bf)).bridges;
+		for (let i = 0; i < 80 && !(await bridgesOf())?.pieces; i++) await settle(bf, 250);
+		const room = await roomOf(WADE_GAME);
+		const [deck] = wadeRiver.bridges;
+		const cell = wadeRiver.grid.cell;
+		const plank = deck.y + cell / 2;
+		const places = {
+			under: { x: deck.x + (deck.w * 3) / 4, y: plank - cell, who: 'bear' },
+			ramp: { x: deck.x - cell, y: plank },
+			deck: { x: deck.x + deck.w / 2, y: plank },
+			bank: { x: deck.x - 4 * cell, y: plank },
+		};
+		const log = [];
+		const shots = {};
+		for (const [name, { who, ...place }] of Object.entries(places)) {
+			const page = who === 'bear' ? bb : bf;
+			const id = who === 'bear' ? bear : me;
+			if (who === 'bear') await standAt(room, bf, me, places.bank);
+			const stood = await standAt(room, page, id, place);
+			await settle(page, 800);
+			const shot = await shotOf(page, `bridge-${name}.png`);
+			const arcade = (await bf.state()).arcade;
+			const bridges = arcade?.online?.bridges;
+			shots[name] = { shot, arcade };
+			log.push({
+				at: name,
+				stood,
+				who: who ?? 'fisherman',
+				// A bear is let be where the river's solids leave it: within a cell.
+				near: await (async () => {
+					const at = (await drawnOf(page)).drawn?.find((d) => d.id === id);
+					return !!at && Math.hypot(at.x - place.x, at.y - place.y) < cell;
+				})(),
+				z: room?.sim.players.get(id)?.z ?? 0,
+				occupied: bridges?.occupied?.bridge0,
+				fired: (bridges?.fired ?? []).map((f) => `${f.zone}:${f.signal}`),
+				// Page BB's own reading of him: another player's place, sent it packed (T7).
+				seen: await (async () => {
+					await settle(bb, 300);
+					const other = (await bb.state()).arcade?.online?.bridges;
+					return {
+						occupied: other?.occupied?.bridge0,
+						fired: (other?.fired ?? []).map((f) => `${f.zone}:${f.signal}`),
+					};
+				})(),
+			});
+		}
+		writeFileSync(join(out, 'bridge-triggers.json'), JSON.stringify(log, null, 1));
+		const [under, ramp, onDeck, bank] = log;
+		verdict(
+			'bridge component: page BF publishes the seed bridge’s pieces for every bridge zone',
+			(await bridgesOf())?.pieces > 0,
+			{ bridges: await bridgesOf() },
+		);
+		verdict(
+			'…a bear under the deck is on the ground and the bridge is not occupied; nothing fired',
+			under.near && under.z === 0 && under.occupied === 0 && under.fired.length === 0,
+			under,
+		);
+		verdict(
+			'…on the near ramp he is aloft, bridge0 occupied, its stepOn fired once',
+			ramp.stood && ramp.z > 0 && ramp.occupied === 1 && ramp.fired.join() === 'bridge0:stepOn',
+			ramp,
+		);
+		verdict(
+			'…on the deck, still occupied, nothing more fired',
+			onDeck.stood && onDeck.occupied === 1 && onDeck.fired.join() === 'bridge0:stepOn',
+			onDeck,
+		);
+		verdict(
+			'…back on the bank, bridge0 is free and its stepOff fired',
+			bank.stood && bank.occupied === 0 && bank.fired.join() === 'bridge0:stepOn,bridge0:stepOff',
+			bank,
+		);
+		verdict(
+			'…page BB, another device, reads him the same from his packed place: occupied on the ramp and the deck, stepOn then stepOff',
+			ramp.seen.occupied === 1 &&
+				onDeck.seen.occupied === 1 &&
+				bank.seen.occupied === 0 &&
+				bank.seen.fired.join() === 'bridge0:stepOn,bridge0:stepOff',
+			{ ramp: ramp.seen, deck: onDeck.seen, bank: bank.seen },
+		);
+		// The deck's planks (the seed's wood, red over green over blue, darker than his tan look)
+		// round where he is drawn on it (`online.drawn`'s ground and aloft), the screenshot's own.
+		const { shot, arcade } = shots.deck;
+		const cam = arcade?.camera;
+		const him = arcade?.online?.drawn.find((d) => d.id === me);
+		let wood = 0;
+		if (cam && him) {
+			const c = isoScreen(shot, cam, him, him.aloft ?? 0);
+			for (let dx = -80; dx <= 80; dx += 2)
+				for (let dy = -80; dy <= 80; dy += 2) {
+					const [r, g, b] = rgbAt(shot, { x: c.x + dx, y: c.y + dy }) ?? [0, 0, 0];
+					if (r > g && g > b && r - b > 50 && r < 200) wood += 1;
+				}
+		}
+		verdict('…the deck is drawn: its planks are on screen round him on it', wood > 200, {
+			wood,
+			him,
+		});
+		const errors = await bf.page.evaluate('window.__AR_ERRORS__');
+		verdict('page BF: no page error', errors.length === 0, errors);
+		await bf.page.close();
+		await bb.page.close();
+		break play;
+	}
+	if (opt['bridge-art']) {
+		const ba = await ready(
+			await boot('ba', {
+				rooms_name: 'Bea',
+				rooms_character: 'fisherman',
+				rooms_game: BRIDGE_ART_GAME,
+				editorDocBase: snapBridgeArt.origin,
+			}),
+		);
+		await settle(ba, 600);
+		const { me } = await drawnOf(ba);
+		const bridgesOf = async () => (await drawnOf(ba)).bridges;
+		for (let i = 0; i < 80 && !(await bridgesOf())?.pieces; i++) await settle(ba, 250);
+		const room = await roomOf(BRIDGE_ART_GAME);
+		const [deck] = wadeRiver.bridges;
+		const cell = wadeRiver.grid.cell;
+		const plank = deck.y + cell / 2;
+		const places = {
+			'near-ramp': { x: deck.x - 2 * cell, y: plank },
+			deck: { x: deck.x + deck.w / 2, y: plank },
+		};
+		const seen = {};
+		for (const [name, place] of Object.entries(places)) {
+			const stood = await standAt(room, ba, me, place);
+			await settle(ba, 900);
+			const png = await ba.page.screenshot();
+			writeFileSync(join(out, `bridge-art-${name}.png`), png);
+			result.shots.push(`bridge-art-${name}.png`);
+			const arcade = (await ba.state()).arcade;
+			seen[name] = {
+				stood,
+				z: room?.sim.players.get(me)?.z ?? 0,
+				shot: PNG.sync.read(png),
+				arcade,
+				occupied: arcade?.online?.bridges?.occupied?.bridge0,
+			};
+		}
+		verdict('bridge art: page BA publishes its copy’s pieces', (await bridgesOf())?.pieces > 0, {
+			bridges: await bridgesOf(),
+		});
+		const ramp = seen['near-ramp'];
+		verdict(
+			'…2½ cells off the deck’s near end he is on its ramp (3 cells), aloft, bridge0 occupied',
+			ramp.stood && ramp.z > 0 && ramp.occupied === 1,
+			{ stood: ramp.stood, z: ramp.z, occupied: ramp.occupied },
+		);
+		const onDeck = seen.deck;
+		const him = onDeck.arcade?.online?.drawn.find((d) => d.id === me);
+		const cam = onDeck.arcade?.camera;
+		let cyan = 0;
+		if (cam && him) {
+			const c = isoScreen(onDeck.shot, cam, him, him.aloft ?? 0);
+			for (let dx = -120; dx <= 120; dx += 2)
+				for (let dy = -120; dy <= 120; dy += 2) {
+					const [r, g, b] = rgbAt(onDeck.shot, { x: c.x + dx, y: c.y + dy }) ?? [0, 0, 0];
+					if (r < 60 && g > 180 && b > 180) cyan += 1;
+				}
+		}
+		verdict('…the deck is the copy’s sprite: cyan round him on it', cyan > 200, { cyan, him });
+		// The slopes in view as the river drew them (its upright layer's slope-coloured drawings, a
+		// culled one 0 wide): a slope is as wide on screen as its run and a cell across it, so a
+		// near one (3 cells) is 4 : 3 as wide as a far one (2).
+		const slopes = await ba.page.evaluate(`(() => {
+			const out = [];
+			const walk = (node) => {
+				const first = node.context?.instructions?.[0];
+				if (first?.action === 'fill' && first.data?.style?.color === 0x7a4f2a) {
+					const b = node.getBounds();
+					if (b.width > 0) out.push(Math.round(b.width));
+				}
+				for (const child of node.children ?? []) walk(child);
+			};
+			walk(globalThis.__PIXI_APP__.stage);
+			return out.sort((a, b) => a - b);
+		})()`);
+		const ratio = slopes.length >= 2 ? slopes[slopes.length - 1] / slopes[0] : 0;
+		verdict(
+			'…its slopes follow its ramps: in view, the near one (3 cells) 4 : 3 as wide as the far one (2)',
+			ratio > 1.25 && ratio < 1.42,
+			{ slopes, ratio },
+		);
+		const errors = await ba.page.evaluate('window.__AR_ERRORS__');
+		verdict('page BA: no page error', errors.length === 0, errors);
+		await ba.page.close();
+		break play;
+	}
 	if (opt.stall) {
 		// The main thread blocked 2 s while the room keeps sending (a GC, a level mount, a slow
 		// frame): its states queue and land together. Each is recorded as it lands (interpolation
@@ -4294,6 +4621,7 @@ play: try {
 	await snapCatcher.close();
 	await snapSheet.close();
 	await snapTrees.close();
+	await snapBridgeArt.close();
 	await snapTurn.close();
 	await snapTurnRig.close();
 	rmSync(work, { recursive: true, force: true });

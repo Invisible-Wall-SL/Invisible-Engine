@@ -18,7 +18,7 @@ import type {
 	TemplateSlot,
 } from 'engine-layout';
 import {
-	BUILTIN_COMPONENTS,
+	BUILTIN_LIBRARY_COMPONENTS,
 	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_KINDS,
 	isLocalizationKey,
@@ -31,6 +31,7 @@ import {
 	withoutEditorGuides,
 } from 'engine-layout';
 import { isCubicEase } from 'engine-cinematic';
+import { PROP_MAX_SOLIDS } from 'engine-mechanics/src/propShape.js';
 import {
 	editorComponentKey,
 	editorComponentVersionKey,
@@ -47,6 +48,7 @@ import {
 	normalizeEvents,
 	normalizeRootListeners,
 } from '../componentEventRows';
+import { normalizeProp, normalizePropDepths } from './componentProp';
 import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
 import { loadSharedSkeletonIndex } from './rig';
 import { loadedStoredDoc } from './unknownBlocks';
@@ -100,13 +102,21 @@ export async function loadComponentForGame(
 	version?: number,
 ): Promise<ComponentDef | undefined> {
 	const def = await loadComponent(id, projectKey, version);
-	return def && withoutEditorGuides(def);
+	return def && withoutPropPreview(withoutEditorGuides(def));
+}
+
+/** A def without its prop's `preview` (the params the editor's canvas previews at): editor-only,
+ *  as `guides` are, so a game never ships it. */
+function withoutPropPreview(def: ComponentDef): ComponentDef {
+	if (!def.prop?.preview) return def;
+	const { preview: _, ...prop } = def.prop;
+	return { ...def, prop };
 }
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
  * (`editor/<projectKey>/components/<id>.json`) ◁ SHARED R2
- * (`_shared/editor-components/<id>.json`) ◁ BUILT-IN code (`BUILTIN_COMPONENTS`) —
+ * (`_shared/editor-components/<id>.json`) ◁ BUILT-IN code (`BUILTIN_LIBRARY_COMPONENTS`) —
  * exactly like `loadTemplate`'s R2-over-built-in fallback, with the built-in as
  * the lowest layer. A malformed/unreadable R2 object never throws; it just falls
  * through to the next source. Returns `undefined` only when no scope (and no
@@ -140,7 +150,7 @@ export async function loadComponent(
 		version,
 	);
 	if (shared) return mergeBuiltinCodedParams(shared);
-	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
+	const builtin = BUILTIN_LIBRARY_COMPONENTS.find((def) => def.id === id);
 	if (!builtin) return undefined;
 	// A built-in has no historical store (it is engine code): an unmatched pin still
 	// resolves the single coded def, exactly like a latest load — the engine's
@@ -194,7 +204,7 @@ export async function loadComponentWithEtag(
 	}
 	const { def: shared, etag: sharedEtag } = await readComponentForWrite(editorComponentKey(id));
 	if (shared) return { def: mergeBuiltinCodedParams(shared), etag: sharedEtag };
-	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
+	const builtin = BUILTIN_LIBRARY_COMPONENTS.find((def) => def.id === id);
 	if (!builtin) return undefined;
 	return { def: builtin, etag: null };
 }
@@ -681,7 +691,7 @@ export interface ListComponentsOptions {
 
 /**
  * List components, lowest → highest precedence so a later layer shadows an
- * earlier one of the same id: BUILT-IN code (`BUILTIN_COMPONENTS`) ◁ SHARED R2 ◁
+ * earlier one of the same id: BUILT-IN code (`BUILTIN_LIBRARY_COMPONENTS`) ◁ SHARED R2 ◁
  * PROJECT R2. Built-ins are `scope:'shared'`, so they slot under the shared
  * layer and are correctly excluded by a `scope:'project'` filter and kept by a
  * `scope:'shared'` filter. Filters by `scope`/`category` when given. Malformed
@@ -705,7 +715,7 @@ export async function listComponentsWithEtags(
 	const byId = new Map<string, ComponentWithEtag>();
 
 	if (opts.scope !== 'project') {
-		for (const def of BUILTIN_COMPONENTS) {
+		for (const def of BUILTIN_LIBRARY_COMPONENTS) {
 			byId.set(def.id, { def, etag: null });
 		}
 		for (const entry of await listFromPrefixWithEtags(sharedComponentsPrefix)) {
@@ -852,6 +862,11 @@ function validateComponent(component: ComponentDef): ComponentDef {
 	if (!isContainerNode(component.root)) {
 		throw new Error("Component root must be a node with kind 'container'.");
 	}
+	if (component.prop !== undefined && !normalizeProp(component.prop)) {
+		throw new Error(
+			`Component prop needs a zone kind, a fromZone.length param, and a collider with a deck, ramps, a snap, a known hole and at most ${PROP_MAX_SOLIDS} solids.`,
+		);
+	}
 	return normalizeComponent(component);
 }
 
@@ -868,7 +883,9 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		version: raw.version,
 		scope: raw.scope,
 		category: raw.category,
-		root: normalizeRootRepeaters(normalizeRootListeners(identityComponentRoot(raw.root))),
+		root: normalizePropDepths(
+			normalizeRootRepeaters(normalizeRootListeners(identityComponentRoot(raw.root))),
+		),
 	};
 	// Authoring/preview space (default 'game' = omitted). Only persist a non-default
 	// value the editor understands; an unknown/absent value falls back to game space.
@@ -904,6 +921,10 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	// The clips an arcade character plays in an online room (Salmons' S0 art).
 	const characterClips = normalizeCharacterClips(raw.characterClips);
 	if (characterClips) def.characterClips = characterClips;
+	// A prop's collider and the zone params it reads (arcade-prop-components §2); the rules read it
+	// compiled (`engine-mechanics` `compilePropShape`), which refuses what is unplayable.
+	const prop = normalizeProp(raw.prop);
+	if (prop) def.prop = prop;
 	// Enforce "no binding without its param": drop node bindings that point at a param
 	// dropped above (or deleted in the editor), so a corrupt def can't be saved and an
 	// already-orphaned one self-heals on its next load/save.
@@ -1175,7 +1196,8 @@ function isContainerNode(input: unknown): input is ContainerNode {
  * the authoritative invariant that keeps the engine path (which applies root's
  * transform via `LayoutNodeView`) and the editor canvas (which skips it) in
  * agreement, and stops a dropped instance from being offset by a baked-in scene
- * transform. Keeps only id/kind/children + optional box (width/height) + label.
+ * transform. Keeps only id/kind/children + optional box (width/height) + label, and a prop's
+ * band for the whole tree (`propDepth` / `propZOffset`, not a transform).
  */
 function identityComponentRoot(root: ContainerNode): ContainerNode {
 	const next: ContainerNode = {
@@ -1188,6 +1210,8 @@ function identityComponentRoot(root: ContainerNode): ContainerNode {
 	if (typeof root.width === 'number') next.width = root.width;
 	if (typeof root.height === 'number') next.height = root.height;
 	if (typeof root.label === 'string') next.label = root.label;
+	if (root.propDepth !== undefined) next.propDepth = root.propDepth;
+	if (root.propZOffset !== undefined) next.propZOffset = root.propZOffset;
 	return next;
 }
 
