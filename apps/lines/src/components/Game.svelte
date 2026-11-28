@@ -338,7 +338,9 @@
 	import { Match3Input } from '../families/match3';
 	import { ArcadeBackdrop, ArcadeStage, drawsOwnBackdrop } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
+	import { arcadePerf } from '../game/arcadePerf';
 	import { gameMechanic } from '../game/mechanic';
+	import { lastFieldTick, qualityGate } from '../game/qualityGate';
 	import { playFieldPlaying } from '../game/playFieldPhase';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
@@ -1291,21 +1293,29 @@
 	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round
 	// plays draws fewer pixels (`pixi-svelte` `renderQuality`), switched only while no reel rolls:
 	// at idle in manual play; in autoplay, which is one long state and never idle, in the moments
-	// of a round with the reels stopped. A play field's round is its field being played, and its
-	// quiet the menu, the lobby and the time between rounds (`playFieldPhase.ts`). A deterministic
-	// render and a `?render=` pin never adapt.
+	// of a round with the reels stopped. A play field is measured while its field is being played
+	// (the room running, a body on the field: `playFieldPhase.ts`) and ticking, not in the settling
+	// time after a level mounts, and switched otherwise: the menu, the lobby, the time between
+	// rounds and that settling time (`game/qualityGate.ts`). A deterministic render and a
+	// `?render=` pin never adapt.
 	onDestroy(
 		configureRenderQuality({
 			adaptive: !globalThis.__IE_DETERMINISM__ && renderPin() === undefined,
-			measuring: mechanic.playField
-				? playFieldPlaying
-				: () => context.stateXstateDerived.isPlaying(),
-			quiet: mechanic.playField
-				? () => !playFieldPlaying()
-				: () =>
+			...qualityGate(
+				mechanic.playField,
+				{
+					measuring: () => context.stateXstateDerived.isPlaying(),
+					quiet: () =>
 						context.stateXstateDerived.isIdle() ||
 						(context.stateXstateDerived.isAutoBetting() &&
 							!stateGame.board.some((reel) => reel.reelState.rolling)),
+				},
+				() => ({
+					now: performance.now(),
+					tickedAt: playFieldPlaying() ? lastFieldTick() : undefined,
+					mountedAt: arcadePerf.mountedAt,
+				}),
+			),
 		}),
 	);
 

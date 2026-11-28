@@ -110,6 +110,9 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 	const specs = new Map<string, SpawnLayerSpec>();
 	const sets = new Map<string, SpawnedInstance[]>();
 	const byId = new Map<string, SpawnedInstance>();
+	/** Where each instance last was in its layer's set, as {@link SpawnStore.move} found it: checked
+	 *  before it is trusted (a despawn shifts the ones after it), and looked up again when stale. */
+	const indexOf = new Map<string, number>();
 	const listeners = new Map<string, Set<(live: SpawnedInstance[]) => void>>();
 	const placeListeners = new Map<string, Set<(moved: SpawnedInstance[]) => void>>();
 	let serial = 0;
@@ -176,6 +179,7 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 			const found = id ? byId.get(id) : undefined;
 			if (!found) return undefined;
 			byId.delete(found.id);
+			indexOf.delete(found.id);
 			sets.set(
 				found.layer,
 				(sets.get(found.layer) ?? []).filter((i) => i.id !== found.id),
@@ -199,6 +203,7 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 			const layers = [...sets.keys()];
 			sets.clear();
 			byId.clear();
+			indexOf.clear();
 			for (const layer of layers) notify(layer);
 		},
 		move(moves) {
@@ -210,7 +215,11 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 				const next: SpawnedInstance = Object.freeze({ ...found, x, y });
 				byId.set(id, next);
 				const set = sets.get(found.layer) ?? [];
-				const at = set.findIndex((i) => i.id === id);
+				let at = indexOf.get(id) ?? -1;
+				if (set[at]?.id !== id) {
+					at = set.findIndex((i) => i.id === id);
+					if (at >= 0) indexOf.set(id, at);
+				}
 				if (at >= 0) set[at] = next;
 				const list = moved.get(found.layer);
 				if (list) list.push(next);

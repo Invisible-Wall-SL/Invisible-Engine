@@ -25,6 +25,7 @@
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
 	import { listenOnline, onlineProbe, tickOnline, useOnlineCamera } from '../game/online';
+	import { noteFieldTick } from '../game/qualityGate';
 
 	/**
 	 * THE ARCADE PLAY FIELD'S LOOP (`docs/design/game-families.md` §4.2, §6.4): mounted in the reel
@@ -80,6 +81,7 @@
 			if (arcadePerf.on)
 				arcadePerf.counts.simDroppedMs += Math.max(0, ticker.elapsedMS - ticker.deltaMS);
 			frame(ticker.deltaMS);
+			noteFieldTick(performance.now());
 		};
 		ticker.add(tick);
 		return () => {

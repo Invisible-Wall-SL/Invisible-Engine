@@ -2000,6 +2000,14 @@ function easeLift(
 	const near = was && Math.hypot(at.x - was.x, at.y - was.y) <= LIFT_SNAP_PX;
 	const ground = near ? eased(was.ground, groundTarget, dtMs) : groundTarget;
 	const aloft = near ? eased(was.aloft, aloftTarget, dtMs) : aloftTarget;
+	if (was) {
+		was.lift = ground + aloft;
+		was.ground = ground;
+		was.aloft = aloft;
+		was.x = at.x;
+		was.y = at.y;
+		return was;
+	}
 	const lift = { lift: ground + aloft, ground, aloft, x: at.x, y: at.y };
 	current.lifts.set(id, lift);
 	return lift;
@@ -2070,6 +2078,14 @@ function handLift(current: Session, id: string, player: PlayerState) {
 	return Math.max(0, hands.lift - (standOf(current, id).middle ?? bodyOf(current, player).h / 2));
 }
 
+/** What {@link draw} hands on each frame, kept between frames so a frame makes none of it anew:
+ *  the moves of the drawn players' instances (from a pool of move objects) and each shown player's
+ *  place. Nothing keeps them past the frame: the spawn store copies a move's place into a handle,
+ *  and the passes below only read the places. */
+const drawMoves: { id: string; x: number; y: number }[] = [];
+const movePool: { id: string; x: number; y: number }[] = [];
+const drawPlaces = new Map<string, { x: number; y: number }>();
+
 /** Put every player of the room where it is drawn. */
 function draw(current: Session, dtMs: number) {
 	const live = spawnStore();
@@ -2110,9 +2126,11 @@ function draw(current: Session, dtMs: number) {
 		const look = current.looks.get(id);
 		if (look) restart(look);
 	}
-	const moves: { id: string; x: number; y: number }[] = [];
+	const moves = drawMoves;
+	moves.length = 0;
 	const depths = new Map<string, number>();
-	const places = new Map<string, { x: number; y: number }>();
+	const places = drawPlaces;
+	places.clear();
 	players.forEach((player, id) => {
 		if (!shownInRoom(player)) return;
 		const at = carriedPlace(current, players, player) ?? placeOf(current, id, player);
@@ -2123,7 +2141,12 @@ function draw(current: Session, dtMs: number) {
 		// Raised onto a bridge's deck: sorted over it, as the original's player on a bridge.
 		if (instance && aloft > 0 && current.art) depths.set(instance, current.art.aloftDepth(aloft));
 		if (instance) {
-			moves.push({ id: instance, x: shown.x, y: shown.y });
+			let move = movePool[moves.length];
+			if (!move) movePool.push((move = { id: instance, x: 0, y: 0 }));
+			move.id = instance;
+			move.x = shown.x;
+			move.y = shown.y;
+			moves.push(move);
 			// Held for its catch and shown again (it respawned): its clips start afresh.
 			const look = current.looks.get(id);
 			if (look?.leaving) restart(look);
