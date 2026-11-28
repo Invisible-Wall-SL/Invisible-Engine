@@ -1,4 +1,11 @@
-import { registerBoundComponents, resolveFlipbook, type LayoutDoc } from 'engine-layout';
+import {
+	registerBoundComponents,
+	resolveComponent,
+	resolveFlipbook,
+	roomPropDef,
+	type ComponentDef,
+	type LayoutDoc,
+} from 'engine-layout';
 import { ZONE_ART_RIG, withZoneArtNodes } from 'engine-layout/zone-art';
 import {
 	normalizeGameConfigDoc,
@@ -37,6 +44,22 @@ export function zoneStampsOf(zones: readonly ArcadeZone[], seed: number | string
  *  built-in scenery. */
 export const zoneSceneryOf = (key: ZoneArtScenery): ZoneArt | undefined =>
 	zoneArtOf(bakedGameConfig())?.[key];
+
+/**
+ * The prop component the room draws `family` with (`docs/design/arcade-prop-components.md` §6:
+ * Salmons' `bridge#`): the one its adopted props were compiled from, at that version, as the bundle
+ * registered it (`engine-layout` `roomPropDef`), so the art is the collider the room plays; none
+ * ⇒ the game's seed prop. Never the device's own config's: a room may play another version.
+ */
+export function zonePropOf(
+	props: Parameters<typeof roomPropDef>[0],
+	family: string,
+): ComponentDef | undefined {
+	return roomPropDef(props, family, (id, version) => {
+		const resolved = resolveComponent(id, version);
+		return resolved.versionMismatch ? undefined : resolved.def;
+	});
+}
 
 /** Whether the config's zone art names a rig: only then is the rig drawing loaded. */
 export const zoneArtDrawsRig = (): boolean => zoneArtNamesRig(zoneArtOf(bakedGameConfig()));

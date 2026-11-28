@@ -435,7 +435,8 @@ if ((onBridge || onLand) && this.isCatcherInBounds(nx, ny)) {
 }
 ```
 Salmon and bears pass under bridges. FIX: a later workstream; needs bridge drawing (§9.6) and a
-`z` for the fisherman.
+`z` for the fisherman. PIPELINE: done (`salmonsRules` `bridges`, 2026-11-18); drawn on the deck
+since 2026-11-26 (§9.6).
 
 ### 5.5 Catcher spawn — m
 ORIGINAL `index.js:329-363`: 30 tries of `gx = 30 + rand·(400 − 60)`, `y = meander + side·(halfW + 3 + rand·5)`,
@@ -710,6 +711,10 @@ pillar reflection; deck per tile (`bridge_deck_near|middle|far`, scale `64/tex.w
 `W = 2·32 + 32`, `H = 96 + 2·16 + 16` at `gyEnd + 2`). Art is placeholder
 (`scripts/generate_bridge_placeholders.mjs`). Pipeline: art pass said bridges are moot because the
 engine river had none — it now has them in data.
+PIPELINE (2026-11-26): drawn from the level's `bridges` (`salmonsArt/river.ts`); a fisherman on one
+is drawn raised by his `z` and sorted over the deck (`salmonsArt/bridge.ts`). DEVIATION: both slopes
+are drawn `BRIDGE.slope` = 2 cells, the server's `slopeLen`, not the art's near 3 (`gyStart − 3`),
+so the drawn slope is where he climbs.
 
 ### 9.7 Bloodstains (newest commit #8) — LACKS (V)
 Server (`index.js:24-25,381-390`, schema `Bloodstain {x float32, y float32}`, `GameState.bloodstains`):

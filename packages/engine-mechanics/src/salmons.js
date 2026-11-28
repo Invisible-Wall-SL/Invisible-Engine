@@ -307,11 +307,12 @@ const without = (rect, holes) =>
  * characters it names, inset by their bodies so that each stops a body where the original stops
  * its centre: the banks and the sea to a salmon (its centre stays on the water, the middle of the
  * edge cells); the land past the bank limit, and the ends, to bears and fishermen; the water to
- * fishermen but where a bridge crosses it (its deck, a cell wide, with its slopes); and each
- * waterfall to bears. Bands run whole cells; one of a band's zones overlaps the next band's by a
- * pixel, so that no line between two bands is open.
+ * fishermen but where a bridge crosses it (its deck, a cell wide, with its slopes: the ramps its
+ * zone rule names, or {@link BRIDGE_SLOPE} at each end; its prop's `hole` may open the deck alone,
+ * or nothing); and each waterfall to bears. Bands run whole cells; one of a band's zones overlaps
+ * the next band's by a pixel, so that no line between two bands is open.
  */
-function originalBounds(river, zones, rules) {
+function originalBounds(river, zones, rules, props) {
 	const B = SALMONS_BOUNDS;
 	const { w: worldW, h: worldH } = river.world;
 	const solid = (id, rect, characters) => {
@@ -321,12 +322,22 @@ function originalBounds(river, zones, rules) {
 	};
 	const salmon = halfOf(BODIES.salmon);
 	const fisher = halfOf(BODIES.fisherman);
-	const bridgeHoles = (river.bridges ?? []).map((b) => ({
-		x: b.x - BRIDGE_SLOPE * CELL,
-		y: b.y - fisher.y,
-		w: b.w + 2 * BRIDGE_SLOPE * CELL,
-		h: CELL + 2 * fisher.y,
-	}));
+	const bridgeHoles = (river.bridges ?? []).flatMap((b, i) => {
+		const id = `bridge${i}`;
+		const hole = propOf(props, id, 'bridge')?.hole ?? 'deckAndRamps';
+		if (hole === 'none') return [];
+		const rule = rules.find((r) => r.zone === id && r.kind === 'bridge');
+		const near = hole === 'deck' ? 0 : (rule?.ramp?.near ?? BRIDGE_SLOPE);
+		const far = hole === 'deck' ? 0 : (rule?.ramp?.far ?? BRIDGE_SLOPE);
+		return [
+			{
+				x: b.x - near * CELL,
+				y: b.y - fisher.y,
+				w: b.w + (near + far) * CELL,
+				h: CELL + 2 * fisher.y,
+			},
+		];
+	});
 	river.bands.forEach((band, i) => {
 		const id = `band${i}`;
 		const inLeft = band.left + CELL / 2;
@@ -383,12 +394,28 @@ function originalBounds(river, zones, rules) {
 	});
 }
 
+/** The prop shape (`propShape.js`) of `props` (`arcade.online.props`) that a zone of `id` plays:
+ *  its zone family's (`game-config` `zoneFamilyOf`, the id with its numbers as `#`), when that
+ *  shape is of the zone's `kind`. */
+const propOf = (props, id, kind) => {
+	const family = id.replace(/\d+/g, '#');
+	const shape = props && Object.hasOwn(props, family) ? props[family] : undefined;
+	return shape?.zoneKind === kind ? shape : undefined;
+};
+
 /**
  * What of the game a river decides: the field, its zones and their rules (the current, the banks,
  * the whirlpools, the source), where salmon start, and the banks the bears, fishermen and bots
  * start on (`spawns` by online character id).
+ *
+ * `props` (`arcade.online.props`, by zone family: `docs/design/arcade-prop-components.md` §3) are
+ * the colliders of the game's prop components. A bridge's puts its fields on its zone rule
+ * (`characters`, `ramp`, `snap`, `sideExit`), its `height` on its zone, its `hole` in the water, and each of
+ * its `solids` as a solid zone of its own (`bridge<i>Solid<k>`, in the deck's cells from the
+ * zone's corner) for the solid's characters, else the bridge's. With none, a bridge is today's: a shape
+ * holds only what differs from it (`compilePropShape`), so the geometry, and `levelHash`, are too.
  */
-export function salmonsGeometry(river) {
+export function salmonsGeometry(river, props) {
 	const original = river.generator === 'salmonsMap';
 	const banks = () => river.botSpawns.map((p) => ({ ...p }));
 	const zones = [];
@@ -452,13 +479,38 @@ export function salmonsGeometry(river) {
 		});
 	});
 	(river.bridges ?? []).forEach((bridge, i) => {
-		zones.push({ id: `bridge${i}`, ...bridge });
-		rules.push({ zone: `bridge${i}`, kind: 'bridge', characters: ['fisherman'] });
+		const id = `bridge${i}`;
+		const shape = propOf(props, id, 'bridge');
+		const characters = shape?.characters ?? ['fisherman'];
+		zones.push({ id, ...bridge, ...(shape?.height !== undefined ? { height: shape.height } : {}) });
+		rules.push({
+			zone: id,
+			kind: 'bridge',
+			characters: [...characters],
+			...(shape?.ramp ? { ramp: { near: shape.ramp.near, far: shape.ramp.far } } : {}),
+			...(shape?.snap !== undefined ? { snap: shape.snap } : {}),
+			...(shape?.sideExit ? { sideExit: true } : {}),
+		});
+		(shape?.solids ?? []).forEach((s, k) => {
+			const solid = `${id}Solid${k}`;
+			zones.push({
+				id: solid,
+				x: bridge.x + s.x * CELL,
+				y: bridge.y + s.y * CELL,
+				w: s.w * CELL,
+				h: s.h * CELL,
+			});
+			rules.push({
+				zone: solid,
+				solid: s.collide === 'oneWay' ? s.side : true,
+				characters: [...(s.characters ?? characters)],
+			});
+		});
 	});
 	zones.push({ id: 'source', ...river.source });
 	rules.push({ zone: 'source', goal: true, characters: ['salmon'] });
 	zones.push({ id: 'sea', ...river.sea });
-	if (original) originalBounds(river, zones, rules);
+	if (original) originalBounds(river, zones, rules, props);
 	else {
 		rules.push({ zone: 'source', solid: true, characters: LAND });
 		rules.push({ zone: 'sea', solid: true, characters: LAND });

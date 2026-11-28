@@ -1,4 +1,4 @@
-import { BUILTIN_TIMELINES, type CinematicDoc } from 'engine-layout';
+import { BUILTIN_LIBRARY_TIMELINES, type CinematicDoc } from 'engine-layout';
 
 import { componentTimelinesOf } from '$lib/timeline/screenTimeline';
 import { withEditorProject } from './editorProject.client';
@@ -71,7 +71,7 @@ export function segmentTimelines(componentId: string): readonly CinematicDoc[] {
 	const project = loaded.get(componentId) ?? [];
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const ids = new Set(project.map((d) => d.id));
-	const builtin = componentTimelinesOf([...BUILTIN_TIMELINES], componentId).filter(
+	const builtin = componentTimelinesOf([...BUILTIN_LIBRARY_TIMELINES], componentId).filter(
 		(d) => !ids.has(d.id),
 	);
 	const docs = [...builtin, ...project];

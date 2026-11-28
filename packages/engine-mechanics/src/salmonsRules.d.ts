@@ -32,6 +32,37 @@ export const CLEAR: Readonly<{ sand: number; hook: number; steer: number }>;
 export const SAND_REACH: number;
 /** How far a bridge's slopes run onto the banks, cells. */
 export const BRIDGE_SLOPE: number;
+/** A bridge zone with its rule's numbers (today's where the rule names none). */
+export type BridgeDeck = {
+	id: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	height?: number;
+	characters?: string[];
+	ramp: { near: number; far: number };
+	snap: number;
+	sideExit: boolean;
+};
+/** The bridges of a game, each with its rule's ramps, snap and side exit. */
+export function bridgeDecks(game: RulesGame): BridgeDeck[];
+/** The deck a body at `at` stands on, and how high (cells), as the `bridges` rule lifts it. */
+export function bridgeDeckAt(
+	decks: readonly BridgeDeck[],
+	at: { x: number; y: number },
+	carries: (deck: BridgeDeck) => boolean,
+): { deck: BridgeDeck; lift: number } | undefined;
+/** Per bridge zone id, how many of the characters it carries stand on it (a prop's `occupied`). */
+export function bridgeOccupancy(
+	game: RulesGame,
+	players: Iterable<{ x: number; y: number; z?: number; character: string }>,
+): Map<string, number>;
+/** The zones whose occupancy went 0 → more (`on`, a prop's `stepOn`) and more → 0 (`off`). */
+export function occupancySteps(
+	before: ReadonlyMap<string, number> | undefined,
+	after: ReadonlyMap<string, number>,
+): { on: string[]; off: string[] };
 /** Heights (cells) at which a salmon passes over a rock and is not pulled by a whirlpool. */
 export const OVER: Readonly<{ rock: number; whirlpool: number }>;
 /** The leap's direction: the tap's dead zone (cells), the scale along and across the river, the

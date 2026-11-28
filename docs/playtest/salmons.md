@@ -715,6 +715,98 @@ sheet exported as a publish exports one, named in `characterArt`
 - the frame is on screen (`trees.png`, over 500 magenta pixels);
 - no page error.
 
+## The bridge as a prop component (`--bridge-component`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-bridge \
+  --bridge-component
+```
+
+Pages BF (a fisherman) and BB (a bear) in a room of the original's level (the wading's, no bots).
+Its bridges are drawn by the seed `bridgeProp`, since the code-drawn bridge is gone
+([design/arcade-prop-components](../design/arcade-prop-components.md) §7 P5). The room stands the
+bear under the first deck: the water row behind it, which a fisherman cannot stand in. It then
+stands the fisherman on the near ramp, on the deck's middle and back on the bank. Each place is
+screenshot (`bridge-under.png`, `bridge-ramp.png`, `bridge-deck.png`, `bridge-bank.png`), and the
+probe's `online.bridges` (each zone's `occupied`, and the `stepOn` / `stepOff` fired, scoped to the
+zone) is written to `bridge-triggers.json`. 8 verdicts:
+
+- the pieces are published;
+- the bear under the deck is on the ground and nothing is occupied or fired;
+- on the ramp he is aloft, `bridge0` is occupied and its `stepOn` has fired once;
+- on the deck nothing more fires;
+- back on the bank `stepOff` fires;
+- page BB, another device (sent his place packed, T7), reads him the same: occupied on the ramp
+  and the deck, then `stepOn` and `stepOff`;
+- the deck's planks are on screen round him on it;
+- no page error.
+
+## A painted bridge (`--bridge-art`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-bridge-art \
+  --bridge-art
+```
+
+Page BA is a fisherman in the wading's level. Its bridges are drawn by a project copy of the seed
+bridge, `myBridge`:
+- Zone art's `component` source names the copy, and its collider is compiled into
+  `arcade.online.props`, as a save does.
+- Its deck cells are `myDeck`, a cyan frame of a stub sheet exported as a publish exports one.
+- Its near ramp is 3 cells.
+
+The room stands him 2½ cells off the deck's near end, then on the deck's middle. Each place is
+screenshot (`bridge-art-near-ramp.png`, `bridge-art-deck.png`). 5 verdicts:
+
+- the copy's pieces are published;
+- 2½ cells off the near end he is on its ramp, aloft, with `bridge0` occupied. With a 2-cell ramp
+  he would be on the ground;
+- the deck is the copy's sprite: cyan round him on it;
+- the slopes in view follow the ramps: the near one (3 cells) is 4 : 3 as wide as the far one
+  (2), since a slope is as wide as its run plus a cell across it;
+- no page error.
+
+## P8: a project bridge, live (owner + headless check)
+
+The live check of [design/arcade-prop-components](../design/arcade-prop-components.md) §7 P8.
+`salmons-play.mjs` runs its own room, so this one is played on the published link.
+
+**Before it (in order):**
+
+1. PR #1929 merged into `main`. Railway then redeploys the launcher, and the game server too
+   (`/packages/engine-mechanics/**` and `/packages/game-config/**` are on its watch list,
+   [INFRA](../INFRA.md)). No manual redeploy is needed. Check the game server's deploy finished
+   before step 4: until it does, rooms play the old rule and send no `props`.
+2. The runtime release from the merge is live, so the published link boots the new arcade runtime.
+
+**The owner, on the live launcher:**
+
+3. `/editor?view=components`: open **Bridge (prop)**, ⧉ **Duplicate** it into the Salmons project
+   and save. Set the near ramp to **3** in the Prop card and change one piece of art (a plank
+   colour is enough to see). Save again.
+4. `/config` → Zone art → `bridge#`: **Drawn with: Component**, pick the copy. Save. The
+   **Collider** row shows `ramp: { near: 3, far: 2 }` and the pinned version.
+5. Publish Salmons.
+
+**What to look for (owner's look and the headless check):**
+
+- the published link boots; a room opens (`GET /rooms?game=salmons` lists it);
+- the bridges draw the changed art, all three, with the near slope 3 cells long on the ground —
+  note: until the seed's slope pieces follow the collider (design §7 P7, Known limitations), the
+  *drawn* near slope stays 2 cells: the room plays 3, the art shows 2. Report it, don't fix it here;
+- a Fisherman walks onto the near ramp a cell further out than before and rises to the deck,
+  drawn on the planks, over them, not on the reflections;
+- the deck dips on the step on and off (the seed's `stepOn` / `stepOff`);
+- a Bear or a Salmon passes under, covered by the deck;
+- a second device joins the same room without a "different versions" notice (the room's `props`
+  adopted, P3);
+- no page error.
+
+**Rolling back:** set `bridge#` back to **Default** in `/config` and publish. The room then plays
+today's bridge and its fingerprint is the pre-P2 one (`check:room-levels`).
+
 ## Zone art's rigs (`--zone-rig`)
 
 ```
@@ -1106,4 +1198,4 @@ a `Sprite` puts it, trimmed or not.
   levels a bank is a wall, but a salmon pressed into it slides along it where the original's stops
   dead (the engine's solids move x then y).
 - A fisherman's bridge (its row and its height) is the server's: its own device sees it as a
-  correction. Nothing draws the bridges yet, nor a fisherman's height on one.
+  correction. He is drawn on the deck since 2026-11-26 (the probe's `drawn` has `aloft` 144 there).

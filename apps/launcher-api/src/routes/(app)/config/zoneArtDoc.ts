@@ -7,9 +7,11 @@ import {
 	ZONE_ART_SCENERY,
 	isZoneArtScenery,
 	normalizeZoneArt,
+	zoneArtPropKind,
 	zoneFamilyOf,
 	type GameConfigDoc,
 	type ZoneArt,
+	type ZoneArtComponent,
 	type ZoneArtRig,
 	type ZoneArtScenery,
 	type ZoneArtSource,
@@ -285,4 +287,40 @@ export function zoneArtDefault(
 	return builtIn.drawn
 		? { label: builtIn.label, thumbs, drawn: builtIn.drawn }
 		: { label: builtIn.label, thumbs };
+}
+
+/** A prop component the project can draw a zone family with: a def with a `prop` block. */
+export type ZoneArtProp = { id: string; name: string; version: number; zoneKind: string };
+
+/** The project's prop components a family may be drawn with: those of its zone kind
+ *  (`bridge#` ⇒ `bridge` props). */
+export const zoneArtPropsFor = (
+	family: string,
+	props: readonly ZoneArtProp[],
+): readonly ZoneArtProp[] => props.filter((p) => p.zoneKind === zoneArtPropKind(family));
+
+/** `prop` as a family's picture, pinned at its latest version. */
+export const componentSourceOf = (prop: ZoneArtProp): ZoneArtComponent => ({
+	kind: 'component',
+	component: prop.id,
+	version: prop.version,
+});
+
+/** The card's note on a pinned component: a newer version to choose, or that it is gone; `''`
+ *  when the pin is the component's latest. Re-pinning is the author's choice (design §8 Q2). */
+export function zoneArtPinNote(source: ZoneArtComponent, props: readonly ZoneArtProp[]): string {
+	const prop = props.find((p) => p.id === source.component);
+	if (!prop) return `"${source.component}" is not a prop component of this project.`;
+	return prop.version > source.version
+		? `v${prop.version} is newer: this game plays v${source.version} until you choose it.`
+		: '';
+}
+
+/** What the save compiled for `family` (`arcade.online.props`), as the card shows it: the shape's
+ *  fields but its stamp, or `''` when none is stored yet (it is compiled on the save). */
+export function compiledPropText(doc: GameConfigDoc, family: string): string {
+	const shape = doc.arcade?.online?.props?.[family];
+	if (!shape) return '';
+	const { from: _from, zoneKind: _kind, ...fields } = shape;
+	return Object.keys(fields).length ? JSON.stringify(fields) : "today's rule";
 }

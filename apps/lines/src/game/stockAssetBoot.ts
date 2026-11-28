@@ -1,14 +1,16 @@
 import {
-	BUILTIN_COMPONENTS,
+	RUNTIME_BUILTIN_COMPONENTS,
 	getBoundComponent,
 	getComponentDefaults,
 	resolveComponent,
 } from 'engine-layout';
 
 import { bootStockAssetData } from '../editor-scenes';
+import { drawsOwnBackdrop } from '../families/arcade';
 import { anticipationParam } from './anticipationParam';
 import { fallbackEditorScenes } from './fallbackLayout';
 import { getActiveGameConfig, getSymbolsInPlay } from './gameConfig';
+import { gameMechanic } from './mechanic';
 import { analyseStockAssets, anticipationRigLeftOut, withoutStockAssets } from './stockAssets';
 import { stockAssetsOnDevice } from './stateApp';
 import { ANTICIPATION_SWITCHES } from './stockAssetRules';
@@ -37,6 +39,10 @@ export const anticipationParamRefused = (): boolean => refusedAnticipationParam;
 export function skipUnusedStockAssets<T extends Record<string, unknown>>(registered: T): T {
 	const data = bootStockAssetData();
 	if (!data) return registered;
+	// A play field or a card table has no reel board (`stockAssets.ts` `boardless`).
+	const mechanic = gameMechanic();
+	const boardless = mechanic.playField || mechanic.cardTable;
+	const ownBackdrop = mechanic.playField && drawsOwnBackdrop();
 	// `?anticipation=` arms the reel anticipation at boot (`Game.svelte`), as the flow action does.
 	const urlArmsAnticipation =
 		typeof location !== 'undefined' && anticipationParam(location.search) !== null;
@@ -45,11 +51,14 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 			data: withUrl ? { ...data, other: [...(data.other ?? []), ANTICIPATION_SWITCHES] } : data,
 			fallbackDoc: fallbackEditorScenes,
 			resolveDef: (id, version) =>
-				resolveComponent(id, version).def ?? BUILTIN_COMPONENTS.find((def) => def.id === id),
+				resolveComponent(id, version).def ??
+				RUNTIME_BUILTIN_COMPONENTS.find((def) => def.id === id),
 			componentDefaults: getComponentDefaults,
 			isBoundPart: (name) => getBoundComponent(name) !== undefined,
 			config: getActiveGameConfig(),
 			symbolsInPlay: getSymbolsInPlay(),
+			boardless,
+			ownBackdrop,
 		});
 	let analysis = analyse(urlArmsAnticipation);
 	if (urlArmsAnticipation && stockFilesPruned()) {

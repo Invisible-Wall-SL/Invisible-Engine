@@ -67,6 +67,7 @@ import { sheetVersion } from './assetVersion';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { componentDefaultsFor, listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
+import { zoneArtPropSeeds } from './zoneArtPropSeeds';
 import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { applyClipBounds, clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
@@ -575,11 +576,17 @@ export async function exportEditorArt(
 	// An arcade character's look and its `shootAt` shots are spawned at runtime too, so they seed
 	// the walk the same way; a config without characters adds nothing (parity).
 	// A card game's frames are spawned by the table too, and each card's art is a frame param.
+	// The zone art's prop components (§6 of arcade-prop-components) are placed by the game's art:
+	// seeded the same way, and each pinned def's art walked beside the latest's.
+	const props = await phase('props', () =>
+		zoneArtPropSeeds(gameConfig, (id, version) => loadComponent(id, projectKey, version)),
+	);
 	const characterIds = gameConfig
-		? [...characterComponentIds(gameConfig), ...cardGameComponentIds(gameConfig)]
+		? [...characterComponentIds(gameConfig), ...cardGameComponentIds(gameConfig), ...props.ids]
 		: [];
 	const seedIds = characterIds.length ? [...cardParamSeedIds, ...characterIds] : cardParamSeedIds;
 	const defs = await phase('defs', () => resolveReferencedDefs(doc, projectKey, seedIds));
+	for (const pinned of props.pinned) defs[`${pinned.id}@${pinned.version}`] ??= pinned;
 	// `loadDoc` repaired the doc's own atlas refs; do the same for the defs BEFORE collecting, so a
 	// def whose art was authored against a sheet output prefix queues that sheet's real MANIFEST
 	// key — the key the runtime, reading the same repaired defs, will look the frame up under.

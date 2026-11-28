@@ -70,3 +70,7 @@ export function setDepth(child: Container, depth: number): void {
 	keep(parent);
 	if (parent.sortDirty) child.zIndex = depth;
 }
+
+/** Whether `child` is drawn in depth order here (`<SpawnLayer>`'s projected instances): a search
+ *  down a spawn layer (`arcadeProps.svelte.ts` `spawnInstancesOf`) stops at its parent. */
+export const hasDepth = (child: Container): boolean => depths.has(child);

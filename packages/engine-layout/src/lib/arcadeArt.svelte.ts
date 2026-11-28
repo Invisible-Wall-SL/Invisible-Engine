@@ -7,7 +7,9 @@
  * Generic: engine-layout knows only that a node or an instance has a mount.
  *
  * Precedence for an instance: a published clip (`arcadeClips.svelte.ts`), then its code look, then
- * its own tree. Nothing publishes here but an online room whose generator has art; every other
+ * its own tree. An instance may also be given a depth bias (`setDepths`): a body the runtime draws
+ * raised off the ground under it (Salmons' fisherman on a bridge's deck) sorts by it in a projected
+ * layer. Nothing publishes here but an online room whose generator has art; every other
  * screen and spawn layer renders as before.
  */
 
@@ -19,12 +21,24 @@ export type ArtMount = (into: Container, app: Application) => () => void;
 
 const fields = new SvelteMap<string, ArtMount>();
 const looks = new SvelteMap<string, ArtMount>();
+const depths = new SvelteMap<string, number>();
 
 /** The art a screen's top-level node `id` is drawn with, in place of the node. */
 export const fieldArtOf = (id: string): ArtMount | undefined => fields.get(id);
 
 /** An instance's code look, or `undefined` when it draws its clip or its own tree. */
 export const codeLookOf = (id: string): ArtMount | undefined => looks.get(id);
+
+/** How much deeper than its place instance `id` is drawn in a projected layer's depth order, ground
+ *  depth px (`projection.ts` `isoDepthOrder`'s `bias`); 0 for one given none. */
+export const depthOf = (id: string): number => depths.get(id) ?? 0;
+
+/** Publish the instances' depth biases after a frame (only the changes; an instance left out has
+ *  none). */
+export const setDepths = (next: ReadonlyMap<string, number>): void => {
+	for (const id of depths.keys()) if (!next.has(id)) depths.delete(id);
+	for (const [id, depth] of next) if (depths.get(id) !== depth) depths.set(id, depth);
+};
 
 /** Draw node `id` with `mount`. */
 export const setFieldArt = (id: string, mount: ArtMount): void => {
@@ -41,4 +55,5 @@ export const setCodeLooks = (next: ReadonlyMap<string, ArtMount>): void => {
 export const clearArt = (): void => {
 	fields.clear();
 	looks.clear();
+	depths.clear();
 };

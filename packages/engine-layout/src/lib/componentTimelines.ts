@@ -9,7 +9,7 @@ import {
 
 import type { CueKey } from './cueSound';
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
-import { BUILTIN_TIMELINES } from './builtinTimelines';
+import { RUNTIME_BUILTIN_TIMELINES } from './builtinTimelines';
 import { fxParamOfChannel, fxParamRest, placedFxParamValues } from './fxNodeParams';
 import { resolveEffect } from './registerEffects';
 import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
@@ -36,7 +36,7 @@ export function registerComponentTimelines(docs: readonly CinematicDoc[]): void 
 	const next = new Map<string, CinematicDoc[]>();
 	const nextById = new Map<string, CinematicDoc>();
 	// One doc per id, the LAST registered winning: a project timeline shadows a built-in one of the
-	// same id (`BUILTIN_TIMELINES` register first) instead of playing beside it. Baked ids are
+	// same id (`RUNTIME_BUILTIN_TIMELINES` register first) instead of playing beside it. Baked ids are
 	// storage keys, so a baked bundle never carries two docs of one id and loses nothing here.
 	const winnerById = new Map<string, CinematicDoc>();
 	for (const doc of docs) if (doc.host?.kind === 'component' && doc.id) winnerById.set(doc.id, doc);
@@ -66,7 +66,7 @@ export function registerComponentTimelines(docs: readonly CinematicDoc[]): void 
  * call for both boot paths.
  */
 export function registerGameTimelines(baked: readonly CinematicDoc[] | undefined): void {
-	registerComponentTimelines([...BUILTIN_TIMELINES, ...(baked ?? [])]);
+	registerComponentTimelines([...RUNTIME_BUILTIN_TIMELINES, ...(baked ?? [])]);
 }
 
 /** The timelines an instance of `componentId` plays on a signal, in registration order. */

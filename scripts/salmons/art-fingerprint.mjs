@@ -21,7 +21,7 @@ const { Container, Graphics, Matrix, Sprite, Texture, TextureSource, TilingSprit
 // without its extension): the spawn layer is one container registered under Salmons' field layer.
 registerHooks({
 	resolve: (specifier, context, next) =>
-		specifier.endsWith('/worldDrawing.svelte')
+		/\/(worldDrawing|arcadeProps)\.svelte$/.test(specifier)
 			? next(`${specifier}.ts`, context)
 			: next(specifier, context),
 });
@@ -31,7 +31,35 @@ const { registerProjectedLayer } = await import(
 const { SALMONS_FIELD_LAYER } = await import(
 	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/referenceLayouts/salmonsRiver.ts')).href
 );
+const { clearSpawnProps, setSpawnProps } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/arcadeProps.svelte.ts')).href
+);
+const { placeSalmonsBridges } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt/propPlacement.ts')).href
+);
+const { BRIDGE_PROP_DEF } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/propComponents.ts')).href
+);
+const { riverElevation } = await import(
+	pathToFileURL(join(ROOT, 'packages/engine-layout/src/lib/referenceLayouts/salmonsElevation.ts'))
+		.href
+);
 globalThis.document ??= { createElement: () => ({ getContext: () => null }) };
+
+/**
+ * Publish `river`'s bridges for the field's spawn layer as the arcade runtime does (`online.ts`):
+ * the seed `bridgeProp` placed on each `bridge<i>` zone, on the ground raised under its row. The
+ * river draws their water and behind pieces; the deck cells stand among the players, drawn by
+ * `<SpawnProps>` (not here). Returns the pieces; `clearSpawnProps` takes them away.
+ */
+export function publishBridges(river) {
+	const elevation = riverElevation(river.waterfalls);
+	const zones = (river.bridges ?? []).map((b, i) => ({ id: `bridge${i}`, ...b }));
+	const pieces = placeSalmonsBridges(BRIDGE_PROP_DEF, zones, (y) => elevation.at(y));
+	setSpawnProps(SALMONS_FIELD_LAYER, pieces);
+	return pieces;
+}
+export { clearSpawnProps };
 
 const named = (label) =>
 	new Texture({ source: new TextureSource({ width: 64, height: 64 }), label });
@@ -223,13 +251,15 @@ export async function riverArtFingerprint(river, projector, { module = 'river.ts
 	const from = Texture.from;
 	Texture.from = (source) => (source?.getContext ? named('canvas') : from.call(Texture, source));
 	let drawn;
+	publishBridges(river);
 	try {
 		drawn = mountSalmonsRiver(into, app, art, river, river.seed, projector);
 	} finally {
 		Texture.from = from;
+		clearSpawnProps();
 	}
 	const pieces = [];
-	if (omit) omit(into);
+	if (omit) omit(into, layer);
 	describe(into, pieces);
 	describe(layer, pieces);
 	const rows = pieces.map(({ row }) => row);

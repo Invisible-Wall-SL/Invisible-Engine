@@ -24,6 +24,7 @@ import {
 	type SalmonsBiomeStart,
 } from 'engine-mechanics';
 import { normalizeLevels, seedKey, type ArcadeOnlineLevels } from './family';
+import { withOnlineProps } from './onlineProps';
 import type { GameConfigIssue } from './validate';
 
 /** Present ⇒ the river winds; a field left out takes its default. Absent ⇒ the generator's own. */
@@ -254,14 +255,16 @@ export function withLevelsShape<T>(doc: T, rawDoc: unknown): T {
 
 /**
  * A resolved online game (`onlineGameOf` of the normalized doc) with the levels' shape of the RAW
- * doc it came from: what a room and a device give their generator. `game` itself when there is
- * none, or when it is no game (`undefined`, a refusal).
+ * doc it came from, and its prop colliders (`onlineProps.ts` `withOnlineProps`): what a room and a
+ * device give their generator. `game` itself when there are neither, or when it is no game
+ * (`undefined`, a refusal).
  */
 export function shapedOnlineGame<G extends object | undefined>(game: G, rawDoc: unknown): G {
+	const propped = withOnlineProps(game, rawDoc);
 	const shape = levelsShapeOf(rawDoc);
-	if (!shape || !game || !('online' in game) || !isObject(game.online)) return game;
-	const levels = isObject(game.online.levels) ? game.online.levels : {};
-	return { ...game, online: { ...game.online, levels: { ...levels, ...shape } } };
+	if (!shape || !propped || !('online' in propped) || !isObject(propped.online)) return propped;
+	const levels = isObject(propped.online.levels) ? propped.online.levels : {};
+	return { ...propped, online: { ...propped.online, levels: { ...levels, ...shape } } };
 }
 
 /** What is wrong with a RAW config's level shape, for a save. All warnings: a value that cannot

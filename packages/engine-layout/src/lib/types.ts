@@ -148,6 +148,28 @@ interface BaseNode {
 	 * ⇒ no extra container (parity).
 	 */
 	parallax?: Point2D;
+	/**
+	 * Inside a PROP component ({@link ComponentDef.prop}): which band this node draws in against
+	 * the characters ({@link PropDepth}). A child inherits its parent's. Read only in a `prop` def;
+	 * absent ⇒ `sorted` at 1100, the deck's (`docs/design/arcade-prop-components.md` §5).
+	 */
+	propDepth?: PropDepth;
+	/** A `behind` or `sorted` node's depth offset in old px (the original's `zOffset`). Absent ⇒
+	 *  1100 for `sorted`, 0 for `behind`. */
+	propZOffset?: number;
+	/**
+	 * A prop's root-level component instance: the cell along its zone the piece stands at (the
+	 * mount places it there, `propPieces`), a number or `{ param, plus }` of the prop's params (the
+	 * far slope's land cell is `{ param: 'length', plus: 1 }`). Absent ⇒ cell 0.
+	 */
+	propCell?: PropLength;
+	/**
+	 * A prop's root-level component instance that draws a RAMP (the seed's slopes): it stands at
+	 * the foot of the collider's `near` or `far` ramp, and its `run` param is that ramp's length in
+	 * cells toward the deck (+ near, − far), so the art follows the collider. Wins over `propCell`.
+	 * Absent ⇒ its `propCell`.
+	 */
+	propRamp?: 'near' | 'far';
 	overrides?: Partial<Record<LayoutType, NodeOverride>>;
 	visibleFor?: LayoutType[];
 	/**
@@ -1914,9 +1936,76 @@ export interface ComponentDef {
 	 * (`characterClips.ts`; Salmons' S0 art). Absent ⇒ the component's own tree, as before.
 	 */
 	characterClips?: CharacterClips;
+	/**
+	 * A PROP (`docs/design/arcade-prop-components.md`): scenery placed on every zone of one arcade
+	 * zone family, parametric in that zone's size, whose collider the rules read once compiled
+	 * (`engine-mechanics` `compilePropShape`). Absent ⇒ an ordinary component (parity).
+	 */
+	prop?: ArcadeProp;
 	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
 	guides?: EditorGuideSet;
 }
+
+/**
+ * A length of a prop in cells: a number, or a param of the def plus an offset (a deck as long as
+ * its zone is `{ param: 'length', plus: -1 }`).
+ */
+export type PropLength = number | { param: string; plus?: number };
+
+/** How the water under a prop opens to the characters it carries (`PROP_HOLES`, engine-mechanics). */
+export type PropHole = 'deckAndRamps' | 'deck' | 'none';
+
+/** One extra blocker of a prop's collider, in the deck's own cell frame. `TileCollide`'s
+ *  vocabulary: `solid` from every side, `oneWay` from the `side` it names. */
+export interface PropSolid {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	collide: 'solid' | 'oneWay';
+	side?: 'below' | 'above' | 'left' | 'right';
+	/** Absent ⇒ the collider's characters. */
+	characters?: string[];
+}
+
+/** A prop's collision, in cells along its zone. The shapes, values and defaults are the design's
+ *  §2–§3; `compilePropShape` turns it into the rules' `PropShape`. */
+export interface PropCollider {
+	/** Who it carries. Absent ⇒ the zone rule's own `characters` (Salmons: fisherman). */
+	characters?: string[];
+	/** The walkable top: along the zone from `from` to `to` (cell middles), `height` cells up. */
+	deck: { from: PropLength; to: PropLength; height: PropLength };
+	/** A character is put on the deck when its centre is within `snap` cells of the deck's row. */
+	snap: number;
+	/** The ramps from each bank to the deck's end; the lift falls linearly to 0 over `length`. */
+	ramps: { near: { length: PropLength }; far: { length: PropLength } };
+	hole: PropHole;
+	/** Railings, posts, a gate: extra blockers, opt-in (the default bridge has none). */
+	solids?: PropSolid[];
+	/** A body moving across the row is not put back on it, so `solids` stop it and with none it
+	 *  steps off the side (owner, 2026-11-26). Absent / false ⇒ today's: held on the row. */
+	sideExit?: boolean;
+}
+
+export interface ArcadeProp {
+	/** The rules module's zone kind it compiles to (`PROP_ZONE_KINDS`): `'bridge'`. */
+	zoneKind: string;
+	/** The `engineProvided` number params the runtime fills per placed zone: the deck's length in
+	 *  cells, and its height in cells (the zone's `height`, else the collider's). */
+	fromZone: { length: string; height?: string };
+	collider: PropCollider;
+	/** EDITOR-ONLY: the param values the canvas previews at (a 6-cell deck, 6 high). */
+	preview?: Record<string, number>;
+}
+
+/**
+ * Where a prop's node draws against the characters (design §5), each band today's code-bridge
+ * layer: on the water's surface (`water`, the reflections), under every character (`behind`, the
+ * pillars and slopes), among them by ground depth (`sorted`, the deck tiles), or over every one,
+ * those aloft on the prop included (`over`, an overhead arch).
+ */
+export const PROP_DEPTHS = ['water', 'behind', 'sorted', 'over'] as const;
+export type PropDepth = (typeof PROP_DEPTHS)[number];
 
 /** The room events a character's one-shot clip plays on, each naming the player it is about. */
 export const CHARACTER_CLIP_EVENTS = ['jumped', 'climbed', 'ability', 'caught'] as const;

@@ -127,11 +127,12 @@ export const isoDepth = (x: number, y: number): number => x + y;
 export const ISO_DEPTH_SPREAD = 65536;
 
 /**
- * The draw order (zIndex) of a body: its ground depth to the whole px, then its place `seq` in
- * its layer's spawn order, so a tie draws the same on every device whatever the sort's history.
+ * The draw order (zIndex) of a body: its ground depth (plus `bias`, ground depth px) to the whole
+ * px, then its place `seq` in its layer's spawn order, so a tie draws the same on every device
+ * whatever the sort's history.
  */
-export const isoDepthOrder = (x: number, y: number, seq: number): number =>
-	Math.floor(isoDepth(x, y)) * ISO_DEPTH_SPREAD + (seq % ISO_DEPTH_SPREAD);
+export const isoDepthOrder = (x: number, y: number, seq: number, bias = 0): number =>
+	Math.floor(isoDepth(x, y) + bias) * ISO_DEPTH_SPREAD + (seq % ISO_DEPTH_SPREAD);
 
 /**
  * How far a top-level node placed at world (x, y) is moved so it is drawn at its projected place:

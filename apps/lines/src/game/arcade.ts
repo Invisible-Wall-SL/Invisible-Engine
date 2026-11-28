@@ -35,6 +35,7 @@ import { normalizeGameConfigDoc, resolveArcade, type ArcadeCharacter } from 'gam
 
 import { bakedGameConfig } from '../editor-scenes';
 import { arcadePerf } from './arcadePerf';
+import { notePlayFieldFrame } from './playFieldPhase';
 import { registerBoardEffects, registerBoardValues } from './flowBoardEffects';
 import { typingInto } from './flowKeys';
 import { getFlowV2 } from './flowV2InterpreterHolder';
@@ -322,6 +323,7 @@ export const tickArcade = (dtMs: number) => {
 	loop.frame(dtMs);
 	// The level the frame just counted: a field with a body on it is playing.
 	if (arcadePerf.on) arcadePerf.phase = arcadePerf.counts.bodies > 0 ? 'play' : 'lobby';
+	notePlayFieldFrame(loop.bodyCount > 0);
 	if (hops) {
 		const live = spawnStore();
 		const lifts = new Map<string, { z: number; shadow: number; foot: number }>();

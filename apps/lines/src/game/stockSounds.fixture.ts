@@ -20,12 +20,16 @@
  *     mp3 first), its lead added to every region; a loop stays a loop; never one it does not list.
  *  6. THE BANKS: every multi-sound bank is a slot ladder or wholly coded, so grouping never makes a
  *     game load a sound nothing in it can play beyond the bank's own.
+ *  7. A BOARDLESS GAME (a play field, a card table): with an empty list, the presses only, and the
+ *     base music only when it plays it at boot (no flow drives its screens); a data-named sound
+ *     still loads, an authored `baseMusic` replaces `bgm_main`, and every doubt still loads every
+ *     bank. A board's plan is unchanged by the field being absent.
  */
 
 import { STOCK_SOUND_REACH_VERSION, type SoundCatalog } from 'engine-layout';
 import { SOUND_SLOTS } from 'game-config';
 
-import { CODED_STOCK_SOUNDS } from './stockSoundRules.ts';
+import { BOARDLESS_CODED_STOCK_SOUNDS, CODED_STOCK_SOUNDS } from './stockSoundRules.ts';
 import * as realModule from './stockSounds.ts';
 import type { StockAudio, StockSoundInput, StockSoundPlan } from './stockSounds.ts';
 
@@ -94,6 +98,9 @@ async function main(): Promise<void> {
 	const SLOT_DEFAULT_BANKS = [
 		...new Set(SOUND_SLOTS.flatMap((s) => s.defaults).map(bankOf)),
 	].sort();
+	const PRESS_BANKS = [...new Set(BOARDLESS_CODED_STOCK_SOUNDS.map(bankOf))].sort();
+	const same = (a: readonly string[], b: readonly string[]) =>
+		JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 	/** The claims over a module; returns the labels that failed. */
 	function claims(mod: Module): string[] {
@@ -161,6 +168,18 @@ async function main(): Promise<void> {
 		const mp3Only = { ...manifest, banks: banks.map((b) => ({ ...b, files: { mp3: b.files.mp3 } })) }; // prettier-ignore
 		const only = mainOf(plan({ stock: mp3Only, canPlay: (ext) => ext !== 'mp3' }));
 		expect('5. never a container the bank does not list', !!only && String(only.src).endsWith('/bgm_main.mp3')); // prettier-ignore
+
+		// 7. A boardless game.
+		const field = (musicAtBoot: boolean, over: Partial<StockSoundInput> = {}) =>
+			plan({ boardless: { musicAtBoot }, ...over });
+		expect('7. a flow-driven field loads the presses only', same(loaded(field(false)), PRESS_BANKS)); // prettier-ignore
+		expect('7. a field with no flow driving it adds the base music', same(loaded(field(true)), [...PRESS_BANKS, bankOf('bgm_main')])); // prettier-ignore
+		expect('7. …and no free-spin music, reel stop or win bed', !has(field(true), 'bgm_freespin') && !has(field(true), 'sfx_reel_stop_1') && !has(field(true), 'bgm_winlevel_big')); // prettier-ignore
+		expect('7. a data-named sound still loads', has(field(false, { catalog: catalog({ stock: { version: STOCK_SOUND_REACH_VERSION, names: ['bgm_freespin'] } }) }), 'bgm_freespin')); // prettier-ignore
+		expect('7. a baseMusic slot on its own track drops bgm_main', !has(field(true, { catalog: buffalo }), 'bgm_main')); // prettier-ignore
+		expect('7. no stock list still loads every bank', loaded(field(false, { catalog: undefined })).length === ALL.length); // prettier-ignore
+		expect('7. a dev flow still loads every bank', loaded(field(false, { flowOverridden: true })).length === ALL.length); // prettier-ignore
+		expect('7. a board with no field set loads as before', same(loaded(plan({ boardless: undefined })), loaded(empty))); // prettier-ignore
 		return failed;
 	}
 
@@ -196,9 +215,12 @@ async function main(): Promise<void> {
 			.replace(`from 'pixi-svelte'`, `from '${ROOT}/packages/pixi-svelte/src/lib/types.ts'`)
 			.replace(`from './stockSoundRules'`, `from '${HERE}stockSoundRules.ts'`);
 	const MUTANTS: Record<string, [string, string]> = {
-		'no coded sounds': ['...CODED_STOCK_SOUNDS, ', ''],
-		'no slot defaults': ['...slotStockSounds(input.catalog)', ''],
-		'no catalog slots ⇒ no defaults': ['if (!slots) return SOUND_SLOTS.flatMap((slot) => [...slot.defaults]);', 'if (!slots) return [];'], // prettier-ignore
+		'no coded sounds': ['...coded, ', ''],
+		'no slot defaults': ['...slots]', ']'],
+		'no catalog slots ⇒ no defaults': ['if (!slots) return played.flatMap((slot) => [...slot.defaults]);', 'if (!slots) return [];'], // prettier-ignore
+		'a field loads the board’s coded sounds': ['boardless ? BOARDLESS_CODED_STOCK_SOUNDS : CODED_STOCK_SOUNDS', 'CODED_STOCK_SOUNDS'], // prettier-ignore
+		'a field loads every slot': ["boardless.musicAtBoot ? ['baseMusic'] : []", 'undefined'], // prettier-ignore
+		'a field always loads the base music': ["boardless.musicAtBoot ? ['baseMusic'] : []", "['baseMusic']"], // prettier-ignore
 		'a silenced slot still loads': ['return enabled ? names : [];', 'return names;'],
 		'the version is not checked': ['list.version !== STOCK_SOUND_REACH_VERSION || ', ''],
 		'a dev flow is trusted': ["if (input.flowOverridden) return { loadAll: 'a flow other than the bundle’s is running' };", ''], // prettier-ignore

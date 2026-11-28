@@ -336,11 +336,12 @@
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import { Match3Input } from '../families/match3';
-	import { ArcadeStage } from '../families/arcade';
+	import { ArcadeBackdrop, ArcadeStage, drawsOwnBackdrop } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
 	import { arcadePerf } from '../game/arcadePerf';
 	import { gameMechanic } from '../game/mechanic';
 	import { lastFieldTick, qualityGate } from '../game/qualityGate';
+	import { playFieldPlaying } from '../game/playFieldPhase';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
@@ -1246,6 +1247,9 @@
 	);
 
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
+	// A play field whose rooms have art (Salmons) draws its own backdrop where the slot sample's
+	// background stood, behind the same anchor (`ArcadeBackdrop.svelte`).
+	const ownBackdrop = mechanic.playField && drawsOwnBackdrop();
 
 	// Authored free-spin BOARD GLOW (the reel-house backdrop behind the reels). Mirrors the
 	// background/book-reveal gates: the `boardGlow` scene ships only the coded `BoardFrame` bind
@@ -1289,9 +1293,11 @@
 	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round
 	// plays draws fewer pixels (`pixi-svelte` `renderQuality`), switched only while no reel rolls:
 	// at idle in manual play; in autoplay, which is one long state and never idle, in the moments
-	// of a round with the reels stopped. An arcade game, which never leaves idle, is measured while
-	// its play field ticks and switched as a level mounts (`game/qualityGate.ts`). A deterministic
-	// render and a `?render=` pin never adapt.
+	// of a round with the reels stopped. A play field is measured while its field is being played
+	// (the room running, a body on the field: `playFieldPhase.ts`) and ticking, not in the settling
+	// time after a level mounts, and switched otherwise: the menu, the lobby, the time between
+	// rounds and that settling time (`game/qualityGate.ts`). A deterministic render and a
+	// `?render=` pin never adapt.
 	onDestroy(
 		configureRenderQuality({
 			adaptive: !globalThis.__IE_DETERMINISM__ && renderPin() === undefined,
@@ -1306,7 +1312,7 @@
 				},
 				() => ({
 					now: performance.now(),
-					tickedAt: lastFieldTick(),
+					tickedAt: playFieldPlaying() ? lastFieldTick() : undefined,
 					mountedAt: arcadePerf.mountedAt,
 				}),
 			),
@@ -2383,7 +2389,11 @@
 			 background scenes stay behind the coded one), so this is parity for every game. -->
 	{#if !suppressCodedBackground}
 		<Container zIndex={LAYER_BAND_BACKGROUND_CODED}>
-			<Background cover={backgroundCover} isFeatureGameType={isFreeGameType} />
+			{#if ownBackdrop}
+				<ArcadeBackdrop />
+			{:else}
+				<Background cover={backgroundCover} isFeatureGameType={isFreeGameType} />
+			{/if}
 		</Container>
 	{/if}
 

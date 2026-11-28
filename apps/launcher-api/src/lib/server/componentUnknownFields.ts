@@ -10,12 +10,15 @@ import {
 	COMPONENT_PARAM_FIELDS,
 	COMPONENT_SIGNAL_FIELDS,
 	LAYOUT_NODE_FIELDS,
+	PROP_COLLIDER_FIELDS,
+	PROP_FIELDS,
 	SM_LAYER_FIELDS,
 	SM_STATE_FIELDS,
 	SM_TRANSITION_FIELDS,
 	STATE_MACHINE_FIELDS,
 	TEMPLATE_SLOT_FIELDS,
 } from './componentFields';
+import { normalizeProp } from './componentProp';
 import { readEnterAction, readListener, readPayloadField, unreadable } from '../componentEventRows';
 import { isPlainObject } from './stripUnknownKeys';
 import { unknownFields, withUnknownFields } from './unknownBlocks';
@@ -31,6 +34,8 @@ const isDefField = known(COMPONENT_DEF_FIELDS);
 const isNodeField = known(LAYOUT_NODE_FIELDS);
 const isStateMachineField = known(STATE_MACHINE_FIELDS);
 const isLayerField = known(SM_LAYER_FIELDS);
+const isPropField = known(PROP_FIELDS);
+const isPropColliderField = known(PROP_COLLIDER_FIELDS);
 const INPUT_KINDS: ReadonlySet<string> = new Set(COMPONENT_INPUT_KINDS);
 
 /**
@@ -107,6 +112,9 @@ const LAYER_ARRAYS = [
  *
  * - every unknown top-level field of the def, and of `stateMachine` (a fixed namespace, kept also
  *   when the author removed every layer, like a win-text family);
+ * - the unknown fields of `prop` and of its `collider`, while the def is still a prop (an author
+ *   who removed the block removed what a newer build kept in it); and a stored `prop` this build
+ *   cannot read, whole, when the save has none: the author never saw it;
  * - inside each ENTITY the author kept, matched to its stored copy by id: the unknown fields of a
  *   node anywhere under `root` (the root included; not a node whose id is duplicated, which has
  *   no single twin), of a param, signal, slot, input (of the same `kind`) or event, and of a
@@ -156,6 +164,7 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 
 	const machine = graftStateMachine(next.stateMachine as Row | undefined, stored.stateMachine);
 	set('stateMachine', machine, next.stateMachine);
+	set('prop', graftProp(next.prop as Row | undefined, stored.prop), next.prop);
 
 	// In its stored position, so an older launcher's no-op save rewrites the very same bytes.
 	const withBlocks = withUnknownFields(isDefField, stored, out);
@@ -298,6 +307,20 @@ function graftStateMachine(next: Row | undefined, stored: unknown): Row | undefi
 	return out === base && !next ? next : out;
 }
 
+/** A stored `prop` this build cannot read (a newer hole or field shape), which the read dropped. */
+const isUnreadableProp = (stored: unknown): stored is Row =>
+	isPlainObject(stored) && !normalizeProp(stored);
+
+function graftProp(next: Row | undefined, stored: unknown): Row | undefined {
+	if (!next) return isUnreadableProp(stored) ? stored : next;
+	if (!isPlainObject(stored)) return next;
+	const collider = isPlainObject(next.collider)
+		? withUnknownFields(isPropColliderField, stored.collider, next.collider)
+		: next.collider;
+	const base = collider === next.collider ? next : { ...next, collider };
+	return withUnknownFields(isPropField, stored, base);
+}
+
 function graftLayer(layer: Row, stored: Row): Row {
 	let out = layer;
 	for (const { field, isKnown, inner } of LAYER_ARRAYS) {
@@ -331,6 +354,7 @@ const ALWAYS_COMPARED = new Set([
 	'def',
 	'stateMachine',
 	'unreadableInput',
+	'unreadableProp',
 	...[LISTENER_ROWS, ENTER_ROWS, EXIT_ROWS, PAYLOAD_ROWS].map(({ name }) => `unreadable:${name}`),
 ]);
 
@@ -375,6 +399,11 @@ function unknownComponentFields(doc: unknown): Map<string, Row> {
 	for (const row of Array.isArray(doc.inputs) ? doc.inputs : []) {
 		if (isPlainObject(row) && isUnreadableInput(row))
 			add(['unreadableInput', row.id as string], row);
+	}
+	if (isUnreadableProp(doc.prop)) add(['unreadableProp'], doc.prop);
+	else if (isPlainObject(doc.prop)) {
+		add(['prop'], unknownFields(isPropField, doc.prop));
+		add(['propCollider'], unknownFields(isPropColliderField, doc.prop.collider));
 	}
 	const machine = doc.stateMachine;
 	if (isPlainObject(machine)) {

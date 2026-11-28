@@ -20,7 +20,9 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * (Salmons' bloodstains, the newest last). The level itself is never in the state. For a game
  * with a generator the state carries what the level was made from and a check on the result: the
  * seed, the levels the room's generator read for it (`levels`) and a fingerprint of the level it
- * made (`levelHash`). A device makes the room's level from the first two and holds it to the third.
+ * made (`levelHash`), and the prop colliders it laid into it (`props`, only when it has any). A
+ * device makes the room's level from the seed, the levels and the props, and holds it to the
+ * fingerprint.
  * A game with a lobby also says, until its first round starts, that its people may change the
  * character they play (`picking`).
  *
@@ -160,6 +162,12 @@ const roomFields = {
 	 *  older than them reads every other field as before: a device has no state class of its own
 	 *  and decodes by the schema the server sends at the handshake. */
 	levelHash: t.string(),
+	/** The prop colliders the room's generator laid into its level (`engine-mechanics`
+	 *  `roomLevelState`: the JSON of the published config's `arcade.online.props`). A device plays
+	 *  these in place of its own config's, and none when the room says none. Written once, only for
+	 *  a game that has them, so a room of any other game sends no new field; a runtime older than
+	 *  it plays its own config's props and is held to `levelHash` as before. */
+	props: t.string(),
 };
 
 export const RoomState = schema({ ...roomFields, players: t.map(Player) });

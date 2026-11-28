@@ -55,6 +55,7 @@ import {
 	listComponentDefaults,
 } from './componentDefaultsStorage';
 import { loadComponentForGame } from './componentStorage';
+import { zoneArtPropSeeds } from './zoneArtPropSeeds';
 import type { EditorArtIndex } from './editorArtExport';
 import { DeployMirror } from './deployMirror';
 import { EXPORTERS, settleExports, startExports, timed, type ExportResults } from './exporters';
@@ -356,8 +357,13 @@ async function assembleRuntimeBundle(
 		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
 	]);
 	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
+	// The zone art's prop components (Salmons' bridge) are placed by the game's art, not a scene:
+	// seeded like the characters, and their pinned defs shipped beside the latest.
+	const props = await step('zoneArtProps', timings, () =>
+		zoneArtPropSeeds(gameConfig, (id, version) => loadComponentForGame(id, projectKey, version)),
+	);
 	const characterIds = gameConfig
-		? [...characterComponentIds(gameConfig), ...cardGameComponentIds(gameConfig)]
+		? [...characterComponentIds(gameConfig), ...cardGameComponentIds(gameConfig), ...props.ids]
 		: [];
 	const { defs: componentDefs, versions: componentVersions } = await step(
 		'componentDefs',
@@ -371,6 +377,12 @@ async function assembleRuntimeBundle(
 				characterIds,
 			),
 	);
+	for (const def of props.pinned)
+		if (
+			componentDefs[def.id]?.version !== def.version &&
+			!componentVersions.some((v) => v.id === def.id && v.version === def.version)
+		)
+			componentVersions.push(def);
 	// A placed component's OWN rig nodes need the same prefix→bundle-name rewrite as the
 	// scene tree, or their rigs never load in the built game (key mismatch).
 	resolveRigKeysForComponentDefs(

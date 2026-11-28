@@ -37,9 +37,23 @@ export type ZoneArtFlipbook = { kind: 'flipbook'; clip: string; fps?: number };
  */
 export type ZoneArtRig = { kind: 'rig'; rig: string; animation: string; loop?: false };
 
-export type ZoneArtSource = ZoneArtSprite | ZoneArtFlipbook | ZoneArtRig;
+/**
+ * A PROP COMPONENT of the project (`docs/design/arcade-prop-components.md` §6) at its pinned
+ * version: a component def with a `prop` block whose zone kind is the family's (`bridge#` ⇒
+ * `bridge`, {@link zoneArtPropKind}). It draws every zone of the family itself (the game's art
+ * places it, not a stamp), and its collider is compiled into `arcade.online.props` on the save.
+ * A family's only picture: never a variant, never scenery.
+ */
+export type ZoneArtComponent = { kind: 'component'; component: string; version: number };
 
-export const ZONE_ART_SOURCE_KINDS = Object.freeze(['sprite', 'flipbook', 'rig'] as const);
+export type ZoneArtSource = ZoneArtSprite | ZoneArtFlipbook | ZoneArtRig | ZoneArtComponent;
+
+export const ZONE_ART_SOURCE_KINDS = Object.freeze([
+	'sprite',
+	'flipbook',
+	'rig',
+	'component',
+] as const);
 
 export const ZONE_ART_PLACEMENTS = Object.freeze(['stamp'] as const);
 
@@ -96,9 +110,24 @@ const isFrameRef = (ref: string): boolean => {
  */
 export const zoneArtTakesRig = (key: string): boolean => !isZoneArtScenery(key.trim());
 
-/** One picture, or `undefined` when it cannot be drawn; a rig only where `rig` allows one. */
-export function normalizeZoneArtSource(raw: unknown, rig = true): ZoneArtSource | undefined {
+/** The prop zone kind a family's component must compile to: the family without its `#`s. */
+export const zoneArtPropKind = (family: string): string => family.trim().replace(/#/g, '');
+
+/** One picture, or `undefined` when it cannot be drawn; a rig only where `rig` allows one, a
+ *  component only where `component` does (a zone family's source). */
+export function normalizeZoneArtSource(
+	raw: unknown,
+	rig = true,
+	component = false,
+): ZoneArtSource | undefined {
 	if (!isObject(raw)) return undefined;
+	if (raw.kind === 'component' && component) {
+		const id = text(raw.component);
+		const version = raw.version;
+		if (!id || typeof version !== 'number' || !Number.isInteger(version) || version < 1)
+			return undefined;
+		return { kind: 'component', component: id, version };
+	}
 	if (raw.kind === 'sprite') {
 		const region = text(raw.region);
 		return isFrameRef(region) ? { kind: 'sprite', region } : undefined;
@@ -127,7 +156,7 @@ export function normalizeZoneArtSource(raw: unknown, rig = true): ZoneArtSource 
 export function normalizeZoneArtEntry(raw: unknown, key = ''): ZoneArt | undefined {
 	if (!isObject(raw)) return undefined;
 	const rig = zoneArtTakesRig(key);
-	const source = normalizeZoneArtSource(raw.source, rig);
+	const source = normalizeZoneArtSource(raw.source, rig, rig);
 	const placement = ZONE_ART_PLACEMENTS.find((p) => p === raw.placement);
 	if (!source || !placement) return undefined;
 	const art: ZoneArt = { source, placement };
@@ -137,7 +166,7 @@ export function normalizeZoneArtEntry(raw: unknown, key = ''): ZoneArt | undefin
 				.filter((v): v is ZoneArtSource => v !== undefined)
 				.slice(0, ZONE_ART_LIMITS.variants)
 		: [];
-	if (variants.length) art.variants = variants;
+	if (variants.length && source.kind !== 'component') art.variants = variants;
 	const scale = num(raw.scale);
 	const { min, max } = ZONE_ART_LIMITS.scale;
 	if (scale !== undefined && scale !== 1 && scale >= min && scale <= max) art.scale = scale;
@@ -211,7 +240,8 @@ export const zoneArtPhaseFor = (zoneId: string, seed: number | string): number =
 export type ZoneStamp = {
 	zone: string;
 	family: string;
-	source: ZoneArtSource;
+	/** Never a component: the game's art places a component itself. */
+	source: Exclude<ZoneArtSource, ZoneArtComponent>;
 	scale: number;
 	x: number;
 	y: number;
@@ -241,6 +271,8 @@ export function zoneArtStamps(
 		const w = zone.w * scale;
 		const h = zone.h * scale;
 		const source = zoneArtSourceFor(art, zone.id, seed);
+		// A component is placed by the game's own art (its prop mount), not stamped.
+		if (source.kind === 'component') continue;
 		stamps.push({
 			zone: zone.id,
 			family,
@@ -319,6 +351,21 @@ export const zoneArtArtNames = (rawDoc: unknown): string[] => [
 	...zoneArtRigRoots(rawDoc),
 ];
 
+/**
+ * The prop components a RAW config's zone art names, by family, at their pinned versions: what the
+ * save compiles into `arcade.online.props` and the ship chain (rule 8) folds into the bundle's
+ * component closure (`runtimeBundle`, `editorArtExport`), though no scene places them.
+ */
+export function zoneArtComponentRoots(
+	rawDoc: unknown,
+): { family: string; component: string; version: number }[] {
+	return Object.entries(zoneArtOf(rawDoc) ?? {}).flatMap(([family, art]) =>
+		art.source.kind === 'component'
+			? [{ family, component: art.source.component, version: art.source.version }]
+			: [],
+	);
+}
+
 /** Whether `map` names a rig anywhere: only then does the runtime load the rig drawing. */
 export const zoneArtNamesRig = (map: ZoneArtMap | undefined): boolean =>
 	sourcesOf(map).some((source) => source.kind === 'rig');
@@ -345,6 +392,16 @@ function rigPictureIssues(raw: unknown): GameConfigIssue[] {
 			...variants.map((v: unknown, i): [string, unknown] => [`variants.${i}`, v]),
 		];
 		for (const [at, picture] of pictures) {
+			if (
+				isObject(picture) &&
+				picture.kind === 'component' &&
+				(at !== 'source' || !zoneArtTakesRig(key))
+			)
+				issues.push({
+					severity: 'warning',
+					path: `arcade.zoneArt.${key.trim()}.${at}`,
+					message: `A component draws a whole zone family, as its only picture: as ${at === 'source' ? 'scenery' : 'a variant'} it is not drawn.`,
+				});
 			if (!isObject(picture) || picture.kind !== 'rig') continue;
 			if (!zoneArtTakesRig(key)) {
 				issues.push({

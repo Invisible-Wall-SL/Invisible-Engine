@@ -29,7 +29,10 @@ upload.
   T1–T6 (probe accuracy, Salmons lab run, arcade boot diet + ladder, river chunks, filters into
   shaders, net client once per frame), each its own session and PR; look-changing items wait for
   the owner (§5). Track status:
-  - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder — started ·
+  - T1 probe accuracy — draft PR #1964 · T2 lab run — draft PR #1965 · T3 boot diet + ladder —
+    merged #1973 (Salmons' boot 9.3 → 4.0 MB, GPU art 34 → 16 MB; the ladder measures arcade),
+    and T3b, Salmons' own loading backdrop in place of the slot background (approved; PR #1981,
+    GPU art → 13 MB) ·
     T6 net client — merged #1970 · T4 river chunks — merged #1972 (pixel-identical; lab: mount 39.7k → 6.4k
     objects, play JS 21 → 4.6 ms a frame; Recent changes 2026-11-27) · T5 filters → shaders — draft PR
     #1989 (no pass per body: lab filter passes 1.8 → 1, the bed's; owner accepted the sharper,
@@ -1388,7 +1391,8 @@ upload.
   biomes; rocks 119.5 × K wide; lips 64K × 24K, three hashed splashes a cell (two more past the
   up-river end), the face at the texture's size × K; bridges drawn from the level's `bridges` in
   placeholder shapes (reflections that shimmer, pillars at the ends and every third tile, decks
-  among the players, slopes; no bridge art ships, and fishermen do not walk them yet). The camera:
+  among the players, slopes; no bridge art ships; a fisherman on one is drawn on its deck since
+  2026-11-26, Recent changes). The camera:
   no dead zone, smoothing 0.1 s, not held in the world, a cell drawn 64 × 32 window px (zoom 2/3 in
   window px, 1/3 on a phone or tablet by the original's test), following the own player's leap as
   well as the waterfalls' lift (owner decision 6). P10.16's band river keeps its grass world.
@@ -2218,9 +2222,8 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 - **Owner: look at the live bear.** The waterline's numbers were judged on the bear sprite and a
   stand-in rig. If `R_Bear`'s body is much narrower than its box the curve will read flatter
   than here; `WADE.reach` and `WADE.sag` are the two to move.
-- **A fisherman on a bridge is drawn at the water's level**, behind the deck: his code look does
-  not take the room's height (`z`). Seen while standing one there; as before this change
-  ([playtest/salmons](../playtest/salmons.md), Known gaps).
+- ~~A fisherman on a bridge is drawn at the water's level~~: resolved 2026-11-26 (Recent
+  changes, "Bridge collisions drawn where they are").
 
 ### Open after the room of 100 by shares (2026-11-21)
 
@@ -2643,6 +2646,490 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-27 — **Prop components: main merged in again (Salmons perf T7, packed places)** (PR
+  #1929; agent `arcade-games`).
+  - **The conflicts.** `online.ts` keeps our bridge inputs before the own-player lookup, with
+    main's `OwnPlayerState`. `IconButton` has both icon sets (`plus`, `archive`, `unarchive`).
+  - **Another player's place.** On a packed device another player's place comes as `px` / `py`
+    with no `x` / `y`.
+    - The bridges' inputs now read it through main's `placeOnWire`, as `recordState` and `placeOf`
+      do. Read raw, its NaN place counted him on every bridge.
+    - The lift and the depth (`easeLift` via `placeOf`, `aloftOf` from the float `z`, `setDepths`)
+      already went through main's decoder.
+    - `check:prop-depth` 32 adds a packed fisherman, decoded as the runtime does: he occupies the
+      deck, fires `stepOn` / `stepOff`, and is drawn lifted and over his cell.
+    - `--bridge-component` now also reads page BB's own probe of him (another device, sent him
+      packed). It passes 8/8 under both netcodes.
+  - **Gates.** `check:room-wire` 10, `check:netcode` 33, `check:prop-shape` 45,
+    `check:salmons-art` 54, `check:salmons-levels` 28, `check:room-levels` 22, `check:room-sim` 43,
+    `check:online-rules` 40, `check:zone-art` 152, `check:component-prop-editor` 59.
+  - **Playtests.** `--bridge-art` 5/5 and `salmons-rejoin-play` 62 PASS, 0 FAIL.
+- 2026-11-27 — **Prop components: main merged in again (Salmons perf T6)** (PR #1929; agent
+  `arcade-games`).
+  - **The conflicts** were docs and `salmons-play.mjs`. Both sides are kept: T6's `--stall` beside
+    `--bridge-component` and `--bridge-art`.
+  - **The bridges' inputs follow T6.** `bridgeOccupancy` → `occupied`, `stepOn` / `stepOff` now
+    run in `applyState`, so they read the newest state once a frame (or once more, early, for an
+    event about the own player), never a stale or a doubled one.
+    - A step on and back off between two frames is no change, so neither trigger fires. The room's
+      `z` is the truth, and what is drawn is the newest state too.
+    - They now run before the own player's reconcile. They used to run after an early return the
+      SDK (`--netcode colyseus`) path takes, which fed them nothing there.
+    - The fisherman's lift (`easeLift`, `aloft`) reads the room's state as it draws each frame:
+      unchanged.
+  - **Gates.** `check:netcode` 31, `check:prop-depth` 31, `check:prop-shape` 45,
+    `check:salmons-art` 54, `check:salmons-levels` 28, `check:room-levels` 22, `check:room-sim` 43,
+    `check:online-rules` 40, `check:zone-art` 152, `check:component-prop-editor` 59. `check:svelte`
+    is at its baseline; lint and prettier are clean.
+  - **Playtests** (arcade build): `--bridge-component` 7/7 (also 7/7 under `--netcode colyseus`),
+    `--bridge-art` 5/5, `--stall` 4/4 and `salmons-rejoin-play` 62 PASS, 0 FAIL.
+- 2026-11-27 — **Prop components: main merged in (Salmons perf T4 and T5)** (PR #1929; agent
+  `arcade-games`). Both sides' intents are kept.
+  - **The river.** T4's ordered chunks and render group, with the bridges' `water` and `behind`
+    pieces drawn where the code bridge's were. Their reflections sway on the river's ticker beside
+    T4's view-stopped clips. The code bridge's leftover deck from main is dropped.
+  - **The spawn layer.** T4's sort-only-on-reorder (`depthOrder.ts`) carries our depth bias:
+    `ProjectedInstance` gets `projection.depth(x, y, seq, depthOf(id))`. The deck cells stand in the
+    same container with a fixed zIndex, which the order check reads, so a fisherman passing one is
+    re-sorted.
+    - `check:prop-depth` 31 adds a fisherman walking under, then onto, the deck, frame by frame: he
+      is always under or over each cell as its depth says, and the layer stays in depth order.
+    - Fixed in the merge: a search for the instance container (`spawnInstancesOf`, and the river's
+      `spawnLayerOf`) went inside a LONE player, whose zIndex `depthOrder` leaves unset. It now
+      stops at an instance `depthOrder` keeps (`hasDepth`).
+  - **T5's body shaders** are untouched. Only the bear wades, and no body the bridge lifts does.
+    `bodies-pixels.mjs` against main: 0 of 44,688,000 px differ.
+  - **The art fingerprints** were recomputed with T4's canonical describe. With every bridge piece
+    taken away, the four rivers hash exactly as main 39f4fea's do (`WITHOUT_BRIDGES`). The bridge
+    pieces are the recorded code bridge's (`check:prop-depth`).
+  - **`river-pixels.mjs`** now publishes the bridges as the runtime does on a checkout that has
+    props. Against main: 52 of 54 stops are pixel-identical. The 2 that differ are the near slope
+    drawn 2 cells as the rule ramps it, where main's code draws 3 (this PR's fix of 2026-11-26).
+  - **Gates.**
+    - `check:salmons-art` 54, `check:prop-depth` 31, `check:prop-shape` 45,
+      `check:salmons-levels` 28, `check:salmons-heights` 24, `check:room-levels` 22,
+      `check:room-sim` 43, `check:online-rules` 40, `check:zone-art` 152,
+      `check:component-prop-editor` 59, `check:desktop-publish-checks` 195/195.
+    - Playtests: `--bridge-component` 7/7, `--bridge-art` 5/5, `salmons-rejoin-play` 58 PASS.
+  - **Runtime bytes.** The `runtime-bytes` manifests are main's, for CI to re-record. Lines,
+    match-3 and card differ from main by this PR's depth-bias channel alone: `SpawnLayer`'s
+    `depthOf`, `isoDepthOrder`'s `bias` and `arcadeArt`'s depths, about +3 B, +36 B and +14 B gzip.
+    With those four files as main's, all three builds are main's bytes exactly. The channel was
+    already on the branch (CI's re-record 8fccab7f8); the merge adds nothing to them.
+- 2026-11-27 — **Prop components: the PR #1929 review fixes** (owner: "1 cap, 2 yes, look approved,
+  fix 3–5 here"; design §7 P8's "As built (review fixes)"; agent `arcade-games`; branch
+  `claude/bold-cannon-3a8unw`). Five commits:
+  1. **The collider is capped** so a room always sends it: 8 solids, lists of 8 ids of 32 letters.
+     The compile, the launcher's `normalizeProp`, the readers and the editor's ＋ Solid all enforce
+     it. The config save refuses props too long to send. The worst-case collider of a family is
+     3,911 characters of 16,384.
+  2. **A device draws the room's version** of the prop (`roomPropDef`), else the seed. It plays the
+     room's props even when only their stamp differs.
+  3. **A pinned root's pinned pieces ship** at their versions (`resolveComponentClosureWithPins`).
+  4. **`<SpawnProps>` follows a rebuilt spawn layer** (`spawnTargetStale`).
+  5. **The prop timelines survive** a later timeline registration: they are registered again on
+     the next room state.
+  - **Gates:**
+    - `check:prop-shape` 45 (2 new in §6).
+    - `check:prop-depth` 28 (2 new: the rebuilt layer, the timelines' survival).
+    - `check:room-levels` 22 (2 new: a capped collider round-trips and is adopted; a device with
+      other props draws the room's version's pieces).
+    - `check:zone-art` 149 (2 new: an oversize collider is refused at save; a pinned piece ships at
+      its version).
+    - `check:component-prop-editor` 52 (2 new: ＋ Solid stops at the cap, and a saved prop past it
+      is refused).
+    - Unchanged: `check:salmons-art` 50, `check:salmons-levels` 28, `check:room-sim` 43,
+      `check:online-rules` 40, `check:save-keeps-unknown-blocks` 170,
+      `check:component-duplicate` 54, `check:desktop-publish-checks` 195/195.
+    - `check:svelte` is at its baseline for engine-layout (290), lines (145) and the launcher (44).
+      Lint and prettier are clean.
+    - Playtests: `salmons-play.mjs --bridge-component` 7/7, `salmons-rejoin-play` 58 PASS, 0 FAIL.
+    - Runtime bytes (five `--out` builds, dbe5ca74e against the fixes): lines, match-3 and card are
+      identical. The arcade main bundle is +667 B gzip and its Salmons art chunk −464 B;
+      arcade3d's are +689 B and −465 B.
+
+- 2026-11-26 — **Prop components P6: the ship chain** (design §6, §7 P6 "As built"; agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). A Salmons project now draws its
+  bridges with its own prop component, and the room plays that component's collider.
+  - **How.** `/config` → Zone art → `bridge#` → **Drawn with: Component** picks a project bridge
+    prop at its latest version ([tools/game-config](../tools/game-config.md)). The save compiles
+    its collider into `arcade.online.props['bridge#']`, stamped. The bundle and the art export
+    ship the pinned def and its pieces. The game resolves the pinned def from the registry and
+    draws the bridges with it (`zonePropOf('bridge#')`), and the room plays the compiled
+    collider. With no component the seed draws and today's rule plays, as before.
+  - **Gates.**
+    - `check:zone-art` 147 (17 new in §13): the source round-trips and is never a variant or
+      scenery; the compile writes the block, stamped; a seed copy compiles to the stamp alone; a
+      stale pin warns and plays the pinned version; a missing component and a pasted orphan
+      collider warn; the props are carried on load, paste and save; the card's list, pin, note
+      and collider text; the closure holds the component, its pieces and the pinned def without
+      its preview.
+    - `check:room-levels` 20: a saved component with a 3-cell near ramp gives P2's ramped
+      fingerprint, and a seed copy keeps today's.
+    - Unchanged: `check:component-links` 71, `check:save-keeps-unknown-blocks` 170,
+      `check:game-config-family` 580, `check:salmons-export` 39, `check:prop-shape` 43,
+      `check:prop-depth` 26, `check:salmons-art` 50, `check:salmons-levels` 28.
+    - `check:svelte` is at its baseline for `apps/launcher-api` (44), `apps/lines` (145) and
+      `packages/engine-layout` (290). Lint is clean.
+  - **Bytes** (five `--out` builds, against the step-1 commit merged with main): lines, match-3
+    and card are identical. Arcade's main bundle is +145 B gzip and arcade3d's +124 B, the other
+    chunks ±1 B.
+  - **Not done.** A real bake and pull of Salmons with a seed copy need R2 and the network, so they
+    were not run here. No playbook plays a project component in the game yet. The `/config` level
+    preview draws no props.
+
+- 2026-11-26 — **Prop components: the prop defs out of the arcade main bundle** (owner: "move it
+  out of the bundle"; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). P5b's
+  +4.3 kB came from `builtinComponents.ts` / `builtinTimelines.ts` importing the prop built-ins.
+  Through them every runtime reached `propComponents.ts` statically, so the bundler put it in the
+  main bundle once the Salmons art used it.
+  - **The library moved.** `BUILTIN_COMPONENTS` / `BUILTIN_TIMELINES` are again what a doc places,
+    which is what a publish bakes and the current-games harness reads. The launcher's library with
+    the props is a new module, `builtinLibrary.ts` (`BUILTIN_LIBRARY_COMPONENTS` /
+    `_TIMELINES`). Each list there is one `@__PURE__` call: a top-level array spread was kept in
+    the main bundle, which was measured. The library is read by `componentStorage.ts`, the
+    component editor's timeline lists, `check:prop-shape`, `check:save-keeps-unknown-blocks` and
+    `test-hold-and-win-template`.
+  - **The publishing moved.** The prop built-ins' registration, the occupancy inputs and the triggers
+    are now in the art's lazy chunk (`salmonsArt/bridgeProps.ts` `showSalmonsBridges`, the kit's
+    `bridges(game, layer, projectTimelines)`). `online.ts` keeps three calls: show, feed, drop.
+  - **Bytes** (five `--out` builds against ec5e632). Lines, match-3 and card are identical.
+    Arcade's main bundle is −3,042 B gzip and its Salmons art chunk +2,861 B. Arcade3d's main
+    bundle is −2,816 B and its art chunk +2,861 B. So a game that loads no Salmons art carries
+    none of it.
+  - **Gates.** `check:prop-depth` 26, `check:prop-shape` 43, `check:salmons-art` 50,
+    `check:salmons-levels` 28 and `check:room-levels` 19. Launcher:
+    `check:save-keeps-unknown-blocks` 170, `check:component-state-machine` 227,
+    `check:component-repeat-segments` 81 and `check:zone-art` 130. `test-hold-and-win-template`
+    OK. `check:svelte` is at its baseline for `apps/lines` (145), `packages/engine-layout` (290)
+    and `apps/launcher-api` (44). Lint is clean. `salmons-play.mjs --bridge-component` 7/7.
+    `salmons-rejoin-play` 58 PASS, 0 FAIL.
+
+- 2026-11-26 — **Prop components P5b: the bridge is the seed prop; the code-drawn bridge is
+  deleted** (design §7 P5, "Built (P5b)"; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`;
+  in review; runtime change, Salmons rooms only).
+  - **Publishing and inputs.** `online.ts` publishes every bridge zone's pieces (`showBridges`) and
+    feeds them from the room's state: `occupied` from `bridgeOccupancy` as the value source
+    `prop.<zone>.occupied`, and `stepOn` / `stepOff` from `occupancySteps`, fired scoped to the
+    zone.
+  - **The river** draws the seed's water and behind pieces (`salmonsArt/propDraw.ts`), and
+    `<SpawnProps>` stands the deck cells among the players. `river.ts` no longer draws a bridge, and
+    `bridge.ts` lost `slopeEnds` and `BRIDGE.slope`.
+  - **A fix to `<SpawnProps>`** (P5a's): it looks for the layer each frame until found. Without
+    that, the decks were not drawn in the browser.
+  - **The art is unchanged**, piece by piece:
+    - with the bridge pieces taken away, the river hashes as at c63f0be;
+    - the water and the pillars are the same rows;
+    - the 6 slopes of a 3-bridge level are drawn at their land cell with relative paths, the same
+      points on screen;
+    - the deck cells moved from the river's layer to `<SpawnProps>`, each the recorded code's.
+  - **Gates:**
+    - `check:prop-depth` 26, re-pointed at the code bridge as recorded at c63f0be.
+    - `check:salmons-art` 44 (re-pinned, plus a "without bridges, as before" check).
+    - `check:salmons-levels` 28 (the slopes are read off the seed). `check:prop-shape` 43.
+    - Unchanged: `check:salmons-heights` 24, `-jump` 37, `-throw` 21, `-course` 21; `check:arcade-motion`
+      18, `-characters` 53, `-platformer` 43, `-slide` 17, `-3d` 33, `-pointer` 22, `-touch` 55;
+      `check:room-bots` 56, `-lobby` 42, `-levels` 19, `-sim` 43, `-size` 20, `-sim-3d` 23;
+      `check:online-rules` 40.
+    - `check:svelte` at its baseline for `apps/lines` (145) and `packages/engine-layout` (290).
+    - Playbooks, in headless Chrome on an arcade build: `salmons-play.mjs --bridge-component` 7/7
+      (new; [playtest/salmons](../playtest/salmons.md)); `salmons-rejoin-play` 58 PASS, 0 FAIL.
+    - Runtime bytes (five `--out` builds, c63f0be against this): slot, match-3 and card are
+      byte-identical. Arcade is +4,336 B gzip: the main bundle +3,473 and the salmons-art chunk
+      +860. Arcade3d is +4,447 B. Deleting the code bridge did not make it smaller. The runtime now
+      carries the seed defs and their timelines (`propComponents.ts`), which P4/P5a kept out of
+      every runtime. They land in the main bundle because `builtinComponents.ts` reaches them
+      statically. Add to that `propDraw.ts` and the publishing in `online.ts`. Moving the prop defs
+      behind the art's dynamic import would put them in the lazy chunk; that is not done here.
+
+- 2026-11-26 — **Prop components P5: started; the mount is held for two decisions** (agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`).
+  - **Built:** `engine-mechanics` `salmonsRules.js` `bridgeOccupancy(game, players)`. It counts,
+    per bridge zone, the carried characters with `z > 0` within the rule's `snap` of the row over
+    the deck or a ramp (design §4). `occupancySteps(before, after)` gives the `stepOn` / `stepOff`
+    zones. `check:prop-shape` §4 checks that along a walk across the bridge, with today's rule and
+    with near 3 / snap ¼, `occupied` equals the rule's own on-deck state at every step, and that on
+    and off fire once each. Not yet wired into `online.ts`.
+  - **Not built, and why:**
+    1. **The `sorted` band has no declarative home.** The deck tiles must be sorted among the
+       players inside the spawn layer. `river.ts` does that imperatively (`among`), and zone-art
+       nodes (`withZoneArtNodes`) draw in one container under the spawn layer, never among the
+       players. A real `<ComponentInstance>` (machine, timelines) there needs either a
+       `<SpawnLayer>` extension for sorted non-character children or an imperative component
+       renderer in the river. That is an `engine-pixi-svelte` / `invisible-components` choice,
+       not this agent's.
+    2. **The swap cannot keep `check:salmons-art`'s fingerprints.** The fingerprint hashes every
+       fill. The seed is rect placeholders: no plank lines, no pillar shading stripe, a rect deck
+       edge instead of a polygon, and one shimmer phase for the bridge instead of one per cell
+       (P4's own note: "close, not equal"). §8 Q6 deletes the code bridge only "once the seed def
+       matches the code look", so the seed's art needs to reach the code look first (or the owner
+       accepts the placeholder look), before any deletion.
+
+- 2026-11-26 — **Prop components: the side-exit switch, off by default** (owner: "add the
+  side-exit switch off by default"; design §3 "As built (P2)" and §8 Q3, now decided; agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). A bridge's collider takes
+  `sideExit` (`engine-layout` `PropCollider`, the launcher's `componentProp.ts`, `propShape.js`
+  compile and `readPropShapes`, and `game-config` `normalizeOnlineProps` with its mirrored
+  `ONLINE_PROP_DEFAULTS`). False is the default and is dropped everywhere, so no game, the seed
+  `bridgeProp` included, changes.
+  - **The rule.** With the switch on, `salmonsGeometry` writes `sideExit: true` on the zone rule.
+    `bridges` then records each step whether the body's last input moves it across the row
+    (`moveY !== 0`), and while it does it does not put the body back on the row. The room's
+    solids, a railing, stop it; with none it walks off and lands at `z` 0 once past `snap`. With
+    the switch off, `bridges` has no input hook and steps as before.
+  - **The device** predicts the railing as an ordinary solid and does not predict the deck (as
+    since P2). The room corrects the rest.
+  - **Bots:** bot fishermen steer diagonally. Over 6,000 steps on seeds 1, 7 and 9, 99% of their
+    deck steps had `moveY !== 0`. With the switch on they drift off ramp sides. If a game turns it
+    on, a threshold such as `|moveY| > |moveX|` would keep them on the row.
+  - **Gates:**
+    - `check:prop-shape` 42, 2 new:
+      - **Off:** a scripted 360-step walk hashes to the trace recorded on the rule before the
+        switch existed (`e1501b99…`), with and without `sideExit: false`. The default compiles,
+        normalizes and reads away, and a non-boolean is refused.
+      - **On:** pushing across the ramp, he steps off and lands with no railing, and is stopped at
+        the rail with one. Let go, he is back on the row, and walking along it he is held.
+    - `check:room-levels` 19: `sideExit: false` keeps the pinned hashes, and on gives a new one.
+    - Unchanged: `check:online-rules` 40, `check:room-sim` 43, `check:room-bots` 56,
+      `check:room-lobby` 42, `check:salmons-levels` 28; launcher
+      `check:save-keeps-unknown-blocks` 169. `check:svelte --only packages/engine-layout` is at
+      its baseline (290).
+    - Runtime bytes: slot, match-3 and card are identical, arcade +54 B gzip, arcade3d +51 B.
+
+- 2026-11-26 — **Prop components P3: one river on both sides**
+  ([arcade-prop-components](../design/arcade-prop-components.md) §3 "One river on both sides", with
+  an "As built (P3)" note; agent `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review;
+  room schema change, so the game server needs the owner's redeploy, per
+  [INFRA](../INFRA.md) "Invisible Game Server", before rooms send props).
+  - **Wire:** `services/game-server` `schema.ts` `roomFields` gains `props: t.string()`.
+    `arcadeRoom.ts` writes it once from `roomLevelState(sim.game, seed, sim.made).props`: the JSON
+    of the props the room's game played. It is written only when the game has props, so rooms of
+    every current game send exactly what they sent before. Props longer than `ROOM_LEVELS_MAX` are
+    not sent.
+  - **Device:** `roomLevelGame` reads `said.props` with the new `engine-mechanics` `propShape.js`
+    `readPropShapes`, the same reading as `game-config` `normalizeOnlineProps` (gated equal). It
+    plays the room's props, or none when the field is unset or unreadable. `differs` names
+    `bridges` when the colliders differ (a `from` stamp alone is not a difference), so the
+    authoring notice reads "different: bridges" with no change to its code. `online.ts` only gains
+    the field's type.
+  - **Older sides:**
+    - A game server older than P3 played no props, so its devices play none and make its level.
+    - A P2 runtime plays its own config's props. It plays on when they match the room's, and
+      otherwise its fingerprint differs and it leaves with its existing message.
+    - A runtime older than P2 makes today's bridges, and in a room with props it is refused by the
+      fingerprint.
+    - A server built at P2 (props played, not sent) would refuse its devices. It was never
+      deployed.
+  - **Bundle:** `propShape.js` wrote `height: SALMONS_MAP.BRIDGE_HEIGHT` in its frozen defaults.
+    Once `onlineGenerators.js` imported the module, that kept the object in the slot runtime (+54
+    B gzip, match-3 and card +136 B). It is the literal 6 now, already pinned to the map's by
+    `check:prop-shape`.
+  - **Gates:**
+    - `check:room-levels` 19, on main's 17 plus 2 here. The props are adopted both ways: a room
+      with props and a device without, the reverse, either with other levels, and a re-pin that
+      names nothing. That is 20 adoptions over four seeds, each to the room's level and hash, with
+      the props it plays the room's. An older server's state plays none. Unreadable or too-long
+      props read as none, and the hash still decides. Live: a ramped room sends `props` over a real
+      Colyseus room and a published device adopts "bridges". The source pins cover the new
+      `arcadeRoom.ts` line and the schema field.
+    - `check:prop-shape` 34 (a device's reading equals the config's, and is itself read again).
+    - Unchanged: `check:salmons-levels` 28, `check:online-rules` 40, `check:room-sim` 43,
+      `check:room-bots` 56, `check:room-lobby` 42, `check:salmons-heights` 24, and the game-server
+      typecheck. `check:svelte --only apps/lines` is at its baseline (145).
+    - `scripts/playtest/salmons-rejoin-play.mjs` ran in headless Chrome on an arcade build: 58
+      PASS, 0 FAIL.
+    - Runtime bytes, five `--out` builds of the merged base before and after: slot, match-3 and
+      card are byte-identical. Arcade is +736 B gzip, arcade3d +631 B.
+
+- 2026-11-26 — **Prop components P2: the rules read the bridge's shape**
+  ([arcade-prop-components](../design/arcade-prop-components.md) §3, with an "As built" note; agent
+  `arcade-games`; branch `claude/bold-cannon-3a8unw`; in review). Builds on P1's
+  `compilePropShape` ([status/component-editor](component-editor.md)). No game has `props` yet,
+  so every room plays and hashes as before.
+  - **Config:** `arcade.online.props: { [zoneFamily]: PropShape }`, normalized by `game-config`
+    `onlineProps.ts` `normalizeOnlineProps`, which drops defaults, bad fields and non-family keys.
+    It is **carried, not normalized** (as `levelsShape.ts`), so the slot, match-3 and card
+    runtimes do not change. The room (`services/game-server` `configSource.ts`) and the device
+    (`apps/lines` `online.ts`) both reach it through `shapedOnlineGame`, which sets
+    `online.props`. Neither call site changed.
+  - **Generator:** `salmonsGeometry(river, props)`, through `ONLINE_GENERATORS[...].geometry(made,
+    game.online.props)` in `generatedOnlineGame` and `levelHash`. A bridge's rule gains
+    `characters`, `ramp: {near, far}` and `snap`, its zone a `height`, and each `solids[k]` becomes
+    a solid zone `bridge<i>Solid<k>` (deck cells, from the zone's corner) for its characters, else
+    the bridge's. `originalBounds` cuts each fisherman water hole from the rule's ramps (near on the
+    `x` side, far on `x + w`), or over the deck alone or not at all by `hole`.
+  - **Rule:** `salmonsRules.js` `bridges` reads `rule.ramp?.near ?? BRIDGE_SLOPE`,
+    `rule.ramp?.far ?? BRIDGE_SLOPE` and `rule.snap ?? 0.5`, and ramps each end over its own
+    length. With no fields the arithmetic is the old one, operation for operation. The device
+    predicts with the same module.
+  - **Left for later phases:** the art still draws 2 and 2 ramps (`salmonsArt/bridge.ts`
+    `slopeEnds`, `BRIDGE.slope`), so a non-default ramp plays right and draws wrong until **P5**.
+    A device whose props are not its room's is refused (never played on another level) until
+    **P3** carries the room's props. The launcher's save does not carry `props` back yet: that is
+    **P6**, with the compile on save. The `/config` level preview (`config/zones.ts`) draws today's
+    bridges. Finding for the owner's Q3: a fisherman within `snap` of the row over a deck or ramp is
+    put back on the row every step, so a side railing stops nothing at today's snap and speed. A
+    post on the row, or a low bridge for bears (Q4), does.
+  - **Gates:** `check:prop-shape` 33 (9 new in §2: the normalizer and its mirror of the lists; no props or a shape of defaults
+    gives the same level; the lift at every eighth of a cell over both ramps and the deck, and past
+    them, equals the old formula to the bit across five row offsets; near 3 / far 2 lifts 23 and 15
+    eighths; holes exact for 2/2, 3/2, deck and none, and on a short bridge the 3-cell near ramp
+    opens a cell more of water; a snap and a height; a post stops a fisherman, a bears-only post
+    does not, a low bridge stops a bear). `check:room-levels` 17 (2 new: the fingerprints pinned
+    from main for seeds 7, 9 and 31337 of the published and live configs, a restated shape and a
+    zone-art-only config hash the same; a ramp change gives a new hash on the room and the device
+    alike, a re-pin with the same collider the same, and a device without the room's props is
+    refused). Unchanged: `check:online-rules` 40, `check:salmons-levels` 19,
+    `check:salmons-heights` 24, `check:room-sim` 43, `check:room-bots` 56,
+    `check:salmons-course` 21, `check:salmons-throw` 21, `check:arcade-touch` 55; launcher
+    `check:game-config-family` 573, `check:salmons-export` 39, `check:zone-art` 96,
+    `check:arcade-rules` 79, `check:save-keeps-unknown-blocks` 169; `family.fixture.ts` passes. A
+    geometry dump (zones and zone rules, five seeds, both configs) is byte-identical to main's.
+    Runtime bytes, five `--out` builds before and after (`check:runtime-bytes` itself fails on
+    this checkout's base, so the manifests were compared with each other): **slot, match-3 and
+    card are byte-identical**. Arcade is +1,002 B gzip in its bundle (the normalizer, the
+    geometry and the rule; other chunks only renamed, ±2 B), and arcade3d +986 B, the same code.
+    An import of `propShape.js` from `game-config` had cost the slot runtime +71 B, and match-3
+    and card +155 B. It is mirrored now (see [status/game-config](game-config.md)).
+    `check:svelte --only apps/lines` at baseline (145).
+
+- 2026-11-26 — **Bridge collisions drawn where they are** (owner: "the collisions on the bridge
+  are wrong; the player seems to collide mainly with the shadows — maybe an offset"; branch
+  `claude/bold-cannon-3a8unw`; in review; runtime change, Salmons rooms only). The collision was
+  right (`salmonsRules` `bridges` and `salmons.js`'s holes agree); the drawing was not:
+  1. **His height was never drawn.** The room puts a fisherman on a deck 6 cells up (`z` 288 world
+     px), but his code look ignored `z`, so he walked on the water-level reflections (the
+     "shadows"), behind a deck drawn 144 px up. Now a non-salmon character's `z` raises its drawn
+     PLACE (`engine-layout` `salmonsArt/bridge.ts` `aloftLift` = `liftOf(cellsOf(z))`: 144 px on
+     a deck, exactly `deckLift`), eased in `online.ts` `easeLift` beside the waterfalls' lift. So
+     whatever draws him (code look, a sheet's rig, a published clip, the placeholder), his line
+     (it starts at his instance's place), his rising text and Flow signals stand on the deck; a
+     salmon in his hands is raised with its holder (`aloftOf` reads the holder's). A salmon keeps
+     drawing its own leap and climb from `z` in its look (aloft 0, as before). The camera follows
+     the height, as the original's (`camSY − lz·HU`); a tap's aim is still read on the ground
+     (`fieldPoint` uses the ground part only), so a cast from the deck lands where tapped.
+  2. **He is sorted over the deck.** A raised place sorts lower (back on both axes), and the deck
+     stands at the original's `sy + 1100`. A new depth bias per instance (`engine-layout`
+     `arcadeArt.svelte.ts` `setDepths` / `depthOf`, read by `<SpawnLayer>` through
+     `isoDepthOrder`'s new `bias` argument, default 0) undoes the raise and adds the original's
+     `sortSY + 10000` for a player on a bridge (`aloftDepth`). Published only while a player is
+     aloft, so no other game or player changes order.
+  3. **The slopes are the rule's.** The art's near slope ran 3 cells (`slope(-3, 0)`, the
+     original's art `gyStart − 3`) while the rule ramps 2 on both ends (the original server's
+     `slopeLen`), so he rose a cell short of the drawn foot. Both slopes now come from
+     `BRIDGE.slope` (2), a deviation from the original's art noted in
+     [reference/salmons-original.md](../reference/salmons-original.md) §9.6. `engine-layout` does
+     not depend on `engine-mechanics`, so the gate holds `BRIDGE.slope` = `BRIDGE_SLOPE` and
+     `BRIDGE.height` = the map's `BRIDGE_HEIGHT`.
+  - **Proof.** `check:salmons-levels` 19 (one new: a room's fisherman walked across level 1's
+    second bridge; at every step his drawn height equals the art's deck and slopes, he sorts over
+    every deck tile, a salmon under it stays under, a salmon's `z` raises nothing). Unchanged:
+    `check:online-rules` 40, `check:salmons-heights` 24, `check:salmons-art` 39,
+    `check:salmons-jump` 37, `check:salmons-throw` 21, `check:salmons-course` 21, the arcade and
+    room gates; `check:svelte` at baseline for `engine-layout` and `apps/lines`. Bundle: slot
+    first visit +31 B gzip, arcade online boot +190 B; the lazy art chunk +0.1 KB.
+  - **Not seen in a browser** (no browser in the session): play a fisherman across a bridge on
+    the original's level ([playtest/salmons](../playtest/salmons.md)); the probe's `drawn` carries
+    `aloft` (144 on a deck) and `depth` for him. Left: the own device still predicts neither the
+    deck's row nor its height (a short correction onto it); a salmon thrown from the deck starts
+    its arc from the water's level as its lift eases down.
+
+- 2026-11-27 — **Performance T3b: Salmons' own loading backdrop, no slot background** (owner:
+  "yes, give Salmons its own loading background"; [salmons-performance](../design/salmons-performance.md)
+  §5; branch `claude/salmons-perf-t3b-loading`, on T3; in review). No config, layout or flow change.
+  - **What a player sees.** The loading / tap-to-start screen is deep water darkening downwards,
+    the original's pink salmon bobbing over it and a few bubbles rising, the loading phrase and
+    "PRESS ANYWHERE TO CONTINUE" over it as before, in portrait and landscape
+    ([before / after](../playtest/salmons-loading/)). It is drawn in code from the character
+    sheet the game already loads (`salmonsArt/screens.ts` `createBackdrop`, published under
+    `engine-layout` `BACKDROP_ART`), so it costs no download and no texture; until the room's art is in the screen
+    is the backdrop's deepest water.
+  - **How.** `Game.svelte` mounts `ArcadeBackdrop.svelte` (arcade seam) where the coded slot
+    `<Background>` stood, for a play field whose rooms have art (`usesSalmonsArt`). The coded
+    `Background` anchor every published Salmons layout has draws it, so **no owner re-upload or
+    publish**: it reaches the game with the runtime release. While the field is played only its
+    plain water is drawn (the world covers the screen; looked at in portrait and landscape). The
+    stock-asset walk takes `ownBackdrop`: Salmons no longer reaches `foregroundAnimation` (mm_bg).
+    Every other game, the arcade sample included (no room art), mounts the coded background as
+    before. A standalone build's prune (`stockAssetBuild.ts`) does not take `ownBackdrop` and keeps
+    mm_bg's files, as it keeps every boardless saving: the online runtime is where it lands.
+  - **Measured** (`arcade-boot-probe.mjs`, phone page, same as T3): transfer 3.99 → 3.90 MB
+    (the 0.09 MB of `mm_bg` rig and atlas), loaded GPU art 15.9 → 13.0 MB (main: 34.2 MB),
+    20 files.
+  - **Gates:** `stockAssets.fixture.ts` 12 (Salmons drawing its own backdrop keeps no coded
+    background; a bone-placed effect still keeps its host rig; a free-spin switch brings back no
+    feature background), `check:all --only stock,salmons,room-lobby,arcade,zone-art` 29 / 29,
+    svelte-check at baseline (`apps/lines` 145, `engine-layout` 290). Played:
+    `salmons-levels-play.mjs` 59 / 59 (two new verdicts: the backdrop drawn while the room waits,
+    not drawn in play), `salmons-play.mjs` 103 / 103.
+
+- 2026-11-27 — **Performance T3: an arcade boot loads no slot art or audio, and the quality ladder
+  measures arcade play** ([salmons-performance](../design/salmons-performance.md) T3; branch
+  `claude/salmons-perf-t3-boot`; in review). No config, layout, flow or look change.
+  - **Boardless reach.** The stock-asset walk (`game/stockAssets.ts`) and the stock-sound plan
+    (`game/stockSounds.ts`) take `boardless` (a play field or a card table, `GameMechanic.playField`
+    / `cardTable`; set at boot by `stockAssetBoot.ts` and `EnableSound.svelte`). Such a game walks
+    only its own doc's scenes (the slot fallbacks, the win, buy screens, book and counter, come back
+    only when a flow fires a free-spin switch), has no board mounts (`BoardFrame`, win frame,
+    anticipation) and no symbol rule, keeps the feature background only on a free-spin switch, and
+    keeps `ALWAYS_KEPT` less `goldFont` (`BOARDLESS_ALWAYS_KEPT`). Its code plays only the presses
+    (`stockSoundRules.ts`: every coded row says `boardless: true | false`, held by
+    `check-stock-sound-coverage.mjs`), and its slots only `baseMusic`, when no flow
+    drives its screens (`Sound.svelte`'s boot autoplay). Everything the data names still loads;
+    every doubt still loads everything. A standalone build's plan (`stockAssetBuild.ts`,
+    `stockSoundBuild.ts`) is unchanged, a superset of what the boot loads.
+  - **The coded slot background stays.** Salmons' loading / tap-to-start screen IS the slot
+    sample's purple mine (`foregroundAnimation`, the arcade reference's `background` scene holds
+    only the coded anchor). Removing it changes the look: an owner decision (give the arcade
+    reference its own loading background; then `mm_bg`, 2.9 MB of GPU, goes too).
+  - **The ladder measures arcade.** `game/playFieldPhase.ts`: the 2D arcade runtime notes each
+    frame whether the field is played (online: the room `running`; offline: a body on the field,
+    `ArcadeLoop.bodyCount`), and `Game.svelte` makes that `measuring` and its absence `quiet` for a
+    play-field mechanic. Not the 3D stage: its canvas walks its own ladder (`engine-3d`
+    `createQuality3d`) and the Pixi HUD over it keeps its resolution (review, 2026-11-27). The ladder's steps are unchanged; a switch still lands only in a quiet moment, so in a
+    long round it waits for the next menu or the time between rounds.
+  - **Measured** (`scripts/playtest/arcade-boot-probe.mjs`, new: Salmons' exported config, its
+    data naming no stock sound as a publish ships it, a 390 × 844 phone page at device scale 3 in
+    the headless shell, two runs each, arcade build of main vs the branch): transfer 9.34 → 3.99 MB
+    (54 → 22 files; stock rigs 2.04 → 0.09 MB, stock audio 3.39 → 0.02 MB: 16 banks → `buttons`,
+    `sfx_btn_stop`); GPU textures 41.7 → 23.3–24.1 MB (loaded art 34.2 → 15.9 MB: `reelsFrame`,
+    `mm_bg_feature`, `symbols3`, `SD2_Coin`, `reelhouse_glow`, `transition`, `anticipation`,
+    `symbols`, `big_wins`, `symbolsStatic`, `mm_gold` gone); `bootMs` 6460 / 5802 → 4977 / 4275;
+    `firstFrameMs` 2887 / 2790 → 3298 / 2881 (unchanged: before the stock assets). The stock-asset
+    line went from 25 skipped keys to 36. The loading screen and the river look the same in the
+    frame series. Slow run (`--dpr 1 --round 20 --play 120`, ~10 fps here): main's ladder history
+    stays empty; the branch steps down between rounds (2 → level 1 at 44.9 s), and its trial
+    reverts on "no gain" (this machine is not pixel-bound). Merged with main (#1960's second
+    chance): 0 → 1 at 44.7 s, 1 → 2 at 94.2 s, 2 → 1 on "no gain" at 119.2 s, no BindGroup warning.
+  - **A bug it exposed, fixed** (`pixi-svelte` `AssetsLoader.svelte`): the card sample's only
+    stock assets are now preloads, so nothing was left to load after them, no `await` came before
+    the GPU warm-up, and the state its warm-ups read (the flow's shown screens) re-ran the load
+    effect mid-load: the warm-up ran twice, `cardDeckPick` was mounted ahead twice, and Svelte threw
+    `each_key_duplicate`. The warm-up and the `loaded` flag now run untracked (`finishLoad`), as they
+    always did after an `await`. Main ran it once; the branch twice before the fix, once after.
+  - **A second bug it exposed, fixed** (`pixi-svelte` `renderQuality.ts` `backBufferMsaaOf`):
+    once the ladder steps on an arcade game, its MSAA switch destroyed the back buffer's texture
+    while the present's shader still sampled it as `uTexture` (Pixi's `_presentBackBuffer` leaves
+    it bound until the next present), and Pixi warned "[BindGroup] a 'textureSource' was destroyed
+    while still bound". The switch now retires the texture and destroys it on a later tick, once the
+    present no longer samples it, and destroys the rest on release. Guards:
+    `renderQuality.fixture.ts` (a switch never destroys a bound texture) and
+    `pixi-back-buffer.fixture.mjs` claim 8 (the present binds it so).
+  - **Gates:** `stockAssets.fixture.ts` 12 (new: a boardless game — Salmons, the arcade and card
+    samples keep `foregroundAnimation`, `pressToContinueText`, `progressBar`, `sound`; a transition
+    cue, a free-spin switch, a `gold` text, a placed `Win`, a named symbol rig, a bone effect, an
+    authored background each move exactly their keys; doubt keeps all; every board kind's scene set
+    leaves out exactly what it did on main), `stockSounds.fixture.ts` 18 → 21 (claim 7 and three
+    mutants), every `check:all --only stock,arcade,card,renderQuality,perf` gate, svelte-check at
+    baseline (`apps/lines` 145, `pixi-svelte` 14).
+  - **Bundles** (`check:runtime-bytes`, re-recorded on Linux, all five intended: the boot code is
+    shared; on main after #1972, with the MSAA fix): lines +412 B gzip, match-3 +401 B, card +388 B,
+    arcade +545 B, arcade3d +487 B — the main bundle each; every other chunk only renamed. Not 0 B for the 2D slot,
+    match-3 and card runtimes: the ladder reads its gate once, when the renderer is made, so the
+    gate is in `Game.svelte`, and the walk's branch is in the shared boot.
+  - **Played:** `salmons-play.mjs` 103 / 103, `match3-play.mjs` (all verdicts), `card-play.mjs`
+    (2 / 2 runs; failed on `each_key_duplicate` before the loader fix, passes on main).
+
 - 2026-11-27 — **Performance T7: everyone else's place in 16 bits, Salmons at 15 states a second**
   (owner: "go ahead with 16-bit positions and patchHz 15"; plan
   [design/salmons-performance](../design/salmons-performance.md) §5; branch
@@ -2947,6 +3434,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   dependency), `salmonsRiver.ts` marks stretches. `/editor`: `EditorLevelGenerator.svelte`,
   `EditorLevelBiomes.svelte`, `LevelParamField.svelte`; `IconButton` gains `up` / `down`. Gates
   as in Current state; `scripts/salmons/art-fingerprint.mjs` new.
+
 - 2026-11-26 — **Browser check of the published link** (cloud deploy session): start menu, joins
   as all three classes, bot catches, the win and the room's lock all seen live; a person's own
   catch and respawn not reached before a bot won (Current state, "Live check").

@@ -1,14 +1,19 @@
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
+import { BRIDGE_PROP_DEF } from '../propComponents';
+import type { PropZone } from '../propPieces';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import type { CinematicDoc, ComponentDef } from '../types';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
 import { warmBodyShaders } from './bodyShaders';
+import { aloftDepth, aloftLift } from './bridge';
 import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, type RiverArt } from './river';
+import { showSalmonsBridges, type BridgeGame, type SalmonsBridges } from './bridgeProps';
 import {
 	createSalmonsScreens,
 	type CaughtShown,
@@ -52,6 +57,8 @@ export type {
 };
 export { BLOOD };
 export { chooseSalmonsStart, type SalmonsStartHost, type StartChoice } from './startMenu';
+export { placeSalmonsProp, type PlacedPiece } from './propPlacement';
+export type { BridgePlayer, SalmonsBridges } from './bridgeProps';
 
 /** How long a cast's line wiggles, ms, and its look (the old client's fishing line). */
 const CAST_MS = 450;
@@ -78,6 +85,13 @@ export type SalmonsArt = {
 	/** How far the ground at a world place is drawn raised by the waterfalls below it, screen px:
 	 *  a character there is drawn as high (`referenceLayouts/salmonsElevation.ts`). */
 	ground: (x: number, y: number) => number;
+	/** How far over that ground a character the room has put `zPx` high (world px) is drawn, screen
+	 *  px, by its place (a fisherman on a bridge's deck); 0 for a salmon, whose look draws its own
+	 *  height (`bridge.ts` `aloftLift`). */
+	aloft: (character: string, zPx: number) => number;
+	/** The depth bias of a body drawn `lift` up by {@link aloft}: over the deck it stands on
+	 *  (`bridge.ts` `aloftDepth`). */
+	aloftDepth: (lift: number) => number;
 	/** This frame's bloodstains (the room's `stains`), and the trail's fade, at `nowMs`. */
 	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
@@ -85,6 +99,17 @@ export type SalmonsArt = {
 	/** The screens drawn in code (the win animation, the death screen, the lobby's note, the
 	 *  loading phrases), their buttons acting through `host`. */
 	screens: (host: SalmonsScreenHost) => SalmonsScreens;
+	/** Publish the room's bridges (`bridge<i>` zones of `game`) for spawn layer `layer`, drawn by
+	 *  `def` (the room's prop component, `roomPropDef`), else the seed `bridgeProp`, on the river's
+	 *  raised ground, before the river is drawn. The prop built-ins are registered once a page; their
+	 *  timelines whenever a registration has dropped them, after the engine's and before the
+	 *  project's as `projectTimelines()` gives them then. */
+	bridges: (
+		game: BridgeGame & { zones: readonly PropZone[] },
+		layer: string,
+		projectTimelines: () => readonly CinematicDoc[],
+		def?: ComponentDef,
+	) => SalmonsBridges;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
 	/** How many rivers are drawn now, whether the last one drawn is destroyed, and how many of its
@@ -168,6 +193,8 @@ export async function loadSalmonsArt(
 		floats: floats.frame,
 		floating: floats.drawn,
 		ground: (_x, y) => elevation.at(y),
+		aloft: aloftLift,
+		aloftDepth,
 		stains: blood.frame,
 		line: (sinceCastMs, nowMs, fromDx) => {
 			const k = Math.min(1, Math.max(0, sinceCastMs / CAST_MS));
@@ -182,6 +209,8 @@ export async function loadSalmonsArt(
 				{ golden: textures.region('salmon_golden'), pink: textures.region('salmon_pink') },
 				host,
 			),
+		bridges: (game, layer, projectTimelines, def = BRIDGE_PROP_DEF) =>
+			showSalmonsBridges(def, game, layer, (y) => elevation.at(y), projectTimelines),
 		regions: () => drawn?.regions() ?? {},
 		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,

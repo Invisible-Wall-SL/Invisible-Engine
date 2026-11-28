@@ -1,5 +1,5 @@
 import {
-	BUILTIN_COMPONENTS,
+	RUNTIME_BUILTIN_COMPONENTS,
 	clearComponentDefaults,
 	clearComponents,
 	getComponentDefaults,
@@ -173,7 +173,8 @@ export function stockAssetBuildPlan(bundle: unknown): StockAssetBuildPlan {
 			data: stockAssetDataOf(source),
 			fallbackDoc: fallbackEditorScenes,
 			resolveDef: (id, version): ComponentDef | undefined =>
-				resolveComponent(id, version).def ?? BUILTIN_COMPONENTS.find((def) => def.id === id),
+				resolveComponent(id, version).def ??
+				RUNTIME_BUILTIN_COMPONENTS.find((def) => def.id === id),
 			componentDefaults: getComponentDefaults,
 			isBoundPart: (name) => name in PART_NEEDS,
 			config: gameConfig.getActiveGameConfig(),

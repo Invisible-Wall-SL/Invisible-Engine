@@ -1,5 +1,7 @@
 /** Types for Salmons as data (`salmons.js`, P10.16). Pinned by `scripts/check-room-bots.mjs`. */
 
+import type { PropShape } from './propShape';
+
 export type SalmonsBand = { y: number; h: number; left: number; right: number; current: number };
 export type SalmonsWhirlpool = { x: number; y: number; r: number; spin: -1 | 1 };
 export type SalmonsRect = { x: number; y: number; w: number; h: number };
@@ -48,11 +50,11 @@ export function salmonsRiver(seed?: string | number): SalmonsRiver;
 /** What of the game a river decides, as `onlineGenerators.js` swaps it into a room's game. */
 export type SalmonsGeometry = {
 	field: { w: number; h: number };
-	zones: { id: string; x: number; y: number; w: number; h: number }[];
+	zones: { id: string; x: number; y: number; w: number; h: number; height?: number }[];
 	zoneRules: {
 		zone: string;
 		force?: { x: number; y: number };
-		solid?: true | 'below';
+		solid?: true | 'below' | 'above' | 'left' | 'right';
 		kind?: string;
 		goal?: boolean;
 		characters?: string[];
@@ -65,13 +67,21 @@ export type SalmonsGeometry = {
 		cell?: number;
 		/** A waterfall passed only while a salmon is as high as it (an original level's). */
 		aloft?: boolean;
+		/** A bridge's ramps, cells, at its `x` end and its `x + w` end (a prop's; absent ⇒ 2 and 2). */
+		ramp?: { near: number; far: number };
+		/** How near a bridge's deck row a body is put on it, cells (a prop's; absent ⇒ ½). */
+		snap?: number;
+		/** A body moving across a bridge's row is not held on it (a prop's; absent ⇒ held). */
+		sideExit?: boolean;
 	}[];
 	spawn: { x: number; y: number };
 	/** By online character id. */
 	spawns: Record<string, { x: number; y: number }[]>;
 	botSpawns: { x: number; y: number }[];
 };
-export function salmonsGeometry(river: SalmonsRiver): SalmonsGeometry;
+/** The prop colliders a generated level plays (`arcade.online.props`), by zone family. */
+export type SalmonsProps = Readonly<Record<string, PropShape>>;
+export function salmonsGeometry(river: SalmonsRiver, props?: SalmonsProps): SalmonsGeometry;
 /** The original's whirlpool pull on its own levels: within `radius` px,
  *  `strength · (d / unit) · (1 − d / radius)` px/s towards the centre. */
 export const WHIRLPOOL_PULL: Readonly<{ radius: number; strength: number; unit: number }>;
