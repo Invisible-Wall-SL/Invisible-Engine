@@ -64,7 +64,7 @@
 		"./scenes/*": "./scenes/*"
 	},
 	"devDependencies": {
-		"@sveltejs/package": "3.0.2",
+		"@sveltejs/package": "3.0.3",
 		"@sveltejs/vite-plugin-svelte": "5.1.1",
 		"esbuild": "0.28.2",
 		"config-svelte": "workspace:*",
@@ -87,7 +87,7 @@
 		"game-config": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.23.0",
-		"svelte": "5.57.3",
+		"svelte": "5.58.0",
 		"utils-event-emitter": "workspace:*",
 		"utils-layout": "workspace:*",
 		"vite": "6.4.6"

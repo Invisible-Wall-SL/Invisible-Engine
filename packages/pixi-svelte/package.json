@@ -19,7 +19,7 @@
 		"lint": "eslint *.ts*"
 	},
 	"devDependencies": {
-		"@sveltejs/package": "3.0.2",
+		"@sveltejs/package": "3.0.3",
 		"@sveltejs/vite-plugin-svelte": "5.1.1",
 		"config-lingui": "workspace:*",
 		"config-svelte": "workspace:*",
@@ -41,7 +41,7 @@
 		"engine-fx": "workspace:*",
 		"pixi-filters": "6.1.5",
 		"pixi.js": "8.23.0",
-		"svelte": "5.57.3",
+		"svelte": "5.58.0",
 		"utils-event-emitter": "workspace:*",
 		"vite": "6.4.6",
 		"webfontloader": "1.6.28"

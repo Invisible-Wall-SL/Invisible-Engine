@@ -15,7 +15,7 @@
 		"config-svelte": "workspace:*"
 	},
 	"dependencies": {
-		"svelte": "5.57.3",
+		"svelte": "5.58.0",
 		"vite": "6.4.6",
 		"@sveltejs/kit": "2.70.4"
 	}

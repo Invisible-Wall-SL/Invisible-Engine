@@ -12,8 +12,8 @@
 		"typecheck": "tsc --noEmit -p tsconfig.json"
 	},
 	"dependencies": {
-		"@colyseus/core": "0.18.28",
-		"@colyseus/schema": "5.0.48",
+		"@colyseus/core": "0.18.29",
+		"@colyseus/schema": "5.0.50",
 		"@colyseus/ws-transport": "0.18.5",
 		"engine-mechanics": "workspace:*",
 		"game-config": "workspace:*"
